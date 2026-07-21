@@ -4,6 +4,26 @@ import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import styles from "./styles.module.css";
 
+// Mirrors _field_initials()/set_release_did() in schema.sql exactly, minus
+// the sequence suffix (that part is DB-only, by design — see comment at
+// the call site). Keep this in sync if the SQL rule ever changes.
+function fieldInitials(field) {
+  const words = (field || "").trim().split(/\s+/).filter(Boolean);
+  const letterFor = (w) => {
+    if (!w) return "#";
+    if (w.includes("-")) return "#";
+    return w[0].toUpperCase();
+  };
+  return letterFor(words[0]) + letterFor(words[1]);
+}
+
+function didPreview(title, mainArtist, releaseDate) {
+  const titleInit = fieldInitials(title);
+  const artistInit = fieldInitials(mainArtist);
+  const datePart = releaseDate ? releaseDate.split("-").reverse().join("") : "--------"; // input value is YYYY-MM-DD → DDMMYYYY
+  return `${titleInit}${artistInit}-${datePart}-####`;
+}
+
 const EMPTY_FORM = {
   project_type: "",
   label: "",
@@ -24,6 +44,7 @@ export default function NewReleasePage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [projectTypes, setProjectTypes] = useState([]);
   const [genres, setGenres] = useState([]);
+  const [artists, setArtists] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [createdDid, setCreatedDid] = useState(null);
@@ -47,27 +68,37 @@ export default function NewReleasePage() {
         setProjectTypes((data || []).filter((r) => r.category === "project_type"));
         setGenres((data || []).filter((r) => r.category === "genre"));
       });
+
+    supabase
+      .from("artists")
+      .select("stage_name, labels(label_name)")
+      .order("stage_name")
+      .then(({ data }) => setArtists(data || []));
   }, []);
 
   function update(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
     if (key === "label") setLabelTouched(true);
+    if (createdDid) {
+      // A previous success is still showing — clear it as soon as the
+      // user starts on a new entry, so the old DID/banner don't linger
+      // and make it look like nothing happened on the next submit.
+      setCreatedDid(null);
+    }
   }
 
-  // Autofill: on leaving Main Artist, look it up in the Artist List
-  // reference table — if found and Label hasn't been manually edited yet,
+  // Autofill: on leaving Main Artist, look it up in the already-loaded
+  // Artist List — if found and Label hasn't been manually edited yet,
   // suggest its Label. Never overwrites a manual edit (matches v1's
   // masterData_service.js behavior).
-  async function handleArtistBlur() {
-    if (!supabase || !form.main_artist.trim() || labelTouched) return;
-    const { data } = await supabase
-      .from("artists")
-      .select("stage_name, labels(label_name)")
-      .ilike("stage_name", form.main_artist.trim())
-      .maybeSingle();
-    if (data?.labels?.label_name) {
-      setForm((f) => ({ ...f, label: data.labels.label_name }));
-      setAutofillNote(`Label auto-filled from Artist List ("${data.stage_name}").`);
+  function handleArtistBlur() {
+    if (!form.main_artist.trim() || labelTouched) return;
+    const match = artists.find(
+      (a) => a.stage_name.toLowerCase() === form.main_artist.trim().toLowerCase()
+    );
+    if (match?.labels?.label_name) {
+      setForm((f) => ({ ...f, label: match.labels.label_name }));
+      setAutofillNote(`Label auto-filled from Artist List ("${match.stage_name}").`);
     }
   }
 
@@ -126,6 +157,13 @@ export default function NewReleasePage() {
           <div className={styles.didLabel}>// Release ID (DID)</div>
           {createdDid ? (
             <div className={styles.didValue}>{createdDid}</div>
+          ) : form.title.trim() || form.main_artist.trim() ? (
+            <>
+              <div className={styles.didValue}>{didPreview(form.title, form.main_artist, form.release_date)}</div>
+              <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>
+                Preview — the final 4 digits are assigned by the database on creation, to guarantee no collisions
+              </div>
+            </>
           ) : (
             <div className={styles.didPlaceholder}>---- ---- ----</div>
           )}
@@ -171,7 +209,7 @@ export default function NewReleasePage() {
               />
             </div>
 
-            <div className={styles.field}>
+            <div className={`${styles.field} ${styles.fieldFull}`}>
               <label className={styles.fieldLabel}>
                 Tên bài hát / EP / Album <span className={styles.required}>*</span>
               </label>
@@ -187,22 +225,22 @@ export default function NewReleasePage() {
               <label className={styles.fieldLabel}>
                 Main Artist <span className={styles.required}>*</span>
               </label>
-              <input
-                className={styles.input}
-                placeholder="Tên nghệ sĩ chính"
+              <ArtistInput
                 value={form.main_artist}
-                onChange={(e) => update("main_artist", e.target.value)}
+                onChange={(v) => update("main_artist", v)}
                 onBlur={handleArtistBlur}
+                artists={artists}
+                placeholder="Tên nghệ sĩ chính"
               />
             </div>
 
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Feature Artist</label>
-              <input
-                className={styles.input}
-                placeholder="Tên nghệ sĩ feat (nếu có)"
+              <ArtistInput
                 value={form.feature_artist}
-                onChange={(e) => update("feature_artist", e.target.value)}
+                onChange={(v) => update("feature_artist", v)}
+                artists={artists}
+                placeholder="Tên nghệ sĩ feat (nếu có)"
               />
             </div>
 
@@ -220,6 +258,16 @@ export default function NewReleasePage() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className={styles.field}>
+              <label className={styles.fieldLabel}>Chủ đề</label>
+              <input
+                className={styles.input}
+                placeholder="VD: Tình yêu, Tình yêu tan vỡ"
+                value={form.theme}
+                onChange={(e) => update("theme", e.target.value)}
+              />
             </div>
 
             <div className={styles.field}>
@@ -241,16 +289,6 @@ export default function NewReleasePage() {
                 className={styles.input}
                 value={form.release_time}
                 onChange={(e) => update("release_time", e.target.value)}
-              />
-            </div>
-
-            <div className={`${styles.field} ${styles.fieldFull}`}>
-              <label className={styles.fieldLabel}>Chủ đề</label>
-              <input
-                className={styles.input}
-                placeholder="VD: Tình yêu, Tình yêu tan vỡ"
-                value={form.theme}
-                onChange={(e) => update("theme", e.target.value)}
               />
             </div>
 
@@ -317,6 +355,77 @@ export default function NewReleasePage() {
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+// Lightweight autocomplete referencing the Artist List reference table —
+// typed value stays free text (main_artist/feature_artist are text columns,
+// not FKs), this just suggests matches as you type rather than forcing a
+// hard reference, since not every artist has been entered yet.
+function ArtistInput({ value, onChange, onBlur, artists, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const matches =
+    value.trim().length > 0
+      ? artists.filter((a) => a.stage_name.toLowerCase().includes(value.trim().toLowerCase())).slice(0, 8)
+      : [];
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        className={styles.input}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => {
+          // slight delay so a click on a suggestion registers before the list closes
+          setTimeout(() => setOpen(false), 150);
+          onBlur?.();
+        }}
+      />
+      {open && matches.length > 0 && (
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            right: 0,
+            zIndex: 10,
+            background: "#1a1a1a",
+            border: "1px solid #333",
+            borderRadius: 6,
+            marginTop: 4,
+            maxHeight: 200,
+            overflowY: "auto",
+          }}
+        >
+          {matches.map((a) => (
+            <div
+              key={a.stage_name}
+              onClick={() => {
+                onChange(a.stage_name);
+                setOpen(false);
+              }}
+              style={{
+                padding: "8px 12px",
+                fontSize: 13,
+                cursor: "pointer",
+                borderBottom: "1px solid #262626",
+              }}
+              onMouseDown={(e) => e.preventDefault()} // keep input focus so onClick fires before onBlur closes the list
+            >
+              {a.stage_name}
+              {a.labels?.label_name && (
+                <span style={{ color: "#666", marginLeft: 8 }}>— {a.labels.label_name}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
