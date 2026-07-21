@@ -1,5 +1,11 @@
 import { supabase } from "../lib/supabaseClient";
 
+// Without this, Next.js may cache this page's Supabase query result at
+// build time and keep serving a stale error snapshot even after the
+// underlying database permissions are fixed — force it to run fresh on
+// every request instead.
+export const dynamic = "force-dynamic";
+
 export default async function Home() {
   const envOk = Boolean(
     process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
