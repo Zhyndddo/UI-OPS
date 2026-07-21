@@ -31,6 +31,7 @@ const EMPTY_FORM = {
   main_artist: "",
   feature_artist: "",
   genre: "",
+  requester_segment: "",
   release_date: "",
   release_time: "19:00",
   theme: "",
@@ -44,6 +45,7 @@ export default function NewReleasePage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [projectTypes, setProjectTypes] = useState([]);
   const [genres, setGenres] = useState([]);
+  const [channels, setChannels] = useState([]);
   const [artists, setArtists] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -58,7 +60,7 @@ export default function NewReleasePage() {
       .from("lookup_options")
       .select("category, value, label")
       .eq("active", true)
-      .in("category", ["project_type", "genre"])
+      .in("category", ["project_type", "genre", "channel"])
       .order("sort_order")
       .then(({ data, error: fetchError }) => {
         if (fetchError) {
@@ -67,6 +69,7 @@ export default function NewReleasePage() {
         }
         setProjectTypes((data || []).filter((r) => r.category === "project_type"));
         setGenres((data || []).filter((r) => r.category === "genre"));
+        setChannels((data || []).filter((r) => r.category === "channel"));
       });
 
     supabase
@@ -122,6 +125,7 @@ export default function NewReleasePage() {
       label: form.label || null,
       feature_artist: form.feature_artist || null,
       genre: form.genre || null,
+      requester_segment: form.requester_segment || null,
       theme: form.theme || null,
       drive_link: form.drive_link || null,
       brief: form.brief || null,
@@ -207,6 +211,22 @@ export default function NewReleasePage() {
                 value={form.label}
                 onChange={(e) => update("label", e.target.value)}
               />
+            </div>
+
+            <div className={styles.field}>
+              <label className={styles.fieldLabel}>Channel</label>
+              <select
+                className={styles.select}
+                value={form.requester_segment}
+                onChange={(e) => update("requester_segment", e.target.value)}
+              >
+                <option value="">— Chọn —</option>
+                {channels.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label || opt.value}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className={`${styles.field} ${styles.fieldFull}`}>

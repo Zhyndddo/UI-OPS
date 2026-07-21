@@ -227,6 +227,9 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         <Field label="Link LBM (locked — edit from URL tab or Ticket)">
           <input className={styles.input} value={form.link_lbm || ""} disabled />
         </Field>
+        <Field label="Channel (Social Booking)">
+          <input className={styles.input} value={form.requester_segment || ""} onChange={(e) => update("requester_segment", e.target.value)} placeholder="VIEENT / ENVI / ALL" />
+        </Field>
         <Field label="Loại Dự Án (Promotion Package — exclusivity type)">
           <input className={styles.input} value={form.project_type || ""} onChange={(e) => update("project_type", e.target.value)} />
         </Field>
