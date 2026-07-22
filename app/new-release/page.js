@@ -107,8 +107,8 @@ export default function NewReleasePage() {
     setError(null);
     setCreatedDid(null);
 
-    if (!form.title.trim() || !form.main_artist.trim() || !form.release_date) {
-      setError("Tên bài hát, Main Artist, and Ngày phát hành are required.");
+    if (!form.title.trim() || !form.main_artist.trim() || !form.release_date || !form.label.trim()) {
+      setError("Hãng Đĩa, Tên bài hát, Main Artist, and Ngày phát hành are required.");
       return;
     }
     if (!supabase) {
@@ -119,7 +119,6 @@ export default function NewReleasePage() {
     setSubmitting(true);
     const payload = {
       ...form,
-      label: form.label || null,
       feature_artist: form.feature_artist || null,
       genre: form.genre || null,
       requester_segment: form.requester_segment || null,
@@ -189,7 +188,7 @@ export default function NewReleasePage() {
             </div>
 
             <div className={styles.field}>
-              <label className={styles.fieldLabel}>Hãng Đĩa</label>
+              <label className={styles.fieldLabel}>Hãng Đĩa <span className={styles.required}>*</span></label>
               <input
                 className={styles.input}
                 placeholder="Tên label"

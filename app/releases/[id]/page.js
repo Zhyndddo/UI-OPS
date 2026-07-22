@@ -17,7 +17,7 @@ const TABS = [
   { key: "tasklist", label: "Tasklist" },
 ];
 
-const PIPELINE_STAGES = ["BRIEF & DATA", "DEALING", "LEGAL"];
+const PIPELINE_STAGES = ["BRIEF & DATA", "DEALING"];
 
 const META_ITEMS = [
   { key: "meta_audio", label: "Audio" },
@@ -39,7 +39,7 @@ export default function ReleaseDetailPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [saved, setSaved] = useState(false);
-  const [packages, setPackages] = useState([]);
+  const [packageItems, setPackageItems] = useState([]);
   const [bookingEntries, setBookingEntries] = useState([]);
   const [magicLinkUrl, setMagicLinkUrl] = useState(null);
   const [generatingLink, setGeneratingLink] = useState(false);
@@ -59,16 +59,48 @@ export default function ReleaseDetailPage() {
         }
       });
     supabase
-      .from("release_packages")
+      .from("release_package_items")
       .select("*")
-      .eq("active", true)
+      .eq("release_id", id)
       .order("sort_order")
-      .then(({ data }) => setPackages(data || []));
+      .then(({ data }) => setPackageItems(data || []));
     supabase
       .from("media_booking_entries")
       .select("*")
       .eq("release_id", id)
       .then(({ data }) => setBookingEntries(data || []));
+    // Magic links never expire once created — fetch the most recent one so
+    // it shows up on return visits instead of only right after generating.
+    supabase
+      .from("magic_links")
+      .select("token")
+      .eq("release_id", id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.token) setMagicLinkUrl(`${window.location.origin}/pick-package/${data.token}`);
+      });
+
+    // Live updates — e.g. an artist picking a package on the magic-link
+    // page should show up here without a manual refresh. Only patches
+    // fields the user isn't actively editing, so it won't stomp on
+    // in-progress typing in another tab.
+    const channel = supabase
+      .channel(`release-${id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "releases", filter: `id=eq.${id}` },
+        (payload) => {
+          setRelease(payload.new);
+          setForm((f) => (f ? { ...f, ...payload.new } : payload.new));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [id]);
 
   function update(key, value) {
@@ -88,11 +120,44 @@ export default function ReleaseDetailPage() {
     }
   }
 
+  // Clicking SEND UPLOAD now does real work, not just a flag flip: it
+  // creates an actual Newrelease Upload ticket, and — the first time only,
+  // tracked via package_ticket_sent — ALSO sends a Package Prep ticket to
+  // Marketing. Clicking Upload again later never re-sends the package
+  // ticket; use "Send Package Ticket to Marketing" below to force a new
+  // one any time, regardless of that flag.
   async function toggleUpload() {
     const newVal = !form.requested;
     setForm((f) => ({ ...f, requested: newVal }));
     await supabase.from("releases").update({ requested: newVal }).eq("id", id);
     setRelease((r) => ({ ...r, requested: newVal }));
+
+    if (newVal) {
+      const { data: uploadTab } = await supabase.from("ticket_tabs").select("id").eq("key", "newrelease_upload").single();
+      if (uploadTab) {
+        await supabase.from("tickets").insert({
+          tab_id: uploadTab.id,
+          data: { releaseId: form.did, project: form.title, artist: form.main_artist, label: form.label },
+        });
+      }
+      if (!form.package_ticket_sent) {
+        await sendPackageTicket();
+      }
+    }
+  }
+
+  // The dedicated, always-available action — Marketing can be asked to
+  // prepare/customize a package any time, independent of the Upload flow.
+  async function sendPackageTicket() {
+    const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "package_prep").single();
+    if (!tab) return;
+    await supabase.from("tickets").insert({
+      tab_id: tab.id,
+      data: { releaseId: form.did, contractType: form.project_type, note: `Chuẩn bị gói cho ${form.title} — ${form.main_artist}` },
+    });
+    await supabase.from("releases").update({ package_ticket_sent: true }).eq("id", id);
+    setForm((f) => ({ ...f, package_ticket_sent: true }));
+    setRelease((r) => ({ ...r, package_ticket_sent: true }));
   }
 
   async function addBookingEntry(round, platform, channelType, link) {
@@ -184,16 +249,17 @@ export default function ReleaseDetailPage() {
             onSave={saveTab}
             saving={saving}
             onUpload={toggleUpload}
-            packages={packages}
+            packageItems={packageItems}
             magicLinkUrl={magicLinkUrl}
             generatingLink={generatingLink}
             onGenerateLink={generateMagicLink}
             onToggleLock={togglePackageLock}
+            onSendPackageTicket={sendPackageTicket}
           />
         )}
         {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "media_booking" && (
-          <MediaBookingTab entries={bookingEntries} onAdd={addBookingEntry} onCycleStatus={cycleBookingStatus} />
+          <MediaBookingTab form={form} entries={bookingEntries} onAdd={addBookingEntry} onCycleStatus={cycleBookingStatus} />
         )}
         {tab === "pitching" && <PitchingTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "pre_release" && <PreReleaseTab form={form} update={update} onSave={saveTab} saving={saving} />}
@@ -225,7 +291,7 @@ function Field({ label, children }) {
 }
 
 // Loại Dự Án is no longer a static dropdown — it's the booking pipeline:
-// BRIEF & DATA -> DEALING -> LEGAL -> a real resolved package
+// BRIEF & DATA -> DEALING (persists until artist locks in) -> a real resolved package
 // (set once the artist locks one in via the magic link). This control
 // shows the current stage and, while still in a pipeline stage, a button
 // to advance. Once resolved to a real package, it shows that value
@@ -269,7 +335,12 @@ function PipelineControl({ form, update }) {
   );
 }
 
-function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packages, magicLinkUrl, generatingLink, onGenerateLink, onToggleLock }) {
+function fmtVnd(n) {
+  if (n === null || n === undefined) return "—";
+  return new Intl.NumberFormat("vi-VN").format(n) + " đ";
+}
+
+function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, generatingLink, onGenerateLink, onToggleLock, onSendPackageTicket }) {
   return (
     <div>
       <div className={styles.grid2}>
@@ -333,17 +404,40 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
       </div>
 
       <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 20 }}>
-        <div className={styles.subheading} style={{ marginTop: 0 }}>Promotion Package (marketing tier)</div>
+        <div className={styles.subheading} style={{ marginTop: 0 }}>Package (Gói Hỗ Trợ Truyền Thông)</div>
 
-        {form.selected_package_id ? (
-          <p style={{ fontSize: 13, color: "#ccc", marginBottom: 12 }}>
-            Selected: <strong style={{ color: "#ff9d5c" }}>
-              {packages.find((p) => p.id === form.selected_package_id)?.name || "—"}
-            </strong>
-            {form.package_locked && <span style={{ color: "#888" }}> (locked)</span>}
+        {["BRIEF & DATA", "DEALING"].includes(form.project_type) ? (
+          <p style={{ fontSize: 13, color: "#888", marginBottom: 12 }}>
+            No contract type resolved yet — package details will show once the artist locks one in.
           </p>
         ) : (
-          <p style={{ fontSize: 13, color: "#888", marginBottom: 12 }}>No package selected yet.</p>
+          <p style={{ fontSize: 13, color: "#ccc", marginBottom: 4 }}>
+            Contract type: <strong style={{ color: "#ff9d5c" }}>{form.project_type}</strong>
+            {form.package_locked && <span style={{ color: "#888" }}> (locked)</span>}
+          </p>
+        )}
+
+        {form.package_total_value != null && (
+          <p style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>
+            Tổng Giá Trị Gói: <strong style={{ color: "#ccc" }}>{fmtVnd(form.package_total_value)}</strong>
+            {" · "}Thanh Toán: <strong style={{ color: "#ccc" }}>{form.package_payment_status}</strong>
+          </p>
+        )}
+
+        {packageItems.length > 0 && (
+          <table className={styles.table} style={{ marginBottom: 16 }}>
+            <thead><tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr></thead>
+            <tbody>
+              {packageItems.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.category}</td>
+                  <td>{item.quantity} {item.unit}</td>
+                  <td style={{ fontSize: 11, color: "#999" }}>{item.detail || "—"}</td>
+                  <td>{fmtVnd(item.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -353,6 +447,12 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           <button className={styles.btnSmall} onClick={onToggleLock}>
             {form.package_locked ? "Unlock editing" : "Lock editing"}
           </button>
+          <button className={styles.btnSmall} onClick={onSendPackageTicket}>
+            Send Package Ticket to Marketing
+          </button>
+          {form.package_ticket_sent && (
+            <span style={{ color: "#666", fontSize: 11 }}>Already sent once — this button re-sends regardless.</span>
+          )}
         </div>
 
         {magicLinkUrl && (
@@ -366,6 +466,107 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           </div>
         )}
       </div>
+
+      <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 20 }}>
+        <div className={styles.subheading} style={{ marginTop: 0 }}>Additional Flags</div>
+        <GateFields form={form} update={update} />
+      </div>
+    </div>
+  );
+}
+
+const GATE_FIELDS = [
+  ["gate_pitching", "Pitching"],
+  ["gate_publishing", "Publishing"],
+  ["gate_goi_ho_tro_truyen_thong", "Gói Hỗ Trợ Truyền Thông"],
+  ["gate_split_share", "Split Share"],
+  ["gate_lyric_musixmatch", "Lyric Musixmatch"],
+  ["gate_design", "Design"],
+  ["gate_co_trong_net_youtube", "Có Trong Net YouTube"],
+];
+const GATE_OPTIONS = ["false", "true", "update", "update_later"];
+const GATE_LABELS = { false: "False", true: "True", update: "Update", update_later: "Update Later" };
+
+// Quad-state (not plain boolean) gate fields. Ticking one "true" is meant
+// to reveal more detail — pitching already has its full breakdown on the
+// Pitching tab, so this just cross-links there; split_share is the one
+// with genuinely new sub-fields, including a repeatable list (multiple
+// labels can each take a cut).
+function GateFields({ form, update }) {
+  const entries = form.split_share_entries || [];
+
+  function updateEntry(i, key, value) {
+    const next = entries.map((e, idx) => (idx === i ? { ...e, [key]: value } : e));
+    update("split_share_entries", next);
+  }
+  function addEntry() {
+    update("split_share_entries", [...entries, { percentage: "", shared_label: "", scope: "only_new_release" }]);
+  }
+  function removeEntry(i) {
+    update("split_share_entries", entries.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 12 }}>
+        {GATE_FIELDS.map(([key, label]) => (
+          <div key={key} className={styles.field} style={{ marginBottom: 0 }}>
+            <label className={styles.fieldLabel}>{label}</label>
+            <select className={styles.select} value={form[key] || "false"} onChange={(e) => update(key, e.target.value)}>
+              {GATE_OPTIONS.map((o) => (
+                <option key={o} value={o}>{GATE_LABELS[o]}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+
+      {form.gate_pitching === "true" && (
+        <p style={{ color: "#666", fontSize: 11, marginBottom: 12 }}>
+          Pitching detail (priority, Spotify/NCT/Zing) is on the Pitching tab.
+        </p>
+      )}
+
+      {form.gate_split_share === "true" && (
+        <div style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12, marginTop: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
+            Split Share
+          </div>
+          {entries.map((entry, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <div className={styles.field} style={{ marginBottom: 0, width: 90 }}>
+                <label className={styles.fieldLabel}>%</label>
+                <input className={styles.input} value={entry.percentage} onChange={(e) => updateEntry(i, "percentage", e.target.value)} />
+              </div>
+              <div className={styles.field} style={{ marginBottom: 0, flex: 1, minWidth: 140 }}>
+                <label className={styles.fieldLabel}>Shared Label</label>
+                <input className={styles.input} value={entry.shared_label} onChange={(e) => updateEntry(i, "shared_label", e.target.value)} />
+              </div>
+              <div className={styles.field} style={{ marginBottom: 0, minWidth: 180 }}>
+                <label className={styles.fieldLabel}>Scope</label>
+                <select className={styles.select} value={entry.scope} onChange={(e) => updateEntry(i, "scope", e.target.value)}>
+                  <option value="only_new_release">Only New Release</option>
+                  <option value="include_derivative">Include Derivative</option>
+                </select>
+              </div>
+              <button className={styles.btnSmall} style={{ borderColor: "#c0392b", color: "#e57373" }} onClick={() => removeEntry(i)}>
+                Remove
+              </button>
+            </div>
+          ))}
+          <button className={styles.btnSmall} onClick={addEntry}>+ Add Label</button>
+          {entries.some((e) => e.scope === "include_derivative") && (
+            <p style={{ color: "#ffca4d", fontSize: 11, marginTop: 8 }}>
+              ⚠ At least one entry includes derivative works — the Phái Sinh ticket system should be flagged
+              that related derivative products need uploading. Not automated yet; flag manually for now.
+            </p>
+          )}
+        </div>
+      )}
+
+      <p style={{ color: "#555", fontSize: 11, marginTop: 12 }}>
+        Ticking any field here is meant to add a line to the Tasklist tab — not wired up yet.
+      </p>
     </div>
   );
 }
@@ -393,12 +594,21 @@ function UrlTab({ form, update, onSave, saving }) {
         ))}
       </div>
       <p style={{ color: "#888", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
-        Status Phụ Lục (computed): <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{plStatus}</span>
-        {" — "}set via Ngày Gửi/Ngày Ký on the Pre-release & Note tab.
+        Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{plStatus}</span>
+        {" — "}{phuLucNextStep(form)}
       </p>
       <SaveBar onSave={onSave} saving={saving} />
     </div>
   );
+}
+
+// Clear, actionable next step instead of a vague "go check another tab"
+// pointer — tells you exactly what's missing right now.
+function phuLucNextStep(form) {
+  if (!form.link_phu_luc) return "add a URL Phụ Lục above to begin.";
+  if (!form.phu_luc_ngay_gui) return "next: set Ngày Gửi (Pre-release & Note tab).";
+  if (!form.phu_luc_ngay_ky) return "next: set Ngày Ký (Pre-release & Note tab).";
+  return "complete.";
 }
 
 // Mirrors phu_luc_status() in schema.sql — client-side so the URL tab can
@@ -410,11 +620,16 @@ function phuLucStatusClient(form) {
   return "Chưa Soạn";
 }
 
-function MediaBookingTab({ entries, onAdd, onCycleStatus }) {
+function MediaBookingTab({ form, entries, onAdd, onCycleStatus }) {
   const [round, setRound] = useState("INT");
   const [channelType, setChannelType] = useState("Internal");
 
   const visibleEntries = entries.filter((e) => e.booking_round === round && e.channel_type === channelType);
+  // Per the real workflow: Internal booking runs immediately in parallel
+  // with the Phụ Lục signing process; everything else waits until it's
+  // actually signed.
+  const plSigned = phuLucStatusClient(form) === "Đã Ký";
+  const isRestricted = round !== "INT" && !plSigned;
 
   return (
     <div>
@@ -430,6 +645,13 @@ function MediaBookingTab({ entries, onAdd, onCycleStatus }) {
           </button>
         ))}
       </div>
+
+      {isRestricted && (
+        <div className={styles.errorBox} style={{ background: "#1a1a1a", borderColor: "#5a4a1a", color: "#ffca4d", marginBottom: 16 }}>
+          ⚠ Only Internal booking should run right now — Phụ Lục isn't signed yet (Status Phụ Lục: {phuLucStatusClient(form)}).
+          Not a hard block yet, just a heads up.
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
         {BOOKING_PLATFORMS.map((platform) => {
@@ -624,7 +846,7 @@ function PreReleaseTab({ form, update, onSave, saving }) {
       </div>
       <p style={{ color: "#888", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
         Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{phuLucStatusClient(form)}</span>
-        {" — "}fill in URL Phụ Lục on the URL tab first.
+        {" — "}{phuLucNextStep(form)}
       </p>
 
       <div className={styles.subheading}>Linkshare Note</div>

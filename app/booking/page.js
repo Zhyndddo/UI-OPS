@@ -36,12 +36,20 @@ export default function BookingBoard() {
     setLoading(true);
     const { data: rels } = await supabase
       .from("releases")
-      .select("id, did, title, main_artist, release_date")
+      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky")
       .order("release_date", { ascending: false });
     const { data: ents } = await supabase.from("media_booking_entries").select("*");
     setReleases(rels || []);
     setEntries(ents || []);
     setLoading(false);
+  }
+
+  // Mirrors phu_luc_status() in schema.sql
+  function phuLucStatus(r) {
+    if (r.link_phu_luc && r.phu_luc_ngay_ky) return "Đã Ký";
+    if (r.link_phu_luc && r.phu_luc_ngay_gui) return "Chờ Ký";
+    if (r.link_phu_luc) return "Đã Soạn";
+    return "Chưa Soạn";
   }
 
   // Round and channel_type are independent — both filters apply together.
@@ -232,6 +240,12 @@ export default function BookingBoard() {
           )}
         </div>
 
+        {round !== "INT" && (
+          <div className={styles.errorBox} style={{ background: "#1a1a1a", borderColor: "#5a4a1a", color: "#ffca4d", marginBottom: 16 }}>
+            ⚠ Only Internal booking should run for releases whose Phụ Lục isn't signed yet — check the badge next to each release below. Not a hard block yet, just a heads up.
+          </div>
+        )}
+
         {loading ? (
           <div className={styles.emptyState}>Loading…</div>
         ) : filteredReleases.length === 0 ? (
@@ -255,6 +269,19 @@ export default function BookingBoard() {
                   <td>
                     <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
                     <div style={{ fontSize: 11, color: "#666" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)}</div>
+                    {round !== "INT" && (
+                      <span
+                        className={styles.statusBadge}
+                        style={{
+                          marginTop: 4,
+                          display: "inline-block",
+                          background: phuLucStatus(r) === "Đã Ký" ? "rgba(76,175,80,0.15)" : "rgba(244,67,54,0.15)",
+                          color: phuLucStatus(r) === "Đã Ký" ? "#7ee6a8" : "#ff8a80",
+                        }}
+                      >
+                        Phụ Lục: {phuLucStatus(r)}
+                      </span>
+                    )}
                   </td>
                   {PLATFORMS.map((platform) => (
                     <PlatformCell

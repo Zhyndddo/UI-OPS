@@ -5,16 +5,21 @@ import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import styles from "../../shared.module.css";
 
+function fmtVnd(n) {
+  if (n === null || n === undefined) return "—";
+  return new Intl.NumberFormat("vi-VN").format(n) + " đ";
+}
+
 export default function PickPackagePage() {
   const { token } = useParams();
   const [magicLink, setMagicLink] = useState(null);
   const [release, setRelease] = useState(null);
-  const [packages, setPackages] = useState([]);
   const [contractTypes, setContractTypes] = useState([]);
+  const [templates, setTemplates] = useState({}); // contract_type -> {total_value, items}
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [pickingPackage, setPickingPackage] = useState(false);
-  const [pickingContract, setPickingContract] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [expanded, setExpanded] = useState(null);
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -41,9 +46,6 @@ export default function PickPackagePage() {
     const { data: rel } = await supabase.from("releases").select("*").eq("id", link.release_id).single();
     setRelease(rel);
 
-    const { data: pkgs } = await supabase.from("release_packages").select("*").eq("active", true).order("sort_order");
-    setPackages(pkgs || []);
-
     const { data: contracts } = await supabase
       .from("lookup_options")
       .select("value, label")
@@ -52,51 +54,83 @@ export default function PickPackagePage() {
       .order("sort_order");
     setContractTypes(contracts || []);
 
-    // Best-effort — record that the link was opened. Not blocking on failure.
-    supabase.from("magic_links").update({ last_used_at: new Date().toISOString() }).eq("id", link.id);
+    // Prefer the release's own customized package (Marketing's working
+    // copy) over the generic template — falls back to the template if
+    // Marketing hasn't prepared one yet for a given contract type.
+    const { data: releaseItems } = await supabase
+      .from("release_package_items")
+      .select("*")
+      .eq("release_id", link.release_id)
+      .order("sort_order");
+    const { data: templateRows } = await supabase.from("contract_type_packages").select("*");
 
+    const byType = {};
+    (templateRows || []).forEach((t) => {
+      byType[t.contract_type] = { total_value: t.total_value, items: t.items || [] };
+    });
+    // If this release has its own customized items at all, they apply to
+    // whichever contract type is currently selected/resolved (Marketing
+    // works on one specific deal, not a library of options simultaneously).
+    if (releaseItems && releaseItems.length > 0 && rel?.project_type) {
+      byType[rel.project_type] = {
+        total_value: rel.package_total_value,
+        items: releaseItems.map((i) => ({ category: i.category, unit: i.unit, quantity: i.quantity, detail: i.detail, amount: i.amount })),
+      };
+    }
+    setTemplates(byType);
+
+    supabase.from("magic_links").update({ last_used_at: new Date().toISOString() }).eq("id", link.id);
     setLoading(false);
   }
 
-  // Marketing package (Cơ Bản/Nâng Cao/...) — feeds the Media Booking
-  // auto-generated "Project" note. Independent from the contract type below.
-  async function choosePackage(pkg) {
-    if (isLocked) return;
-    setPickingPackage(true);
-    const { error: err } = await supabase.from("releases").update({ selected_package_id: pkg.id }).eq("id", release.id);
-    setPickingPackage(false);
-    if (err) { setError(err.message); return; }
-    setRelease((r) => ({ ...r, selected_package_id: pkg.id }));
-  }
-
-  // Contract type (Chỉ Phát Hành/Độc Quyền.../etc.) — THIS is what actually
-  // resolves project_type out of the pipeline (BRIEF & DATA -> DEALING ->
-  // LEGAL). It's the "Chốt Gói Hỗ Trợ Truyền Thông" task from the master
-  // plan, done by the artist through this link — independent of which
-  // marketing package they picked above.
+  // Picking a contract type here IS the "Chốt Gói Hỗ Trợ Truyền Thông"
+  // task — it resolves project_type out of the pipeline, locks in whichever
+  // package (template or Marketing-customized) comes with it, AND
+  // auto-creates the Phụ Lục ticket (only once — this is the "auto ticket
+  // when we're done" moment). That ticket reads/writes
+  // releases.link_phu_luc/phu_luc_ngay_gui/phu_luc_ngay_ky directly rather
+  // than keeping its own separate copy of those fields.
   async function chooseContract(value) {
     if (isLocked) return;
-    setPickingContract(true);
-    const { error: err } = await supabase.from("releases").update({ project_type: value }).eq("id", release.id);
-    setPickingContract(false);
+    setPicking(true);
+    const wasPipelineStage = ["BRIEF & DATA", "DEALING"].includes(release?.project_type);
+    const pkg = templates[value];
+    const { error: err } = await supabase
+      .from("releases")
+      .update({
+        project_type: value,
+        package_total_value: pkg?.total_value ?? null,
+      })
+      .eq("id", release.id);
+    setPicking(false);
     if (err) { setError(err.message); return; }
-    setRelease((r) => ({ ...r, project_type: value }));
+    setRelease((r) => ({ ...r, project_type: value, package_total_value: pkg?.total_value ?? null }));
+
+    if (wasPipelineStage) {
+      const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "phu_luc").single();
+      if (tab) {
+        await supabase.from("tickets").insert({
+          tab_id: tab.id,
+          data: { releaseId: release.id },
+        });
+      }
+    }
   }
 
   if (loading) return <div className={styles.page}><div className={styles.container} style={{ maxWidth: 640 }}>Loading…</div></div>;
   if (error) return <div className={styles.page}><div className={styles.container} style={{ maxWidth: 640 }}><div className={styles.errorBox}>{error}</div></div></div>;
 
   const isLocked = magicLink?.locked || release?.package_locked;
-  const isPipelineStage = ["BRIEF & DATA", "DEALING", "LEGAL"].includes(release?.project_type);
+  const isPipelineStage = ["BRIEF & DATA", "DEALING"].includes(release?.project_type);
 
   return (
     <div className={styles.page}>
       <div className={styles.container} style={{ maxWidth: 640 }}>
-        <div className={styles.eyebrow}>// Chọn Gói</div>
+        <div className={styles.eyebrow}>// Chọn Loại Hợp Đồng</div>
         <h1 className={styles.title} style={{ marginBottom: 4 }}>
           {release?.title}
         </h1>
-        <div style={{ color: "#888", fontSize: 13, marginBottom: 28 }}>
+        <div style={{ color: "#888", fontSize: 13, marginBottom: 20 }}>
           {release?.main_artist} · {release?.release_date} {release?.release_time}
         </div>
 
@@ -106,79 +140,90 @@ export default function PickPackagePage() {
           </div>
         )}
 
-        <div className={styles.subheading} style={{ marginTop: 0 }}>Gói Hỗ Trợ Truyền Thông (Marketing Package)</div>
-        <div style={{ display: "grid", gap: 12, marginBottom: 32 }}>
-          {packages.map((pkg) => {
-            const selected = release?.selected_package_id === pkg.id;
-            return (
-              <button
-                key={pkg.id}
-                onClick={() => choosePackage(pkg)}
-                disabled={isLocked || pickingPackage}
-                style={{
-                  textAlign: "left",
-                  background: selected ? "rgba(255,107,26,0.1)" : "#121212",
-                  border: selected ? "1px solid #ff6b1a" : "1px solid #262626",
-                  borderRadius: 10,
-                  padding: 16,
-                  cursor: isLocked ? "not-allowed" : "pointer",
-                  opacity: isLocked && !selected ? 0.5 : 1,
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <span style={{ fontSize: 15, fontWeight: 800, color: selected ? "#ff9d5c" : "#f4f4f4" }}>
-                    {pkg.name}
-                  </span>
-                  {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700 }}>SELECTED</span>}
-                </div>
-                {pkg.description && (
-                  <div style={{ fontSize: 12, color: "#999", whiteSpace: "pre-line" }}>{pkg.description}</div>
-                )}
-              </button>
-            );
-          })}
-          {packages.length === 0 && (
-            <div className={styles.emptyState}>No packages configured yet.</div>
-          )}
-        </div>
-
-        <div className={styles.subheading}>Loại Hợp Đồng (Contract Type)</div>
         {!isLocked && isPipelineStage && (
-          <p style={{ color: "#666", fontSize: 12, marginTop: -4, marginBottom: 12 }}>
+          <p style={{ color: "#666", fontSize: 12, marginBottom: 16 }}>
             Current stage: <span style={{ color: "#ff9d5c" }}>{release?.project_type}</span>
           </p>
         )}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
+
+        <p style={{ color: "#888", fontSize: 12, marginBottom: 20 }}>
+          Each contract type comes with its own package — pick the one that fits, tap to see the full breakdown.
+        </p>
+
+        <div style={{ display: "grid", gap: 12 }}>
           {contractTypes.map((c) => {
             const selected = release?.project_type === c.value;
+            const pkg = templates[c.value];
+            const isOpen = expanded === c.value;
             return (
-              <button
+              <div
                 key={c.value}
-                onClick={() => chooseContract(c.value)}
-                disabled={isLocked || pickingContract}
                 style={{
-                  textAlign: "left",
                   background: selected ? "rgba(255,107,26,0.1)" : "#121212",
                   border: selected ? "1px solid #ff6b1a" : "1px solid #262626",
-                  borderRadius: 8,
-                  padding: 12,
-                  cursor: isLocked ? "not-allowed" : "pointer",
-                  opacity: isLocked && !selected ? 0.5 : 1,
-                  fontSize: 13,
-                  fontWeight: selected ? 700 : 400,
-                  color: selected ? "#ff9d5c" : "#ccc",
+                  borderRadius: 10,
+                  overflow: "hidden",
                 }}
               >
-                {c.label || c.value}
-              </button>
+                <button
+                  onClick={() => !isLocked && chooseContract(c.value)}
+                  disabled={isLocked || picking}
+                  style={{
+                    width: "100%",
+                    textAlign: "left",
+                    background: "none",
+                    border: "none",
+                    padding: 16,
+                    cursor: isLocked ? "not-allowed" : "pointer",
+                    opacity: isLocked && !selected ? 0.5 : 1,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: selected ? "#ff9d5c" : "#f4f4f4" }}>
+                        {c.label || c.value}
+                      </span>
+                      {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700, marginLeft: 10 }}>SELECTED</span>}
+                    </div>
+                    {pkg?.total_value != null && (
+                      <span style={{ fontSize: 13, color: "#999" }}>{fmtVnd(pkg.total_value)}</span>
+                    )}
+                  </div>
+                </button>
+                {pkg?.items?.length > 0 && (
+                  <div style={{ borderTop: "1px solid #262626", padding: "8px 16px" }}>
+                    <button
+                      onClick={() => setExpanded(isOpen ? null : c.value)}
+                      style={{ background: "none", border: "none", color: "#666", fontSize: 11, cursor: "pointer", padding: "4px 0" }}
+                    >
+                      {isOpen ? "▲ Ẩn chi tiết" : "▼ Xem chi tiết gói"}
+                    </button>
+                    {isOpen && (
+                      <table className={styles.table} style={{ marginTop: 8 }}>
+                        <thead>
+                          <tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr>
+                        </thead>
+                        <tbody>
+                          {pkg.items.map((item, i) => (
+                            <tr key={i}>
+                              <td>{item.category}</td>
+                              <td>{item.quantity} {item.unit}</td>
+                              <td style={{ fontSize: 11, color: "#999", whiteSpace: "pre-line" }}>{item.detail || "—"}</td>
+                              <td>{fmtVnd(item.amount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
 
-        {!isLocked && !isPipelineStage && (
-          <div className={styles.successBox} style={{ marginTop: 20 }}>
-            Selections saved — {release.project_type} / {packages.find((p) => p.id === release.selected_package_id)?.name || "no package chosen yet"}.
-          </div>
+        {contractTypes.length === 0 && (
+          <div className={styles.emptyState}>No contract types configured yet.</div>
         )}
       </div>
     </div>
