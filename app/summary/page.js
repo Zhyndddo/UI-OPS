@@ -4,6 +4,7 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { ticketStatus } from "../../lib/helpers";
+import { useCurrentUser } from "../../lib/CurrentUserContext";
 import styles from "../shared.module.css";
 
 const ROLES = ["Admin", "Dev", "OPS", "AR", "Marketing"];
@@ -52,7 +53,7 @@ function isReleaseDone(r) {
 }
 
 export default function SummaryPage() {
-  const [role, setRole] = useState("Admin");
+  const { role, setRole } = useCurrentUser();
   const [releases, setReleases] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [ticketTabs, setTicketTabs] = useState([]);
