@@ -130,8 +130,8 @@ export default function ReleasesDashboard() {
                       </Link>
                     </td>
                     <td>{r.requester_segment || "—"}</td>
-                    <td style={{ maxWidth: 220, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {r.project_type || "—"}
+                    <td style={{ maxWidth: 260, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {r.release_category ? `${r.release_category} - ${r.project_type || "—"}` : (r.project_type || "—")}
                     </td>
                     <td>{r.label || "—"}</td>
                     <td>

@@ -356,6 +356,9 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         <Field label="Media Channel">
           <input className={styles.input} value={form.requester_segment || ""} onChange={(e) => update("requester_segment", e.target.value)} placeholder="VIEENT / ENVI / ALL" />
         </Field>
+        <Field label="Category">
+          <input className={styles.input} value={form.release_category || ""} onChange={(e) => update("release_category", e.target.value)} placeholder="New Release / Re Marketing / ..." />
+        </Field>
         <Field label="Thể Loại (Genre)">
           <input className={styles.input} value={form.genre || ""} onChange={(e) => update("genre", e.target.value)} />
         </Field>
@@ -384,12 +387,12 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
       </div>
 
       <div className={styles.subheading}>Metadata Checklist ({metaDone}/6)</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
         {META_ITEMS.map((m) => (
-          <label key={m.key} className={styles.checkboxRow}>
-            <input type="checkbox" checked={!!form[m.key]} onChange={(e) => update(m.key, e.target.checked)} />
-            {m.label}
-          </label>
+          <div key={m.key} className={styles.field} style={{ marginBottom: 0 }}>
+            <label className={styles.fieldLabel}>{m.label}</label>
+            <BoolToggle value={!!form[m.key]} onChange={(v) => update(m.key, v)} />
+          </div>
         ))}
       </div>
 
@@ -498,6 +501,35 @@ const GATE_LABELS = { false: "No", true: "Yes", update: "Update" };
 // just cross-links there; split_share is the one with genuinely new
 // sub-fields, including a repeatable list (multiple labels can each take
 // a cut).
+// Same visual language as GateToggle, but a plain 2-state Yes/No — used
+// for genuine booleans (Metadata Checklist, DSP Pitching/ISRC on the
+// create form) instead of a native checkbox.
+function BoolToggle({ value, onChange }) {
+  return (
+    <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden" }}>
+      {[false, true].map((v) => (
+        <button
+          key={String(v)}
+          type="button"
+          onClick={() => onChange(v)}
+          style={{
+            flex: 1,
+            padding: "8px 10px",
+            fontSize: 12,
+            fontWeight: 700,
+            border: "none",
+            cursor: "pointer",
+            background: value === v ? "#ff6b1a" : "transparent",
+            color: value === v ? "#0a0a0a" : "#ccc",
+          }}
+        >
+          {v ? "Yes" : "No"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function GateToggle({ value, onChange }) {
   return (
     <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden" }}>
@@ -650,14 +682,16 @@ function phuLucStatusClient(form) {
 
 function MediaBookingTab({ form, entries, onAdd, onCycleStatus }) {
   const [round, setRound] = useState("INT");
-  const [channelType, setChannelType] = useState("Internal");
+  const [channelType, setChannelType] = useState("Direct");
 
   const visibleEntries = entries.filter((e) => e.booking_round === round && e.channel_type === channelType);
-  // Per the real workflow: Internal booking runs immediately in parallel
-  // with the Phụ Lục signing process; everything else waits until it's
-  // actually signed.
+  // Per the real workflow: Direct booking (VIEENT-run, no third party) runs
+  // immediately in parallel with the Phụ Lục signing process; Partner
+  // booking (an outside vendor/channel) waits until it's actually signed.
+  // This gates on channel_type, NOT booking_round — round is a scheduling
+  // phase, channel_type is what actually determines legal exposure.
   const plSigned = phuLucStatusClient(form) === "Đã Ký";
-  const isRestricted = round !== "INT" && !plSigned;
+  const isRestricted = channelType === "Partner" && !plSigned;
 
   return (
     <div>
@@ -676,7 +710,7 @@ function MediaBookingTab({ form, entries, onAdd, onCycleStatus }) {
 
       {isRestricted && (
         <div className={styles.errorBox} style={{ background: "#1a1a1a", borderColor: "#5a4a1a", color: "#ffca4d", marginBottom: 16 }}>
-          ⚠ Only Internal booking should run right now — Phụ Lục isn't signed yet (Status Phụ Lục: {phuLucStatusClient(form)}).
+          ⚠ Partner booking should wait — Phụ Lục isn't signed yet (Status Phụ Lục: {phuLucStatusClient(form)}).
           Not a hard block yet, just a heads up.
         </div>
       )}
@@ -705,7 +739,7 @@ function MediaBookingTab({ form, entries, onAdd, onCycleStatus }) {
       <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 16 }}>
         <div className={styles.fieldLabel} style={{ marginBottom: 8 }}>Channel Type</div>
         <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden", width: "fit-content" }}>
-          {["Internal", "External"].map((c) => (
+          {["Direct", "Partner"].map((c) => (
             <button
               key={c}
               onClick={() => setChannelType(c)}
@@ -724,9 +758,9 @@ function MediaBookingTab({ form, entries, onAdd, onCycleStatus }) {
           ))}
         </div>
         <p style={{ color: "#666", fontSize: 11, marginTop: 8 }}>
-          Round "INT" means no External channel is currently planned for this release (though that could
-          change) — separate from this Internal/External switch, which picks which kind of channel you're
-          viewing within whichever round is selected above.
+          Round "INT" (top) means no Partner channel is currently planned for this release (though that
+          could change) — a scheduling phase, separate from this Direct/Partner switch below, which is
+          what actually determines whether Phụ Lục needs to be signed first.
         </p>
       </div>
     </div>

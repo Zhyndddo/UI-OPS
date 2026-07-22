@@ -108,6 +108,15 @@ export default async function Home() {
           <a href="/labels" style={demoLinkStyle}>→ Label List</a>
           <a href="/tickets/newrelease-upload" style={demoLinkStyle}>→ Ticket: Newrelease Upload</a>
           <a href="/tickets/phu-luc" style={demoLinkStyle}>→ Ticket: Phụ Lục</a>
+          <a href="/tickets/design" style={demoLinkStyle}>→ Ticket: Design</a>
+          <a href="/tickets/phai-sinh" style={demoLinkStyle}>→ Ticket: Phái Sinh</a>
+          <a href="/tickets/media-booking" style={demoLinkStyle}>→ Ticket: Media Booking</a>
+          <a href="/tickets/manual-claim" style={demoLinkStyle}>→ Ticket: Manual Claim</a>
+          <a href="/tickets/report-conflict" style={demoLinkStyle}>→ Ticket: Report Conflict</a>
+          <a href="/tickets/artist-profile" style={demoLinkStyle}>→ Ticket: Artist Profile</a>
+          <a href="/tickets/stream-update" style={demoLinkStyle}>→ Ticket: Stream Update</a>
+          <a href="/tickets/khac" style={demoLinkStyle}>→ Ticket: Khác</a>
+          <a href="/summary" style={demoLinkStyle}>→ Summary</a>
         </div>
       </div>
     </main>

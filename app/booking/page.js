@@ -23,7 +23,7 @@ export default function BookingBoard() {
   const [search, setSearch] = useState("");
   const [month, setMonth] = useState("");
   const [round, setRound] = useState("INT"); // 'INT' | 'Đợt 1' | 'Đợt 2' — the 3 round tabs
-  const [channelType, setChannelType] = useState("Internal"); // 'Internal' | 'External' — separate switch
+  const [channelType, setChannelType] = useState("Direct"); // 'Direct' | 'Partner' — this is the one that gates on Phụ Lục, not round
   const [statusFilter, setStatusFilter] = useState("Tất cả");
   const [expandedCell, setExpandedCell] = useState(null); // `${releaseId}:${platform}` or null
 
@@ -192,7 +192,7 @@ export default function BookingBoard() {
             ))}
           </div>
           <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden" }}>
-            {["Internal", "External"].map((c) => (
+            {["Direct", "Partner"].map((c) => (
               <button
                 key={c}
                 onClick={() => setChannelType(c)}
@@ -240,9 +240,9 @@ export default function BookingBoard() {
           )}
         </div>
 
-        {round !== "INT" && (
+        {channelType === "Partner" && (
           <div className={styles.errorBox} style={{ background: "#1a1a1a", borderColor: "#5a4a1a", color: "#ffca4d", marginBottom: 16 }}>
-            ⚠ Only Internal booking should run for releases whose Phụ Lục isn't signed yet — check the badge next to each release below. Not a hard block yet, just a heads up.
+            ⚠ Partner booking should wait for releases whose Phụ Lục isn't signed yet — check the badge next to each release below. Not a hard block yet, just a heads up.
           </div>
         )}
 
@@ -259,7 +259,7 @@ export default function BookingBoard() {
               <tr>
                 <th>Release</th>
                 {PLATFORMS.map((p) => (
-                  <th key={p} style={{ textAlign: "center" }}>{p}<div style={{ fontWeight: 400, color: "#666", fontSize: 10 }}>{round} · {channelType === "Internal" ? "INT" : "EXT"}</div></th>
+                  <th key={p} style={{ textAlign: "center" }}>{p}<div style={{ fontWeight: 400, color: "#666", fontSize: 10 }}>{round} · {channelType}</div></th>
                 ))}
               </tr>
             </thead>
@@ -269,7 +269,7 @@ export default function BookingBoard() {
                   <td>
                     <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
                     <div style={{ fontSize: 11, color: "#666" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)}</div>
-                    {round !== "INT" && (
+                    {channelType === "Partner" && (
                       <span
                         className={styles.statusBadge}
                         style={{

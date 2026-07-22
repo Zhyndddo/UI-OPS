@@ -31,6 +31,7 @@ const EMPTY_FORM = {
   feature_artist: "",
   genre: "",
   requester_segment: "",
+  release_category: "New Release",
   release_date: "",
   release_time: "19:00",
   theme: "",
@@ -44,6 +45,7 @@ export default function NewReleasePage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [genres, setGenres] = useState([]);
   const [channels, setChannels] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [artists, setArtists] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -58,7 +60,7 @@ export default function NewReleasePage() {
       .from("lookup_options")
       .select("category, value, label")
       .eq("active", true)
-      .in("category", ["genre", "channel"])
+      .in("category", ["genre", "channel", "release_category"])
       .order("sort_order")
       .then(({ data, error: fetchError }) => {
         if (fetchError) {
@@ -67,6 +69,7 @@ export default function NewReleasePage() {
         }
         setGenres((data || []).filter((r) => r.category === "genre"));
         setChannels((data || []).filter((r) => r.category === "channel"));
+        setCategories((data || []).filter((r) => r.category === "release_category"));
       });
 
     supabase
@@ -198,6 +201,21 @@ export default function NewReleasePage() {
             </div>
 
             <div className={styles.field}>
+              <label className={styles.fieldLabel}>Category</label>
+              <select
+                className={styles.select}
+                value={form.release_category}
+                onChange={(e) => update("release_category", e.target.value)}
+              >
+                {categories.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label || opt.value}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className={styles.field}>
               <label className={styles.fieldLabel}>Media Channel</label>
               <select
                 className={styles.select}
@@ -317,25 +335,13 @@ export default function NewReleasePage() {
             </div>
 
             <div className={styles.field}>
-              <label className={styles.checkboxRow}>
-                <input
-                  type="checkbox"
-                  checked={form.requires_dsp_pitching}
-                  onChange={(e) => update("requires_dsp_pitching", e.target.checked)}
-                />
-                Yêu cầu Pitching DSP
-              </label>
+              <label className={styles.fieldLabel}>Yêu cầu Pitching DSP</label>
+              <BoolToggle value={form.requires_dsp_pitching} onChange={(v) => update("requires_dsp_pitching", v)} />
             </div>
 
             <div className={styles.field}>
-              <label className={styles.checkboxRow}>
-                <input
-                  type="checkbox"
-                  checked={form.has_isrc}
-                  onChange={(e) => update("has_isrc", e.target.checked)}
-                />
-                Đã có ISRC
-              </label>
+              <label className={styles.fieldLabel}>Đã có ISRC</label>
+              <BoolToggle value={form.has_isrc} onChange={(v) => update("has_isrc", v)} />
             </div>
           </div>
 
@@ -367,6 +373,34 @@ export default function NewReleasePage() {
 // typed value stays free text (main_artist/feature_artist are text columns,
 // not FKs), this just suggests matches as you type rather than forcing a
 // hard reference, since not every artist has been entered yet.
+// Same visual language used elsewhere in the app for tri-state gate
+// fields — a plain 2-state Yes/No toggle instead of a native checkbox.
+function BoolToggle({ value, onChange }) {
+  return (
+    <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden" }}>
+      {[false, true].map((v) => (
+        <button
+          key={String(v)}
+          type="button"
+          onClick={() => onChange(v)}
+          style={{
+            flex: 1,
+            padding: "8px 10px",
+            fontSize: 12,
+            fontWeight: 700,
+            border: "none",
+            cursor: "pointer",
+            background: value === v ? "#ff6b1a" : "transparent",
+            color: value === v ? "#0a0a0a" : "#ccc",
+          }}
+        >
+          {v ? "Yes" : "No"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ArtistInput({ value, onChange, onBlur, artists, placeholder }) {
   const [open, setOpen] = useState(false);
   const matches =
