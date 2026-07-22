@@ -1,5 +1,6 @@
 "use client";
 
+import AppShell from "../../../lib/AppShell";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
@@ -67,6 +68,7 @@ export default function PhuLucList() {
   }
 
   return (
+    <AppShell>
     <div className={styles.page}>
       <div className={styles.container} style={{ maxWidth: 1100 }}>
         <div className={styles.topRow}>
@@ -155,5 +157,6 @@ export default function PhuLucList() {
         )}
       </div>
     </div>
+    </AppShell>
   );
 }

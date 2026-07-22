@@ -1,5 +1,6 @@
 "use client";
 
+import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import styles from "../shared.module.css";
@@ -40,6 +41,7 @@ export default function ArtistsPage() {
   }
 
   return (
+    <AppShell>
     <div className={styles.page}>
       <div className={styles.container}>
         <div className={styles.eyebrow}>// Reference Table</div>
@@ -96,5 +98,6 @@ export default function ArtistsPage() {
         )}
       </div>
     </div>
+    </AppShell>
   );
 }

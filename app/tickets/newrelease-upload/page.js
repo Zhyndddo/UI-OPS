@@ -1,5 +1,6 @@
 "use client";
 
+import AppShell from "../../../lib/AppShell";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
@@ -42,6 +43,7 @@ export default function NewreleaseUploadList() {
   }
 
   return (
+    <AppShell>
     <div className={styles.page}>
       <div className={styles.container}>
         <div className={styles.topRow}>
@@ -89,5 +91,6 @@ export default function NewreleaseUploadList() {
         )}
       </div>
     </div>
+    </AppShell>
   );
 }

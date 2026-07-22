@@ -1,3 +1,4 @@
+import AppShell from "../lib/AppShell";
 import { supabase } from "../lib/supabaseClient";
 
 // Without this, Next.js may cache this page's Supabase query result at
@@ -24,6 +25,7 @@ export default async function Home() {
   }
 
   return (
+    <AppShell>
     <main style={{ maxWidth: 640, margin: "60px auto", padding: "0 20px" }}>
       <h1 style={{ fontSize: 28, marginBottom: 4 }}>Pipeline check</h1>
       <p style={{ color: "#999", marginBottom: 32 }}>
@@ -120,6 +122,7 @@ export default async function Home() {
         </div>
       </div>
     </main>
+    </AppShell>
   );
 }
 

@@ -1,19 +1,16 @@
 import "./globals.css";
-import { ThemeProvider, ThemeToggle } from "../lib/ThemeContext";
+import { ThemeProvider } from "../lib/ThemeContext";
 
 export const metadata = {
-  title: "Task Tracking v2 — pipeline check",
-  description: "Vercel + Supabase connectivity test",
+  title: "Task Tracking v2",
+  description: "Vercel + Supabase — VIEENT Task Tracking v2",
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <ThemeProvider>
-          <ThemeToggle />
-          {children}
-        </ThemeProvider>
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

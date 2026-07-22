@@ -1,5 +1,6 @@
 "use client";
 
+import AppShell from "../../../../lib/AppShell";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -44,6 +45,7 @@ export default function NewNewreleaseUploadTicket() {
   }
 
   return (
+    <AppShell>
     <div className={styles.page}>
       <div className={styles.container} style={{ maxWidth: 640 }}>
         <Link href="/tickets/newrelease-upload" className={styles.backLink}>← Back</Link>
@@ -97,5 +99,6 @@ export default function NewNewreleaseUploadTicket() {
         </form>
       </div>
     </div>
+    </AppShell>
   );
 }

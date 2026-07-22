@@ -1,5 +1,6 @@
 "use client";
 
+import AppShell from "../../lib/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
@@ -128,6 +129,7 @@ export default function BookingBoard() {
   }
 
   return (
+    <AppShell>
     <div className={styles.page}>
       <div className={styles.container} style={{ maxWidth: 1300 }}>
         <div className={styles.topRow}>
@@ -302,6 +304,7 @@ export default function BookingBoard() {
         )}
       </div>
     </div>
+    </AppShell>
   );
 }
 

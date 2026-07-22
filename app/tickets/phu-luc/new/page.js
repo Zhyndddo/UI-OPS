@@ -1,5 +1,6 @@
 "use client";
 
+import AppShell from "../../../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -54,6 +55,7 @@ export default function NewPhuLucTicket() {
   }
 
   return (
+    <AppShell>
     <div className={styles.page}>
       <div className={styles.container} style={{ maxWidth: 640 }}>
         <Link href="/tickets/phu-luc" className={styles.backLink}>← Back</Link>
@@ -121,5 +123,6 @@ export default function NewPhuLucTicket() {
         </form>
       </div>
     </div>
+    </AppShell>
   );
 }

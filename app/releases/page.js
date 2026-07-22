@@ -1,5 +1,6 @@
 "use client";
 
+import AppShell from "../../lib/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
@@ -57,6 +58,7 @@ export default function ReleasesDashboard() {
   }, [releases]);
 
   return (
+    <AppShell>
     <div className={styles.page}>
       <div className={styles.container}>
         <div className={styles.topRow}>
@@ -159,5 +161,6 @@ export default function ReleasesDashboard() {
         )}
       </div>
     </div>
+    </AppShell>
   );
 }

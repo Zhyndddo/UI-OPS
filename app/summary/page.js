@@ -1,5 +1,6 @@
 "use client";
 
+import AppShell from "../../lib/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { ticketStatus } from "../../lib/helpers";
@@ -100,6 +101,7 @@ export default function SummaryPage() {
   const showNewRelease = role === "Admin" || role === "Dev" || role === "OPS" || role === "AR";
 
   return (
+    <AppShell>
     <div className={styles.page}>
       <div className={styles.container}>
         <div className={styles.eyebrow}>// Summary</div>
@@ -174,5 +176,6 @@ export default function SummaryPage() {
         )}
       </div>
     </div>
+    </AppShell>
   );
 }

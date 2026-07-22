@@ -1,5 +1,6 @@
 "use client";
+import AppShell from "../../../../lib/AppShell";
 import NewTicketPage from "../../../../lib/NewTicketPage";
 export default function Page() {
-  return <NewTicketPage typeKey="manual_claim" basePath="/tickets/manual-claim" />;
+  return <AppShell><NewTicketPage typeKey="manual_claim" basePath="/tickets/manual-claim" /></AppShell>;
 }

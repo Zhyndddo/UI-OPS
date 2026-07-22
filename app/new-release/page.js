@@ -1,5 +1,6 @@
 "use client";
 
+import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import styles from "./styles.module.css";
@@ -150,6 +151,7 @@ export default function NewReleasePage() {
   }
 
   return (
+    <AppShell>
     <div className={styles.page}>
       <div className={styles.container}>
         <div className={styles.eyebrow}>// New Release</div>
@@ -366,6 +368,7 @@ export default function NewReleasePage() {
         </form>
       </div>
     </div>
+    </AppShell>
   );
 }
 

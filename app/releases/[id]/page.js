@@ -1,5 +1,6 @@
 "use client";
 
+import AppShell from "../../../lib/AppShell";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -213,6 +214,7 @@ export default function ReleaseDetailPage() {
   const uploadReady = metaDone === META_ITEMS.length && nameGroupFilled;
 
   return (
+    <AppShell>
     <div className={styles.page}>
       <div className={styles.container}>
         <Link href="/releases" className={styles.backLink}>
@@ -271,6 +273,7 @@ export default function ReleaseDetailPage() {
         {tab === "tasklist" && <TasklistTab form={form} bookingEntries={bookingEntries} />}
       </div>
     </div>
+    </AppShell>
   );
 }
 
