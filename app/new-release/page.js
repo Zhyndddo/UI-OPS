@@ -25,7 +25,6 @@ function didPreview(title, mainArtist, releaseDate) {
 }
 
 const EMPTY_FORM = {
-  project_type: "",
   label: "",
   title: "",
   main_artist: "",
@@ -43,7 +42,6 @@ const EMPTY_FORM = {
 
 export default function NewReleasePage() {
   const [form, setForm] = useState(EMPTY_FORM);
-  const [projectTypes, setProjectTypes] = useState([]);
   const [genres, setGenres] = useState([]);
   const [channels, setChannels] = useState([]);
   const [artists, setArtists] = useState([]);
@@ -60,14 +58,13 @@ export default function NewReleasePage() {
       .from("lookup_options")
       .select("category, value, label")
       .eq("active", true)
-      .in("category", ["project_type", "genre", "channel"])
+      .in("category", ["genre", "channel"])
       .order("sort_order")
       .then(({ data, error: fetchError }) => {
         if (fetchError) {
           setError(`Couldn't load dropdown options: ${fetchError.message}`);
           return;
         }
-        setProjectTypes((data || []).filter((r) => r.category === "project_type"));
         setGenres((data || []).filter((r) => r.category === "genre"));
         setChannels((data || []).filter((r) => r.category === "channel"));
       });
@@ -129,7 +126,6 @@ export default function NewReleasePage() {
       theme: form.theme || null,
       drive_link: form.drive_link || null,
       brief: form.brief || null,
-      project_type: form.project_type || null,
     };
 
     const { data, error: insertError } = await supabase
@@ -186,25 +182,14 @@ export default function NewReleasePage() {
         <form onSubmit={handleSubmit}>
           <div className={styles.grid}>
             <div className={styles.field}>
-              <label className={styles.fieldLabel}>
-                Loại dự án <span className={styles.required}>*</span>
-              </label>
-              <select
-                className={styles.select}
-                value={form.project_type}
-                onChange={(e) => update("project_type", e.target.value)}
-              >
-                <option value="">— Chọn —</option>
-                {projectTypes.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label || opt.value}
-                  </option>
-                ))}
-              </select>
+              <label className={styles.fieldLabel}>Trạng Thái Gói (Loại Dự Án)</label>
+              <div style={{ padding: "9px 12px", background: "#141414", border: "1px solid #2a2a2a", borderRadius: 6, color: "#888", fontSize: 13 }}>
+                BRIEF & DATA — sẽ tiến triển qua quy trình gói sau khi tạo
+              </div>
             </div>
 
             <div className={styles.field}>
-              <label className={styles.fieldLabel}>Label / Nhà phát hành</label>
+              <label className={styles.fieldLabel}>Hãng Đĩa</label>
               <input
                 className={styles.input}
                 placeholder="Tên label"
@@ -214,7 +199,7 @@ export default function NewReleasePage() {
             </div>
 
             <div className={styles.field}>
-              <label className={styles.fieldLabel}>Channel</label>
+              <label className={styles.fieldLabel}>Media Channel</label>
               <select
                 className={styles.select}
                 value={form.requester_segment}

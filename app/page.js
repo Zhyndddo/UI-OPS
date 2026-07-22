@@ -103,6 +103,7 @@ export default async function Home() {
         <p style={{ color: "#666", fontSize: 12, marginBottom: 12 }}>Demo pages</p>
         <div style={{ display: "grid", gap: 8 }}>
           <a href="/releases" style={demoLinkStyle}>→ New Release dashboard</a>
+          <a href="/booking" style={demoLinkStyle}>→ Booking Board</a>
           <a href="/artists" style={demoLinkStyle}>→ Artist List</a>
           <a href="/labels" style={demoLinkStyle}>→ Label List</a>
           <a href="/tickets/newrelease-upload" style={demoLinkStyle}>→ Ticket: Newrelease Upload</a>

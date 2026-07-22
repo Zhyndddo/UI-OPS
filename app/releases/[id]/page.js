@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
+import { fmtDate } from "../../../lib/helpers";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -12,8 +13,11 @@ const TABS = [
   { key: "media_booking", label: "Media Booking" },
   { key: "pitching", label: "Pitching" },
   { key: "pre_release", label: "Pre-release & Note" },
+  { key: "streaming_milestone", label: "Streaming/Milestone" },
   { key: "tasklist", label: "Tasklist" },
 ];
+
+const PIPELINE_STAGES = ["BRIEF & DATA", "DEALING", "LEGAL"];
 
 const META_ITEMS = [
   { key: "meta_audio", label: "Audio" },
@@ -24,13 +28,8 @@ const META_ITEMS = [
   { key: "meta_doc", label: "Metadata" },
 ];
 
-const BOOKING_ROUNDS = ["Internal", "Booking Đợt 1", "Booking Đợt 2"];
-const BOOKING_SUBTABS = {
-  Tiktok: ["INT", "EXT", "CAPCUT"],
-  Social: ["Social ENVI", "Social VIEENT"],
-  Page: ["Bolero/MT", "VPOP", "Indie"],
-  ADS: ["FB Post Ads", "FB Video Ads", "YouTube Ads"],
-};
+const BOOKING_ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
+const BOOKING_PLATFORMS = ["TikTok", "Facebook", "Instagram", "YouTube"];
 
 export default function ReleaseDetailPage() {
   const { id } = useParams();
@@ -96,14 +95,21 @@ export default function ReleaseDetailPage() {
     setRelease((r) => ({ ...r, requested: newVal }));
   }
 
-  async function addBookingEntry(round, subtab, channel, link) {
+  async function addBookingEntry(round, platform, channelType, link) {
     if (!link) return;
     const { data, error: err } = await supabase
       .from("media_booking_entries")
-      .insert({ release_id: id, booking_round: round, subtab, channel, link })
+      .insert({ release_id: id, booking_round: round, platform, channel_type: channelType, link, status: "Chưa Booking" })
       .select()
       .single();
     if (!err && data) setBookingEntries((prev) => [...prev, data]);
+  }
+
+  async function cycleBookingStatus(entry) {
+    const order = ["Chưa Booking", "Đã Gửi", "Done"];
+    const next = order[(order.indexOf(entry.status) + 1) % order.length];
+    await supabase.from("media_booking_entries").update({ status: next }).eq("id", entry.id);
+    setBookingEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, status: next } : e)));
   }
 
   // Magic link — real Resend sending isn't wired up yet, so this just
@@ -187,10 +193,11 @@ export default function ReleaseDetailPage() {
         )}
         {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "media_booking" && (
-          <MediaBookingTab entries={bookingEntries} onAdd={addBookingEntry} />
+          <MediaBookingTab entries={bookingEntries} onAdd={addBookingEntry} onCycleStatus={cycleBookingStatus} />
         )}
         {tab === "pitching" && <PitchingTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "pre_release" && <PreReleaseTab form={form} update={update} onSave={saveTab} saving={saving} />}
+        {tab === "streaming_milestone" && <StreamingMilestoneTab form={form} />}
         {tab === "tasklist" && <TasklistTab form={form} bookingEntries={bookingEntries} />}
       </div>
     </div>
@@ -217,6 +224,51 @@ function Field({ label, children }) {
   );
 }
 
+// Loại Dự Án is no longer a static dropdown — it's the booking pipeline:
+// BRIEF & DATA -> DEALING -> LEGAL -> a real resolved package
+// (set once the artist locks one in via the magic link). This control
+// shows the current stage and, while still in a pipeline stage, a button
+// to advance. Once resolved to a real package, it shows that value
+// read-only plus the derived Phụ Lục requirement.
+function PipelineControl({ form, update }) {
+  const stage = form.project_type;
+  const isPipelineStage = PIPELINE_STAGES.includes(stage);
+  const stageIdx = PIPELINE_STAGES.indexOf(stage);
+  const nextStage = isPipelineStage && stageIdx < PIPELINE_STAGES.length - 1 ? PIPELINE_STAGES[stageIdx + 1] : null;
+
+  return (
+    <div style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 14, marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.15)", color: "#ff9d5c" }}>
+          {stage}
+        </span>
+        {nextStage && (
+          <button className={styles.btnSmall} onClick={() => update("project_type", nextStage)}>
+            Advance → {nextStage}
+          </button>
+        )}
+        {stage === "DEALING" && (
+          <span style={{ color: "#666", fontSize: 11 }}>
+            Waiting on artist to pick a package via the magic link (see Package section below)
+          </span>
+        )}
+      </div>
+      {!isPipelineStage && (
+        <div style={{ marginTop: 8, fontSize: 12, color: "#888" }}>
+          Resolved package — <span style={{ color: "#ffca4d" }}>Phụ Lục required, see URL tab.</span>
+          {" "}
+          <button className={styles.btnSmall} onClick={() => update("project_type", "BRIEF & DATA")}>
+            Reset to BRIEF & DATA
+          </button>
+        </div>
+      )}
+      <p style={{ color: "#555", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
+        Click Save below to persist a stage change.
+      </p>
+    </div>
+  );
+}
+
 function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packages, magicLinkUrl, generatingLink, onGenerateLink, onToggleLock }) {
   return (
     <div>
@@ -227,11 +279,8 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         <Field label="Link LBM (locked — edit from URL tab or Ticket)">
           <input className={styles.input} value={form.link_lbm || ""} disabled />
         </Field>
-        <Field label="Channel (Social Booking)">
+        <Field label="Media Channel">
           <input className={styles.input} value={form.requester_segment || ""} onChange={(e) => update("requester_segment", e.target.value)} placeholder="VIEENT / ENVI / ALL" />
-        </Field>
-        <Field label="Loại Dự Án (Promotion Package — exclusivity type)">
-          <input className={styles.input} value={form.project_type || ""} onChange={(e) => update("project_type", e.target.value)} />
         </Field>
         <Field label="Thể Loại (Genre)">
           <input className={styles.input} value={form.genre || ""} onChange={(e) => update("genre", e.target.value)} />
@@ -240,6 +289,9 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           <input className={styles.input} value={form.theme || ""} onChange={(e) => update("theme", e.target.value)} />
         </Field>
       </div>
+
+      <div className={styles.subheading}>Trạng Thái Gói (Loại Dự Án)</div>
+      <PipelineControl form={form} update={update} />
 
       <div className={styles.subheading}>Name / Artist / Release Date (editing updates the title above)</div>
       <div className={styles.grid2}>
@@ -327,7 +379,10 @@ function UrlTab({ form, update, onSave, saving }) {
     ["link_preorder", "Link Pre-order"],
     ["link_ugc", "Link UGC"],
     ["link_media_report", "Link Media Report"],
+    ["link_phu_luc", "URL Phụ Lục"],
+    ["promotion_package_url", "URL Promotion Package"],
   ];
+  const plStatus = phuLucStatusClient(form);
   return (
     <div>
       <div className={styles.grid2}>
@@ -337,80 +392,146 @@ function UrlTab({ form, update, onSave, saving }) {
           </Field>
         ))}
       </div>
+      <p style={{ color: "#888", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
+        Status Phụ Lục (computed): <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{plStatus}</span>
+        {" — "}set via Ngày Gửi/Ngày Ký on the Pre-release & Note tab.
+      </p>
       <SaveBar onSave={onSave} saving={saving} />
     </div>
   );
 }
 
-function MediaBookingTab({ entries, onAdd }) {
+// Mirrors phu_luc_status() in schema.sql — client-side so the URL tab can
+// show it live without a round trip.
+function phuLucStatusClient(form) {
+  if (form.link_phu_luc && form.phu_luc_ngay_ky) return "Đã Ký";
+  if (form.link_phu_luc && form.phu_luc_ngay_gui) return "Chờ Ký";
+  if (form.link_phu_luc) return "Đã Soạn";
+  return "Chưa Soạn";
+}
+
+function MediaBookingTab({ entries, onAdd, onCycleStatus }) {
+  const [round, setRound] = useState("INT");
+  const [channelType, setChannelType] = useState("Internal");
+
+  const visibleEntries = entries.filter((e) => e.booking_round === round && e.channel_type === channelType);
+
   return (
     <div>
-      {BOOKING_ROUNDS.map((round) => (
-        <div key={round} style={{ marginBottom: 28 }}>
-          <div className={styles.subheading}>{round}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
-            {Object.entries(BOOKING_SUBTABS).map(([subtab, channels]) => (
-              <div key={subtab} style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
-                  {subtab}
-                </div>
-                {channels.map((channel) => {
-                  const cellEntries = entries.filter(
-                    (e) => e.booking_round === round && e.subtab === subtab && e.channel === channel
-                  );
-                  return (
-                    <BookingCell
-                      key={channel}
-                      round={round}
-                      subtab={subtab}
-                      channel={channel}
-                      entries={cellEntries}
-                      onAdd={onAdd}
-                    />
-                  );
-                })}
+      <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
+        {BOOKING_ROUNDS.map((r) => (
+          <button
+            key={r}
+            onClick={() => setRound(r)}
+            className={`${styles.tabBtn} ${round === r ? styles.tabBtnActive : ""}`}
+            style={{ border: "1px solid #262626", borderRadius: 6 }}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+        {BOOKING_PLATFORMS.map((platform) => {
+          const cellEntries = visibleEntries.filter((e) => e.platform === platform);
+          return (
+            <div key={platform} style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
+                {platform}
               </div>
-            ))}
-          </div>
+              <BookingCell
+                round={round}
+                platform={platform}
+                channelType={channelType}
+                entries={cellEntries}
+                onAdd={onAdd}
+                onCycleStatus={onCycleStatus}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 16 }}>
+        <div className={styles.fieldLabel} style={{ marginBottom: 8 }}>Channel Type</div>
+        <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden", width: "fit-content" }}>
+          {["Internal", "External"].map((c) => (
+            <button
+              key={c}
+              onClick={() => setChannelType(c)}
+              style={{
+                padding: "9px 20px",
+                fontSize: 12,
+                fontWeight: 700,
+                border: "none",
+                cursor: "pointer",
+                background: channelType === c ? "#ff6b1a" : "transparent",
+                color: channelType === c ? "#0a0a0a" : "#ccc",
+              }}
+            >
+              {c}
+            </button>
+          ))}
         </div>
-      ))}
+        <p style={{ color: "#666", fontSize: 11, marginTop: 8 }}>
+          Round "INT" means no External channel is currently planned for this release (though that could
+          change) — separate from this Internal/External switch, which picks which kind of channel you're
+          viewing within whichever round is selected above.
+        </p>
+      </div>
     </div>
   );
 }
 
-function BookingCell({ round, subtab, channel, entries, onAdd }) {
+function BookingCell({ round, platform, channelType, entries, onAdd, onCycleStatus }) {
   const [open, setOpen] = useState(false);
   const [link, setLink] = useState("");
+  const done = entries.filter((e) => e.status === "Done").length;
   return (
-    <div style={{ marginBottom: 8, fontSize: 12 }}>
+    <div style={{ fontSize: 12 }}>
       <div
         style={{ display: "flex", justifyContent: "space-between", cursor: "pointer" }}
         onClick={() => setOpen((o) => !o)}
-        title={entries.map((e) => `${channel}: ${e.link}`).join("\n")}
+        title={entries.map((e) => `${e.status}: ${e.link}`).join("\n")}
       >
-        <span style={{ color: "#ccc" }}>{channel}</span>
+        <span style={{ color: "#ccc" }}>Links</span>
         <span style={{ color: entries.length ? "#ff9d5c" : "#555", fontWeight: 700 }}>
-          {entries.length} / {entries.length}
+          {done} / {entries.length}
         </span>
       </div>
       {open && (
-        <div style={{ marginTop: 6, display: "flex", gap: 4 }}>
-          <input
-            className={styles.input}
-            style={{ padding: "4px 8px", fontSize: 11 }}
-            placeholder="link…"
-            value={link}
-            onChange={(e) => setLink(e.target.value)}
-          />
-          <button
-            className={styles.btnSmall}
-            onClick={() => {
-              onAdd(round, subtab, channel, link);
-              setLink("");
-            }}
-          >
-            Add
-          </button>
+        <div style={{ marginTop: 6 }}>
+          {entries.map((e) => (
+            <div key={e.id} style={{ display: "flex", justifyContent: "space-between", gap: 6, marginBottom: 4 }}>
+              <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "#ccc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 100 }}>
+                {e.link}
+              </a>
+              <button
+                onClick={() => onCycleStatus(e)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#ff9d5c", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}
+              >
+                {e.status}
+              </button>
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+            <input
+              className={styles.input}
+              style={{ padding: "4px 8px", fontSize: 11 }}
+              placeholder="link…"
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+            />
+            <button
+              className={styles.btnSmall}
+              onClick={() => {
+                onAdd(round, platform, channelType, link);
+                setLink("");
+              }}
+            >
+              Add
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -492,6 +613,20 @@ function PreReleaseTab({ form, update, onSave, saving }) {
         </Field>
       </div>
 
+      <div className={styles.subheading}>Phụ Lục (Booking)</div>
+      <div className={styles.grid2}>
+        <Field label="Ngày Gửi">
+          <input type="date" className={styles.input} value={form.phu_luc_ngay_gui || ""} onChange={(e) => update("phu_luc_ngay_gui", e.target.value)} />
+        </Field>
+        <Field label="Ngày Ký">
+          <input type="date" className={styles.input} value={form.phu_luc_ngay_ky || ""} onChange={(e) => update("phu_luc_ngay_ky", e.target.value)} />
+        </Field>
+      </div>
+      <p style={{ color: "#888", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
+        Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{phuLucStatusClient(form)}</span>
+        {" — "}fill in URL Phụ Lục on the URL tab first.
+      </p>
+
       <div className={styles.subheading}>Linkshare Note</div>
       <div className={styles.grid2}>
         <Field label="Tiktok Release Timing">
@@ -520,6 +655,102 @@ function PreReleaseTab({ form, update, onSave, saving }) {
       </pre>
 
       <SaveBar onSave={onSave} saving={saving} />
+    </div>
+  );
+}
+
+// View-only. Pulls stream metrics + milestone chart entries by DID.
+// NOTE: matching derivative (phái sinh) tracks that aren't in NEW RELEASE
+// isn't resolved yet — only an exact DID match is done here; fuzzy/derivative
+// matching is flagged as a follow-up, not implemented in this pass.
+function StreamingMilestoneTab({ form }) {
+  const [metrics, setMetrics] = useState([]);
+  const [milestones, setMilestones] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!supabase || !form.did) { setLoading(false); return; }
+    (async () => {
+      const { data: links } = await supabase.from("release_dsp_links").select("id, platform, url_or_id").eq("release_id", form.id);
+      let snaps = [];
+      if (links && links.length) {
+        const { data } = await supabase
+          .from("dsp_metrics_snapshots")
+          .select("*, release_dsp_links!inner(platform, release_id)")
+          .eq("release_dsp_links.release_id", form.id)
+          .order("fetched_at", { ascending: false })
+          .limit(20);
+        snaps = data || [];
+      }
+      const { data: chart } = await supabase
+        .from("milestone_chart_entries")
+        .select("*")
+        .eq("did", form.did)
+        .order("entry_date", { ascending: false });
+      setMetrics(snaps);
+      setMilestones(chart || []);
+      setLoading(false);
+    })();
+  }, [form.id, form.did]);
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+        <span className={styles.fieldLabel}>Promotion Package</span>
+        {form.promotion_package_url ? (
+          <a href={form.promotion_package_url} target="_blank" rel="noopener noreferrer" title="Open Promotion Package link" style={{ fontSize: 18 }}>
+            🔗
+          </a>
+        ) : (
+          <span style={{ color: "#555", fontSize: 12 }}>no link set — add one on the URL tab</span>
+        )}
+      </div>
+
+      {loading ? (
+        <div className={styles.emptyState}>Loading…</div>
+      ) : (
+        <>
+          <div className={styles.subheading}>Stream Numbers</div>
+          {metrics.length === 0 ? (
+            <p style={{ color: "#666", fontSize: 12, marginBottom: 20 }}>No stream data linked yet.</p>
+          ) : (
+            <table className={styles.table} style={{ marginBottom: 24 }}>
+              <thead><tr><th>Platform</th><th>Streams</th><th>Fetched</th></tr></thead>
+              <tbody>
+                {metrics.map((m) => (
+                  <tr key={m.id}>
+                    <td>{m.release_dsp_links?.platform}</td>
+                    <td>{m.streams ?? "—"}</td>
+                    <td>{fmtDate(m.fetched_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <div className={styles.subheading}>Milestone (Chart Rank)</div>
+          <p style={{ color: "#666", fontSize: 11, marginTop: -8, marginBottom: 12 }}>
+            Matched by exact DID ({form.did || "—"}). Derivative-track matching isn't implemented yet.
+          </p>
+          {milestones.length === 0 ? (
+            <p style={{ color: "#666", fontSize: 12 }}>No milestone entries for this DID.</p>
+          ) : (
+            <table className={styles.table}>
+              <thead><tr><th>Chart</th><th>Date</th><th>Rank</th><th>Platform</th></tr></thead>
+              <tbody>
+                {milestones.map((m) => (
+                  <tr key={m.id}>
+                    <td>{m.chart}</td>
+                    <td>{fmtDate(m.entry_date)}</td>
+                    <td>{m.rank}</td>
+                    <td>{m.platform || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
     </div>
   );
 }
