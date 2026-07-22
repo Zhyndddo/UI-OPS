@@ -120,12 +120,12 @@ export default function ReleaseDetailPage() {
     }
   }
 
-  // Clicking SEND UPLOAD now does real work, not just a flag flip: it
-  // creates an actual Newrelease Upload ticket, and — the first time only,
-  // tracked via package_ticket_sent — ALSO sends a Package Prep ticket to
-  // Marketing. Clicking Upload again later never re-sends the package
-  // ticket; use "Send Package Ticket to Marketing" below to force a new
-  // one any time, regardless of that flag.
+  // Clicking SEND UPLOAD does real work: creates an actual Newrelease
+  // Upload ticket, and — the first time only, tracked via
+  // package_ticket_sent — ALSO sends a Package Prep ticket to Marketing.
+  // That same one-time gate is shared with the manual "Send Package Ticket
+  // to Marketing" button below — whichever one fires first "uses up" the
+  // gate, and the other won't send a duplicate afterward.
   async function toggleUpload() {
     const newVal = !form.requested;
     setForm((f) => ({ ...f, requested: newVal }));
@@ -140,24 +140,28 @@ export default function ReleaseDetailPage() {
           data: { releaseId: form.did, project: form.title, artist: form.main_artist, label: form.label },
         });
       }
-      if (!form.package_ticket_sent) {
-        await sendPackageTicket();
-      }
+      await sendPackageTicket();
     }
   }
 
-  // The dedicated, always-available action — Marketing can be asked to
-  // prepare/customize a package any time, independent of the Upload flow.
+  // Sending the package-prep ticket IS what starts the DEALING stage — no
+  // separate manual "Advance" action needed. This is a genuine one-time
+  // gate (not an override): once package_ticket_sent is true, calling this
+  // again — from either this button or the Upload flow — does nothing.
   async function sendPackageTicket() {
+    if (form.package_ticket_sent) return;
     const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "package_prep").single();
-    if (!tab) return;
-    await supabase.from("tickets").insert({
-      tab_id: tab.id,
-      data: { releaseId: form.did, contractType: form.project_type, note: `Chuẩn bị gói cho ${form.title} — ${form.main_artist}` },
-    });
-    await supabase.from("releases").update({ package_ticket_sent: true }).eq("id", id);
-    setForm((f) => ({ ...f, package_ticket_sent: true }));
-    setRelease((r) => ({ ...r, package_ticket_sent: true }));
+    if (tab) {
+      await supabase.from("tickets").insert({
+        tab_id: tab.id,
+        data: { releaseId: form.did, contractType: form.project_type, note: `Chuẩn bị gói cho ${form.title} — ${form.main_artist}` },
+      });
+    }
+    const patch = { package_ticket_sent: true };
+    if (form.project_type === "BRIEF & DATA") patch.project_type = "DEALING";
+    await supabase.from("releases").update(patch).eq("id", id);
+    setForm((f) => ({ ...f, ...patch }));
+    setRelease((r) => ({ ...r, ...patch }));
   }
 
   async function addBookingEntry(round, platform, channelType, link) {
@@ -292,15 +296,14 @@ function Field({ label, children }) {
 
 // Loại Dự Án is no longer a static dropdown — it's the booking pipeline:
 // BRIEF & DATA -> DEALING (persists until artist locks in) -> a real resolved package
-// (set once the artist locks one in via the magic link). This control
-// shows the current stage and, while still in a pipeline stage, a button
-// to advance. Once resolved to a real package, it shows that value
-// read-only plus the derived Phụ Lục requirement.
+// (set once the artist locks one in via the magic link). Shows the current
+// stage — no manual "Advance" action anymore; sending the package ticket
+// to Marketing (below, in the Package section) is what actually moves
+// BRIEF & DATA -> DEALING. Once resolved to a real package, shows that
+// value read-only plus the derived Phụ Lục requirement.
 function PipelineControl({ form, update }) {
   const stage = form.project_type;
   const isPipelineStage = PIPELINE_STAGES.includes(stage);
-  const stageIdx = PIPELINE_STAGES.indexOf(stage);
-  const nextStage = isPipelineStage && stageIdx < PIPELINE_STAGES.length - 1 ? PIPELINE_STAGES[stageIdx + 1] : null;
 
   return (
     <div style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 14, marginBottom: 20 }}>
@@ -308,10 +311,10 @@ function PipelineControl({ form, update }) {
         <span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.15)", color: "#ff9d5c" }}>
           {stage}
         </span>
-        {nextStage && (
-          <button className={styles.btnSmall} onClick={() => update("project_type", nextStage)}>
-            Advance → {nextStage}
-          </button>
+        {stage === "BRIEF & DATA" && (
+          <span style={{ color: "#666", fontSize: 11 }}>
+            Moves to DEALING automatically once a Package Ticket is sent (see Package section below)
+          </span>
         )}
         {stage === "DEALING" && (
           <span style={{ color: "#666", fontSize: 11 }}>
@@ -447,12 +450,14 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           <button className={styles.btnSmall} onClick={onToggleLock}>
             {form.package_locked ? "Unlock editing" : "Lock editing"}
           </button>
-          <button className={styles.btnSmall} onClick={onSendPackageTicket}>
-            Send Package Ticket to Marketing
+          <button
+            className={styles.btnSmall}
+            onClick={onSendPackageTicket}
+            disabled={form.package_ticket_sent}
+            style={form.package_ticket_sent ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+          >
+            {form.package_ticket_sent ? "Package Ticket Sent" : "Send Package Ticket to Marketing"}
           </button>
-          {form.package_ticket_sent && (
-            <span style={{ color: "#666", fontSize: 11 }}>Already sent once — this button re-sends regardless.</span>
-          )}
         </div>
 
         {magicLinkUrl && (
@@ -484,14 +489,41 @@ const GATE_FIELDS = [
   ["gate_design", "Design"],
   ["gate_co_trong_net_youtube", "Có Trong Net YouTube"],
 ];
-const GATE_OPTIONS = ["false", "true", "update", "update_later"];
-const GATE_LABELS = { false: "False", true: "True", update: "Update", update_later: "Update Later" };
+const GATE_OPTIONS = ["false", "true", "update"];
+const GATE_LABELS = { false: "No", true: "Yes", update: "Update" };
 
-// Quad-state (not plain boolean) gate fields. Ticking one "true" is meant
-// to reveal more detail — pitching already has its full breakdown on the
-// Pitching tab, so this just cross-links there; split_share is the one
-// with genuinely new sub-fields, including a repeatable list (multiple
-// labels can each take a cut).
+// Tri-state gate fields — Yes (do it) / No (don't need to) / Update (will
+// decide yes/no later). Ticking "Yes" is meant to reveal more detail —
+// pitching already has its full breakdown on the Pitching tab, so this
+// just cross-links there; split_share is the one with genuinely new
+// sub-fields, including a repeatable list (multiple labels can each take
+// a cut).
+function GateToggle({ value, onChange }) {
+  return (
+    <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden" }}>
+      {GATE_OPTIONS.map((o) => (
+        <button
+          key={o}
+          type="button"
+          onClick={() => onChange(o)}
+          style={{
+            flex: 1,
+            padding: "8px 10px",
+            fontSize: 12,
+            fontWeight: 700,
+            border: "none",
+            cursor: "pointer",
+            background: value === o ? "#ff6b1a" : "transparent",
+            color: value === o ? "#0a0a0a" : "#ccc",
+          }}
+        >
+          {GATE_LABELS[o]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function GateFields({ form, update }) {
   const entries = form.split_share_entries || [];
 
@@ -512,11 +544,7 @@ function GateFields({ form, update }) {
         {GATE_FIELDS.map(([key, label]) => (
           <div key={key} className={styles.field} style={{ marginBottom: 0 }}>
             <label className={styles.fieldLabel}>{label}</label>
-            <select className={styles.select} value={form[key] || "false"} onChange={(e) => update(key, e.target.value)}>
-              {GATE_OPTIONS.map((o) => (
-                <option key={o} value={o}>{GATE_LABELS[o]}</option>
-              ))}
-            </select>
+            <GateToggle value={form[key] || "false"} onChange={(v) => update(key, v)} />
           </div>
         ))}
       </div>
