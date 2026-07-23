@@ -4,7 +4,7 @@ import AppShell from "../../../lib/AppShell";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
-import { fmtDate, ticketStatus, statusColor } from "../../../lib/helpers";
+import { fmtDate, statusColor } from "../../../lib/helpers";
 import styles from "../../shared.module.css";
 
 const PHU_LUC_COLOR = {
@@ -99,7 +99,7 @@ export default function PhuLucList() {
             </thead>
             <tbody>
               {tickets.map((t, i) => {
-                const status = ticketStatus(t);
+                const status = t.status;
                 const color = statusColor(status);
                 const rel = releases[t.data?.releaseId];
                 const plStatus = phuLucStatus(rel);

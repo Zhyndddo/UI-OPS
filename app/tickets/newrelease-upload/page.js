@@ -4,7 +4,7 @@ import AppShell from "../../../lib/AppShell";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
-import { fmtDate, ticketStatus, statusColor } from "../../../lib/helpers";
+import { fmtDate, statusColor } from "../../../lib/helpers";
 import styles from "../../shared.module.css";
 
 export default function NewreleaseUploadList() {
@@ -29,16 +29,9 @@ export default function NewreleaseUploadList() {
     setLoading(false);
   }
 
-  async function markReceived(t) {
-    await supabase.from("tickets").update({ received_at: new Date().toISOString() }).eq("id", t.id);
-    load();
-  }
-  async function markStarted(t) {
-    await supabase.from("tickets").update({ started_at: new Date().toISOString() }).eq("id", t.id);
-    load();
-  }
-  async function markCompleted(t) {
-    await supabase.from("tickets").update({ completed_at: new Date().toISOString() }).eq("id", t.id);
+  async function updateStatus(t, newStatus) {
+    const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
+    await supabase.from("tickets").update({ status: newStatus, status_log: newLog }).eq("id", t.id);
     load();
   }
 
@@ -62,12 +55,12 @@ export default function NewreleaseUploadList() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>#</th><th>Ngày Order</th><th>Nội Dung</th><th>PIC</th><th>Deadline</th><th>Status</th><th>Note</th><th>Actions</th>
+                <th>#</th><th>Ngày Order</th><th>Nội Dung</th><th>PIC</th><th>Deadline</th><th>Note</th><th>Status</th>
               </tr>
             </thead>
             <tbody>
               {tickets.map((t, i) => {
-                const status = ticketStatus(t);
+                const status = t.status;
                 const color = statusColor(status);
                 return (
                   <tr key={t.id}>
@@ -76,12 +69,15 @@ export default function NewreleaseUploadList() {
                     <td>{t.data?.project || t.data?.releaseId || "—"} — {t.data?.artist || ""}</td>
                     <td>{t.executor || "—"}</td>
                     <td>{fmtDate(t.deadline)}</td>
-                    <td><span className={styles.statusBadge} style={{ background: color.bg, color: color.fg }}>{status}</span></td>
                     <td>{t.data?.note || "—"}</td>
-                    <td style={{ display: "flex", gap: 6 }}>
-                      {!t.received_at && <button className={styles.btnSmall} onClick={() => markReceived(t)}>Receive</button>}
-                      {t.received_at && !t.started_at && <button className={styles.btnSmall} onClick={() => markStarted(t)}>Start</button>}
-                      {t.started_at && !t.completed_at && <button className={styles.btnSmall} onClick={() => markCompleted(t)}>Complete</button>}
+                    <td>
+                      <select
+                        value={status}
+                        onChange={(e) => updateStatus(t, e.target.value)}
+                        style={{ background: color.bg, color: color.fg, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}
+                      >
+                        {["REQUESTED", "PROCESS", "COMPLETE", "REFUND", "CANCELED"].map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
                     </td>
                   </tr>
                 );

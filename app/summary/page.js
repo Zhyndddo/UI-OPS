@@ -3,7 +3,7 @@
 import AppShell from "../../lib/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
-import { ticketStatus } from "../../lib/helpers";
+import { isTicketDone } from "../../lib/helpers";
 import { useAuth } from "../../lib/AuthContext";
 import styles from "../shared.module.css";
 
@@ -95,10 +95,7 @@ export default function SummaryPage() {
     return visibleTypes.map((key) => {
       const typeTickets = tickets.filter((t) => tabById[t.tab_id] === key);
       const total = typeTickets.length;
-      const done = typeTickets.filter((t) => {
-        const s = ticketStatus(t);
-        return s === "Đã hoàn thành" || s === "Refund" || s === "Cancel";
-      }).length;
+      const done = typeTickets.filter((t) => isTicketDone(t.status)).length;
       return { key, label: TICKET_TYPE_LABELS[key] || key, total, done, notDone: total - done };
     });
   }, [isDev, effectiveTeam, tickets, ticketTabs]);
