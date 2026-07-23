@@ -161,13 +161,18 @@ export default function ReleaseDetailPage() {
   // separate manual "Advance" action needed. This is a genuine one-time
   // gate (not an override): once package_ticket_sent is true, calling this
   // again — from either this button or the Upload flow — does nothing.
+  // Media Booking absorbed Package Prep's role — sending this from the
+  // release popup leaves "Propose Package" blank (per the agreed design:
+  // only the manual "new ticket" flow lets AR pre-pick a template).
   async function sendPackageTicket() {
     if (form.package_ticket_sent) return;
-    const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "package_prep").single();
+    const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "media_booking").single();
     if (tab) {
       await supabase.from("tickets").insert({
         tab_id: tab.id,
-        data: { releaseId: form.did, contractType: form.project_type, note: `Chuẩn bị gói cho ${form.title} — ${form.main_artist}` },
+        data: { releaseId: form.did, proposedPackage: null },
+        status: tab.default_status,
+        status_log: { [tab.default_status]: new Date().toISOString() },
       });
     }
     const patch = { package_ticket_sent: true };
@@ -512,9 +517,6 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
             {form.package_ticket_sent ? "Package Ticket Sent" : "Send Package Ticket to Marketing"}
           </button>
         </div>
-        <p style={{ color: "#555", fontSize: 11, marginTop: 8 }}>
-          Magic link generation moved to the <Link href="/workstation/package" style={{ color: "#ff9d5c" }}>Package workstation</Link> — not available from here anymore.
-        </p>
 
         {magicLinkUrl && (
           <div style={{ marginTop: 14, background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12 }}>
