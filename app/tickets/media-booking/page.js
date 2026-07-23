@@ -6,6 +6,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
+import TypeSwitcher from "../../../lib/TypeSwitcher";
 import styles from "../../shared.module.css";
 
 const TEMPLATES = ["Độc Quyền Vĩnh Viễn", "Độc Quyền 5 năm", "Độc Quyền 2 năm"];
@@ -78,6 +79,7 @@ export default function MediaBookingList() {
     <AppShell>
       <div className={styles.page}>
         <div className={styles.container} style={{ maxWidth: 1100 }}>
+          <TypeSwitcher kind="ticket" current="media_booking" />
           <div className={styles.topRow}>
             <div>
               <div className={styles.eyebrow}>// Ticket</div>

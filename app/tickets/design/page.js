@@ -6,6 +6,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
+import TypeSwitcher from "../../../lib/TypeSwitcher";
 import styles from "../../shared.module.css";
 
 const REFUND_LIKE = ["REFUND"];
@@ -21,6 +22,7 @@ export default function DesignList() {
   const [platforms, setPlatforms] = useState([]);
   const [types, setTypes] = useState([]);
   const [sizes, setSizes] = useState([]);
+  const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
   const [overload, setOverload] = useState(null);
@@ -66,6 +68,8 @@ export default function DesignList() {
     setPlatforms(p || []);
     setTypes(t || []);
     setSizes(s || []);
+    const { data: profs } = await supabase.from("profiles").select("id, name").order("name");
+    setProfiles(profs || []);
     setLoading(false);
   }
 
@@ -75,10 +79,22 @@ export default function DesignList() {
     await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
   }
 
+  async function updatePic(t, profileId) {
+    const patch = { pic_profile_id: profileId || null };
+    if (profileId && t.status === tab.default_status) {
+      const nextStatus = tab.status_options[1];
+      if (nextStatus) { patch.status = nextStatus; patch.status_log = { ...t.status_log, [nextStatus]: new Date().toISOString() }; }
+    }
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
+    await supabase.from("tickets").update(patch).eq("id", t.id);
+  }
+
   async function updateStatus(t, newStatus) {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
-    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, status: newStatus, status_log: newLog } : x)));
-    await supabase.from("tickets").update({ status: newStatus, status_log: newLog }).eq("id", t.id);
+    const patch = { status: newStatus, status_log: newLog };
+    if (newStatus === "REFUND") patch.pic_profile_id = null;
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
+    await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
   const visibleTickets = useMemo(() => {
@@ -90,6 +106,7 @@ export default function DesignList() {
     <AppShell>
       <div className={styles.page}>
         <div className={styles.container} style={{ maxWidth: 1300 }}>
+          <TypeSwitcher kind="ticket" current="design" />
           <div className={styles.topRow}>
             <div>
               <div className={styles.eyebrow}>// Ticket</div>
@@ -142,7 +159,7 @@ export default function DesignList() {
               <thead>
                 <tr>
                   <th>Priority</th><th>Task</th><th>Description</th><th>Platform</th><th>Design Type</th><th>Size</th>
-                  <th>Deadline</th><th>Status</th>
+                  <th>PIC</th><th>Deadline</th><th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -154,9 +171,11 @@ export default function DesignList() {
                     platforms={platforms}
                     types={types}
                     sizes={sizes}
+                    profiles={profiles}
                     isExecutorView={isExecutorView}
                     onUpdateData={updateData}
                     onUpdateStatus={updateStatus}
+                    onUpdatePic={updatePic}
                   />
                 ))}
               </tbody>
@@ -168,7 +187,7 @@ export default function DesignList() {
   );
 }
 
-function DesignRow({ ticket, tab, platforms, types, sizes, isExecutorView, onUpdateData, onUpdateStatus }) {
+function DesignRow({ ticket, tab, platforms, types, sizes, profiles, isExecutorView, onUpdateData, onUpdateStatus, onUpdatePic }) {
   const status = ticket.status;
   const color = statusColor(status);
   const isRefundLike = REFUND_LIKE.includes(status);
@@ -241,6 +260,14 @@ function DesignRow({ ticket, tab, platforms, types, sizes, isExecutorView, onUpd
             {sizesForType.map((s) => <option key={s.id} value={s.label}>{s.label}</option>)}
           </select>
         ) : (ticket.data?.size || "—")}
+      </td>
+      <td>
+        {isExecutorView ? (
+          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
+            <option value="">— Unassigned —</option>
+            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        ) : (profiles.find((p) => p.id === ticket.pic_profile_id)?.name || "—")}
       </td>
       <td>{fmtDate(ticket.deadline)}</td>
       <td>

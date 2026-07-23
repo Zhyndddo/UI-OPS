@@ -5,6 +5,7 @@ import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate } from "../../../lib/helpers";
+import TypeSwitcher from "../../../lib/TypeSwitcher";
 import styles from "../../shared.module.css";
 
 // Phase 1 — cross-platform correctness checks while waiting for release.
@@ -68,8 +69,9 @@ export default function ConfirmWorkstation() {
     <AppShell>
       <div className={styles.page}>
         <div className={styles.container} style={{ maxWidth: 1300 }}>
+          <TypeSwitcher kind="workstation" current="confirm" />
           <div className={styles.eyebrow}>// Workstation</div>
-          <h1 className={styles.title} style={{ marginBottom: 16 }}>Confirm</h1>
+          <h1 className={styles.title} style={{ marginBottom: 16 }}>Re-Check</h1>
 
           <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
             {[["confirm_phase1", "Phase 1 — Correctness"], ["confirm_phase2", "Phase 2 — Smartlink"]].map(([key, label]) => (

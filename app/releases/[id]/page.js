@@ -210,6 +210,20 @@ export default function ReleaseDetailPage() {
     }
   }
 
+  // Ticking Profile Artist "Yes" on the detail page fires this
+  // immediately — same idea as Pitching, just no sub-type picker needed.
+  async function handleArtistProfileYes() {
+    const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
+    if (!tab) return;
+    await supabase.from("tickets").insert({
+      tab_id: tab.id,
+      data: { artistName: form.main_artist, email: "" },
+      status: tab.default_status,
+      status_log: { [tab.default_status]: new Date().toISOString() },
+      requester_segment: form.requester_segment || null,
+    });
+  }
+
   async function addBookingEntry(round, platform, channelType, link) {
     if (!link) return;
     const { data, error: err } = await supabase
@@ -293,6 +307,7 @@ export default function ReleaseDetailPage() {
             onSendPackageTicket={sendPackageTicket}
             pitchingTicket={pitchingTicket}
             onPitchingToggle={handlePitchingToggle}
+            onArtistProfileYes={handleArtistProfileYes}
           />
         )}
         {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} />}
@@ -378,7 +393,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, pitchingTicket, onPitchingToggle }) {
+function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, pitchingTicket, onPitchingToggle, onArtistProfileYes }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
 
@@ -422,6 +437,12 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
             <option value="">— Chọn chủ đề —</option>
             {topics.map((opt) => <option key={opt.value} value={opt.value}>{opt.label || opt.value}</option>)}
           </select>
+        </Field>
+        <Field label="ISRC">
+          <input className={styles.input} value={form.isrc || ""} onChange={(e) => update("isrc", e.target.value)} />
+        </Field>
+        <Field label="Apple ID">
+          <input className={styles.input} value={form.apple_id || ""} onChange={(e) => update("apple_id", e.target.value)} />
         </Field>
       </div>
 
@@ -538,6 +559,7 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           update={update}
           pitchingTypes={pitchingTicket?.data}
           onPitchingToggle={onPitchingToggle}
+          onArtistProfileYes={onArtistProfileYes}
         />
       </div>
     </div>
@@ -554,6 +576,8 @@ function UrlTab({ form, update, onSave, saving }) {
     ["link_ugc", "Link UGC"],
     ["link_media_report", "Link Media Report"],
     ["promotion_package_url", "URL Promotion Package"],
+    ["artist_photo_url", "Artist Photo URL"],
+    ["project_proposal_url", "Project Proposal URL"],
     ["link_drive", "Link Drive"],
   ];
   const plStatus = phuLucStatusClient(form);
@@ -743,9 +767,18 @@ function PitchingTab({ form, update, onSave, saving }) {
   const nctZingOpts = ["", "Chưa thực hiện", "Đã pitching", "Không hỗ trợ", "Có gói"];
   return (
     <div>
-      <div className={styles.field} style={{ maxWidth: 220, marginBottom: 16 }}>
-        <label className={styles.fieldLabel}>Priority Pitching</label>
-        <BoolToggle value={!!form.priority_pitching} onChange={(v) => update("priority_pitching", v)} />
+      <div className={styles.grid2} style={{ marginBottom: 16 }}>
+        <Field label="Priority Pitching">
+          <select className={styles.select} value={form.priority_pitching || ""} onChange={(e) => update("priority_pitching", e.target.value)}>
+            {statusOpts.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+          </select>
+        </Field>
+        <Field label="ISRC">
+          <input className={styles.input} value={form.isrc || ""} onChange={(e) => update("isrc", e.target.value)} />
+        </Field>
+        <Field label="Apple ID">
+          <input className={styles.input} value={form.apple_id || ""} onChange={(e) => update("apple_id", e.target.value)} />
+        </Field>
       </div>
 
       <div className={styles.grid2}>

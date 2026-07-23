@@ -5,6 +5,7 @@ import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate } from "../../../lib/helpers";
+import TypeSwitcher from "../../../lib/TypeSwitcher";
 import styles from "../../shared.module.css";
 
 // Pulled out of the New Release popup's Pre-release & Note tab into its
@@ -48,6 +49,7 @@ export default function PreReleaseWorkstation() {
     <AppShell>
       <div className={styles.page}>
         <div className={styles.container} style={{ maxWidth: 1300 }}>
+          <TypeSwitcher kind="workstation" current="pre_release" />
           <div className={styles.eyebrow}>// Workstation</div>
           <h1 className={styles.title} style={{ marginBottom: 4 }}>Pre-release</h1>
           <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }} title={defaultPic ? `Default PIC: ${defaultPic}` : "No default PIC set"}>
