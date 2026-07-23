@@ -97,7 +97,7 @@ export default function DesignList() {
             <table className={styles.table}>
               <thead>
                 <tr>
-                  <th>Priority</th><th>Task</th><th>Platform</th><th>Design Type</th><th>Size</th>
+                  <th>Priority</th><th>Task</th><th>Description</th><th>Platform</th><th>Design Type</th><th>Size</th>
                   <th>Deadline</th><th>Status</th>
                 </tr>
               </thead>
@@ -150,8 +150,29 @@ function DesignRow({ ticket, tab, platforms, types, sizes, isExecutorView, onUpd
   return (
     <tr>
       <td>{ticket.data?.priority || "NORMAL"}</td>
-      <td style={{ whiteSpace: "pre-line", fontSize: 12, maxWidth: 220 }}>
-        {ticket.data?.task || `${ticket.data?.project || ""} — ${ticket.data?.artist || ""}`}
+      <td style={{ minWidth: 160 }}>
+        {isExecutorView ? (
+          <textarea
+            className={styles.textarea}
+            style={{ minHeight: 44, fontSize: 12, padding: "4px 8px" }}
+            defaultValue={ticket.data?.task || ""}
+            onBlur={(e) => onUpdateData(ticket, { task: e.target.value })}
+          />
+        ) : (
+          <span style={{ whiteSpace: "pre-line", fontSize: 12 }}>{ticket.data?.task || "—"}</span>
+        )}
+      </td>
+      <td style={{ minWidth: 160 }}>
+        {isExecutorView ? (
+          <textarea
+            className={styles.textarea}
+            style={{ minHeight: 44, fontSize: 12, padding: "4px 8px" }}
+            defaultValue={ticket.data?.description || ""}
+            onBlur={(e) => onUpdateData(ticket, { description: e.target.value })}
+          />
+        ) : (
+          <span style={{ whiteSpace: "pre-line", fontSize: 12 }}>{ticket.data?.description || "—"}</span>
+        )}
       </td>
       <td>
         {isExecutorView ? (

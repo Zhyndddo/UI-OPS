@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import AppShell from "../../../../lib/AppShell";
+import ReleasePicker from "../../../../lib/ReleasePicker";
 import { supabase } from "../../../../lib/supabaseClient";
 import { useAuth } from "../../../../lib/AuthContext";
 import styles from "../../../shared.module.css";
@@ -150,7 +151,21 @@ export default function NewDesignTicket() {
               </div>
               <div className={styles.field}>
                 <label className={styles.fieldLabel}>Project <span className={styles.required}>*</span></label>
-                <input className={styles.input} placeholder="e.g. Nike Q3" value={project} onChange={(e) => setProject(e.target.value)} />
+                <div style={{ position: "relative" }}>
+                  <input
+                    className={styles.input}
+                    style={{ paddingRight: 34 }}
+                    placeholder="e.g. Nike Q3"
+                    value={project}
+                    onChange={(e) => setProject(e.target.value)}
+                  />
+                  <ReleasePicker
+                    onSelect={(r) => {
+                      setProject(r.title);
+                      setArtist(r.main_artist);
+                    }}
+                  />
+                </div>
               </div>
 
               <div className={styles.field}>
