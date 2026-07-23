@@ -6,6 +6,8 @@ const WORKSTATIONS = [
   { href: "/booking", label: "Booking", note: "3-round × platform matrix, Direct/Partner gated on Phụ Lục" },
   { href: "/workstation/confirm", label: "Confirm", note: "Cross-platform correctness checks + Smartlink verification, two phases" },
   { href: "/workstation/pre-release", label: "Pre-release", note: "CANVAS, Artist Pick, Musixmatch, NCT Lyric" },
+  { href: "/workstation/package", label: "Package", note: "Itemized package building + magic link generation" },
+  { href: "/workstation/pitching", label: "Pitching", note: "Queue of active Pitching tickets, edited in one place" },
 ];
 
 export default function WorkstationIndex() {

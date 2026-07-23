@@ -10,6 +10,10 @@ import styles from "../../shared.module.css";
 
 const REFUND_LIKE = ["REFUND"];
 
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function DesignList() {
   const { profile } = useAuth();
   const [tab, setTab] = useState(null);
@@ -19,6 +23,7 @@ export default function DesignList() {
   const [sizes, setSizes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
+  const [overload, setOverload] = useState(null);
 
   const isExecutorView = !profile?.segment || profile.segment === "Design";
 
@@ -26,6 +31,25 @@ export default function DesignList() {
     if (!supabase) return;
     load();
   }, []);
+
+  useEffect(() => {
+    if (!supabase || !isExecutorView) return;
+    (async () => {
+      const { data } = await supabase.from("app_settings").select("value").eq("key", "design_overload").maybeSingle();
+      let val = data?.value || { active: false, date: null };
+      if (val.date !== todayStr()) {
+        val = { active: false, date: todayStr() };
+        await supabase.from("app_settings").update({ value: val }).eq("key", "design_overload");
+      }
+      setOverload(val);
+    })();
+  }, [isExecutorView]);
+
+  async function toggleOverload() {
+    const next = { active: !overload.active, date: todayStr() };
+    setOverload(next);
+    await supabase.from("app_settings").update({ value: next }).eq("key", "design_overload");
+  }
 
   async function load() {
     setLoading(true);
@@ -71,7 +95,27 @@ export default function DesignList() {
               <div className={styles.eyebrow}>// Ticket</div>
               <h1 className={styles.title} style={{ marginBottom: 0 }}>Design</h1>
             </div>
-            <Link href="/tickets/design/new" className={styles.btnPrimary}>+ Request</Link>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              {isExecutorView && overload && (
+                <button
+                  onClick={toggleOverload}
+                  title="When active, new Design tickets can't pick today as their deadline"
+                  style={{
+                    background: overload.active ? "#2a1a0a" : "transparent",
+                    color: overload.active ? "#ffca4d" : "var(--text)",
+                    border: "1px solid var(--border-strong)",
+                    borderRadius: 6,
+                    padding: "9px 16px",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  {overload.active ? "🔒 Overloaded" : "Overload"}
+                </button>
+              )}
+              <Link href="/tickets/design/new" className={styles.btnPrimary}>+ Request</Link>
+            </div>
           </div>
 
           {isExecutorView && tab && (

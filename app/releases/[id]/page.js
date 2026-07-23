@@ -374,6 +374,23 @@ function fmtVnd(n) {
 }
 
 function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, pitchingTicket, onPitchingToggle }) {
+  const [genres, setGenres] = useState([]);
+  const [topics, setTopics] = useState([]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase
+      .from("lookup_options")
+      .select("category, value, label")
+      .eq("active", true)
+      .in("category", ["genre", "topic"])
+      .order("sort_order")
+      .then(({ data }) => {
+        setGenres((data || []).filter((r) => r.category === "genre"));
+        setTopics((data || []).filter((r) => r.category === "topic"));
+      });
+  }, []);
+
   return (
     <div>
       <div className={styles.grid2}>
@@ -390,10 +407,16 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           <input className={styles.input} value={form.release_category || ""} onChange={(e) => update("release_category", e.target.value)} placeholder="New Release / Re Marketing / ..." />
         </Field>
         <Field label="Thể Loại (Genre)">
-          <input className={styles.input} value={form.genre || ""} onChange={(e) => update("genre", e.target.value)} />
+          <select className={styles.select} value={form.genre || ""} onChange={(e) => update("genre", e.target.value)}>
+            <option value="">— Chọn thể loại —</option>
+            {genres.map((opt) => <option key={opt.value} value={opt.value}>{opt.label || opt.value}</option>)}
+          </select>
         </Field>
         <Field label="Chủ Đề (Topic)">
-          <input className={styles.input} value={form.theme || ""} onChange={(e) => update("theme", e.target.value)} />
+          <select className={styles.select} value={form.theme || ""} onChange={(e) => update("theme", e.target.value)}>
+            <option value="">— Chọn chủ đề —</option>
+            {topics.map((opt) => <option key={opt.value} value={opt.value}>{opt.label || opt.value}</option>)}
+          </select>
         </Field>
       </div>
 
@@ -490,8 +513,7 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           </button>
         </div>
         <p style={{ color: "#555", fontSize: 11, marginTop: 8 }}>
-          Magic link generation moved to Marketing's package spec builder (not built yet) — not available
-          from here anymore.
+          Magic link generation moved to the <Link href="/workstation/package" style={{ color: "#ff9d5c" }}>Package workstation</Link> — not available from here anymore.
         </p>
 
         {magicLinkUrl && (
@@ -719,10 +741,10 @@ function PitchingTab({ form, update, onSave, saving }) {
   const nctZingOpts = ["", "Chưa thực hiện", "Đã pitching", "Không hỗ trợ", "Có gói"];
   return (
     <div>
-      <label className={styles.checkboxRow} style={{ marginBottom: 16 }}>
-        <input type="checkbox" checked={!!form.priority_pitching} onChange={(e) => update("priority_pitching", e.target.checked)} />
-        Priority Pitching
-      </label>
+      <div className={styles.field} style={{ maxWidth: 220, marginBottom: 16 }}>
+        <label className={styles.fieldLabel}>Priority Pitching</label>
+        <BoolToggle value={!!form.priority_pitching} onChange={(v) => update("priority_pitching", v)} />
+      </div>
 
       <div className={styles.grid2}>
         <Field label="Spotify Status">

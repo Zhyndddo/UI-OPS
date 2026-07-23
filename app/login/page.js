@@ -25,7 +25,7 @@ export default function LoginPage() {
 
   async function pick(p) {
     await signInAs(p);
-    router.push("/");
+    router.push("/releases");
   }
 
   return (
