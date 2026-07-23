@@ -57,9 +57,11 @@ export default function NewReleasePage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [pitchingTypes, setPitchingTypes] = useState(EMPTY_PITCHING_TYPES);
   const [genres, setGenres] = useState([]);
+  const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
   const [categories, setCategories] = useState([]);
   const [artists, setArtists] = useState([]);
+  const [labels, setLabels] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [createdDid, setCreatedDid] = useState(null);
@@ -73,7 +75,7 @@ export default function NewReleasePage() {
       .from("lookup_options")
       .select("category, value, label")
       .eq("active", true)
-      .in("category", ["genre", "channel", "release_category"])
+      .in("category", ["genre", "topic", "channel", "release_category"])
       .order("sort_order")
       .then(({ data, error: fetchError }) => {
         if (fetchError) {
@@ -81,6 +83,7 @@ export default function NewReleasePage() {
           return;
         }
         setGenres((data || []).filter((r) => r.category === "genre"));
+        setTopics((data || []).filter((r) => r.category === "topic"));
         setChannels((data || []).filter((r) => r.category === "channel"));
         setCategories((data || []).filter((r) => r.category === "release_category"));
       });
@@ -90,6 +93,12 @@ export default function NewReleasePage() {
       .select("stage_name, labels(label_name)")
       .order("stage_name")
       .then(({ data }) => setArtists(data || []));
+
+    supabase
+      .from("labels")
+      .select("label_name")
+      .order("label_name")
+      .then(({ data }) => setLabels(data || []));
   }, []);
 
   function update(key, value) {
@@ -230,11 +239,11 @@ export default function NewReleasePage() {
 
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Hãng Đĩa <span className={styles.required}>*</span></label>
-              <input
-                className={styles.input}
-                placeholder="Tên label"
+              <LabelInput
                 value={form.label}
-                onChange={(e) => update("label", e.target.value)}
+                onChange={(v) => update("label", v)}
+                labels={labels}
+                placeholder="Tên label"
               />
             </div>
 
@@ -322,12 +331,18 @@ export default function NewReleasePage() {
 
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Chủ đề</label>
-              <input
-                className={styles.input}
-                placeholder="VD: Tình yêu, Tình yêu tan vỡ"
+              <select
+                className={styles.select}
                 value={form.theme}
                 onChange={(e) => update("theme", e.target.value)}
-              />
+              >
+                <option value="">— Chọn chủ đề —</option>
+                {topics.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label || opt.value}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className={styles.field}>
@@ -363,7 +378,7 @@ export default function NewReleasePage() {
             </div>
 
             <div className={`${styles.field} ${styles.fieldFull}`}>
-              <label className={styles.fieldLabel}>Brief & Confirmation</label>
+              <label className={styles.fieldLabel}>Next Step Note</label>
               <textarea
                 className={styles.textarea}
                 placeholder="Tình trạng data, xác nhận gói HTTT…"
@@ -389,7 +404,7 @@ export default function NewReleasePage() {
             form={form}
             update={update}
             pitchingTypes={pitchingTypes}
-            setPitchingTypes={setPitchingTypes}
+            onPitchingToggle={(key, checked) => setPitchingTypes((p) => ({ ...p, [key]: checked }))}
           />
 
           <div className={styles.actions}>
@@ -422,6 +437,50 @@ export default function NewReleasePage() {
 // typed value stays free text (main_artist/feature_artist are text columns,
 // not FKs), this just suggests matches as you type rather than forcing a
 // hard reference, since not every artist has been entered yet.
+// Same autocomplete pattern as ArtistInput, referencing the Label List
+// reference table instead — free text underneath, not a hard foreign key,
+// since not every label is in the reference table yet.
+function LabelInput({ value, onChange, labels, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const matches =
+    value.trim().length > 0
+      ? labels.filter((l) => l.label_name.toLowerCase().includes(value.trim().toLowerCase())).slice(0, 8)
+      : [];
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        className={styles.input}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && matches.length > 0 && (
+        <div
+          style={{
+            position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10,
+            background: "#1a1a1a", border: "1px solid #333", borderRadius: 6,
+            marginTop: 4, maxHeight: 200, overflowY: "auto",
+          }}
+        >
+          {matches.map((l) => (
+            <div
+              key={l.label_name}
+              onClick={() => { onChange(l.label_name); setOpen(false); }}
+              onMouseDown={(e) => e.preventDefault()}
+              style={{ padding: "8px 12px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid #262626" }}
+            >
+              {l.label_name}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ArtistInput({ value, onChange, onBlur, artists, placeholder }) {
   const [open, setOpen] = useState(false);
   const matches =

@@ -5,7 +5,7 @@ import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import styles from "../shared.module.css";
 
-const CATEGORIES = ["contract_type", "genre", "channel", "release_category"];
+const CATEGORIES = ["contract_type", "genre", "topic", "channel", "release_category"];
 const ROLES = ["exc", "admin", "dev"];
 const TEAMS = ["AR", "Marketing", "OPS", "Design"];
 

@@ -37,6 +37,7 @@ export default function ReleaseDetailPage() {
   const { id } = useParams();
   const [release, setRelease] = useState(null);
   const [form, setForm] = useState(null);
+  const [pitchingTicket, setPitchingTicket] = useState(null);
   const [tab, setTab] = useState("overview");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -52,11 +53,22 @@ export default function ReleaseDetailPage() {
       .select("*")
       .eq("id", id)
       .single()
-      .then(({ data, error: err }) => {
-        if (err) setError(err.message);
-        else {
-          setRelease(data);
-          setForm(data);
+      .then(async ({ data, error: err }) => {
+        if (err) { setError(err.message); return; }
+        setRelease(data);
+        setForm(data);
+        // Fetch the real Pitching ticket for this release, if one exists —
+        // needs the DID, so this waits on the release itself loading first.
+        const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "pitching").single();
+        if (tab) {
+          const { data: tix } = await supabase
+            .from("tickets")
+            .select("*")
+            .eq("tab_id", tab.id)
+            .eq("data->>releaseId", data.did)
+            .is("deleted_at", null)
+            .limit(1);
+          setPitchingTicket(tix?.[0] || null);
         }
       });
     supabase
@@ -165,6 +177,34 @@ export default function ReleaseDetailPage() {
     setRelease((r) => ({ ...r, ...patch }));
   }
 
+  // Saves immediately per checkbox, separate from the tab's own Save
+  // button — creates the Pitching ticket the first time this release gets
+  // a pitching type ticked (if gate_pitching was flipped on after
+  // creation, no ticket would exist yet), otherwise updates the real one.
+  async function handlePitchingToggle(key, checked) {
+    if (pitchingTicket) {
+      const newData = { ...pitchingTicket.data, [key]: checked };
+      setPitchingTicket((t) => ({ ...t, data: newData }));
+      await supabase.from("tickets").update({ data: newData }).eq("id", pitchingTicket.id);
+    } else {
+      const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching").single();
+      if (!tab) return;
+      const newData = { releaseId: form.did, priority: false, spotify: false, nct: false, zing: false, [key]: checked };
+      const { data: created } = await supabase
+        .from("tickets")
+        .insert({
+          tab_id: tab.id,
+          data: newData,
+          status: tab.default_status,
+          status_log: { [tab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        })
+        .select()
+        .single();
+      if (created) setPitchingTicket(created);
+    }
+  }
+
   async function addBookingEntry(round, platform, channelType, link) {
     if (!link) return;
     const { data, error: err } = await supabase
@@ -246,6 +286,8 @@ export default function ReleaseDetailPage() {
             magicLinkUrl={magicLinkUrl}
             onToggleLock={togglePackageLock}
             onSendPackageTicket={sendPackageTicket}
+            pitchingTicket={pitchingTicket}
+            onPitchingToggle={handlePitchingToggle}
           />
         )}
         {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} />}
@@ -331,7 +373,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket }) {
+function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, pitchingTicket, onPitchingToggle }) {
   return (
     <div>
       <div className={styles.grid2}>
@@ -466,7 +508,13 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
 
       <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 20 }}>
         <div className={styles.subheading} style={{ marginTop: 0 }}>Additional Flags</div>
-        <GateFields styles={styles} form={form} update={update} />
+        <GateFields
+          styles={styles}
+          form={form}
+          update={update}
+          pitchingTypes={pitchingTicket?.data}
+          onPitchingToggle={onPitchingToggle}
+        />
       </div>
     </div>
   );
@@ -754,6 +802,11 @@ function PreReleaseTab({ form, update, onSave, saving }) {
         Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{phuLucStatusClient(form)}</span>
         {" — "}{phuLucNextStep(form)}
       </p>
+
+      <div className={styles.subheading}>Next Step Note</div>
+      <Field label="">
+        <textarea className={styles.textarea} value={form.brief || ""} onChange={(e) => update("brief", e.target.value)} placeholder="Tình trạng data, xác nhận gói HTTT..." />
+      </Field>
 
       <div className={styles.subheading}>Linkshare Note</div>
       <div className={styles.grid2}>

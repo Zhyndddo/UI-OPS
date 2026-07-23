@@ -256,10 +256,11 @@ export default function BookingBoard() {
             <div style={{ color: "#555", marginTop: -12 }}>Không tìm thấy</div>
           </div>
         ) : (
-          <table className={styles.table}>
+          <div style={{ overflowX: "auto" }}>
+          <table className={styles.table} style={{ minWidth: 900 }}>
             <thead>
               <tr>
-                <th>Release</th>
+                <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>Release</th>
                 {PLATFORMS.map((p) => (
                   <th key={p} style={{ textAlign: "center" }}>{p}<div style={{ fontWeight: 400, color: "#666", fontSize: 10 }}>{round} · {channelType}</div></th>
                 ))}
@@ -268,7 +269,7 @@ export default function BookingBoard() {
             <tbody>
               {filteredReleases.map((r) => (
                 <tr key={r.id}>
-                  <td>
+                  <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>
                     <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
                     <div style={{ fontSize: 11, color: "#666" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)}</div>
                     {channelType === "Partner" && (
@@ -301,6 +302,7 @@ export default function BookingBoard() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>
