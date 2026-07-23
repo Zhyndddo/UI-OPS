@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate } from "../../../lib/helpers";
+import { GateFields, BoolToggle } from "../../../lib/GateFields";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -43,7 +44,6 @@ export default function ReleaseDetailPage() {
   const [packageItems, setPackageItems] = useState([]);
   const [bookingEntries, setBookingEntries] = useState([]);
   const [magicLinkUrl, setMagicLinkUrl] = useState(null);
-  const [generatingLink, setGeneratingLink] = useState(false);
 
   useEffect(() => {
     if (!supabase || !id) return;
@@ -182,22 +182,9 @@ export default function ReleaseDetailPage() {
     setBookingEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, status: next } : e)));
   }
 
-  // Magic link — real Resend sending isn't wired up yet, so this just
-  // generates the token and shows the link on screen (agreed: fake the
-  // email step for now). Stays usable indefinitely; package_locked is what
-  // actually shuts off writes on the recipient's end, not the link itself.
-  async function generateMagicLink() {
-    setGeneratingLink(true);
-    const { data, error: err } = await supabase
-      .from("magic_links")
-      .insert({ release_id: id })
-      .select("token")
-      .single();
-    setGeneratingLink(false);
-    if (!err && data) {
-      setMagicLinkUrl(`${window.location.origin}/pick-package/${data.token}`);
-    }
-  }
+  // Magic link generation moved to Marketing's package spec builder (not
+  // built yet) — this page only reads/displays an existing link now,
+  // fetched on load below, never creates one.
 
   async function togglePackageLock() {
     const newVal = !form.package_locked;
@@ -257,8 +244,6 @@ export default function ReleaseDetailPage() {
             onUpload={toggleUpload}
             packageItems={packageItems}
             magicLinkUrl={magicLinkUrl}
-            generatingLink={generatingLink}
-            onGenerateLink={generateMagicLink}
             onToggleLock={togglePackageLock}
             onSendPackageTicket={sendPackageTicket}
           />
@@ -346,7 +331,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, generatingLink, onGenerateLink, onToggleLock, onSendPackageTicket }) {
+function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket }) {
   return (
     <div>
       <div className={styles.grid2}>
@@ -450,9 +435,6 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         )}
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <button className={styles.btnSecondary} onClick={onGenerateLink} disabled={generatingLink}>
-            {generatingLink ? "Generating…" : "Generate Magic Link"}
-          </button>
           <button className={styles.btnSmall} onClick={onToggleLock}>
             {form.package_locked ? "Unlock editing" : "Lock editing"}
           </button>
@@ -465,11 +447,15 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
             {form.package_ticket_sent ? "Package Ticket Sent" : "Send Package Ticket to Marketing"}
           </button>
         </div>
+        <p style={{ color: "#555", fontSize: 11, marginTop: 8 }}>
+          Magic link generation moved to Marketing's package spec builder (not built yet) — not available
+          from here anymore.
+        </p>
 
         {magicLinkUrl && (
           <div style={{ marginTop: 14, background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12 }}>
             <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>
-              Real email sending isn't wired up yet — share this link manually for now:
+              Existing link for this release:
             </div>
             <a href={magicLinkUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a", fontSize: 13, wordBreak: "break-all" }}>
               {magicLinkUrl}
@@ -480,156 +466,8 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
 
       <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 20 }}>
         <div className={styles.subheading} style={{ marginTop: 0 }}>Additional Flags</div>
-        <GateFields form={form} update={update} />
+        <GateFields styles={styles} form={form} update={update} />
       </div>
-    </div>
-  );
-}
-
-const GATE_FIELDS = [
-  ["gate_pitching", "Pitching"],
-  ["gate_publishing", "Publishing"],
-  ["gate_goi_ho_tro_truyen_thong", "Gói Hỗ Trợ Truyền Thông"],
-  ["gate_split_share", "Split Share"],
-  ["gate_lyric_musixmatch", "Lyric Musixmatch"],
-  ["gate_design", "Design"],
-  ["gate_co_trong_net_youtube", "Có Trong Net YouTube"],
-];
-const GATE_OPTIONS = ["false", "true", "update"];
-const GATE_LABELS = { false: "No", true: "Yes", update: "Update" };
-
-// Tri-state gate fields — Yes (do it) / No (don't need to) / Update (will
-// decide yes/no later). Ticking "Yes" is meant to reveal more detail —
-// pitching already has its full breakdown on the Pitching tab, so this
-// just cross-links there; split_share is the one with genuinely new
-// sub-fields, including a repeatable list (multiple labels can each take
-// a cut).
-// Same visual language as GateToggle, but a plain 2-state Yes/No — used
-// for genuine booleans (Metadata Checklist, DSP Pitching/ISRC on the
-// create form) instead of a native checkbox.
-function BoolToggle({ value, onChange }) {
-  return (
-    <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden" }}>
-      {[false, true].map((v) => (
-        <button
-          key={String(v)}
-          type="button"
-          onClick={() => onChange(v)}
-          style={{
-            flex: 1,
-            padding: "8px 10px",
-            fontSize: 12,
-            fontWeight: 700,
-            border: "none",
-            cursor: "pointer",
-            background: value === v ? "#ff6b1a" : "transparent",
-            color: value === v ? "#0a0a0a" : "#ccc",
-          }}
-        >
-          {v ? "Yes" : "No"}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function GateToggle({ value, onChange }) {
-  return (
-    <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden" }}>
-      {GATE_OPTIONS.map((o) => (
-        <button
-          key={o}
-          type="button"
-          onClick={() => onChange(o)}
-          style={{
-            flex: 1,
-            padding: "8px 10px",
-            fontSize: 12,
-            fontWeight: 700,
-            border: "none",
-            cursor: "pointer",
-            background: value === o ? "#ff6b1a" : "transparent",
-            color: value === o ? "#0a0a0a" : "#ccc",
-          }}
-        >
-          {GATE_LABELS[o]}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function GateFields({ form, update }) {
-  const entries = form.split_share_entries || [];
-
-  function updateEntry(i, key, value) {
-    const next = entries.map((e, idx) => (idx === i ? { ...e, [key]: value } : e));
-    update("split_share_entries", next);
-  }
-  function addEntry() {
-    update("split_share_entries", [...entries, { percentage: "", shared_label: "", scope: "only_new_release" }]);
-  }
-  function removeEntry(i) {
-    update("split_share_entries", entries.filter((_, idx) => idx !== i));
-  }
-
-  return (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 12 }}>
-        {GATE_FIELDS.map(([key, label]) => (
-          <div key={key} className={styles.field} style={{ marginBottom: 0 }}>
-            <label className={styles.fieldLabel}>{label}</label>
-            <GateToggle value={form[key] || "false"} onChange={(v) => update(key, v)} />
-          </div>
-        ))}
-      </div>
-
-      {form.gate_pitching === "true" && (
-        <p style={{ color: "#666", fontSize: 11, marginBottom: 12 }}>
-          Pitching detail (priority, Spotify/NCT/Zing) is on the Pitching tab.
-        </p>
-      )}
-
-      {form.gate_split_share === "true" && (
-        <div style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12, marginTop: 8 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
-            Split Share
-          </div>
-          {entries.map((entry, i) => (
-            <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-              <div className={styles.field} style={{ marginBottom: 0, width: 90 }}>
-                <label className={styles.fieldLabel}>%</label>
-                <input className={styles.input} value={entry.percentage} onChange={(e) => updateEntry(i, "percentage", e.target.value)} />
-              </div>
-              <div className={styles.field} style={{ marginBottom: 0, flex: 1, minWidth: 140 }}>
-                <label className={styles.fieldLabel}>Shared Label</label>
-                <input className={styles.input} value={entry.shared_label} onChange={(e) => updateEntry(i, "shared_label", e.target.value)} />
-              </div>
-              <div className={styles.field} style={{ marginBottom: 0, minWidth: 180 }}>
-                <label className={styles.fieldLabel}>Scope</label>
-                <select className={styles.select} value={entry.scope} onChange={(e) => updateEntry(i, "scope", e.target.value)}>
-                  <option value="only_new_release">Only New Release</option>
-                  <option value="include_derivative">Include Derivative</option>
-                </select>
-              </div>
-              <button className={styles.btnSmall} style={{ borderColor: "#c0392b", color: "#e57373" }} onClick={() => removeEntry(i)}>
-                Remove
-              </button>
-            </div>
-          ))}
-          <button className={styles.btnSmall} onClick={addEntry}>+ Add Label</button>
-          {entries.some((e) => e.scope === "include_derivative") && (
-            <p style={{ color: "#ffca4d", fontSize: 11, marginTop: 8 }}>
-              ⚠ At least one entry includes derivative works — the Phái Sinh ticket system should be flagged
-              that related derivative products need uploading. Not automated yet; flag manually for now.
-            </p>
-          )}
-        </div>
-      )}
-
-      <p style={{ color: "#555", fontSize: 11, marginTop: 12 }}>
-        Ticking any field here is meant to add a line to the Tasklist tab — not wired up yet.
-      </p>
     </div>
   );
 }
@@ -643,8 +481,8 @@ function UrlTab({ form, update, onSave, saving }) {
     ["link_preorder", "Link Pre-order"],
     ["link_ugc", "Link UGC"],
     ["link_media_report", "Link Media Report"],
-    ["link_phu_luc", "URL Phụ Lục"],
     ["promotion_package_url", "URL Promotion Package"],
+    ["link_drive", "Link Drive"],
   ];
   const plStatus = phuLucStatusClient(form);
   return (
@@ -656,6 +494,9 @@ function UrlTab({ form, update, onSave, saving }) {
           </Field>
         ))}
       </div>
+      <Field label="URL Phụ Lục">
+        <input className={styles.input} value={form.link_phu_luc || ""} onChange={(e) => update("link_phu_luc", e.target.value)} />
+      </Field>
       <p style={{ color: "#888", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
         Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{plStatus}</span>
         {" — "}{phuLucNextStep(form)}

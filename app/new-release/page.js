@@ -3,6 +3,7 @@
 import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
+import { GateFields, BoolToggle } from "../../lib/GateFields";
 import styles from "./styles.module.css";
 
 // Mirrors _field_initials()/set_release_did() in schema.sql exactly, minus
@@ -40,10 +41,21 @@ const EMPTY_FORM = {
   brief: "",
   requires_dsp_pitching: false,
   has_isrc: false,
+  gate_pitching: "false",
+  gate_publishing: "false",
+  gate_goi_ho_tro_truyen_thong: "false",
+  gate_split_share: "false",
+  gate_lyric_musixmatch: "false",
+  gate_design: "false",
+  gate_co_trong_net_youtube: "false",
+  split_share_entries: [],
 };
+
+const EMPTY_PITCHING_TYPES = { priority: false, spotify: false, nct: false, zing: false };
 
 export default function NewReleasePage() {
   const [form, setForm] = useState(EMPTY_FORM);
+  const [pitchingTypes, setPitchingTypes] = useState(EMPTY_PITCHING_TYPES);
   const [genres, setGenres] = useState([]);
   const [channels, setChannels] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -134,7 +146,7 @@ export default function NewReleasePage() {
     const { data, error: insertError } = await supabase
       .from("releases")
       .insert(payload)
-      .select("did")
+      .select("id, did")
       .single();
 
     setSubmitting(false);
@@ -144,8 +156,32 @@ export default function NewReleasePage() {
       return;
     }
 
+    // gate_pitching = "true" means pitching is required — create the real
+    // Pitching ticket now, holding which of the 4 types were chosen.
+    // received_at/lifecycle start is handled elsewhere (Upload flow), not
+    // here — this just gets it queued.
+    if (form.gate_pitching === "true") {
+      const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching").single();
+      if (tab) {
+        await supabase.from("tickets").insert({
+          tab_id: tab.id,
+          data: {
+            releaseId: data.did,
+            priority: pitchingTypes.priority,
+            spotify: pitchingTypes.spotify,
+            nct: pitchingTypes.nct,
+            zing: pitchingTypes.zing,
+          },
+          status: tab.default_status,
+          status_log: { [tab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+
     setCreatedDid(data.did);
     setForm(EMPTY_FORM);
+    setPitchingTypes(EMPTY_PITCHING_TYPES);
     setLabelTouched(false);
     setAutofillNote(null);
   }
@@ -347,6 +383,15 @@ export default function NewReleasePage() {
             </div>
           </div>
 
+          <div className={styles.subheading} style={{ marginTop: 8 }}>Additional Flags</div>
+          <GateFields
+            styles={styles}
+            form={form}
+            update={update}
+            pitchingTypes={pitchingTypes}
+            setPitchingTypes={setPitchingTypes}
+          />
+
           <div className={styles.actions}>
             <button type="submit" className={styles.btnPrimary} disabled={submitting}>
               {submitting ? "Đang tạo…" : "Tạo Release"}
@@ -356,6 +401,7 @@ export default function NewReleasePage() {
               className={styles.btnSecondary}
               onClick={() => {
                 setForm(EMPTY_FORM);
+                setPitchingTypes(EMPTY_PITCHING_TYPES);
                 setError(null);
                 setCreatedDid(null);
                 setLabelTouched(false);
@@ -376,34 +422,6 @@ export default function NewReleasePage() {
 // typed value stays free text (main_artist/feature_artist are text columns,
 // not FKs), this just suggests matches as you type rather than forcing a
 // hard reference, since not every artist has been entered yet.
-// Same visual language used elsewhere in the app for tri-state gate
-// fields — a plain 2-state Yes/No toggle instead of a native checkbox.
-function BoolToggle({ value, onChange }) {
-  return (
-    <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden" }}>
-      {[false, true].map((v) => (
-        <button
-          key={String(v)}
-          type="button"
-          onClick={() => onChange(v)}
-          style={{
-            flex: 1,
-            padding: "8px 10px",
-            fontSize: 12,
-            fontWeight: 700,
-            border: "none",
-            cursor: "pointer",
-            background: value === v ? "#ff6b1a" : "transparent",
-            color: value === v ? "#0a0a0a" : "#ccc",
-          }}
-        >
-          {v ? "Yes" : "No"}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function ArtistInput({ value, onChange, onBlur, artists, placeholder }) {
   const [open, setOpen] = useState(false);
   const matches =
