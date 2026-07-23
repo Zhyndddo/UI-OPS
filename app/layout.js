@@ -1,6 +1,6 @@
 import "./globals.css";
 import { ThemeProvider } from "../lib/ThemeContext";
-import { CurrentUserProvider } from "../lib/CurrentUserContext";
+import { AuthProvider } from "../lib/AuthContext";
 
 export const metadata = {
   title: "Task Tracking v2",
@@ -12,7 +12,7 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body>
         <ThemeProvider>
-          <CurrentUserProvider>{children}</CurrentUserProvider>
+          <AuthProvider>{children}</AuthProvider>
         </ThemeProvider>
       </body>
     </html>

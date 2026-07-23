@@ -4,18 +4,17 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { ticketStatus } from "../../lib/helpers";
-import { useCurrentUser } from "../../lib/CurrentUserContext";
+import { useAuth } from "../../lib/AuthContext";
 import styles from "../shared.module.css";
 
-const ROLES = ["Admin", "Dev", "OPS", "AR", "Marketing"];
+const TEAMS = ["AR", "Marketing", "OPS", "Design"];
 
-// Which ticket types each role cares about — no real auth exists yet, this
-// is just a UI-level simulation ("view as role") until real login/roles
-// are wired up. Admin/Dev always see everything.
-const ROLE_TICKET_TYPES = {
-  OPS: ["newrelease_upload", "phai_sinh", "manual_claim", "report_conflict", "design"],
+// Which ticket types each team cares about.
+const TEAM_TICKET_TYPES = {
+  OPS: ["newrelease_upload", "phai_sinh", "manual_claim", "report_conflict", "pitching"],
   AR: ["phai_sinh", "manual_claim", "report_conflict", "artist_profile", "phu_luc"],
   Marketing: ["media_booking", "package_prep", "stream_update"],
+  Design: ["design"],
 };
 
 const TICKET_TYPE_LABELS = {
@@ -30,14 +29,13 @@ const TICKET_TYPE_LABELS = {
   stream_update: "Stream Update",
   khac: "Khác",
   package_prep: "Package Prep",
+  pitching: "Pitching",
 };
 
 // New Release "done" logic, per the agreed exceptions:
 //   - status Đã Hủy (cancel) or Đang chờ (pending) → done regardless
 //   - Chỉ Phát Hành contract → only needs the core OPS URL fields
 //   - everything else → the broad set of tracked fields across all tabs
-// This mirrors the Tasklist tab's own checklist, just rolled into one
-// boolean per release instead of a field-by-field breakdown.
 function isReleaseDone(r) {
   if (r.status === "Đã Hủy" || r.status === "Đang chờ") return true;
   if (r.project_type === "Chỉ Phát Hành") {
@@ -53,7 +51,14 @@ function isReleaseDone(r) {
 }
 
 export default function SummaryPage() {
-  const { role, setRole } = useCurrentUser();
+  const { profile } = useAuth();
+  // dev sees everything and can browse any team's view (real oversight
+  // privilege, not a simulation); admin/exc are fixed to their own team —
+  // that's just their actual scope now, not a "view as" toggle.
+  const isDev = profile?.role === "dev";
+  const [viewTeam, setViewTeam] = useState(profile?.segment || "AR");
+  const effectiveTeam = isDev ? viewTeam : profile?.segment;
+
   const [releases, setReleases] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [ticketTabs, setTicketTabs] = useState([]);
@@ -85,8 +90,7 @@ export default function SummaryPage() {
     const tabById = {};
     ticketTabs.forEach((t) => (tabById[t.id] = t.key));
 
-    const visibleTypes =
-      role === "Admin" || role === "Dev" ? ticketTabs.map((t) => t.key) : ROLE_TICKET_TYPES[role] || [];
+    const visibleTypes = isDev ? ticketTabs.map((t) => t.key) : TEAM_TICKET_TYPES[effectiveTeam] || [];
 
     return visibleTypes.map((key) => {
       const typeTickets = tickets.filter((t) => tabById[t.tab_id] === key);
@@ -97,9 +101,11 @@ export default function SummaryPage() {
       }).length;
       return { key, label: TICKET_TYPE_LABELS[key] || key, total, done, notDone: total - done };
     });
-  }, [role, tickets, ticketTabs]);
+  }, [isDev, effectiveTeam, tickets, ticketTabs]);
 
-  const showNewRelease = role === "Admin" || role === "Dev" || role === "OPS" || role === "AR";
+  // New Release summary applies to every team except Design, which has no
+  // stake in the release pipeline itself.
+  const showNewRelease = isDev || effectiveTeam !== "Design";
 
   return (
     <AppShell>
@@ -108,22 +114,29 @@ export default function SummaryPage() {
         <div className={styles.eyebrow}>// Summary</div>
         <h1 className={styles.title} style={{ marginBottom: 16 }}>Summary</h1>
 
-        <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
-          {ROLES.map((r) => (
-            <button
-              key={r}
-              onClick={() => setRole(r)}
-              className={`${styles.tabBtn} ${role === r ? styles.tabBtnActive : ""}`}
-              style={{ border: "1px solid var(--border)", borderRadius: 6 }}
-            >
-              {r}
-            </button>
-          ))}
-        </div>
-        <p style={{ color: "var(--text-faint)", fontSize: 11, marginBottom: 24 }}>
-          "View as" role selector — no real login/access-control exists yet, this only changes what's shown
-          on this page, not actual permissions.
-        </p>
+        {isDev ? (
+          <>
+            <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+              {["All", ...TEAMS].map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setViewTeam(t)}
+                  className={`${styles.tabBtn} ${viewTeam === t ? styles.tabBtnActive : ""}`}
+                  style={{ border: "1px solid var(--border)", borderRadius: 6 }}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            <p style={{ color: "var(--text-faint)", fontSize: 11, marginBottom: 24 }}>
+              Dev — browsing any team's view. Everyone else sees only their own team's data.
+            </p>
+          </>
+        ) : (
+          <p style={{ color: "var(--text-faint)", fontSize: 11, marginBottom: 24 }}>
+            Showing {effectiveTeam || "—"} team's data.
+          </p>
+        )}
 
         {loading ? (
           <div className={styles.emptyState}>Loading…</div>
@@ -155,7 +168,7 @@ export default function SummaryPage() {
 
             <div className={styles.subheading} style={{ marginTop: 0 }}>Ticket</div>
             {ticketStatsByType.length === 0 ? (
-              <div className={styles.emptyState}>No ticket types visible for this role.</div>
+              <div className={styles.emptyState}>No ticket types visible for this team.</div>
             ) : (
               <table className={styles.table}>
                 <thead>
