@@ -1,58 +1,72 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
+import { useAuth } from "../../lib/AuthContext";
 import styles from "../shared.module.css";
 
+// TEMPORARY pseudo sign-in — real magic-link auth is bugged. Pick your
+// identity from the existing roster, no verification at all. See
+// lib/AuthContext.js for how to restore the real flow later.
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
-  const [error, setError] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
+  const router = useRouter();
+  const { signInAs } = useAuth();
+  const [profiles, setProfiles] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setError(null);
-    if (!email.trim()) return;
-    setSubmitting(true);
-    const { error: err } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: { emailRedirectTo: window.location.origin },
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.from("profiles").select("*").order("name").then(({ data }) => {
+      setProfiles(data || []);
+      setLoading(false);
     });
-    setSubmitting(false);
-    if (err) setError(err.message);
-    else setSent(true);
+  }, []);
+
+  async function pick(p) {
+    await signInAs(p);
+    router.push("/");
   }
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)" }}>
-      <div style={{ width: 360 }}>
+      <div style={{ width: 420 }}>
         <div className={styles.eyebrow}>// VIEENT</div>
-        <h1 className={styles.title} style={{ marginBottom: 20 }}>Sign in</h1>
+        <h1 className={styles.title} style={{ marginBottom: 8 }}>Sign in</h1>
+        <div className={styles.errorBox} style={{ background: "#1a1a1a", borderColor: "#5a4a1a", color: "#ffca4d" }}>
+          Temporary pseudo sign-in — real login is being fixed. Pick who you are below, no password or
+          verification involved. Not secure — for internal testing only.
+        </div>
 
-        {sent ? (
-          <div className={styles.successBox}>
-            Check your inbox — click the link we sent to <strong>{email}</strong> to sign in. You'll only
-            be recognized if this email is already on the team roster; ask an admin/dev to add you first
-            if this is your first time.
+        {loading ? (
+          <div className={styles.emptyState}>Loading roster…</div>
+        ) : profiles.length === 0 ? (
+          <div className={styles.emptyState}>
+            No one on the roster yet. Add the first admin/dev row directly via the Supabase SQL editor.
           </div>
         ) : (
-          <form onSubmit={handleSubmit}>
-            {error && <div className={styles.errorBox}>{error}</div>}
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Email</label>
-              <input
-                type="email"
-                className={styles.input}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@vieent.com"
-              />
-            </div>
-            <button className={styles.btnPrimary} type="submit" disabled={submitting} style={{ width: "100%" }}>
-              {submitting ? "Sending…" : "Send magic link"}
-            </button>
-          </form>
+          <div style={{ display: "grid", gap: 8 }}>
+            {profiles.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => pick(p)}
+                style={{
+                  textAlign: "left",
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  padding: "12px 16px",
+                  cursor: "pointer",
+                  color: "var(--text)",
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
+                <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                  {p.email} · {p.role}{p.segment ? ` · ${p.segment}` : ""}
+                </div>
+              </button>
+            ))}
+          </div>
         )}
       </div>
     </div>
