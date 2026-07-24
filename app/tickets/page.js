@@ -2,25 +2,40 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
+import { useAuth } from "../../lib/AuthContext";
+import { TEAM_TICKET_TYPES, TICKET_TYPE_LABELS, TICKET_ROUTES, SHARED_TICKET_TYPES, typesForTeam } from "../../lib/teamTypes";
 import styles from "../shared.module.css";
 
-const TICKET_TYPES = [
-  { key: "newrelease_upload", href: "/tickets/newrelease-upload", label: "Newrelease Upload", note: "Auto-sent when SEND UPLOAD is clicked" },
-  { key: "phu_luc", href: "/tickets/phu-luc", label: "Phụ Lục", note: "Auto-created when an artist locks in a contract type" },
-  { key: "design", href: "/tickets/design", label: "Design" },
-  { key: "phai_sinh", href: "/tickets/phai-sinh", label: "Phái Sinh" },
-  { key: "media_booking", href: "/tickets/media-booking", label: "Media Booking" },
-  { key: "manual_claim", href: "/tickets/manual-claim", label: "Manual Claim" },
-  { key: "report_conflict", href: "/tickets/report-conflict", label: "Report Conflict" },
-  { key: "artist_profile", href: "/tickets/artist-profile", label: "Artist Profile" },
-  { key: "stream_update", href: "/tickets/stream-update", label: "Stream Update" },
-  { key: "khac", href: "/tickets/khac", label: "Khác" },
-];
+const NOTES = {
+  newrelease_upload: "Auto-sent when SEND UPLOAD is clicked",
+  phu_luc: "Auto-created when an artist locks in a contract type",
+  media_booking: "Also where the package builder lives — click a row to open it",
+};
 
 export default function TicketsIndex() {
+  const router = useRouter();
+  const { profile } = useAuth();
   const [counts, setCounts] = useState({});
+  const [checkedRedirect, setCheckedRedirect] = useState(false);
+
+  const isDev = profile?.role === "dev";
+  const types = profile ? [...new Set([...typesForTeam(TEAM_TICKET_TYPES, profile.segment, isDev), ...SHARED_TICKET_TYPES])] : [];
+
+  // First visit since login shows the picker; after that, landing on
+  // /tickets skips straight to whichever type was last looked at — only
+  // "which type," not any deeper filter state, per the agreed scope.
+  useEffect(() => {
+    if (!profile) return;
+    const last = window.localStorage.getItem("last_ticket_type");
+    if (last && types.includes(last) && TICKET_ROUTES[last]) {
+      router.replace(TICKET_ROUTES[last]);
+    } else {
+      setCheckedRedirect(true);
+    }
+  }, [profile]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -38,44 +53,45 @@ export default function TicketsIndex() {
     })();
   }, []);
 
+  if (!checkedRedirect) {
+    return <AppShell><div className={styles.page}><div className={styles.container}>Loading…</div></div></AppShell>;
+  }
+
   return (
     <AppShell>
     <div className={styles.page}>
       <div className={styles.container}>
         <div className={styles.eyebrow}>// Ticket System</div>
         <h1 className={styles.title}>Tickets</h1>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -16, marginBottom: 24 }}>
+          Showing types relevant to {isDev ? "dev (all teams)" : profile?.segment || "your team"}.
+        </p>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
-          {TICKET_TYPES.map((t) => (
+          {types.map((key) => (
             <Link
-              key={t.href}
-              href={t.href}
+              key={key}
+              href={TICKET_ROUTES[key]}
               style={{
-                display: "block",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
                 background: "var(--bg-card)",
                 border: "1px solid var(--border)",
                 borderRadius: 8,
-                padding: 16,
+                padding: "16px 20px",
                 textDecoration: "none",
                 color: "var(--text)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                <span style={{ fontSize: 15, fontWeight: 700 }}>{t.label}</span>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: "var(--accent-soft)",
-                    background: "var(--bg-hover)",
-                    borderRadius: 10,
-                    padding: "1px 8px",
-                  }}
-                >
-                  {counts[t.key] ?? 0}
-                </span>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{TICKET_TYPE_LABELS[key] || key}</div>
+                {NOTES[key] && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{NOTES[key]}</div>}
               </div>
-              {t.note && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{t.note}</div>}
+              <span style={{ fontSize: 36, fontWeight: 800, color: "var(--accent-soft)", lineHeight: 1, flexShrink: 0 }}>
+                {counts[key] ?? 0}
+              </span>
             </Link>
           ))}
         </div>

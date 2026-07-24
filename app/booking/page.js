@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import { fmtDate } from "../../lib/helpers";
+import TypeSwitcher from "../../lib/TypeSwitcher";
 import styles from "../shared.module.css";
 
 const PLATFORMS = ["TikTok", "Facebook", "Instagram", "YouTube"];
@@ -132,6 +133,7 @@ export default function BookingBoard() {
     <AppShell>
     <div className={styles.page}>
       <div className={styles.container} style={{ maxWidth: 1300 }}>
+        <TypeSwitcher kind="workstation" current="booking" />
         <div className={styles.topRow}>
           <div>
             <div className={styles.eyebrow}>// Booking Tracker</div>

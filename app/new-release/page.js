@@ -39,8 +39,6 @@ const EMPTY_FORM = {
   theme: "",
   drive_link: "",
   brief: "",
-  requires_dsp_pitching: false,
-  has_isrc: false,
   gate_pitching: "false",
   gate_publishing: "false",
   gate_goi_ho_tro_truyen_thong: "false",
@@ -183,6 +181,22 @@ export default function NewReleasePage() {
           },
           status: tab.default_status,
           status_log: { [tab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+
+    // gate_artist_profile = "true" means an Artist Profile ticket should
+    // exist for this release's main artist — created now, email left
+    // blank for OPS to fill in (not collected on this form).
+    if (form.gate_artist_profile === "true") {
+      const { data: apTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
+      if (apTab) {
+        await supabase.from("tickets").insert({
+          tab_id: apTab.id,
+          data: { artistName: form.main_artist, email: "" },
+          status: apTab.default_status,
+          status_log: { [apTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
         });
       }
@@ -385,16 +399,6 @@ export default function NewReleasePage() {
                 value={form.brief}
                 onChange={(e) => update("brief", e.target.value)}
               />
-            </div>
-
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Yêu cầu Pitching DSP</label>
-              <BoolToggle value={form.requires_dsp_pitching} onChange={(v) => update("requires_dsp_pitching", v)} />
-            </div>
-
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Đã có ISRC</label>
-              <BoolToggle value={form.has_isrc} onChange={(v) => update("has_isrc", v)} />
             </div>
           </div>
 

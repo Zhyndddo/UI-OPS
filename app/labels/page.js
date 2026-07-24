@@ -36,6 +36,17 @@ export default function LabelsPage() {
     }
   }
 
+  async function updateField(label, field, value) {
+    setLabels((prev) => prev.map((l) => (l.id === label.id ? { ...l, [field]: value } : l)));
+    await supabase.from("labels").update({ [field]: value }).eq("id", label.id);
+  }
+
+  async function deleteLabel(label) {
+    if (!window.confirm(`Delete "${label.label_name}"? This can't be undone.`)) return;
+    await supabase.from("labels").delete().eq("id", label.id);
+    setLabels((prev) => prev.filter((l) => l.id !== label.id));
+  }
+
   return (
     <AppShell>
     <div className={styles.page}>
@@ -64,21 +75,26 @@ export default function LabelsPage() {
           </div>
           <button className={styles.btnPrimary} type="submit">+ Add Label</button>
         </form>
+        <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: -20, marginBottom: 20 }}>
+          All fields are editable directly in the table below, after creating.
+        </p>
 
         {labels.length === 0 ? (
           <div className={styles.emptyState}>No labels yet.</div>
         ) : (
           <table className={styles.table}>
             <thead>
-              <tr><th>Label Name</th><th>Hợp Tác</th><th>PIC</th><th>Phân Loại</th></tr>
+              <tr><th>Label Name</th><th>Hợp Tác</th><th>PIC</th><th>Phân Loại</th><th>Note</th><th></th></tr>
             </thead>
             <tbody>
               {labels.map((l) => (
                 <tr key={l.id}>
-                  <td>{l.label_name}</td>
-                  <td>{l.hop_tac || "—"}</td>
-                  <td>{l.pic || "—"}</td>
-                  <td>{l.phan_loai || "—"}</td>
+                  <td><input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 140 }} defaultValue={l.label_name} onBlur={(e) => updateField(l, "label_name", e.target.value)} /></td>
+                  <td><input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 100 }} defaultValue={l.hop_tac || ""} onBlur={(e) => updateField(l, "hop_tac", e.target.value)} /></td>
+                  <td><input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 100 }} defaultValue={l.pic || ""} onBlur={(e) => updateField(l, "pic", e.target.value)} /></td>
+                  <td><input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 100 }} defaultValue={l.phan_loai || ""} onBlur={(e) => updateField(l, "phan_loai", e.target.value)} /></td>
+                  <td><input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 140 }} defaultValue={l.note || ""} onBlur={(e) => updateField(l, "note", e.target.value)} /></td>
+                  <td><button onClick={() => deleteLabel(l)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button></td>
                 </tr>
               ))}
             </tbody>

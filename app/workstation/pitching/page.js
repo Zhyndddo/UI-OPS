@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
+import TypeSwitcher from "../../../lib/TypeSwitcher";
 import styles from "../../shared.module.css";
 
 const STATUS_OPTS = ["", "Chưa thực hiện", "Đang thực hiện", "Đã pitching", "Không thực hiện"];
@@ -35,11 +36,14 @@ export default function PitchingWorkstation() {
     if (dids.length > 0) {
       const { data: rels } = await supabase
         .from("releases")
-        .select("id, did, title, main_artist, pitching_status_spotify, pitching_status_nct, pitching_status_zing, pitching_pills_nct, pitching_pills_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo")
+        .select("id, did, title, main_artist, upc, pitching_status_spotify, pitching_status_nct, pitching_status_zing, pitching_pills_nct, pitching_pills_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo")
         .in("did", dids);
       (rels || []).forEach((r) => (releaseMap[r.did] = r));
     }
-    setRows((tickets || []).map((t) => ({ ticket: t, release: releaseMap[t.data?.releaseId] || null })));
+    // Only surface releases whose UPC is actually filled — before that,
+    // there's nothing for OPS to act on yet, per the agreed gate.
+    const allRows = (tickets || []).map((t) => ({ ticket: t, release: releaseMap[t.data?.releaseId] || null }));
+    setRows(allRows.filter((row) => row.release?.upc));
     setLoading(false);
   }
 
@@ -52,6 +56,7 @@ export default function PitchingWorkstation() {
     <AppShell>
       <div className={styles.page}>
         <div className={styles.container} style={{ maxWidth: 1100 }}>
+          <TypeSwitcher kind="workstation" current="pitching" />
           <div className={styles.eyebrow}>// Workstation</div>
           <h1 className={styles.title} style={{ marginBottom: 4 }}>Pitching</h1>
           <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 24 }}>
@@ -62,7 +67,7 @@ export default function PitchingWorkstation() {
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
           ) : rows.length === 0 ? (
-            <div className={styles.emptyState}>No Pitching tickets yet.</div>
+            <div className={styles.emptyState}>No Pitching tickets with UPC filled yet — nothing to act on until then.</div>
           ) : (
             <div style={{ display: "grid", gap: 10 }}>
               {rows.map(({ ticket, release }) => {

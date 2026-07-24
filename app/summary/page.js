@@ -5,32 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { isTicketDone } from "../../lib/helpers";
 import { useAuth } from "../../lib/AuthContext";
+import { TEAMS, TEAM_TICKET_TYPES, TICKET_TYPE_LABELS, SHARED_TICKET_TYPES } from "../../lib/teamTypes";
 import styles from "../shared.module.css";
-
-const TEAMS = ["AR", "Marketing", "OPS", "Design"];
-
-// Which ticket types each team cares about.
-const TEAM_TICKET_TYPES = {
-  OPS: ["newrelease_upload", "phai_sinh", "manual_claim", "report_conflict", "pitching"],
-  AR: ["phai_sinh", "manual_claim", "report_conflict", "artist_profile", "phu_luc"],
-  Marketing: ["media_booking", "package_prep", "stream_update"],
-  Design: ["design"],
-};
-
-const TICKET_TYPE_LABELS = {
-  design: "Design",
-  newrelease_upload: "Newrelease Upload",
-  phai_sinh: "Phái Sinh",
-  media_booking: "Media Booking",
-  manual_claim: "Manual Claim",
-  report_conflict: "Report Conflict",
-  artist_profile: "Artist Profile",
-  phu_luc: "Phụ Lục",
-  stream_update: "Stream Update",
-  khac: "Khác",
-  package_prep: "Package Prep",
-  pitching: "Pitching",
-};
 
 // New Release "done" logic, per the agreed exceptions:
 //   - status Đã Hủy (cancel) or Đang chờ (pending) → done regardless
@@ -90,7 +66,7 @@ export default function SummaryPage() {
     const tabById = {};
     ticketTabs.forEach((t) => (tabById[t.id] = t.key));
 
-    const visibleTypes = isDev ? ticketTabs.map((t) => t.key) : TEAM_TICKET_TYPES[effectiveTeam] || [];
+    const visibleTypes = isDev ? ticketTabs.map((t) => t.key) : [...(TEAM_TICKET_TYPES[effectiveTeam] || []), ...SHARED_TICKET_TYPES];
 
     return visibleTypes.map((key) => {
       const typeTickets = tickets.filter((t) => tabById[t.tab_id] === key);
