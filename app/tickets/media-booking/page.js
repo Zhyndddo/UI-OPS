@@ -270,13 +270,16 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
             )}
 
             <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <button className={styles.btnSecondary} onClick={generateLink} disabled={generatingLink || !release}>
-                {generatingLink ? "Generating…" : magicLinkUrl ? "Generate New Link" : "Generate Magic Link"}
-              </button>
+              {!magicLinkUrl && (
+                <button className={styles.btnSecondary} onClick={generateLink} disabled={generatingLink || !release}>
+                  {generatingLink ? "Generating…" : "Generate Magic Link"}
+                </button>
+              )}
               <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Final check before the next step — the artist doesn't see this until you mark the ticket Done.</span>
             </div>
             {magicLinkUrl && (
               <div style={{ marginTop: 12, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
+                <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 4 }}>Link already generated — sent once, not regenerable from here.</div>
                 <a href={magicLinkUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", fontSize: 12, wordBreak: "break-all" }}>{magicLinkUrl}</a>
               </div>
             )}

@@ -8,6 +8,8 @@ import { fmtDate } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import styles from "../../shared.module.css";
 
+const UPLOAD_STATUS_OPTS = ["Running", "Pending", "Cancel"];
+
 // Converted from a ticket into a workstation — SEND UPLOAD still creates
 // the Newrelease Upload ticket for record-keeping, but the actual work
 // (filling in the URLs OPS returns) happens here, matching the same
@@ -28,7 +30,7 @@ export default function UploadWorkstation() {
     setLoading(true);
     const { data: rels } = await supabase
       .from("releases")
-      .select("id, did, title, main_artist, release_date, upc, link_lbm, link_share, link_preorder, smartlink")
+      .select("id, did, title, main_artist, release_date, release_time, upc, drive_link, link_lbm, link_share, smartlink, link_preorder, upload_status")
       .eq("requested", true)
       .order("release_date", { ascending: false });
     setReleases(rels || []);
@@ -90,14 +92,15 @@ export default function UploadWorkstation() {
             <div className={styles.emptyState}>No releases have had SEND UPLOAD clicked yet.</div>
           ) : (
             <div style={{ overflowX: "auto" }}>
-            <table className={styles.table} style={{ minWidth: 1000 }}>
+            <table className={styles.table} style={{ minWidth: 1100 }}>
               <thead>
                 <tr>
-                  <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>UPC / Release</th>
+                  <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>UPC / Link Drive / Release</th>
                   <th>Link LBM</th>
                   <th>Link Share</th>
-                  <th>Pre-order</th>
                   <th>Smartlink</th>
+                  <th>Pre-order</th>
+                  <th>Upload Status</th>
                   <th>PIC</th>
                 </tr>
               </thead>
@@ -112,13 +115,25 @@ export default function UploadWorkstation() {
                         placeholder="UPC…"
                         onBlur={(e) => updateField(r, "upc", e.target.value)}
                       />
+                      <input
+                        className={styles.input}
+                        style={{ padding: "4px 8px", fontSize: 12, marginBottom: 4 }}
+                        defaultValue={r.drive_link || ""}
+                        placeholder="Link Drive…"
+                        onBlur={(e) => updateField(r, "drive_link", e.target.value)}
+                      />
                       <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
-                      <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)} {r.release_time}</div>
                     </td>
                     <td><input className={styles.input} style={{ minWidth: 160 }} defaultValue={r.link_lbm || ""} onBlur={(e) => updateField(r, "link_lbm", e.target.value)} /></td>
                     <td><input className={styles.input} style={{ minWidth: 160 }} defaultValue={r.link_share || ""} onBlur={(e) => updateField(r, "link_share", e.target.value)} /></td>
-                    <td><input className={styles.input} style={{ minWidth: 160 }} defaultValue={r.link_preorder || ""} onBlur={(e) => updateField(r, "link_preorder", e.target.value)} /></td>
                     <td><input className={styles.input} style={{ minWidth: 160 }} defaultValue={r.smartlink || ""} onBlur={(e) => updateField(r, "smartlink", e.target.value)} /></td>
+                    <td><input className={styles.input} style={{ minWidth: 160 }} defaultValue={r.link_preorder || ""} onBlur={(e) => updateField(r, "link_preorder", e.target.value)} /></td>
+                    <td>
+                      <select className={styles.select} style={{ minWidth: 110 }} value={r.upload_status || "Running"} onChange={(e) => updateField(r, "upload_status", e.target.value)}>
+                        {UPLOAD_STATUS_OPTS.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </td>
                     <td>
                       <select className={styles.select} style={{ minWidth: 130 }} value={assignments[r.id] || ""} onChange={(e) => updatePic(r, e.target.value)}>
                         <option value="">— Unassigned —</option>

@@ -3,7 +3,7 @@
 import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
-import { withLabelPrefix, validateLabelNameEdit, LABEL_PREFIX } from "../../lib/labelHelpers";
+import { withLabelPrefix, stripLabelPrefix, hasLabelPrefix, LABEL_PREFIX } from "../../lib/labelHelpers";
 import styles from "../shared.module.css";
 
 const EMPTY = { label_name: "", hop_tac: "", pic: "", phan_loai: "", curve_id: "" };
@@ -38,17 +38,25 @@ export default function LabelsPage() {
     }
   }
 
+  // label_name edits from the table only ever carry the SUFFIX now — the
+  // "HĐ - " prefix is a fixed badge outside the input, not part of what's
+  // editable, so there's nothing to validate/block anymore. Filling in
+  // Curve ID is what actually removes the prefix now, automatically.
+  async function updateLabelSuffix(label, suffix) {
+    const newName = hasLabelPrefix(label.label_name) ? LABEL_PREFIX + suffix : suffix;
+    setLabels((prev) => prev.map((l) => (l.id === label.id ? { ...l, label_name: newName } : l)));
+    await supabase.from("labels").update({ label_name: newName }).eq("id", label.id);
+  }
+
   async function updateField(label, field, value) {
-    if (field === "label_name") {
-      const check = validateLabelNameEdit(label.label_name, value, label.curve_id);
-      if (!check.ok) {
-        window.alert(check.message);
-        load(); // snap the input back to the real stored value
-        return;
-      }
-    }
     setLabels((prev) => prev.map((l) => (l.id === label.id ? { ...l, [field]: value } : l)));
     await supabase.from("labels").update({ [field]: value }).eq("id", label.id);
+
+    if (field === "curve_id" && value.trim() && hasLabelPrefix(label.label_name)) {
+      const stripped = stripLabelPrefix(label.label_name);
+      setLabels((prev) => prev.map((l) => (l.id === label.id ? { ...l, label_name: stripped } : l)));
+      await supabase.from("labels").update({ label_name: stripped }).eq("id", label.id);
+    }
   }
 
   async function deleteLabel(label) {
@@ -102,8 +110,8 @@ export default function LabelsPage() {
           <button className={styles.btnPrimary} type="submit">+ Add Label</button>
         </form>
         <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: -2, marginBottom: 20 }}>
-          New labels get "{LABEL_PREFIX}" prepended automatically. That prefix can only be removed later
-          (editable in the table below) once Curve ID is filled in.
+          New labels get "{LABEL_PREFIX}" prepended automatically — shown as a fixed badge below, not part of
+          the editable name. It's removed automatically the moment Curve ID gets filled in.
         </p>
 
         {labels.length === 0 ? (
@@ -116,7 +124,19 @@ export default function LabelsPage() {
             <tbody>
               {labels.map((l) => (
                 <tr key={l.id}>
-                  <td><input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 160 }} defaultValue={l.label_name} onBlur={(e) => updateField(l, "label_name", e.target.value)} /></td>
+                  <td>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      {hasLabelPrefix(l.label_name) && (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", whiteSpace: "nowrap" }}>{LABEL_PREFIX}</span>
+                      )}
+                      <input
+                        className={styles.input}
+                        style={{ padding: "4px 8px", fontSize: 12, minWidth: 140 }}
+                        defaultValue={hasLabelPrefix(l.label_name) ? stripLabelPrefix(l.label_name) : l.label_name}
+                        onBlur={(e) => updateLabelSuffix(l, e.target.value)}
+                      />
+                    </div>
+                  </td>
                   <td><input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 100 }} defaultValue={l.curve_id || ""} onBlur={(e) => updateField(l, "curve_id", e.target.value)} /></td>
                   <td><input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 100 }} defaultValue={l.hop_tac || ""} onBlur={(e) => updateField(l, "hop_tac", e.target.value)} /></td>
                   <td><input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 100 }} defaultValue={l.pic || ""} onBlur={(e) => updateField(l, "pic", e.target.value)} /></td>

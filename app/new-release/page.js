@@ -42,6 +42,12 @@ const EMPTY_FORM = {
   theme: "",
   drive_link: "",
   brief: "",
+  meta_audio: false,
+  meta_artwork: false,
+  meta_working_files: false,
+  meta_lyric: false,
+  meta_mv: false,
+  meta_doc: false,
   gate_pitching: "false",
   gate_publishing: "false",
   gate_goi_ho_tro_truyen_thong: "false",
@@ -53,6 +59,15 @@ const EMPTY_FORM = {
 };
 
 const EMPTY_PITCHING_TYPES = { priority: false, spotify: false, nct: false, zing: false };
+
+const META_ITEMS = [
+  { key: "meta_audio", label: "Audio" },
+  { key: "meta_artwork", label: "Artwork" },
+  { key: "meta_working_files", label: "Working Files" },
+  { key: "meta_lyric", label: "Lyric" },
+  { key: "meta_mv", label: "MV" },
+  { key: "meta_doc", label: "Metadata" },
+];
 
 export default function NewReleasePage() {
   const router = useRouter();
@@ -148,7 +163,7 @@ export default function NewReleasePage() {
       ...form,
       feature_artist: form.feature_artist || null,
       genre: form.genre || null,
-      requester_segment: form.requester_segment ? [form.requester_segment] : null,
+      requester_segment: form.requester_segment || null,
       theme: form.theme || null,
       drive_link: form.drive_link || null,
       brief: form.brief || null,
@@ -438,7 +453,17 @@ export default function NewReleasePage() {
             </div>
           </div>
 
-          <div className={styles.subheading} style={{ marginTop: 8 }}>Additional Flags</div>
+          <div className={styles.subheading} style={{ marginTop: 8 }}>Metadata Checklist</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 20 }}>
+            {META_ITEMS.map((m) => (
+              <div key={m.key} className={styles.field} style={{ marginBottom: 0 }}>
+                <label className={styles.fieldLabel}>{m.label}</label>
+                <BoolToggle value={!!form[m.key]} onChange={(v) => update(m.key, v)} />
+              </div>
+            ))}
+          </div>
+
+          <div className={styles.subheading} style={{ marginTop: 8 }}>Additional Request</div>
           <GateFields
             styles={styles}
             form={form}

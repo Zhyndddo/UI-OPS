@@ -4,7 +4,7 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
-import { fmtDate, metadataPercent } from "../../lib/helpers";
+import { fmtDate, metadataPercent, uploadPercent } from "../../lib/helpers";
 import styles from "../shared.module.css";
 
 const CHANNELS = ["VIEENT", "ENVI"];
@@ -180,12 +180,14 @@ export default function ReleasesDashboard() {
                 <th>Status</th>
                 <th>Metadata</th>
                 <th>Booking</th>
+                <th>Upload</th>
               </tr>
             </thead>
             <tbody>
               {filteredReleases.map((r) => {
                 const pct = metadataPercent(r);
                 const bpct = bookingPct[r.id] ?? 0;
+                const upct = uploadPercent(r);
                 return (
                   <tr key={r.id}>
                     <td
@@ -215,6 +217,9 @@ export default function ReleasesDashboard() {
                     </td>
                     <td>
                       <span className={`${styles.pill} ${bpct > 0 ? styles.pillOrange : styles.pillGray}`}>{bpct}%</span>
+                    </td>
+                    <td>
+                      <span className={`${styles.pill} ${upct > 0 ? styles.pillOrange : styles.pillGray}`}>{upct}%</span>
                     </td>
                   </tr>
                 );
@@ -250,6 +255,7 @@ export default function ReleasesDashboard() {
           <div>Stage: {hoverRelease.project_type}</div>
           <div>Metadata: {metadataPercent(hoverRelease)}%</div>
           <div>Booking: {bookingPct[hoverRelease.id] ?? 0}%</div>
+          <div>Upload: {uploadPercent(hoverRelease)}%</div>
         </div>
       </div>
     )}

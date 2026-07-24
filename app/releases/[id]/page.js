@@ -662,7 +662,7 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
       </div>
 
       <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 20 }}>
-        <div className={styles.subheading} style={{ marginTop: 0 }}>Additional Flags</div>
+        <div className={styles.subheading} style={{ marginTop: 0 }}>Additional Request</div>
         <GateFields
           styles={styles}
           form={form}
