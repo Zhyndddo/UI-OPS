@@ -2,6 +2,7 @@
 
 import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
 import { GateFields, BoolToggle } from "../../lib/GateFields";
 import QuickCreate from "../../lib/QuickCreate";
@@ -53,6 +54,7 @@ const EMPTY_FORM = {
 const EMPTY_PITCHING_TYPES = { priority: false, spotify: false, nct: false, zing: false };
 
 export default function NewReleasePage() {
+  const router = useRouter();
   const [form, setForm] = useState(EMPTY_FORM);
   const [pitchingTypes, setPitchingTypes] = useState(EMPTY_PITCHING_TYPES);
   const [genres, setGenres] = useState([]);
@@ -145,7 +147,7 @@ export default function NewReleasePage() {
       ...form,
       feature_artist: form.feature_artist || null,
       genre: form.genre || null,
-      requester_segment: form.requester_segment || null,
+      requester_segment: form.requester_segment ? [form.requester_segment] : null,
       theme: form.theme || null,
       drive_link: form.drive_link || null,
       brief: form.brief || null,
@@ -203,11 +205,7 @@ export default function NewReleasePage() {
       }
     }
 
-    setCreatedDid(data.did);
-    setForm(EMPTY_FORM);
-    setPitchingTypes(EMPTY_PITCHING_TYPES);
-    setLabelTouched(false);
-    setAutofillNote(null);
+    router.push("/releases");
   }
 
   return (

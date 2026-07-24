@@ -8,6 +8,8 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate } from "../../../lib/helpers";
 import { GateFields, BoolToggle } from "../../../lib/GateFields";
 import QuickCreate from "../../../lib/QuickCreate";
+import { useAuth } from "../../../lib/AuthContext";
+import { validateLabelNameEdit } from "../../../lib/labelHelpers";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -203,48 +205,44 @@ export default function ReleaseDetailPage() {
     setSaved(true);
   }
 
-  // Clicking SEND UPLOAD does real work: creates an actual Newrelease
-  // Upload ticket, and — the first time only, tracked via
-  // package_ticket_sent — ALSO sends a Package Prep ticket to Marketing.
-  // That same one-time gate is shared with the manual "Send Package Ticket
-  // to Marketing" button below — whichever one fires first "uses up" the
-  // gate, and the other won't send a duplicate afterward.
-  async function toggleUpload() {
-    const newVal = !form.requested;
-    setForm((f) => ({ ...f, requested: newVal }));
-    await supabase.from("releases").update({ requested: newVal }).eq("id", id);
-    setRelease((r) => ({ ...r, requested: newVal }));
+  // Asymmetric on purpose: SEND UPLOAD sends both (Newrelease Upload +
+  // Media Booking), but Send Package Ticket only ever sends itself — it
+  // never touches Upload. Each is its own one-time gate (requested /
+  // package_ticket_sent) — the real bug being fixed here is that Upload
+  // used to be a toggle (could flip back off), not a proper one-time
+  // action like Package always was.
+  async function sendUpload() {
+    if (form.requested) return;
 
-    if (newVal) {
-      const { data: uploadTab } = await supabase.from("ticket_tabs").select("id").eq("key", "newrelease_upload").single();
-      if (uploadTab) {
-        await supabase.from("tickets").insert({
-          tab_id: uploadTab.id,
-          data: { releaseId: form.did, project: form.title, artist: form.main_artist, label: form.label },
-        });
-      }
-      await sendPackageTicket();
-    }
-  }
-
-  // Sending the package-prep ticket IS what starts the DEALING stage — no
-  // separate manual "Advance" action needed. This is a genuine one-time
-  // gate (not an override): once package_ticket_sent is true, calling this
-  // again — from either this button or the Upload flow — does nothing.
-  // Media Booking absorbed Package Prep's role — sending this from the
-  // release popup leaves "Propose Package" blank (per the agreed design:
-  // only the manual "new ticket" flow lets AR pre-pick a template).
-  async function sendPackageTicket() {
-    if (form.package_ticket_sent) return;
-    const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "media_booking").single();
-    if (tab) {
+    const { data: uploadTab } = await supabase.from("ticket_tabs").select("id").eq("key", "newrelease_upload").single();
+    if (uploadTab) {
       await supabase.from("tickets").insert({
-        tab_id: tab.id,
-        data: { releaseId: form.did, proposedPackage: null },
-        status: tab.default_status,
-        status_log: { [tab.default_status]: new Date().toISOString() },
+        tab_id: uploadTab.id,
+        data: { releaseId: form.did, project: form.title, artist: form.main_artist, label: form.label },
       });
     }
+
+    const patch = { requested: true };
+    await supabase.from("releases").update(patch).eq("id", id);
+    setForm((f) => ({ ...f, ...patch }));
+    setRelease((r) => ({ ...r, ...patch }));
+
+    // Avoids double-sending if Marketing's button already fired independently.
+    await sendPackageTicket();
+  }
+
+  async function sendPackageTicket() {
+    if (form.package_ticket_sent) return;
+    const { data: mbTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "media_booking").single();
+    if (mbTab) {
+      await supabase.from("tickets").insert({
+        tab_id: mbTab.id,
+        data: { releaseId: form.did, proposedPackage: null },
+        status: mbTab.default_status,
+        status_log: { [mbTab.default_status]: new Date().toISOString() },
+      });
+    }
+
     const patch = { package_ticket_sent: true };
     if (form.project_type === "BRIEF & DATA") patch.project_type = "DEALING";
     await supabase.from("releases").update(patch).eq("id", id);
@@ -335,7 +333,7 @@ export default function ReleaseDetailPage() {
             uploadReady={uploadReady}
             onSave={saveTab}
             saving={saving}
-            onUpload={toggleUpload}
+            onUpload={sendUpload}
             packageItems={packageItems}
             magicLinkUrl={magicLinkUrl}
             onToggleLock={togglePackageLock}
@@ -429,8 +427,12 @@ function fmtVnd(n) {
 }
 
 function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle }) {
+  const { profile } = useAuth();
+  const isAdminOrAbove = profile?.role === "admin" || profile?.role === "dev";
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
+  const [channels, setChannels] = useState([]);
+  const [labelCurveId, setLabelCurveId] = useState(null);
 
   useEffect(() => {
     if (!supabase) return;
@@ -438,13 +440,24 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
       .from("lookup_options")
       .select("category, value, label")
       .eq("active", true)
-      .in("category", ["genre", "topic"])
+      .in("category", ["genre", "topic", "channel"])
       .order("sort_order")
       .then(({ data }) => {
         setGenres((data || []).filter((r) => r.category === "genre"));
         setTopics((data || []).filter((r) => r.category === "topic"));
+        setChannels((data || []).filter((r) => r.category === "channel"));
       });
   }, []);
+
+  // Curve ID lives on the labels table, not the release — releases.label
+  // is a denormalized text copy, so this looks up the matching real label
+  // row to find its Curve ID (for display) and to validate the "HĐ -"
+  // prefix rule if the Label field's text gets edited.
+  useEffect(() => {
+    if (!supabase || !form.label) { setLabelCurveId(null); return; }
+    supabase.from("labels").select("curve_id").eq("label_name", form.label).maybeSingle()
+      .then(({ data }) => setLabelCurveId(data?.curve_id || null));
+  }, [form.label]);
 
   return (
     <div>
@@ -456,7 +469,10 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           <input className={styles.input} value={form.link_lbm || ""} disabled />
         </Field>
         <Field label="Media Channel">
-          <input className={styles.input} value={form.requester_segment || ""} onChange={(e) => update("requester_segment", e.target.value)} placeholder="VIEENT / ENVI / ALL" />
+          <select className={styles.select} value={form.requester_segment || ""} onChange={(e) => update("requester_segment", e.target.value)}>
+            <option value="">— Chọn —</option>
+            {channels.map((opt) => <option key={opt.value} value={opt.value}>{opt.label || opt.value}</option>)}
+          </select>
         </Field>
         <Field label="Category">
           <input className={styles.input} value={form.release_category || ""} onChange={(e) => update("release_category", e.target.value)} placeholder="New Release / Re Marketing / ..." />
@@ -492,12 +508,37 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           <div className={styles.subheading} style={{ marginTop: 0 }}>Trạng Thái Gói (Loại Dự Án)</div>
           <PipelineControl form={form} update={update} />
         </div>
-        <Field label="Label">
-          <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
-            <input className={styles.input} style={{ flex: 1 }} value={form.label || ""} onChange={(e) => update("label", e.target.value)} />
-            <QuickCreate kind="label" onCreated={(newLabel) => update("label", newLabel.label_name)} />
-          </div>
-        </Field>
+        <div>
+          <Field label="Label">
+            <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+              <input
+                className={styles.input}
+                style={{ flex: 1 }}
+                defaultValue={form.label || ""}
+                onBlur={(e) => {
+                  const check = validateLabelNameEdit(form.label, e.target.value, labelCurveId);
+                  if (!check.ok) {
+                    window.alert(check.message);
+                    e.target.value = form.label || "";
+                    return;
+                  }
+                  update("label", e.target.value);
+                }}
+              />
+              <QuickCreate kind="label" onCreated={(newLabel) => update("label", newLabel.label_name)} />
+            </div>
+          </Field>
+          <Field label="Curve ID">
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input className={styles.input} style={{ flex: 1, opacity: 0.7 }} value={labelCurveId || ""} readOnly placeholder="— set on the Label List —" />
+              {isAdminOrAbove && (
+                <Link href="/labels" style={{ fontSize: 11, color: "var(--accent)", whiteSpace: "nowrap" }}>
+                  Edit in Label List →
+                </Link>
+              )}
+            </div>
+          </Field>
+        </div>
       </div>
 
       <div className={styles.subheading}>Name / Artist / Release Date (editing updates the title above)</div>
