@@ -745,6 +745,18 @@ function MediaBookingTab({ form, entries, onAdd, onCycleStatus, packageItems }) 
 
   return (
     <div>
+      {entries.length > 0 && (
+        <>
+          <div className={styles.subheading} style={{ marginTop: 0 }}>All Booking Links</div>
+          <div style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12, marginBottom: 24, fontFamily: "monospace", fontSize: 12, whiteSpace: "pre-line", color: "#ccc" }}>
+            {entries
+              .filter((e) => e.link)
+              .flatMap((e) => e.link.split("\n").map((u) => u.trim()).filter(Boolean).map((u) => `${e.channel_name ? e.channel_name : e.platform}: ${u}`))
+              .join("\n")}
+          </div>
+        </>
+      )}
+
       {packageItems.length > 0 && (
         <>
           <div className={styles.subheading} style={{ marginTop: 0 }}>Chosen Package — Itemized</div>
