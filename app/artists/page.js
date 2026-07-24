@@ -4,6 +4,7 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import QuickCreate from "../../lib/QuickCreate";
+import UrlField from "../../lib/UrlField";
 import styles from "../shared.module.css";
 
 const DSP_FIELDS = [
@@ -131,34 +132,7 @@ export default function ArtistsPage() {
             </thead>
             <tbody>
               {artists.map((a) => (
-                <tr key={a.id}>
-                  <td>
-                    <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 120 }} defaultValue={a.stage_name} onBlur={(e) => updateField(a, "stage_name", e.target.value)} />
-                  </td>
-                  <td>
-                    <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 120 }} defaultValue={a.real_name || ""} onBlur={(e) => updateField(a, "real_name", e.target.value)} />
-                  </td>
-                  <td>
-                    <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 140 }} defaultValue={a.email || ""} onBlur={(e) => updateField(a, "email", e.target.value)} />
-                  </td>
-                  <td>
-                    <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: 120 }} value={a.label_id || ""} onChange={(e) => updateLabel(a, e.target.value)}>
-                      <option value="">—</option>
-                      {labels.map((l) => <option key={l.id} value={l.id}>{l.label_name}</option>)}
-                    </select>
-                  </td>
-                  {DSP_FIELDS.map(([key]) => (
-                    <td key={key}>
-                      <input className={styles.input} style={{ padding: "4px 8px", fontSize: 11, minWidth: 100 }} defaultValue={a[key] || ""} placeholder="url…" onBlur={(e) => updateField(a, key, e.target.value)} />
-                    </td>
-                  ))}
-                  <td>
-                    <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 140 }} defaultValue={a.note || ""} onBlur={(e) => updateField(a, "note", e.target.value)} />
-                  </td>
-                  <td>
-                    <button onClick={() => deleteArtist(a)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button>
-                  </td>
-                </tr>
+                <ArtistRow key={a.id} artist={a} labels={labels} onUpdateField={updateField} onUpdateLabel={updateLabel} onDelete={deleteArtist} />
               ))}
             </tbody>
           </table>
@@ -167,5 +141,51 @@ export default function ArtistsPage() {
       </div>
     </div>
     </AppShell>
+  );
+}
+
+function ArtistRow({ artist, labels, onUpdateField, onUpdateLabel, onDelete }) {
+  const [dspDrafts, setDspDrafts] = useState(() => {
+    const initial = {};
+    DSP_FIELDS.forEach(([key]) => (initial[key] = artist[key] || ""));
+    return initial;
+  });
+
+  return (
+    <tr>
+      <td>
+        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 120 }} defaultValue={artist.stage_name} onBlur={(e) => onUpdateField(artist, "stage_name", e.target.value)} />
+      </td>
+      <td>
+        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 120 }} defaultValue={artist.real_name || ""} onBlur={(e) => onUpdateField(artist, "real_name", e.target.value)} />
+      </td>
+      <td>
+        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 140 }} defaultValue={artist.email || ""} onBlur={(e) => onUpdateField(artist, "email", e.target.value)} />
+      </td>
+      <td>
+        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: 120 }} value={artist.label_id || ""} onChange={(e) => onUpdateLabel(artist, e.target.value)}>
+          <option value="">—</option>
+          {labels.map((l) => <option key={l.id} value={l.id}>{l.label_name}</option>)}
+        </select>
+      </td>
+      {DSP_FIELDS.map(([key]) => (
+        <td key={key} style={{ minWidth: 140 }}>
+          <UrlField
+            styles={styles}
+            value={dspDrafts[key]}
+            onChange={(v) => setDspDrafts((d) => ({ ...d, [key]: v }))}
+            onBlur={() => onUpdateField(artist, key, dspDrafts[key])}
+            rows={1}
+            placeholder="url…"
+          />
+        </td>
+      ))}
+      <td>
+        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 140 }} defaultValue={artist.note || ""} onBlur={(e) => onUpdateField(artist, "note", e.target.value)} />
+      </td>
+      <td>
+        <button onClick={() => onDelete(artist)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button>
+      </td>
+    </tr>
   );
 }

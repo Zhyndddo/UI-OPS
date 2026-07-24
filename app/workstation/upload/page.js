@@ -6,6 +6,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
+import UrlField from "../../../lib/UrlField";
 import styles from "../../shared.module.css";
 
 const UPLOAD_STATUS_OPTS = ["Running", "Pending", "Cancel"];
@@ -106,41 +107,7 @@ export default function UploadWorkstation() {
               </thead>
               <tbody>
                 {releases.map((r) => (
-                  <tr key={r.id}>
-                    <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>
-                      <input
-                        className={styles.input}
-                        style={{ padding: "4px 8px", fontSize: 12, marginBottom: 4 }}
-                        defaultValue={r.upc || ""}
-                        placeholder="UPC…"
-                        onBlur={(e) => updateField(r, "upc", e.target.value)}
-                      />
-                      <input
-                        className={styles.input}
-                        style={{ padding: "4px 8px", fontSize: 12, marginBottom: 4 }}
-                        defaultValue={r.drive_link || ""}
-                        placeholder="Link Drive…"
-                        onBlur={(e) => updateField(r, "drive_link", e.target.value)}
-                      />
-                      <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
-                      <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)} {r.release_time}</div>
-                    </td>
-                    <td><input className={styles.input} style={{ minWidth: 160 }} defaultValue={r.link_lbm || ""} onBlur={(e) => updateField(r, "link_lbm", e.target.value)} /></td>
-                    <td><input className={styles.input} style={{ minWidth: 160 }} defaultValue={r.link_share || ""} onBlur={(e) => updateField(r, "link_share", e.target.value)} /></td>
-                    <td><input className={styles.input} style={{ minWidth: 160 }} defaultValue={r.smartlink || ""} onBlur={(e) => updateField(r, "smartlink", e.target.value)} /></td>
-                    <td><input className={styles.input} style={{ minWidth: 160 }} defaultValue={r.link_preorder || ""} onBlur={(e) => updateField(r, "link_preorder", e.target.value)} /></td>
-                    <td>
-                      <select className={styles.select} style={{ minWidth: 110 }} value={r.upload_status || "Running"} onChange={(e) => updateField(r, "upload_status", e.target.value)}>
-                        {UPLOAD_STATUS_OPTS.map((s) => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </td>
-                    <td>
-                      <select className={styles.select} style={{ minWidth: 130 }} value={assignments[r.id] || ""} onChange={(e) => updatePic(r, e.target.value)}>
-                        <option value="">— Unassigned —</option>
-                        {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
-                    </td>
-                  </tr>
+                  <UploadRow key={r.id} release={r} pic={assignments[r.id]} profiles={profiles} onUpdateField={updateField} onUpdatePic={updatePic} />
                 ))}
               </tbody>
             </table>
@@ -149,5 +116,65 @@ export default function UploadWorkstation() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+function UploadRow({ release, pic, profiles, onUpdateField, onUpdatePic }) {
+  const URL_KEYS = ["drive_link", "link_lbm", "link_share", "smartlink", "link_preorder"];
+  const [drafts, setDrafts] = useState(() => {
+    const initial = {};
+    URL_KEYS.forEach((k) => (initial[k] = release[k] || ""));
+    return initial;
+  });
+  const [upc, setUpc] = useState(release.upc || "");
+
+  return (
+    <tr>
+      <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>
+        <input
+          className={styles.input}
+          style={{ padding: "4px 8px", fontSize: 12, marginBottom: 4 }}
+          value={upc}
+          placeholder="UPC…"
+          onChange={(e) => setUpc(e.target.value)}
+          onBlur={() => onUpdateField(release, "upc", upc)}
+        />
+        <div style={{ marginBottom: 4 }}>
+          <UrlField
+            styles={styles}
+            value={drafts.drive_link}
+            onChange={(v) => setDrafts((d) => ({ ...d, drive_link: v }))}
+            onBlur={() => onUpdateField(release, "drive_link", drafts.drive_link)}
+            rows={1}
+            placeholder="Link Drive…"
+          />
+        </div>
+        <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
+        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release.main_artist} · {release.did} · {fmtDate(release.release_date)} {release.release_time}</div>
+      </td>
+      <td style={{ minWidth: 180 }}>
+        <UrlField styles={styles} value={drafts.link_lbm} onChange={(v) => setDrafts((d) => ({ ...d, link_lbm: v }))} onBlur={() => onUpdateField(release, "link_lbm", drafts.link_lbm)} rows={1} />
+      </td>
+      <td style={{ minWidth: 180 }}>
+        <UrlField styles={styles} value={drafts.link_share} onChange={(v) => setDrafts((d) => ({ ...d, link_share: v }))} onBlur={() => onUpdateField(release, "link_share", drafts.link_share)} rows={1} />
+      </td>
+      <td style={{ minWidth: 180 }}>
+        <UrlField styles={styles} value={drafts.smartlink} onChange={(v) => setDrafts((d) => ({ ...d, smartlink: v }))} onBlur={() => onUpdateField(release, "smartlink", drafts.smartlink)} rows={1} />
+      </td>
+      <td style={{ minWidth: 180 }}>
+        <UrlField styles={styles} value={drafts.link_preorder} onChange={(v) => setDrafts((d) => ({ ...d, link_preorder: v }))} onBlur={() => onUpdateField(release, "link_preorder", drafts.link_preorder)} rows={1} />
+      </td>
+      <td>
+        <select className={styles.select} style={{ minWidth: 110 }} value={release.upload_status || "Running"} onChange={(e) => onUpdateField(release, "upload_status", e.target.value)}>
+          {UPLOAD_STATUS_OPTS.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </td>
+      <td>
+        <select className={styles.select} style={{ minWidth: 130 }} value={pic || ""} onChange={(e) => onUpdatePic(release, e.target.value)}>
+          <option value="">— Unassigned —</option>
+          {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      </td>
+    </tr>
   );
 }

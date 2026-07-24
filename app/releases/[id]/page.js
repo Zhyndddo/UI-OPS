@@ -9,6 +9,7 @@ import { fmtDate } from "../../../lib/helpers";
 import { GateFields, BoolToggle } from "../../../lib/GateFields";
 import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
+import UrlField from "../../../lib/UrlField";
 import { useAuth } from "../../../lib/AuthContext";
 import { validateLabelNameEdit } from "../../../lib/labelHelpers";
 import styles from "../../shared.module.css";
@@ -419,10 +420,6 @@ function PipelineControl({ form, update, setTab }) {
       {!isPipelineStage && (
         <div style={{ marginTop: 8, fontSize: 12, color: "#888" }}>
           Resolved package — <span style={{ color: "#ffca4d" }}>Phụ Lục required, see URL tab.</span>
-          {" "}
-          <button className={styles.btnSmall} onClick={() => update("project_type", "BRIEF & DATA")}>
-            Reset to BRIEF & DATA
-          </button>
         </div>
       )}
       <p style={{ color: "#555", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
@@ -678,9 +675,8 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
 }
 
 function UrlTab({ form, update, onSave, saving }) {
-  const fields = [
+  const urlFields = [
     ["smartlink", "Smartlink"],
-    ["upc", "UPC"],
     ["link_lbm", "Link LBM"],
     ["link_share", "Link Share"],
     ["link_preorder", "Link Pre-order"],
@@ -695,14 +691,17 @@ function UrlTab({ form, update, onSave, saving }) {
   return (
     <div>
       <div className={styles.grid2}>
-        {fields.map(([key, label]) => (
+        <Field label="UPC">
+          <input className={styles.input} value={form.upc || ""} onChange={(e) => update("upc", e.target.value)} />
+        </Field>
+        {urlFields.map(([key, label]) => (
           <Field key={key} label={label}>
-            <input className={styles.input} value={form[key] || ""} onChange={(e) => update(key, e.target.value)} />
+            <UrlField styles={styles} value={form[key]} onChange={(v) => update(key, v)} />
           </Field>
         ))}
       </div>
       <Field label="URL Phụ Lục">
-        <input className={styles.input} value={form.link_phu_luc || ""} onChange={(e) => update("link_phu_luc", e.target.value)} />
+        <UrlField styles={styles} value={form.link_phu_luc} onChange={(v) => update("link_phu_luc", v)} />
       </Field>
       <p style={{ color: "#888", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
         Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{plStatus}</span>

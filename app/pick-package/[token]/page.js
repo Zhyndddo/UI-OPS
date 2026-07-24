@@ -127,6 +127,19 @@ export default function PickPackagePage() {
         });
       }
     }
+
+    // If Marketing hasn't already built a customized package for this
+    // release, seed release_package_items from the template right now —
+    // otherwise the Media Booking tab has nothing to show until someone
+    // manually opens the popup builder later.
+    const { data: existingItems } = await supabase.from("release_package_items").select("id").eq("release_id", release.id).limit(1);
+    if ((!existingItems || existingItems.length === 0) && pkg?.items?.length > 0) {
+      const rows = pkg.items.map((it, i) => ({
+        release_id: release.id, category: it.category, unit: it.unit,
+        quantity: it.quantity, detail: it.detail, amount: it.amount, sort_order: i,
+      }));
+      await supabase.from("release_package_items").insert(rows);
+    }
   }
 
   if (loading) return <div className={styles.page}><div className={styles.container} style={{ maxWidth: 640 }}>Loading…</div></div>;
