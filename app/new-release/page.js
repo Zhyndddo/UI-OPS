@@ -470,6 +470,7 @@ export default function NewReleasePage() {
             update={update}
             pitchingTypes={pitchingTypes}
             onPitchingToggle={(key, checked) => setPitchingTypes((p) => ({ ...p, [key]: checked }))}
+            suppressUrlFor={["gate_pre_order"]}
           />
 
           <div className={styles.actions}>
