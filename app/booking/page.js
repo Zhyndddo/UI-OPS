@@ -21,6 +21,7 @@ const STATUS_COLOR = {
 export default function BookingBoard() {
   const [releases, setReleases] = useState([]);
   const [entries, setEntries] = useState([]);
+  const [channels, setChannels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [month, setMonth] = useState("");
@@ -41,8 +42,10 @@ export default function BookingBoard() {
       .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky")
       .order("release_date", { ascending: false });
     const { data: ents } = await supabase.from("media_booking_entries").select("*");
+    const { data: chans } = await supabase.from("booking_channels").select("*").order("sort_order");
     setReleases(rels || []);
     setEntries(ents || []);
+    setChannels(chans || []);
     setLoading(false);
   }
 
@@ -298,6 +301,7 @@ export default function BookingBoard() {
                       onToggle={() => setExpandedCell(expandedCell === `${r.id}:${platform}` ? null : `${r.id}:${platform}`)}
                       onAdd={(channelName, link) => addEntry(r.id, platform, channelName, link)}
                       onCycleStatus={cycleStatus}
+                      channelOptions={channels.filter((c) => c.platform === platform && c.channel_type === channelType)}
                     />
                   ))}
                 </tr>
@@ -312,18 +316,22 @@ export default function BookingBoard() {
   );
 }
 
-function PlatformCell({ releaseId, platform, entries, expanded, onToggle, onAdd, onCycleStatus }) {
+function PlatformCell({ releaseId, platform, entries, expanded, onToggle, onAdd, onCycleStatus, channelOptions }) {
   const [showAddPopup, setShowAddPopup] = useState(false);
-  const [channelName, setChannelName] = useState("");
+  const [pickedChannel, setPickedChannel] = useState(null); // null = step 1 (picking), set = step 2 (url input)
   const [link, setLink] = useState("");
   const done = entries.filter((e) => e.status === "Done").length;
   const sent = entries.filter((e) => e.status === "Đã Gửi").length;
   const all = entries.length;
 
-  function submitAdd() {
-    onAdd(channelName, link);
-    setChannelName("");
+  function openPopup() {
+    setPickedChannel(null);
     setLink("");
+    setShowAddPopup(true);
+  }
+
+  function submitAdd() {
+    onAdd(pickedChannel, link);
     setShowAddPopup(false);
   }
 
@@ -358,7 +366,7 @@ function PlatformCell({ releaseId, platform, entries, expanded, onToggle, onAdd,
               </button>
             </div>
           ))}
-          <button className={styles.btnSmall} style={{ marginTop: 4, width: "100%" }} onClick={() => setShowAddPopup(true)}>
+          <button className={styles.btnSmall} style={{ marginTop: 4, width: "100%" }} onClick={openPopup}>
             + Add Link
           </button>
         </div>
@@ -370,37 +378,66 @@ function PlatformCell({ releaseId, platform, entries, expanded, onToggle, onAdd,
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              position: "absolute", top: 0, left: "100%", marginLeft: 6, zIndex: 300, width: 240,
+              position: "absolute", top: 0, left: "100%", marginLeft: 6, zIndex: 300, width: 260,
               background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, padding: 12,
               boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
             }}
           >
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>
-              Add Link — {platform}
-            </div>
-            <div style={{ marginBottom: 8 }}>
-              <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>Channel Name</label>
-              <input
-                className={styles.input}
-                style={{ padding: "5px 8px", fontSize: 12 }}
-                placeholder="e.g. ENVI, Envi Music…"
-                value={channelName}
-                onChange={(e) => setChannelName(e.target.value)}
-              />
-            </div>
-            <div style={{ marginBottom: 10 }}>
-              <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>URL</label>
-              <input
-                className={styles.input}
-                style={{ padding: "5px 8px", fontSize: 12 }}
-                placeholder="https://…"
-                value={link}
-                onChange={(e) => setLink(e.target.value)}
-              />
-            </div>
-            <button className={styles.btnPrimary} style={{ width: "100%", padding: "7px 0", fontSize: 12 }} onClick={submitAdd}>
-              Add
-            </button>
+            {pickedChannel === null ? (
+              // Step 1 — pick which channel this link belongs to
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>
+                  Which channel? — {platform}
+                </div>
+                {channelOptions.length === 0 ? (
+                  <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 8 }}>
+                    No channels configured for this platform yet — add one in Config → Booking Channels.
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gap: 4, marginBottom: 8 }}>
+                    {channelOptions.map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => setPickedChannel(c.name)}
+                        style={{ textAlign: "left", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 10px", fontSize: 12, color: "var(--text)", cursor: "pointer" }}
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              // Step 2 — channel confirmed on the left, URL input on the right
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>
+                  Add Link
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                  <div>
+                    <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>Channel</label>
+                    <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, padding: "7px 10px", fontSize: 12, color: "#ff9d5c", fontWeight: 700, whiteSpace: "nowrap" }}>
+                      {pickedChannel}
+                    </div>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>URL</label>
+                    <input
+                      autoFocus
+                      className={styles.input}
+                      style={{ padding: "6px 8px", fontSize: 12 }}
+                      placeholder="https://…"
+                      value={link}
+                      onChange={(e) => setLink(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                  <button className={styles.btnSmall} onClick={() => setPickedChannel(null)} style={{ flex: 1 }}>← Back</button>
+                  <button className={styles.btnPrimary} onClick={submitAdd} style={{ flex: 1, padding: "7px 0", fontSize: 12 }}>Add</button>
+                </div>
+              </>
+            )}
           </div>
         </>
       )}
