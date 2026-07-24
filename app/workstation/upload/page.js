@@ -28,7 +28,7 @@ export default function UploadWorkstation() {
     setLoading(true);
     const { data: rels } = await supabase
       .from("releases")
-      .select("id, did, title, main_artist, release_date, upc, link_lbm, link_share, smartlink")
+      .select("id, did, title, main_artist, release_date, upc, link_lbm, link_share, link_preorder, smartlink")
       .eq("requested", true)
       .order("release_date", { ascending: false });
     setReleases(rels || []);
@@ -96,6 +96,7 @@ export default function UploadWorkstation() {
                   <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>UPC / Release</th>
                   <th>Link LBM</th>
                   <th>Link Share</th>
+                  <th>Pre-order</th>
                   <th>Smartlink</th>
                   <th>PIC</th>
                 </tr>
@@ -116,6 +117,7 @@ export default function UploadWorkstation() {
                     </td>
                     <td><input className={styles.input} style={{ minWidth: 160 }} defaultValue={r.link_lbm || ""} onBlur={(e) => updateField(r, "link_lbm", e.target.value)} /></td>
                     <td><input className={styles.input} style={{ minWidth: 160 }} defaultValue={r.link_share || ""} onBlur={(e) => updateField(r, "link_share", e.target.value)} /></td>
+                    <td><input className={styles.input} style={{ minWidth: 160 }} defaultValue={r.link_preorder || ""} onBlur={(e) => updateField(r, "link_preorder", e.target.value)} /></td>
                     <td><input className={styles.input} style={{ minWidth: 160 }} defaultValue={r.smartlink || ""} onBlur={(e) => updateField(r, "smartlink", e.target.value)} /></td>
                     <td>
                       <select className={styles.select} style={{ minWidth: 130 }} value={assignments[r.id] || ""} onChange={(e) => updatePic(r, e.target.value)}>

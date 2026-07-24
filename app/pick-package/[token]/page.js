@@ -20,6 +20,8 @@ export default function PickPackagePage() {
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState(false);
   const [expanded, setExpanded] = useState(null);
+  const [selectedValue, setSelectedValue] = useState(null); // local pick, not yet committed
+  const [confirmed, setConfirmed] = useState(false);
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -45,6 +47,10 @@ export default function PickPackagePage() {
 
     const { data: rel } = await supabase.from("releases").select("*").eq("id", link.release_id).single();
     setRelease(rel);
+    if (rel && !["BRIEF & DATA", "DEALING"].includes(rel.project_type)) {
+      setSelectedValue(rel.project_type);
+      setConfirmed(true);
+    }
 
     const { data: contracts } = await supabase
       .from("lookup_options")
@@ -83,28 +89,34 @@ export default function PickPackagePage() {
     setLoading(false);
   }
 
-  // Picking a contract type here IS the "Chốt Gói Hỗ Trợ Truyền Thông"
-  // task — it resolves project_type out of the pipeline, locks in whichever
-  // package (template or Marketing-customized) comes with it, AND
-  // auto-creates the Phụ Lục ticket (only once — this is the "auto ticket
-  // when we're done" moment). That ticket reads/writes
-  // releases.link_phu_luc/phu_luc_ngay_gui/phu_luc_ngay_ky directly rather
-  // than keeping its own separate copy of those fields.
-  async function chooseContract(value) {
+  // Clicking a card only selects it locally now — nothing commits until
+  // Confirm is pressed. This also removes the old race condition where a
+  // click could land while isLocked was flipping true (e.g. admin hitting
+  // "Lock editing" around the same moment), leaving project_type stuck.
+  function selectPackage(value) {
     if (isLocked) return;
+    setSelectedValue(value);
+    setConfirmed(false);
+  }
+
+  // The actual commit — resolves project_type out of the pipeline, locks
+  // in the package, and auto-creates the Phụ Lục ticket (once).
+  async function confirmChoice() {
+    if (isLocked || !selectedValue) return;
     setPicking(true);
     const wasPipelineStage = ["BRIEF & DATA", "DEALING"].includes(release?.project_type);
-    const pkg = templates[value];
+    const pkg = templates[selectedValue];
     const { error: err } = await supabase
       .from("releases")
       .update({
-        project_type: value,
+        project_type: selectedValue,
         package_total_value: pkg?.total_value ?? null,
       })
       .eq("id", release.id);
     setPicking(false);
     if (err) { setError(err.message); return; }
-    setRelease((r) => ({ ...r, project_type: value, package_total_value: pkg?.total_value ?? null }));
+    setRelease((r) => ({ ...r, project_type: selectedValue, package_total_value: pkg?.total_value ?? null }));
+    setConfirmed(true);
 
     if (wasPipelineStage) {
       const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "phu_luc").single();
@@ -147,12 +159,13 @@ export default function PickPackagePage() {
         )}
 
         <p style={{ color: "#888", fontSize: 12, marginBottom: 20 }}>
-          Each contract type comes with its own package — pick the one that fits, tap to see the full breakdown.
+          Each contract type comes with its own package — pick the one that fits, tap to see the full
+          breakdown, then confirm your choice below.
         </p>
 
         <div style={{ display: "grid", gap: 12 }}>
           {contractTypes.map((c) => {
-            const selected = release?.project_type === c.value;
+            const selected = selectedValue === c.value;
             const pkg = templates[c.value];
             const isOpen = expanded === c.value;
             return (
@@ -166,7 +179,7 @@ export default function PickPackagePage() {
                 }}
               >
                 <button
-                  onClick={() => !isLocked && chooseContract(c.value)}
+                  onClick={() => selectPackage(c.value)}
                   disabled={isLocked || picking}
                   style={{
                     width: "100%",
@@ -183,7 +196,7 @@ export default function PickPackagePage() {
                       <span style={{ fontSize: 15, fontWeight: 800, color: selected ? "#ff9d5c" : "#f4f4f4" }}>
                         {c.label || c.value}
                       </span>
-                      {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700, marginLeft: 10 }}>SELECTED</span>}
+                      {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700, marginLeft: 10 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
                     </div>
                     {pkg?.total_value != null && (
                       <span style={{ fontSize: 13, color: "#999" }}>{fmtVnd(pkg.total_value)}</span>
@@ -224,6 +237,28 @@ export default function PickPackagePage() {
 
         {contractTypes.length === 0 && (
           <div className={styles.emptyState}>No contract types configured yet.</div>
+        )}
+
+        {!isLocked && selectedValue && (
+          <button
+            onClick={confirmChoice}
+            disabled={picking || confirmed}
+            style={{
+              marginTop: 20,
+              width: "100%",
+              background: confirmed ? "#1a1a1a" : "#ff6b1a",
+              color: confirmed ? "#7ee6a8" : "#0a0a0a",
+              border: confirmed ? "1px solid #2e7d32" : "none",
+              borderRadius: 8,
+              padding: "14px 0",
+              fontSize: 14,
+              fontWeight: 800,
+              cursor: confirmed ? "default" : "pointer",
+              letterSpacing: 0.4,
+            }}
+          >
+            {picking ? "Confirming…" : confirmed ? "✓ Package Confirmed" : "Xác Nhận Gói Đã Chọn"}
+          </button>
         )}
       </div>
     </div>

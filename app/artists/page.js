@@ -63,7 +63,11 @@ export default function ArtistsPage() {
 
   async function deleteArtist(artist) {
     if (!window.confirm(`Delete "${artist.stage_name}"? This can't be undone.`)) return;
-    await supabase.from("artists").delete().eq("id", artist.id);
+    const { error: err } = await supabase.from("artists").delete().eq("id", artist.id);
+    if (err) {
+      window.alert(`Couldn't delete: ${err.message}`);
+      return;
+    }
     setArtists((prev) => prev.filter((a) => a.id !== artist.id));
   }
 

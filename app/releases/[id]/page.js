@@ -8,6 +8,7 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate } from "../../../lib/helpers";
 import { GateFields, BoolToggle } from "../../../lib/GateFields";
 import QuickCreate from "../../../lib/QuickCreate";
+import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import { useAuth } from "../../../lib/AuthContext";
 import { validateLabelNameEdit } from "../../../lib/labelHelpers";
 import styles from "../../shared.module.css";
@@ -341,11 +342,12 @@ export default function ReleaseDetailPage() {
             pitchingTicket={pitchingTicket}
             pitchingTypesDraft={pitchingTypesDraft}
             onPitchingToggle={handlePitchingToggle}
+            setTab={setTab}
           />
         )}
         {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "media_booking" && (
-          <MediaBookingTab form={form} entries={bookingEntries} onAdd={addBookingEntry} onCycleStatus={cycleBookingStatus} />
+          <MediaBookingTab form={form} entries={bookingEntries} onAdd={addBookingEntry} onCycleStatus={cycleBookingStatus} packageItems={packageItems} />
         )}
         {tab === "pitching" && <PitchingTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "pre_release" && <PreReleaseTab form={form} update={update} onSave={saveTab} saving={saving} />}
@@ -384,7 +386,7 @@ function Field({ label, children }) {
 // to Marketing (below, in the Package section) is what actually moves
 // BRIEF & DATA -> DEALING. Once resolved to a real package, shows that
 // value read-only plus the derived Phụ Lục requirement.
-function PipelineControl({ form, update }) {
+function PipelineControl({ form, update, setTab }) {
   const stage = form.project_type;
   const isPipelineStage = PIPELINE_STAGES.includes(stage);
 
@@ -394,6 +396,15 @@ function PipelineControl({ form, update }) {
         <span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.15)", color: "#ff9d5c" }}>
           {stage}
         </span>
+        {!isPipelineStage && (
+          <button
+            onClick={() => setTab?.("media_booking")}
+            title="Jump to the chosen package's full details"
+            style={{ background: "none", border: "none", color: "#ff9d5c", fontSize: 11, cursor: "pointer", padding: 0, textDecoration: "underline" }}
+          >
+            View package details →
+          </button>
+        )}
         {stage === "BRIEF & DATA" && (
           <span style={{ color: "#666", fontSize: 11 }}>
             Moves to DEALING automatically once a Package Ticket is sent (see Package section below)
@@ -426,12 +437,19 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle }) {
+function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, setTab }) {
   const { profile } = useAuth();
   const isAdminOrAbove = profile?.role === "admin" || profile?.role === "dev";
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
+  const [artistsList, setArtistsList] = useState([]);
+  const [labelsList, setLabelsList] = useState([]);
+  const [labelDraft, setLabelDraft] = useState(form.label || "");
+
+  useEffect(() => {
+    setLabelDraft(form.label || "");
+  }, [form.label]);
   const [labelCurveId, setLabelCurveId] = useState(null);
 
   useEffect(() => {
@@ -447,6 +465,8 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         setTopics((data || []).filter((r) => r.category === "topic"));
         setChannels((data || []).filter((r) => r.category === "channel"));
       });
+    supabase.from("artists").select("stage_name, labels(label_name)").order("stage_name").then(({ data }) => setArtistsList(data || []));
+    supabase.from("labels").select("label_name").order("label_name").then(({ data }) => setLabelsList(data || []));
   }, []);
 
   // Curve ID lives on the labels table, not the release — releases.label
@@ -506,26 +526,30 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, alignItems: "start" }}>
         <div>
           <div className={styles.subheading} style={{ marginTop: 0 }}>Trạng Thái Gói (Loại Dự Án)</div>
-          <PipelineControl form={form} update={update} />
+          <PipelineControl form={form} update={update} setTab={setTab} />
         </div>
         <div>
           <Field label="Label">
             <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
-              <input
-                className={styles.input}
-                style={{ flex: 1 }}
-                defaultValue={form.label || ""}
-                onBlur={(e) => {
-                  const check = validateLabelNameEdit(form.label, e.target.value, labelCurveId);
-                  if (!check.ok) {
-                    window.alert(check.message);
-                    e.target.value = form.label || "";
-                    return;
-                  }
-                  update("label", e.target.value);
-                }}
-              />
-              <QuickCreate kind="label" onCreated={(newLabel) => update("label", newLabel.label_name)} />
+              <div style={{ flex: 1 }}>
+                <LabelInput
+                  styles={styles}
+                  value={labelDraft}
+                  onChange={setLabelDraft}
+                  onBlur={(e) => {
+                    const check = validateLabelNameEdit(form.label, e.target.value, labelCurveId);
+                    if (!check.ok) {
+                      window.alert(check.message);
+                      setLabelDraft(form.label || "");
+                      return;
+                    }
+                    update("label", e.target.value);
+                  }}
+                  labels={labelsList}
+                  placeholder="Tên label"
+                />
+              </div>
+              <QuickCreate kind="label" onCreated={(newLabel) => { setLabelsList((prev) => [...prev, newLabel]); setLabelDraft(newLabel.label_name); update("label", newLabel.label_name); }} />
             </div>
           </Field>
           <Field label="Curve ID">
@@ -548,8 +572,10 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         </Field>
         <Field label="Main Artist">
           <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
-            <input className={styles.input} style={{ flex: 1 }} value={form.main_artist || ""} onChange={(e) => update("main_artist", e.target.value)} />
-            <QuickCreate kind="artist" onCreated={(newArtist) => update("main_artist", newArtist.stage_name)} />
+            <div style={{ flex: 1 }}>
+              <ArtistInput styles={styles} value={form.main_artist} onChange={(v) => update("main_artist", v)} artists={artistsList} placeholder="Tên nghệ sĩ chính" />
+            </div>
+            <QuickCreate kind="artist" onCreated={(newArtist) => { setArtistsList((prev) => [...prev, newArtist]); update("main_artist", newArtist.stage_name); }} />
           </div>
         </Field>
         <Field label="Release Date">
@@ -599,27 +625,18 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           <p style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>
             Tổng Giá Trị Gói: <strong style={{ color: "#ccc" }}>{fmtVnd(form.package_total_value)}</strong>
             {" · "}Thanh Toán: <strong style={{ color: "#ccc" }}>{form.package_payment_status}</strong>
+            {" · "}<span style={{ color: "#666" }}>Full item breakdown is on the Media Booking tab.</span>
           </p>
         )}
 
-        {packageItems.length > 0 && (
-          <table className={styles.table} style={{ marginBottom: 16 }}>
-            <thead><tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr></thead>
-            <tbody>
-              {packageItems.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.category}</td>
-                  <td>{item.quantity} {item.unit}</td>
-                  <td style={{ fontSize: 11, color: "#999" }}>{item.detail || "—"}</td>
-                  <td>{fmtVnd(item.amount)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <button className={styles.btnSmall} onClick={onToggleLock}>
+          <button
+            className={styles.btnSmall}
+            onClick={onToggleLock}
+            disabled={PIPELINE_STAGES.includes(form.project_type)}
+            style={PIPELINE_STAGES.includes(form.project_type) ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+            title={PIPELINE_STAGES.includes(form.project_type) ? "Nothing to lock yet — wait until the artist has picked a package" : undefined}
+          >
             {form.package_locked ? "Unlock editing" : "Lock editing"}
           </button>
           <button
@@ -672,7 +689,7 @@ function UrlTab({ form, update, onSave, saving }) {
     ["promotion_package_url", "URL Promotion Package"],
     ["artist_photo_url", "Artist Photo URL"],
     ["project_proposal_url", "Project Proposal URL"],
-    ["link_drive", "Link Drive"],
+    ["drive_link", "Link Drive"],
   ];
   const plStatus = phuLucStatusClient(form);
   return (
@@ -714,7 +731,7 @@ function phuLucStatusClient(form) {
   return "Chưa Soạn";
 }
 
-function MediaBookingTab({ form, entries, onAdd, onCycleStatus }) {
+function MediaBookingTab({ form, entries, onAdd, onCycleStatus, packageItems }) {
   const [round, setRound] = useState("INT");
   const [channelType, setChannelType] = useState("Direct");
 
@@ -729,6 +746,25 @@ function MediaBookingTab({ form, entries, onAdd, onCycleStatus }) {
 
   return (
     <div>
+      {packageItems.length > 0 && (
+        <>
+          <div className={styles.subheading} style={{ marginTop: 0 }}>Chosen Package — Itemized</div>
+          <table className={styles.table} style={{ marginBottom: 24 }}>
+            <thead><tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr></thead>
+            <tbody>
+              {packageItems.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.category}</td>
+                  <td>{item.quantity} {item.unit}</td>
+                  <td style={{ fontSize: 11, color: "#999" }}>{item.detail || "—"}</td>
+                  <td>{fmtVnd(item.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
       <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
         {BOOKING_ROUNDS.map((r) => (
           <button

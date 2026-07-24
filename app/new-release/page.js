@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
 import { GateFields, BoolToggle } from "../../lib/GateFields";
 import QuickCreate from "../../lib/QuickCreate";
+import { LabelInput, ArtistInput } from "../../lib/ReferenceInputs";
 import styles from "./styles.module.css";
 
 // Mirrors _field_initials()/set_release_did() in schema.sql exactly, minus
@@ -255,6 +256,7 @@ export default function NewReleasePage() {
               <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
                 <div style={{ flex: 1 }}>
                   <LabelInput
+                    styles={styles}
                     value={form.label}
                     onChange={(v) => update("label", v)}
                     labels={labels}
@@ -321,6 +323,7 @@ export default function NewReleasePage() {
               <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
                 <div style={{ flex: 1 }}>
                   <ArtistInput
+                    styles={styles}
                     value={form.main_artist}
                     onChange={(v) => update("main_artist", v)}
                     onBlur={handleArtistBlur}
@@ -343,6 +346,7 @@ export default function NewReleasePage() {
               <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
                 <div style={{ flex: 1 }}>
                   <ArtistInput
+                    styles={styles}
                     value={form.feature_artist}
                     onChange={(v) => update("feature_artist", v)}
                     artists={artists}
@@ -466,120 +470,5 @@ export default function NewReleasePage() {
       </div>
     </div>
     </AppShell>
-  );
-}
-
-// Lightweight autocomplete referencing the Artist List reference table —
-// typed value stays free text (main_artist/feature_artist are text columns,
-// not FKs), this just suggests matches as you type rather than forcing a
-// hard reference, since not every artist has been entered yet.
-// Same autocomplete pattern as ArtistInput, referencing the Label List
-// reference table instead — free text underneath, not a hard foreign key,
-// since not every label is in the reference table yet.
-function LabelInput({ value, onChange, labels, placeholder }) {
-  const [open, setOpen] = useState(false);
-  const matches =
-    value.trim().length > 0
-      ? labels.filter((l) => l.label_name.toLowerCase().includes(value.trim().toLowerCase())).slice(0, 8)
-      : [];
-
-  return (
-    <div style={{ position: "relative" }}>
-      <input
-        className={styles.input}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-      />
-      {open && matches.length > 0 && (
-        <div
-          style={{
-            position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10,
-            background: "#1a1a1a", border: "1px solid #333", borderRadius: 6,
-            marginTop: 4, maxHeight: 200, overflowY: "auto",
-          }}
-        >
-          {matches.map((l) => (
-            <div
-              key={l.label_name}
-              onClick={() => { onChange(l.label_name); setOpen(false); }}
-              onMouseDown={(e) => e.preventDefault()}
-              style={{ padding: "8px 12px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid #262626" }}
-            >
-              {l.label_name}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ArtistInput({ value, onChange, onBlur, artists, placeholder }) {
-  const [open, setOpen] = useState(false);
-  const matches =
-    value.trim().length > 0
-      ? artists.filter((a) => a.stage_name.toLowerCase().includes(value.trim().toLowerCase())).slice(0, 8)
-      : [];
-
-  return (
-    <div style={{ position: "relative" }}>
-      <input
-        className={styles.input}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => {
-          onChange(e.target.value);
-          setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => {
-          // slight delay so a click on a suggestion registers before the list closes
-          setTimeout(() => setOpen(false), 150);
-          onBlur?.();
-        }}
-      />
-      {open && matches.length > 0 && (
-        <div
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
-            right: 0,
-            zIndex: 10,
-            background: "#1a1a1a",
-            border: "1px solid #333",
-            borderRadius: 6,
-            marginTop: 4,
-            maxHeight: 200,
-            overflowY: "auto",
-          }}
-        >
-          {matches.map((a) => (
-            <div
-              key={a.stage_name}
-              onClick={() => {
-                onChange(a.stage_name);
-                setOpen(false);
-              }}
-              style={{
-                padding: "8px 12px",
-                fontSize: 13,
-                cursor: "pointer",
-                borderBottom: "1px solid #262626",
-              }}
-              onMouseDown={(e) => e.preventDefault()} // keep input focus so onClick fires before onBlur closes the list
-            >
-              {a.stage_name}
-              {a.labels?.label_name && (
-                <span style={{ color: "#666", marginLeft: 8 }}>— {a.labels.label_name}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }

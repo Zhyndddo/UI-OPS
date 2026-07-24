@@ -52,8 +52,20 @@ export default function LabelsPage() {
   }
 
   async function deleteLabel(label) {
+    const { data: tiedArtists } = await supabase.from("artists").select("stage_name").eq("label_id", label.id);
+    if (tiedArtists && tiedArtists.length > 0) {
+      window.alert(
+        `Can't delete "${label.label_name}" — ${tiedArtists.length} artist(s) are still linked to it ` +
+        `(${tiedArtists.map((a) => a.stage_name).join(", ")}). Remove or reassign those ties first.`
+      );
+      return;
+    }
     if (!window.confirm(`Delete "${label.label_name}"? This can't be undone.`)) return;
-    await supabase.from("labels").delete().eq("id", label.id);
+    const { error: err } = await supabase.from("labels").delete().eq("id", label.id);
+    if (err) {
+      window.alert(`Couldn't delete: ${err.message}`);
+      return;
+    }
     setLabels((prev) => prev.filter((l) => l.id !== label.id));
   }
 
