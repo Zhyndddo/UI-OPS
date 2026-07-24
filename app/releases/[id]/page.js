@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate } from "../../../lib/helpers";
 import { GateFields, BoolToggle } from "../../../lib/GateFields";
+import QuickCreate from "../../../lib/QuickCreate";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -495,7 +496,10 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           <input className={styles.input} value={form.title || ""} onChange={(e) => update("title", e.target.value)} />
         </Field>
         <Field label="Main Artist">
-          <input className={styles.input} value={form.main_artist || ""} onChange={(e) => update("main_artist", e.target.value)} />
+          <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+            <input className={styles.input} style={{ flex: 1 }} value={form.main_artist || ""} onChange={(e) => update("main_artist", e.target.value)} />
+            <QuickCreate kind="artist" onCreated={(newArtist) => update("main_artist", newArtist.stage_name)} />
+          </div>
         </Field>
         <Field label="Release Date">
           <input type="date" className={styles.input} value={form.release_date || ""} onChange={(e) => update("release_date", e.target.value)} />

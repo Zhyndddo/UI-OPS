@@ -3,6 +3,7 @@
 import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
+import QuickCreate from "../../lib/QuickCreate";
 import styles from "../shared.module.css";
 
 const DSP_FIELDS = [
@@ -90,12 +91,21 @@ export default function ArtistsPage() {
           </div>
           <div className={styles.field} style={{ marginBottom: 0, minWidth: 160 }}>
             <label className={styles.fieldLabel}>Label</label>
-            <select className={styles.select} value={form.label_id} onChange={(e) => setForm((f) => ({ ...f, label_id: e.target.value }))}>
-              <option value="">—</option>
-              {labels.map((l) => (
-                <option key={l.id} value={l.id}>{l.label_name}</option>
-              ))}
-            </select>
+            <div style={{ display: "flex", gap: 6 }}>
+              <select className={styles.select} value={form.label_id} onChange={(e) => setForm((f) => ({ ...f, label_id: e.target.value }))}>
+                <option value="">—</option>
+                {labels.map((l) => (
+                  <option key={l.id} value={l.id}>{l.label_name}</option>
+                ))}
+              </select>
+              <QuickCreate
+                kind="label"
+                onCreated={(newLabel) => {
+                  setLabels((prev) => [...prev, newLabel]);
+                  setForm((f) => ({ ...f, label_id: newLabel.id }));
+                }}
+              />
+            </div>
           </div>
           <button className={styles.btnPrimary} type="submit">+ Add Artist</button>
         </form>

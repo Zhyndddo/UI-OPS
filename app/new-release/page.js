@@ -4,6 +4,7 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { GateFields, BoolToggle } from "../../lib/GateFields";
+import QuickCreate from "../../lib/QuickCreate";
 import styles from "./styles.module.css";
 
 // Mirrors _field_initials()/set_release_did() in schema.sql exactly, minus
@@ -253,12 +254,23 @@ export default function NewReleasePage() {
 
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Hãng Đĩa <span className={styles.required}>*</span></label>
-              <LabelInput
-                value={form.label}
-                onChange={(v) => update("label", v)}
-                labels={labels}
-                placeholder="Tên label"
-              />
+              <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <LabelInput
+                    value={form.label}
+                    onChange={(v) => update("label", v)}
+                    labels={labels}
+                    placeholder="Tên label"
+                  />
+                </div>
+                <QuickCreate
+                  kind="label"
+                  onCreated={(newLabel) => {
+                    setLabels((prev) => [...prev, newLabel]);
+                    update("label", newLabel.label_name);
+                  }}
+                />
+              </div>
             </div>
 
             <div className={styles.field}>
@@ -308,23 +320,45 @@ export default function NewReleasePage() {
               <label className={styles.fieldLabel}>
                 Main Artist <span className={styles.required}>*</span>
               </label>
-              <ArtistInput
-                value={form.main_artist}
-                onChange={(v) => update("main_artist", v)}
-                onBlur={handleArtistBlur}
-                artists={artists}
-                placeholder="Tên nghệ sĩ chính"
-              />
+              <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <ArtistInput
+                    value={form.main_artist}
+                    onChange={(v) => update("main_artist", v)}
+                    onBlur={handleArtistBlur}
+                    artists={artists}
+                    placeholder="Tên nghệ sĩ chính"
+                  />
+                </div>
+                <QuickCreate
+                  kind="artist"
+                  onCreated={(newArtist) => {
+                    setArtists((prev) => [...prev, newArtist]);
+                    update("main_artist", newArtist.stage_name);
+                  }}
+                />
+              </div>
             </div>
 
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Feature Artist</label>
-              <ArtistInput
-                value={form.feature_artist}
-                onChange={(v) => update("feature_artist", v)}
-                artists={artists}
-                placeholder="Tên nghệ sĩ feat (nếu có)"
-              />
+              <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <ArtistInput
+                    value={form.feature_artist}
+                    onChange={(v) => update("feature_artist", v)}
+                    artists={artists}
+                    placeholder="Tên nghệ sĩ feat (nếu có)"
+                  />
+                </div>
+                <QuickCreate
+                  kind="artist"
+                  onCreated={(newArtist) => {
+                    setArtists((prev) => [...prev, newArtist]);
+                    update("feature_artist", newArtist.stage_name);
+                  }}
+                />
+              </div>
             </div>
 
             <div className={styles.field}>
