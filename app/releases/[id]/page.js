@@ -515,8 +515,6 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         ))}
       </div>
 
-      <SaveBar onSave={onSave} saving={saving} />
-
       <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 20 }}>
         <button
           className={styles.btnPrimary}
@@ -600,6 +598,8 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           pitchingTypes={pitchingTypesDraft}
           onPitchingToggle={onPitchingToggle}
         />
+
+        <SaveBar onSave={onSave} saving={saving} />
       </div>
     </div>
   );
