@@ -487,8 +487,18 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         </Field>
       </div>
 
-      <div className={styles.subheading}>Trạng Thái Gói (Loại Dự Án)</div>
-      <PipelineControl form={form} update={update} />
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, alignItems: "start" }}>
+        <div>
+          <div className={styles.subheading} style={{ marginTop: 0 }}>Trạng Thái Gói (Loại Dự Án)</div>
+          <PipelineControl form={form} update={update} />
+        </div>
+        <Field label="Label">
+          <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+            <input className={styles.input} style={{ flex: 1 }} value={form.label || ""} onChange={(e) => update("label", e.target.value)} />
+            <QuickCreate kind="label" onCreated={(newLabel) => update("label", newLabel.label_name)} />
+          </div>
+        </Field>
+      </div>
 
       <div className={styles.subheading}>Name / Artist / Release Date (editing updates the title above)</div>
       <div className={styles.grid2}>
