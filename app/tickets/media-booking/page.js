@@ -252,7 +252,14 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                         <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, width: 80 }} defaultValue={item.quantity || ""} onBlur={(e) => updateItem(item, "quantity", e.target.value || null)} />
                         <span style={{ fontSize: 11, color: "var(--text-faint)", marginLeft: 4 }}>{item.unit}</span>
                       </td>
-                      <td style={{ fontSize: 11, color: "var(--text-muted)", whiteSpace: "pre-line", maxWidth: 260 }}>{item.detail || "—"}</td>
+                      <td style={{ maxWidth: 260 }}>
+                        <textarea
+                          className={styles.textarea}
+                          style={{ minHeight: 40, fontSize: 11, padding: "4px 8px" }}
+                          defaultValue={item.detail || ""}
+                          onBlur={(e) => updateItem(item, "detail", e.target.value)}
+                        />
+                      </td>
                       <td>
                         <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, width: 110 }} defaultValue={item.amount || ""} onBlur={(e) => updateItem(item, "amount", e.target.value || null)} />
                       </td>

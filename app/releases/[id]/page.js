@@ -38,6 +38,8 @@ export default function ReleaseDetailPage() {
   const [release, setRelease] = useState(null);
   const [form, setForm] = useState(null);
   const [pitchingTicket, setPitchingTicket] = useState(null);
+  const [pitchingTypesDraft, setPitchingTypesDraft] = useState({ priority: false, spotify: false, nct: false, zing: false });
+  const [artistProfileTicket, setArtistProfileTicket] = useState(null);
   const [tab, setTab] = useState("overview");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -68,7 +70,22 @@ export default function ReleaseDetailPage() {
             .eq("data->>releaseId", data.did)
             .is("deleted_at", null)
             .limit(1);
-          setPitchingTicket(tix?.[0] || null);
+          const found = tix?.[0] || null;
+          setPitchingTicket(found);
+          if (found) setPitchingTypesDraft({ priority: false, spotify: false, nct: false, zing: false, ...found.data });
+        }
+        // Same idempotency check for Artist Profile — releaseId-matched,
+        // not name-matched, since two releases can share an artist.
+        const { data: apTab } = await supabase.from("ticket_tabs").select("id").eq("key", "artist_profile").single();
+        if (apTab) {
+          const { data: apTix } = await supabase
+            .from("tickets")
+            .select("*")
+            .eq("tab_id", apTab.id)
+            .eq("data->>releaseId", data.did)
+            .is("deleted_at", null)
+            .limit(1);
+          setArtistProfileTicket(apTix?.[0] || null);
         }
       });
     supabase
@@ -121,16 +138,68 @@ export default function ReleaseDetailPage() {
     setSaved(false);
   }
 
+  // The one and only place Pitching/Artist Profile tickets get created or
+  // updated from this page now — no more immediate-on-click side effects.
+  // Both are idempotent per release (checked via pitchingTicket/
+  // artistProfileTicket, fetched on load) so clicking Save more than once
+  // never creates a second ticket for the same product.
   async function saveTab() {
     setSaving(true);
     setError(null);
     const { error: err } = await supabase.from("releases").update(form).eq("id", id);
-    setSaving(false);
-    if (err) setError(err.message);
-    else {
-      setRelease(form);
-      setSaved(true);
+    if (err) {
+      setSaving(false);
+      setError(err.message);
+      return;
     }
+
+    if (form.gate_pitching === "true") {
+      if (pitchingTicket) {
+        if (JSON.stringify(pitchingTicket.data) !== JSON.stringify(pitchingTypesDraft)) {
+          await supabase.from("tickets").update({ data: pitchingTypesDraft }).eq("id", pitchingTicket.id);
+          setPitchingTicket((t) => ({ ...t, data: pitchingTypesDraft }));
+        }
+      } else {
+        const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching").single();
+        if (tab) {
+          const newData = { releaseId: form.did, priority: false, spotify: false, nct: false, zing: false, ...pitchingTypesDraft };
+          const { data: created } = await supabase
+            .from("tickets")
+            .insert({
+              tab_id: tab.id,
+              data: newData,
+              status: tab.default_status,
+              status_log: { [tab.default_status]: new Date().toISOString() },
+              requester_segment: form.requester_segment || null,
+            })
+            .select()
+            .single();
+          if (created) setPitchingTicket(created);
+        }
+      }
+    }
+
+    if (form.gate_artist_profile === "true" && !artistProfileTicket) {
+      const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
+      if (tab) {
+        const { data: created } = await supabase
+          .from("tickets")
+          .insert({
+            tab_id: tab.id,
+            data: { releaseId: form.did, artistName: form.main_artist, email: "" },
+            status: tab.default_status,
+            status_log: { [tab.default_status]: new Date().toISOString() },
+            requester_segment: form.requester_segment || null,
+          })
+          .select()
+          .single();
+        if (created) setArtistProfileTicket(created);
+      }
+    }
+
+    setSaving(false);
+    setRelease(form);
+    setSaved(true);
   }
 
   // Clicking SEND UPLOAD does real work: creates an actual Newrelease
@@ -182,46 +251,11 @@ export default function ReleaseDetailPage() {
     setRelease((r) => ({ ...r, ...patch }));
   }
 
-  // Saves immediately per checkbox, separate from the tab's own Save
-  // button — creates the Pitching ticket the first time this release gets
-  // a pitching type ticked (if gate_pitching was flipped on after
-  // creation, no ticket would exist yet), otherwise updates the real one.
-  async function handlePitchingToggle(key, checked) {
-    if (pitchingTicket) {
-      const newData = { ...pitchingTicket.data, [key]: checked };
-      setPitchingTicket((t) => ({ ...t, data: newData }));
-      await supabase.from("tickets").update({ data: newData }).eq("id", pitchingTicket.id);
-    } else {
-      const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching").single();
-      if (!tab) return;
-      const newData = { releaseId: form.did, priority: false, spotify: false, nct: false, zing: false, [key]: checked };
-      const { data: created } = await supabase
-        .from("tickets")
-        .insert({
-          tab_id: tab.id,
-          data: newData,
-          status: tab.default_status,
-          status_log: { [tab.default_status]: new Date().toISOString() },
-          requester_segment: form.requester_segment || null,
-        })
-        .select()
-        .single();
-      if (created) setPitchingTicket(created);
-    }
-  }
-
-  // Ticking Profile Artist "Yes" on the detail page fires this
-  // immediately — same idea as Pitching, just no sub-type picker needed.
-  async function handleArtistProfileYes() {
-    const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
-    if (!tab) return;
-    await supabase.from("tickets").insert({
-      tab_id: tab.id,
-      data: { artistName: form.main_artist, email: "" },
-      status: tab.default_status,
-      status_log: { [tab.default_status]: new Date().toISOString() },
-      requester_segment: form.requester_segment || null,
-    });
+  // Ticking a pitching type only updates the local draft now — it's
+  // persisted (created or updated, idempotently) by saveTab() above, same
+  // as every other field on this page. No more save-button bypass.
+  function handlePitchingToggle(key, checked) {
+    setPitchingTypesDraft((d) => ({ ...d, [key]: checked }));
   }
 
   async function addBookingEntry(round, platform, channelType, link) {
@@ -306,8 +340,8 @@ export default function ReleaseDetailPage() {
             onToggleLock={togglePackageLock}
             onSendPackageTicket={sendPackageTicket}
             pitchingTicket={pitchingTicket}
+            pitchingTypesDraft={pitchingTypesDraft}
             onPitchingToggle={handlePitchingToggle}
-            onArtistProfileYes={handleArtistProfileYes}
           />
         )}
         {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} />}
@@ -393,7 +427,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, pitchingTicket, onPitchingToggle, onArtistProfileYes }) {
+function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
 
@@ -437,6 +471,12 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
             <option value="">— Chọn chủ đề —</option>
             {topics.map((opt) => <option key={opt.value} value={opt.value}>{opt.label || opt.value}</option>)}
           </select>
+        </Field>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
+        <Field label="UPC">
+          <input className={styles.input} value={form.upc || ""} onChange={(e) => update("upc", e.target.value)} />
         </Field>
         <Field label="ISRC">
           <input className={styles.input} value={form.isrc || ""} onChange={(e) => update("isrc", e.target.value)} />
@@ -557,9 +597,8 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           styles={styles}
           form={form}
           update={update}
-          pitchingTypes={pitchingTicket?.data}
+          pitchingTypes={pitchingTypesDraft}
           onPitchingToggle={onPitchingToggle}
-          onArtistProfileYes={onArtistProfileYes}
         />
       </div>
     </div>

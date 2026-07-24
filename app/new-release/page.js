@@ -194,7 +194,7 @@ export default function NewReleasePage() {
       if (apTab) {
         await supabase.from("tickets").insert({
           tab_id: apTab.id,
-          data: { artistName: form.main_artist, email: "" },
+          data: { releaseId: data.did, artistName: form.main_artist, email: "" },
           status: apTab.default_status,
           status_log: { [apTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,

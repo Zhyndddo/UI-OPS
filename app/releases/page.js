@@ -17,6 +17,7 @@ export default function ReleasesDashboard() {
   const [error, setError] = useState(null);
 
   const [statusFilter, setStatusFilter] = useState(null); // "preRelease" | "released" | "postRelease"
+  const [createdFilter, setCreatedFilter] = useState(null); // "week" | "month"
   const [channelFilter, setChannelFilter] = useState(null); // "VIEENT" | "ENVI" (from stat click or dropdown, same state)
   const [typeFilter, setTypeFilter] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
@@ -80,7 +81,17 @@ export default function ReleasesDashboard() {
 
   const filteredReleases = useMemo(() => {
     const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
     return releases.filter((r) => {
+      if (createdFilter) {
+        const created = new Date(r.created_at);
+        if (createdFilter === "week" && !(created >= startOfWeek)) return false;
+        if (createdFilter === "month" && !(created >= startOfMonth)) return false;
+      }
       if (statusFilter) {
         const rd = r.release_date ? new Date(r.release_date) : null;
         if (!rd) return false;
@@ -93,9 +104,9 @@ export default function ReleasesDashboard() {
       if (labelFilter && r.label !== labelFilter) return false;
       return true;
     });
-  }, [releases, statusFilter, channelFilter, typeFilter, labelFilter]);
+  }, [releases, createdFilter, statusFilter, channelFilter, typeFilter, labelFilter]);
 
-  const anyStatClickFilter = statusFilter || channelFilter;
+  const anyStatClickFilter = statusFilter || channelFilter || createdFilter;
 
   return (
     <AppShell>
@@ -110,18 +121,9 @@ export default function ReleasesDashboard() {
         </div>
 
         <div className={styles.statRow}>
-          <div className={styles.statCard}>
-            <div className={styles.statLabel}>Total Releases</div>
-            <div className={styles.statValue}>{stats.total}</div>
-          </div>
-          <div className={styles.statCard}>
-            <div className={styles.statLabel}>This Week</div>
-            <div className={styles.statValue}>{stats.thisWeek}</div>
-          </div>
-          <div className={styles.statCard}>
-            <div className={styles.statLabel}>This Month</div>
-            <div className={styles.statValue}>{stats.thisMonth}</div>
-          </div>
+          <StatCard label="Total Releases" value={stats.total} active={!createdFilter} onClick={() => setCreatedFilter(null)} onClear={() => setCreatedFilter(null)} hideClear />
+          <StatCard label="This Week" value={stats.thisWeek} active={createdFilter === "week"} onClick={() => setCreatedFilter((f) => (f === "week" ? null : "week"))} onClear={() => setCreatedFilter(null)} />
+          <StatCard label="This Month" value={stats.thisMonth} active={createdFilter === "month"} onClick={() => setCreatedFilter((f) => (f === "month" ? null : "month"))} onClear={() => setCreatedFilter(null)} />
           <StatCard label="Pre-release" value={stats.preRelease} active={statusFilter === "preRelease"} onClick={() => setStatusFilter((f) => (f === "preRelease" ? null : "preRelease"))} onClear={() => setStatusFilter(null)} />
           <StatCard label="Release" value={stats.released} active={statusFilter === "released"} onClick={() => setStatusFilter((f) => (f === "released" ? null : "released"))} onClear={() => setStatusFilter(null)} />
           <StatCard label="Post-release" value={stats.postRelease} active={statusFilter === "postRelease"} onClick={() => setStatusFilter((f) => (f === "postRelease" ? null : "postRelease"))} onClear={() => setStatusFilter(null)} />
@@ -150,7 +152,7 @@ export default function ReleasesDashboard() {
           </select>
           {(typeFilter || labelFilter || anyStatClickFilter) && (
             <button
-              onClick={() => { setStatusFilter(null); setChannelFilter(null); setTypeFilter(""); setLabelFilter(""); }}
+              onClick={() => { setStatusFilter(null); setChannelFilter(null); setCreatedFilter(null); setTypeFilter(""); setLabelFilter(""); }}
               style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "6px 12px", fontSize: 11, color: "var(--text-faint)", cursor: "pointer" }}
             >
               ✕ Clear all filters
