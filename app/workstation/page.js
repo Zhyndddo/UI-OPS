@@ -15,6 +15,8 @@ const NOTES = {
   confirm: "Cross-platform correctness checks + Smartlink verification, two phases",
   pre_release: "CANVAS, Artist Pick, Musixmatch, NCT Lyric",
   pitching: "Queue of active Pitching tickets, edited in one place",
+  stream: "Today Check, Monthly, Bổ Sung — real per-platform stream metrics",
+  milestone: "Chart rank tracking — IN/REMAIN/RETURN/OUT + streaks",
   package_price: "Not built yet",
 };
 
@@ -60,6 +62,8 @@ export default function WorkstationIndex() {
         confirm: releaseCount ?? 0,
         pre_release: releaseCount ?? 0,
         pitching: pitchingCount,
+        stream: releaseCount ?? 0,
+        milestone: 0,
         package_price: 0,
       });
     })();
@@ -77,44 +81,63 @@ export default function WorkstationIndex() {
           <h1 className={styles.title}>Workstation</h1>
           <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -16, marginBottom: 24 }}>
             Ongoing, ticket-less work — tracked by a PIC owner per column, not a Received/Started/Completed
-            lifecycle. See Tickets for anything that needs an explicit request/response cycle instead.
-            Showing types relevant to {isDev ? "dev (all teams)" : profile?.segment || "your team"}.
+            lifecycle. See Tickets for anything that needs an explicit request/response cycle instead.{" "}
+            {isDev ? "Grouped by team — you see everyone's." : `Showing types relevant to ${profile?.segment || "your team"}.`}
           </p>
 
-          {types.length === 0 ? (
+          {isDev ? (
+            Object.entries(TEAM_WORKSTATION_TYPES).map(([team, teamTypes]) => (
+              <TeamSection key={team} team={team} types={teamTypes} counts={counts} />
+            ))
+          ) : types.length === 0 ? (
             <div className={styles.emptyState}>No workstations assigned to your team yet.</div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
-              {types.map((key) => (
-                <Link
-                  key={key}
-                  href={WORKSTATION_ROUTES[key]}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    background: "var(--bg-card)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                    padding: "16px 20px",
-                    textDecoration: "none",
-                    color: "var(--text)",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{WORKSTATION_TYPE_LABELS[key]}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{NOTES[key]}</div>
-                  </div>
-                  <span style={{ fontSize: 36, fontWeight: 800, color: "var(--accent-soft)", lineHeight: 1, flexShrink: 0 }}>
-                    {counts[key] ?? 0}
-                  </span>
-                </Link>
-              ))}
-            </div>
+            <CardGrid types={types} counts={counts} />
           )}
         </div>
       </div>
     </AppShell>
+  );
+}
+
+function TeamSection({ team, types, counts }) {
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>{team}</div>
+      <CardGrid types={types} counts={counts} />
+    </div>
+  );
+}
+
+function CardGrid({ types, counts }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+      {types.map((key) => (
+        <Link
+          key={key}
+          href={WORKSTATION_ROUTES[key]}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            background: "var(--bg-card)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            padding: "16px 20px",
+            textDecoration: "none",
+            color: "var(--text)",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{WORKSTATION_TYPE_LABELS[key]}</div>
+            <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{NOTES[key]}</div>
+          </div>
+          <span style={{ fontSize: 36, fontWeight: 800, color: "var(--accent-soft)", lineHeight: 1, flexShrink: 0 }}>
+            {counts[key] ?? 0}
+          </span>
+        </Link>
+      ))}
+    </div>
   );
 }

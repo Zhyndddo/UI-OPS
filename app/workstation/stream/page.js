@@ -20,7 +20,7 @@ const METRIC_GROUPS = [
   ["Zing", [["current_zing", "Current"]]],
   ["NCT", [["current_nct", "Current"]]],
   ["YouTube", [["current_ytb", "Current"]]],
-  ["YouTube Music", [["current_ytb_music", "Current"]]],
+  ["YTB Music", [["current_ytb_music", "Current"]]],
   ["Facebook", [["views_fb", "Views"], ["creations_fb", "Creations"]]],
 ];
 const ALL_METRIC_KEYS = METRIC_GROUPS.flatMap(([, fields]) => fields.map(([k]) => k));
@@ -181,7 +181,7 @@ function StreamTable({ rows, onUpdate, onRemove, manual }) {
       <table className={styles.table} style={{ minWidth: 1400 }}>
         <thead>
           <tr>
-            <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 280 }}>Release</th>
+            <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 300, minWidth: 300, maxWidth: 300 }}>Release</th>
             {METRIC_GROUPS.map(([group, fields]) => (
               <th key={group} colSpan={fields.length} style={{ textAlign: "center", borderLeft: "1px solid var(--border)" }}>{group}</th>
             ))}
@@ -198,7 +198,7 @@ function StreamTable({ rows, onUpdate, onRemove, manual }) {
         <tbody>
           {rows.map((row, i) => (
             <tr key={row.release?.id || row.metrics.id || i}>
-              <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", padding: "4px 10px" }}>
+              <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", padding: "4px 10px", width: 300, minWidth: 300, maxWidth: 300 }}>
                 {manual ? (
                   <div style={{ display: "flex", gap: 4 }}>
                     <input className={styles.input} style={{ padding: "3px 6px", fontSize: 11 }} defaultValue={row.metrics.manual_title || ""} placeholder="Title…" onBlur={(e) => onUpdate(row, "manual_title", e.target.value)} />
