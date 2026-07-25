@@ -21,6 +21,7 @@ const STATUS_COLOR = {
 export default function BookingBoard() {
   const [releases, setReleases] = useState([]);
   const [entries, setEntries] = useState([]);
+  const [channels, setChannels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [month, setMonth] = useState("");
@@ -41,8 +42,10 @@ export default function BookingBoard() {
       .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky")
       .order("release_date", { ascending: false });
     const { data: ents } = await supabase.from("media_booking_entries").select("*");
+    const { data: chans } = await supabase.from("booking_channels").select("*").order("sort_order");
     setReleases(rels || []);
     setEntries(ents || []);
+    setChannels(chans || []);
     setLoading(false);
   }
 
@@ -91,11 +94,11 @@ export default function BookingBoard() {
     return { total, done, sent, notBooked };
   }, [releases, roundEntries]);
 
-  async function addEntry(releaseId, platform, link) {
+  async function addEntry(releaseId, platform, channelName, link) {
     if (!link.trim()) return;
     const { data, error } = await supabase
       .from("media_booking_entries")
-      .insert({ release_id: releaseId, booking_round: round, platform, channel_type: channelType, link, status: "Chưa Booking" })
+      .insert({ release_id: releaseId, booking_round: round, platform, channel_type: channelType, channel_name: channelName || null, link, status: "Chưa Booking" })
       .select()
       .single();
     if (!error && data) setEntries((prev) => [...prev, data]);
@@ -296,8 +299,9 @@ export default function BookingBoard() {
                       entries={roundEntries.filter((e) => e.release_id === r.id && e.platform === platform)}
                       expanded={expandedCell === `${r.id}:${platform}`}
                       onToggle={() => setExpandedCell(expandedCell === `${r.id}:${platform}` ? null : `${r.id}:${platform}`)}
-                      onAdd={(link) => addEntry(r.id, platform, link)}
+                      onAdd={(channelName, link) => addEntry(r.id, platform, channelName, link)}
                       onCycleStatus={cycleStatus}
+                      channelOptions={channels.filter((c) => c.platform === platform && c.channel_type === channelType)}
                     />
                   ))}
                 </tr>
@@ -312,18 +316,31 @@ export default function BookingBoard() {
   );
 }
 
-function PlatformCell({ releaseId, platform, entries, expanded, onToggle, onAdd, onCycleStatus }) {
+function PlatformCell({ releaseId, platform, entries, expanded, onToggle, onAdd, onCycleStatus, channelOptions }) {
+  const [showAddPopup, setShowAddPopup] = useState(false);
+  const [pickedChannel, setPickedChannel] = useState(null); // null = step 1 (picking), set = step 2 (url input)
   const [link, setLink] = useState("");
   const done = entries.filter((e) => e.status === "Done").length;
   const sent = entries.filter((e) => e.status === "Đã Gửi").length;
   const all = entries.length;
 
+  function openPopup() {
+    setPickedChannel(null);
+    setLink("");
+    setShowAddPopup(true);
+  }
+
+  function submitAdd() {
+    onAdd(pickedChannel, link);
+    setShowAddPopup(false);
+  }
+
   return (
-    <td style={{ verticalAlign: "top", minWidth: 160 }}>
+    <td style={{ verticalAlign: "top", minWidth: 160, position: "relative" }}>
       <div
         onClick={onToggle}
         style={{ cursor: "pointer", fontSize: 11, textAlign: "center", color: "#999" }}
-        title={entries.map((e) => `${e.status}: ${e.link}`).join("\n")}
+        title={entries.map((e) => `${e.channel_name ? e.channel_name + ": " : ""}${e.status}: ${e.link}`).join("\n")}
       >
         <span style={{ color: "#7ee6a8" }}>✓{done}</span>
         {" · "}
@@ -335,9 +352,12 @@ function PlatformCell({ releaseId, platform, entries, expanded, onToggle, onAdd,
         <div style={{ marginTop: 6, background: "#141414", border: "1px solid #262626", borderRadius: 6, padding: 8 }}>
           {entries.map((e) => (
             <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, marginBottom: 4, gap: 6 }}>
-              <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "#ccc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 90 }}>
-                {e.link}
-              </a>
+              <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 100 }}>
+                {e.channel_name && <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{e.channel_name}: </span>}
+                <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "#ccc" }}>
+                  {e.link}
+                </a>
+              </div>
               <button
                 onClick={() => onCycleStatus(e)}
                 style={{ background: "none", border: "none", cursor: "pointer", color: STATUS_COLOR[e.status], fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}
@@ -346,22 +366,80 @@ function PlatformCell({ releaseId, platform, entries, expanded, onToggle, onAdd,
               </button>
             </div>
           ))}
-          <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
-            <input
-              className={styles.input}
-              style={{ padding: "4px 6px", fontSize: 11 }}
-              placeholder="link…"
-              value={link}
-              onChange={(e) => setLink(e.target.value)}
-            />
-            <button
-              className={styles.btnSmall}
-              onClick={() => { onAdd(link); setLink(""); }}
-            >
-              Add
-            </button>
-          </div>
+          <button className={styles.btnSmall} style={{ marginTop: 4, width: "100%" }} onClick={openPopup}>
+            + Add Link
+          </button>
         </div>
+      )}
+
+      {showAddPopup && (
+        <>
+          <div onClick={() => setShowAddPopup(false)} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "absolute", top: 0, left: "100%", marginLeft: 6, zIndex: 300, width: 260,
+              background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, padding: 12,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+            }}
+          >
+            {pickedChannel === null ? (
+              // Step 1 — pick which channel this link belongs to
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>
+                  Which channel? — {platform}
+                </div>
+                {channelOptions.length === 0 ? (
+                  <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 8 }}>
+                    No channels configured for this platform yet — add one in Config → Booking Channels.
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gap: 4, marginBottom: 8 }}>
+                    {channelOptions.map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => setPickedChannel(c.name)}
+                        style={{ textAlign: "left", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 10px", fontSize: 12, color: "var(--text)", cursor: "pointer" }}
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              // Step 2 — channel confirmed on the left, URL input on the right
+              <>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>
+                  Add Link
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                  <div>
+                    <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>Channel</label>
+                    <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, padding: "7px 10px", fontSize: 12, color: "#ff9d5c", fontWeight: 700, whiteSpace: "nowrap" }}>
+                      {pickedChannel}
+                    </div>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>URL</label>
+                    <input
+                      autoFocus
+                      className={styles.input}
+                      style={{ padding: "6px 8px", fontSize: 12 }}
+                      placeholder="https://…"
+                      value={link}
+                      onChange={(e) => setLink(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                  <button className={styles.btnSmall} onClick={() => setPickedChannel(null)} style={{ flex: 1 }}>← Back</button>
+                  <button className={styles.btnPrimary} onClick={submitAdd} style={{ flex: 1, padding: "7px 0", fontSize: 12 }}>Add</button>
+                </div>
+              </>
+            )}
+          </div>
+        </>
       )}
     </td>
   );

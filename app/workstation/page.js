@@ -11,6 +11,7 @@ import styles from "../shared.module.css";
 
 const NOTES = {
   booking: "3-round × platform matrix, Direct/Partner gated on Phụ Lục",
+  upload: "UPC, Link LBM, Link Share, Smartlink — every release SEND UPLOAD has touched",
   confirm: "Cross-platform correctness checks + Smartlink verification, two phases",
   pre_release: "CANVAS, Artist Pick, Musixmatch, NCT Lyric",
   pitching: "Queue of active Pitching tickets, edited in one place",
@@ -42,6 +43,7 @@ export default function WorkstationIndex() {
     if (!supabase) return;
     (async () => {
       const { count: releaseCount } = await supabase.from("releases").select("id", { count: "exact", head: true });
+      const { count: uploadCount } = await supabase.from("releases").select("id", { count: "exact", head: true }).eq("requested", true);
       const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "pitching").single();
       let pitchingCount = 0;
       if (tab) {
@@ -54,6 +56,7 @@ export default function WorkstationIndex() {
       }
       setCounts({
         booking: releaseCount ?? 0,
+        upload: uploadCount ?? 0,
         confirm: releaseCount ?? 0,
         pre_release: releaseCount ?? 0,
         pitching: pitchingCount,

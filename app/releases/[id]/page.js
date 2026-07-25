@@ -7,6 +7,11 @@ import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate } from "../../../lib/helpers";
 import { GateFields, BoolToggle } from "../../../lib/GateFields";
+import QuickCreate from "../../../lib/QuickCreate";
+import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
+import UrlField from "../../../lib/UrlField";
+import { useAuth } from "../../../lib/AuthContext";
+import { validateLabelNameEdit } from "../../../lib/labelHelpers";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -38,6 +43,8 @@ export default function ReleaseDetailPage() {
   const [release, setRelease] = useState(null);
   const [form, setForm] = useState(null);
   const [pitchingTicket, setPitchingTicket] = useState(null);
+  const [pitchingTypesDraft, setPitchingTypesDraft] = useState({ priority: false, spotify: false, nct: false, zing: false });
+  const [artistProfileTicket, setArtistProfileTicket] = useState(null);
   const [tab, setTab] = useState("overview");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -68,7 +75,22 @@ export default function ReleaseDetailPage() {
             .eq("data->>releaseId", data.did)
             .is("deleted_at", null)
             .limit(1);
-          setPitchingTicket(tix?.[0] || null);
+          const found = tix?.[0] || null;
+          setPitchingTicket(found);
+          if (found) setPitchingTypesDraft({ priority: false, spotify: false, nct: false, zing: false, ...found.data });
+        }
+        // Same idempotency check for Artist Profile — releaseId-matched,
+        // not name-matched, since two releases can share an artist.
+        const { data: apTab } = await supabase.from("ticket_tabs").select("id").eq("key", "artist_profile").single();
+        if (apTab) {
+          const { data: apTix } = await supabase
+            .from("tickets")
+            .select("*")
+            .eq("tab_id", apTab.id)
+            .eq("data->>releaseId", data.did)
+            .is("deleted_at", null)
+            .limit(1);
+          setArtistProfileTicket(apTix?.[0] || null);
         }
       });
     supabase
@@ -121,60 +143,108 @@ export default function ReleaseDetailPage() {
     setSaved(false);
   }
 
+  // The one and only place Pitching/Artist Profile tickets get created or
+  // updated from this page now — no more immediate-on-click side effects.
+  // Both are idempotent per release (checked via pitchingTicket/
+  // artistProfileTicket, fetched on load) so clicking Save more than once
+  // never creates a second ticket for the same product.
   async function saveTab() {
     setSaving(true);
     setError(null);
     const { error: err } = await supabase.from("releases").update(form).eq("id", id);
-    setSaving(false);
-    if (err) setError(err.message);
-    else {
-      setRelease(form);
-      setSaved(true);
+    if (err) {
+      setSaving(false);
+      setError(err.message);
+      return;
     }
-  }
 
-  // Clicking SEND UPLOAD does real work: creates an actual Newrelease
-  // Upload ticket, and — the first time only, tracked via
-  // package_ticket_sent — ALSO sends a Package Prep ticket to Marketing.
-  // That same one-time gate is shared with the manual "Send Package Ticket
-  // to Marketing" button below — whichever one fires first "uses up" the
-  // gate, and the other won't send a duplicate afterward.
-  async function toggleUpload() {
-    const newVal = !form.requested;
-    setForm((f) => ({ ...f, requested: newVal }));
-    await supabase.from("releases").update({ requested: newVal }).eq("id", id);
-    setRelease((r) => ({ ...r, requested: newVal }));
-
-    if (newVal) {
-      const { data: uploadTab } = await supabase.from("ticket_tabs").select("id").eq("key", "newrelease_upload").single();
-      if (uploadTab) {
-        await supabase.from("tickets").insert({
-          tab_id: uploadTab.id,
-          data: { releaseId: form.did, project: form.title, artist: form.main_artist, label: form.label },
-        });
+    if (form.gate_pitching === "true") {
+      if (pitchingTicket) {
+        if (JSON.stringify(pitchingTicket.data) !== JSON.stringify(pitchingTypesDraft)) {
+          await supabase.from("tickets").update({ data: pitchingTypesDraft }).eq("id", pitchingTicket.id);
+          setPitchingTicket((t) => ({ ...t, data: pitchingTypesDraft }));
+        }
+      } else {
+        const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching").single();
+        if (tab) {
+          const newData = { releaseId: form.did, priority: false, spotify: false, nct: false, zing: false, ...pitchingTypesDraft };
+          const { data: created } = await supabase
+            .from("tickets")
+            .insert({
+              tab_id: tab.id,
+              data: newData,
+              status: tab.default_status,
+              status_log: { [tab.default_status]: new Date().toISOString() },
+              requester_segment: form.requester_segment || null,
+            })
+            .select()
+            .single();
+          if (created) setPitchingTicket(created);
+        }
       }
-      await sendPackageTicket();
     }
+
+    if (form.gate_artist_profile === "true" && !artistProfileTicket) {
+      const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
+      if (tab) {
+        const { data: created } = await supabase
+          .from("tickets")
+          .insert({
+            tab_id: tab.id,
+            data: { releaseId: form.did, artistName: form.main_artist, email: "" },
+            status: tab.default_status,
+            status_log: { [tab.default_status]: new Date().toISOString() },
+            requester_segment: form.requester_segment || null,
+          })
+          .select()
+          .single();
+        if (created) setArtistProfileTicket(created);
+      }
+    }
+
+    setSaving(false);
+    setRelease(form);
+    setSaved(true);
   }
 
-  // Sending the package-prep ticket IS what starts the DEALING stage — no
-  // separate manual "Advance" action needed. This is a genuine one-time
-  // gate (not an override): once package_ticket_sent is true, calling this
-  // again — from either this button or the Upload flow — does nothing.
-  // Media Booking absorbed Package Prep's role — sending this from the
-  // release popup leaves "Propose Package" blank (per the agreed design:
-  // only the manual "new ticket" flow lets AR pre-pick a template).
-  async function sendPackageTicket() {
-    if (form.package_ticket_sent) return;
-    const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "media_booking").single();
-    if (tab) {
+  // Asymmetric on purpose: SEND UPLOAD sends both (Newrelease Upload +
+  // Media Booking), but Send Package Ticket only ever sends itself — it
+  // never touches Upload. Each is its own one-time gate (requested /
+  // package_ticket_sent) — the real bug being fixed here is that Upload
+  // used to be a toggle (could flip back off), not a proper one-time
+  // action like Package always was.
+  async function sendUpload() {
+    if (form.requested) return;
+
+    const { data: uploadTab } = await supabase.from("ticket_tabs").select("id").eq("key", "newrelease_upload").single();
+    if (uploadTab) {
       await supabase.from("tickets").insert({
-        tab_id: tab.id,
-        data: { releaseId: form.did, proposedPackage: null },
-        status: tab.default_status,
-        status_log: { [tab.default_status]: new Date().toISOString() },
+        tab_id: uploadTab.id,
+        data: { releaseId: form.did, project: form.title, artist: form.main_artist, label: form.label },
       });
     }
+
+    const patch = { requested: true };
+    await supabase.from("releases").update(patch).eq("id", id);
+    setForm((f) => ({ ...f, ...patch }));
+    setRelease((r) => ({ ...r, ...patch }));
+
+    // Avoids double-sending if Marketing's button already fired independently.
+    await sendPackageTicket();
+  }
+
+  async function sendPackageTicket() {
+    if (form.package_ticket_sent) return;
+    const { data: mbTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "media_booking").single();
+    if (mbTab) {
+      await supabase.from("tickets").insert({
+        tab_id: mbTab.id,
+        data: { releaseId: form.did, proposedPackage: null },
+        status: mbTab.default_status,
+        status_log: { [mbTab.default_status]: new Date().toISOString() },
+      });
+    }
+
     const patch = { package_ticket_sent: true };
     if (form.project_type === "BRIEF & DATA") patch.project_type = "DEALING";
     await supabase.from("releases").update(patch).eq("id", id);
@@ -182,46 +252,11 @@ export default function ReleaseDetailPage() {
     setRelease((r) => ({ ...r, ...patch }));
   }
 
-  // Saves immediately per checkbox, separate from the tab's own Save
-  // button — creates the Pitching ticket the first time this release gets
-  // a pitching type ticked (if gate_pitching was flipped on after
-  // creation, no ticket would exist yet), otherwise updates the real one.
-  async function handlePitchingToggle(key, checked) {
-    if (pitchingTicket) {
-      const newData = { ...pitchingTicket.data, [key]: checked };
-      setPitchingTicket((t) => ({ ...t, data: newData }));
-      await supabase.from("tickets").update({ data: newData }).eq("id", pitchingTicket.id);
-    } else {
-      const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching").single();
-      if (!tab) return;
-      const newData = { releaseId: form.did, priority: false, spotify: false, nct: false, zing: false, [key]: checked };
-      const { data: created } = await supabase
-        .from("tickets")
-        .insert({
-          tab_id: tab.id,
-          data: newData,
-          status: tab.default_status,
-          status_log: { [tab.default_status]: new Date().toISOString() },
-          requester_segment: form.requester_segment || null,
-        })
-        .select()
-        .single();
-      if (created) setPitchingTicket(created);
-    }
-  }
-
-  // Ticking Profile Artist "Yes" on the detail page fires this
-  // immediately — same idea as Pitching, just no sub-type picker needed.
-  async function handleArtistProfileYes() {
-    const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
-    if (!tab) return;
-    await supabase.from("tickets").insert({
-      tab_id: tab.id,
-      data: { artistName: form.main_artist, email: "" },
-      status: tab.default_status,
-      status_log: { [tab.default_status]: new Date().toISOString() },
-      requester_segment: form.requester_segment || null,
-    });
+  // Ticking a pitching type only updates the local draft now — it's
+  // persisted (created or updated, idempotently) by saveTab() above, same
+  // as every other field on this page. No more save-button bypass.
+  function handlePitchingToggle(key, checked) {
+    setPitchingTypesDraft((d) => ({ ...d, [key]: checked }));
   }
 
   async function addBookingEntry(round, platform, channelType, link) {
@@ -300,19 +335,20 @@ export default function ReleaseDetailPage() {
             uploadReady={uploadReady}
             onSave={saveTab}
             saving={saving}
-            onUpload={toggleUpload}
+            onUpload={sendUpload}
             packageItems={packageItems}
             magicLinkUrl={magicLinkUrl}
             onToggleLock={togglePackageLock}
             onSendPackageTicket={sendPackageTicket}
             pitchingTicket={pitchingTicket}
+            pitchingTypesDraft={pitchingTypesDraft}
             onPitchingToggle={handlePitchingToggle}
-            onArtistProfileYes={handleArtistProfileYes}
+            setTab={setTab}
           />
         )}
         {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "media_booking" && (
-          <MediaBookingTab form={form} entries={bookingEntries} onAdd={addBookingEntry} onCycleStatus={cycleBookingStatus} />
+          <MediaBookingTab form={form} entries={bookingEntries} onAdd={addBookingEntry} onCycleStatus={cycleBookingStatus} packageItems={packageItems} />
         )}
         {tab === "pitching" && <PitchingTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "pre_release" && <PreReleaseTab form={form} update={update} onSave={saveTab} saving={saving} />}
@@ -351,7 +387,7 @@ function Field({ label, children }) {
 // to Marketing (below, in the Package section) is what actually moves
 // BRIEF & DATA -> DEALING. Once resolved to a real package, shows that
 // value read-only plus the derived Phụ Lục requirement.
-function PipelineControl({ form, update }) {
+function PipelineControl({ form, update, setTab }) {
   const stage = form.project_type;
   const isPipelineStage = PIPELINE_STAGES.includes(stage);
 
@@ -361,6 +397,15 @@ function PipelineControl({ form, update }) {
         <span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.15)", color: "#ff9d5c" }}>
           {stage}
         </span>
+        {!isPipelineStage && (
+          <button
+            onClick={() => setTab?.("media_booking")}
+            title="Jump to the chosen package's full details"
+            style={{ background: "none", border: "none", color: "#ff9d5c", fontSize: 11, cursor: "pointer", padding: 0, textDecoration: "underline" }}
+          >
+            View package details →
+          </button>
+        )}
         {stage === "BRIEF & DATA" && (
           <span style={{ color: "#666", fontSize: 11 }}>
             Moves to DEALING automatically once a Package Ticket is sent (see Package section below)
@@ -375,10 +420,6 @@ function PipelineControl({ form, update }) {
       {!isPipelineStage && (
         <div style={{ marginTop: 8, fontSize: 12, color: "#888" }}>
           Resolved package — <span style={{ color: "#ffca4d" }}>Phụ Lục required, see URL tab.</span>
-          {" "}
-          <button className={styles.btnSmall} onClick={() => update("project_type", "BRIEF & DATA")}>
-            Reset to BRIEF & DATA
-          </button>
         </div>
       )}
       <p style={{ color: "#555", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
@@ -393,9 +434,20 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, pitchingTicket, onPitchingToggle, onArtistProfileYes }) {
+function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, setTab }) {
+  const { profile } = useAuth();
+  const isAdminOrAbove = profile?.role === "admin" || profile?.role === "dev";
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
+  const [channels, setChannels] = useState([]);
+  const [artistsList, setArtistsList] = useState([]);
+  const [labelsList, setLabelsList] = useState([]);
+  const [labelDraft, setLabelDraft] = useState(form.label || "");
+
+  useEffect(() => {
+    setLabelDraft(form.label || "");
+  }, [form.label]);
+  const [labelCurveId, setLabelCurveId] = useState(null);
 
   useEffect(() => {
     if (!supabase) return;
@@ -403,13 +455,26 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
       .from("lookup_options")
       .select("category, value, label")
       .eq("active", true)
-      .in("category", ["genre", "topic"])
+      .in("category", ["genre", "topic", "channel"])
       .order("sort_order")
       .then(({ data }) => {
         setGenres((data || []).filter((r) => r.category === "genre"));
         setTopics((data || []).filter((r) => r.category === "topic"));
+        setChannels((data || []).filter((r) => r.category === "channel"));
       });
+    supabase.from("artists").select("stage_name, labels(label_name)").order("stage_name").then(({ data }) => setArtistsList(data || []));
+    supabase.from("labels").select("label_name").order("label_name").then(({ data }) => setLabelsList(data || []));
   }, []);
+
+  // Curve ID lives on the labels table, not the release — releases.label
+  // is a denormalized text copy, so this looks up the matching real label
+  // row to find its Curve ID (for display) and to validate the "HĐ -"
+  // prefix rule if the Label field's text gets edited.
+  useEffect(() => {
+    if (!supabase || !form.label) { setLabelCurveId(null); return; }
+    supabase.from("labels").select("curve_id").eq("label_name", form.label).maybeSingle()
+      .then(({ data }) => setLabelCurveId(data?.curve_id || null));
+  }, [form.label]);
 
   return (
     <div>
@@ -421,7 +486,10 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           <input className={styles.input} value={form.link_lbm || ""} disabled />
         </Field>
         <Field label="Media Channel">
-          <input className={styles.input} value={form.requester_segment || ""} onChange={(e) => update("requester_segment", e.target.value)} placeholder="VIEENT / ENVI / ALL" />
+          <select className={styles.select} value={form.requester_segment || ""} onChange={(e) => update("requester_segment", e.target.value)}>
+            <option value="">— Chọn —</option>
+            {channels.map((opt) => <option key={opt.value} value={opt.value}>{opt.label || opt.value}</option>)}
+          </select>
         </Field>
         <Field label="Category">
           <input className={styles.input} value={form.release_category || ""} onChange={(e) => update("release_category", e.target.value)} placeholder="New Release / Re Marketing / ..." />
@@ -438,6 +506,12 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
             {topics.map((opt) => <option key={opt.value} value={opt.value}>{opt.label || opt.value}</option>)}
           </select>
         </Field>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
+        <Field label="UPC">
+          <input className={styles.input} value={form.upc || ""} onChange={(e) => update("upc", e.target.value)} />
+        </Field>
         <Field label="ISRC">
           <input className={styles.input} value={form.isrc || ""} onChange={(e) => update("isrc", e.target.value)} />
         </Field>
@@ -446,8 +520,47 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         </Field>
       </div>
 
-      <div className={styles.subheading}>Trạng Thái Gói (Loại Dự Án)</div>
-      <PipelineControl form={form} update={update} />
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, alignItems: "start" }}>
+        <div>
+          <div className={styles.subheading} style={{ marginTop: 0 }}>Trạng Thái Gói (Loại Dự Án)</div>
+          <PipelineControl form={form} update={update} setTab={setTab} />
+        </div>
+        <div>
+          <Field label="Label">
+            <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+              <div style={{ flex: 1 }}>
+                <LabelInput
+                  styles={styles}
+                  value={labelDraft}
+                  onChange={setLabelDraft}
+                  onBlur={(e) => {
+                    const check = validateLabelNameEdit(form.label, e.target.value, labelCurveId);
+                    if (!check.ok) {
+                      window.alert(check.message);
+                      setLabelDraft(form.label || "");
+                      return;
+                    }
+                    update("label", e.target.value);
+                  }}
+                  labels={labelsList}
+                  placeholder="Tên label"
+                />
+              </div>
+              <QuickCreate kind="label" onCreated={(newLabel) => { setLabelsList((prev) => [...prev, newLabel]); setLabelDraft(newLabel.label_name); update("label", newLabel.label_name); }} />
+            </div>
+          </Field>
+          <Field label="Curve ID">
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input className={styles.input} style={{ flex: 1, opacity: 0.7 }} value={labelCurveId || ""} readOnly placeholder="— set on the Label List —" />
+              {isAdminOrAbove && (
+                <Link href="/labels" style={{ fontSize: 11, color: "var(--accent)", whiteSpace: "nowrap" }}>
+                  Edit in Label List →
+                </Link>
+              )}
+            </div>
+          </Field>
+        </div>
+      </div>
 
       <div className={styles.subheading}>Name / Artist / Release Date (editing updates the title above)</div>
       <div className={styles.grid2}>
@@ -455,7 +568,12 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           <input className={styles.input} value={form.title || ""} onChange={(e) => update("title", e.target.value)} />
         </Field>
         <Field label="Main Artist">
-          <input className={styles.input} value={form.main_artist || ""} onChange={(e) => update("main_artist", e.target.value)} />
+          <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+            <div style={{ flex: 1 }}>
+              <ArtistInput styles={styles} value={form.main_artist} onChange={(v) => update("main_artist", v)} artists={artistsList} placeholder="Tên nghệ sĩ chính" />
+            </div>
+            <QuickCreate kind="artist" onCreated={(newArtist) => { setArtistsList((prev) => [...prev, newArtist]); update("main_artist", newArtist.stage_name); }} />
+          </div>
         </Field>
         <Field label="Release Date">
           <input type="date" className={styles.input} value={form.release_date || ""} onChange={(e) => update("release_date", e.target.value)} />
@@ -474,8 +592,6 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           </div>
         ))}
       </div>
-
-      <SaveBar onSave={onSave} saving={saving} />
 
       <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 20 }}>
         <button
@@ -506,27 +622,18 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           <p style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>
             Tổng Giá Trị Gói: <strong style={{ color: "#ccc" }}>{fmtVnd(form.package_total_value)}</strong>
             {" · "}Thanh Toán: <strong style={{ color: "#ccc" }}>{form.package_payment_status}</strong>
+            {" · "}<span style={{ color: "#666" }}>Full item breakdown is on the Media Booking tab.</span>
           </p>
         )}
 
-        {packageItems.length > 0 && (
-          <table className={styles.table} style={{ marginBottom: 16 }}>
-            <thead><tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr></thead>
-            <tbody>
-              {packageItems.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.category}</td>
-                  <td>{item.quantity} {item.unit}</td>
-                  <td style={{ fontSize: 11, color: "#999" }}>{item.detail || "—"}</td>
-                  <td>{fmtVnd(item.amount)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <button className={styles.btnSmall} onClick={onToggleLock}>
+          <button
+            className={styles.btnSmall}
+            onClick={onToggleLock}
+            disabled={PIPELINE_STAGES.includes(form.project_type)}
+            style={PIPELINE_STAGES.includes(form.project_type) ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+            title={PIPELINE_STAGES.includes(form.project_type) ? "Nothing to lock yet — wait until the artist has picked a package" : undefined}
+          >
             {form.package_locked ? "Unlock editing" : "Lock editing"}
           </button>
           <button
@@ -552,24 +659,24 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
       </div>
 
       <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 20 }}>
-        <div className={styles.subheading} style={{ marginTop: 0 }}>Additional Flags</div>
+        <div className={styles.subheading} style={{ marginTop: 0 }}>Additional Request</div>
         <GateFields
           styles={styles}
           form={form}
           update={update}
-          pitchingTypes={pitchingTicket?.data}
+          pitchingTypes={pitchingTypesDraft}
           onPitchingToggle={onPitchingToggle}
-          onArtistProfileYes={onArtistProfileYes}
         />
+
+        <SaveBar onSave={onSave} saving={saving} />
       </div>
     </div>
   );
 }
 
 function UrlTab({ form, update, onSave, saving }) {
-  const fields = [
+  const urlFields = [
     ["smartlink", "Smartlink"],
-    ["upc", "UPC"],
     ["link_lbm", "Link LBM"],
     ["link_share", "Link Share"],
     ["link_preorder", "Link Pre-order"],
@@ -578,20 +685,23 @@ function UrlTab({ form, update, onSave, saving }) {
     ["promotion_package_url", "URL Promotion Package"],
     ["artist_photo_url", "Artist Photo URL"],
     ["project_proposal_url", "Project Proposal URL"],
-    ["link_drive", "Link Drive"],
+    ["drive_link", "Link Drive"],
   ];
   const plStatus = phuLucStatusClient(form);
   return (
     <div>
       <div className={styles.grid2}>
-        {fields.map(([key, label]) => (
+        <Field label="UPC">
+          <input className={styles.input} value={form.upc || ""} onChange={(e) => update("upc", e.target.value)} />
+        </Field>
+        {urlFields.map(([key, label]) => (
           <Field key={key} label={label}>
-            <input className={styles.input} value={form[key] || ""} onChange={(e) => update(key, e.target.value)} />
+            <UrlField styles={styles} value={form[key]} onChange={(v) => update(key, v)} />
           </Field>
         ))}
       </div>
       <Field label="URL Phụ Lục">
-        <input className={styles.input} value={form.link_phu_luc || ""} onChange={(e) => update("link_phu_luc", e.target.value)} />
+        <UrlField styles={styles} value={form.link_phu_luc} onChange={(v) => update("link_phu_luc", v)} />
       </Field>
       <p style={{ color: "#888", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
         Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{plStatus}</span>
@@ -620,7 +730,7 @@ function phuLucStatusClient(form) {
   return "Chưa Soạn";
 }
 
-function MediaBookingTab({ form, entries, onAdd, onCycleStatus }) {
+function MediaBookingTab({ form, entries, onAdd, onCycleStatus, packageItems }) {
   const [round, setRound] = useState("INT");
   const [channelType, setChannelType] = useState("Direct");
 
@@ -635,6 +745,37 @@ function MediaBookingTab({ form, entries, onAdd, onCycleStatus }) {
 
   return (
     <div>
+      {entries.length > 0 && (
+        <>
+          <div className={styles.subheading} style={{ marginTop: 0 }}>All Booking Links</div>
+          <div style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12, marginBottom: 24, fontFamily: "monospace", fontSize: 12, whiteSpace: "pre-line", color: "#ccc" }}>
+            {entries
+              .filter((e) => e.link)
+              .flatMap((e) => e.link.split("\n").map((u) => u.trim()).filter(Boolean).map((u) => `${e.channel_name ? e.channel_name : e.platform}: ${u}`))
+              .join("\n")}
+          </div>
+        </>
+      )}
+
+      {packageItems.length > 0 && (
+        <>
+          <div className={styles.subheading} style={{ marginTop: 0 }}>Chosen Package — Itemized</div>
+          <table className={styles.table} style={{ marginBottom: 24 }}>
+            <thead><tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr></thead>
+            <tbody>
+              {packageItems.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.category}</td>
+                  <td>{item.quantity} {item.unit}</td>
+                  <td style={{ fontSize: 11, color: "#999" }}>{item.detail || "—"}</td>
+                  <td>{fmtVnd(item.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
       <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
         {BOOKING_ROUNDS.map((r) => (
           <button

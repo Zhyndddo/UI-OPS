@@ -7,6 +7,7 @@ import styles from "../shared.module.css";
 const REFS = [
   { href: "/artists", label: "Artist List", note: "Nghệ Danh, Label, platform URLs — drives artist→label autofill" },
   { href: "/labels", label: "Label List", note: "Label Name, Hợp Tác, Phân Loại, ..." },
+  { href: "/booking-channels", label: "Booking Channels", note: "Real channel/page handles per platform — powers the Booking popup's pick-list" },
 ];
 
 export default function ReferencePage() {
