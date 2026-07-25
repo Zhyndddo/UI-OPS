@@ -15,11 +15,11 @@ import styles from "../../shared.module.css";
 // grouped and sorted by month), and Bổ Sung (products with no New
 // Release row at all).
 const METRIC_GROUPS = [
-  ["Spotify", [["current_spotify", "Current"], ["playlist_spotify", "Playlist"]]],
+  ["Spotify", [["current_spotify", "Current"]]],
   ["TikTok", [["views_tiktok", "Views"], ["creations_tiktok", "Creations"]]],
-  ["Zing", [["current_zing", "Current"], ["homepage_banner_zing", "Homepage Banner"], ["bxh_nhac_moi", "BXH Nhạc Mới"], ["album_hot_zing", "Album Hot"], ["cover_playlist_zing", "Cover Playlist"], ["playlist_zing", "Playlist"]]],
-  ["NCT", [["current_nct", "Current"], ["banner_homepage_nct", "Banner Homepage"], ["cover_playlist_nct", "Cover Playlist"], ["playlist_nct", "Playlist"]]],
-  ["YouTube", [["current_ytb", "Current"], ["youtube_trending", "Trending"]]],
+  ["Zing", [["current_zing", "Current"]]],
+  ["NCT", [["current_nct", "Current"]]],
+  ["YouTube", [["current_ytb", "Current"]]],
   ["YouTube Music", [["current_ytb_music", "Current"]]],
   ["Facebook", [["views_fb", "Views"], ["creations_fb", "Creations"]]],
 ];
@@ -178,10 +178,10 @@ export default function StreamWorkstation() {
 function StreamTable({ rows, onUpdate, onRemove, manual }) {
   return (
     <div style={{ overflowX: "auto" }}>
-      <table className={styles.table} style={{ minWidth: 1600 }}>
+      <table className={styles.table} style={{ minWidth: 1400 }}>
         <thead>
           <tr>
-            <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>Release info</th>
+            <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 280 }}>Release</th>
             {METRIC_GROUPS.map(([group, fields]) => (
               <th key={group} colSpan={fields.length} style={{ textAlign: "center", borderLeft: "1px solid var(--border)" }}>{group}</th>
             ))}
@@ -198,33 +198,32 @@ function StreamTable({ rows, onUpdate, onRemove, manual }) {
         <tbody>
           {rows.map((row, i) => (
             <tr key={row.release?.id || row.metrics.id || i}>
-              <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>
+              <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", padding: "4px 10px" }}>
                 {manual ? (
-                  <>
-                    <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, marginBottom: 4 }} defaultValue={row.metrics.manual_title || ""} placeholder="Title…" onBlur={(e) => onUpdate(row, "manual_title", e.target.value)} />
-                    <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, marginBottom: 4 }} defaultValue={row.metrics.manual_artist || ""} placeholder="Artist…" onBlur={(e) => onUpdate(row, "manual_artist", e.target.value)} />
-                    <input type="date" className={styles.input} style={{ padding: "4px 8px", fontSize: 11 }} defaultValue={row.metrics.manual_release_date || ""} onBlur={(e) => onUpdate(row, "manual_release_date", e.target.value)} />
-                  </>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <input className={styles.input} style={{ padding: "3px 6px", fontSize: 11 }} defaultValue={row.metrics.manual_title || ""} placeholder="Title…" onBlur={(e) => onUpdate(row, "manual_title", e.target.value)} />
+                    <input className={styles.input} style={{ padding: "3px 6px", fontSize: 11 }} defaultValue={row.metrics.manual_artist || ""} placeholder="Artist…" onBlur={(e) => onUpdate(row, "manual_artist", e.target.value)} />
+                    <input type="date" className={styles.input} style={{ padding: "3px 6px", fontSize: 11 }} defaultValue={row.metrics.manual_release_date || ""} onBlur={(e) => onUpdate(row, "manual_release_date", e.target.value)} />
+                  </div>
                 ) : (
-                  <>
+                  <div style={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     <Link href={`/releases/${row.release.id}`} className={styles.rowLink}>{row.release.title}</Link>
-                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{row.release.main_artist} · {row.release.did} · {fmtDate(row.release.release_date)}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)" }}>UPC: {row.release.upc || "—"}</div>
-                  </>
+                    <span style={{ color: "var(--text-faint)" }}> — {row.release.main_artist} · {fmtDate(row.release.release_date)}</span>
+                  </div>
                 )}
               </td>
               {ALL_METRIC_KEYS.map((key) => (
-                <td key={key}>
+                <td key={key} style={{ padding: "3px 4px" }}>
                   <input
                     className={styles.input}
-                    style={{ padding: "4px 6px", fontSize: 11, width: 80 }}
+                    style={{ padding: "3px 6px", fontSize: 11, width: 80 }}
                     defaultValue={row.metrics[key] || ""}
                     onBlur={(e) => onUpdate(row, key, e.target.value)}
                   />
                 </td>
               ))}
-              <td style={{ minWidth: 140 }}>
-                <input className={styles.input} style={{ padding: "4px 8px", fontSize: 11 }} defaultValue={row.metrics.stream_note || ""} onBlur={(e) => onUpdate(row, "stream_note", e.target.value)} />
+              <td style={{ minWidth: 140, padding: "3px 4px" }}>
+                <input className={styles.input} style={{ padding: "3px 6px", fontSize: 11 }} defaultValue={row.metrics.stream_note || ""} onBlur={(e) => onUpdate(row, "stream_note", e.target.value)} />
               </td>
               {manual && (
                 <td>

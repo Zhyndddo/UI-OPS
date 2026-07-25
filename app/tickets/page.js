@@ -13,6 +13,7 @@ const NOTES = {
   newrelease_upload: "Auto-sent when SEND UPLOAD is clicked",
   phu_luc: "Auto-created when an artist locks in a contract type",
   media_booking: "Also where the package builder lives — click a row to open it",
+  stream_update: "The real numbers live in the Streaming workstation — this is just the request",
 };
 
 export default function TicketsIndex() {
