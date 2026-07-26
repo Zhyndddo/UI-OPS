@@ -1,72 +1,107 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
-import { useAuth } from "../../lib/AuthContext";
 import styles from "../shared.module.css";
 
-// TEMPORARY pseudo sign-in — real magic-link auth is bugged. Pick your
-// identity from the existing roster, no verification at all. See
-// lib/AuthContext.js for how to restore the real flow later.
 export default function LoginPage() {
   const router = useRouter();
-  const { signInAs } = useAuth();
-  const [profiles, setProfiles] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [resetMode, setResetMode] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
-  useEffect(() => {
-    if (!supabase) return;
-    supabase.from("profiles").select("*").order("name").then(({ data }) => {
-      setProfiles(data || []);
-      setLoading(false);
-    });
-  }, []);
-
-  async function pick(p) {
-    await signInAs(p);
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError(null);
+    if (!supabase) {
+      setError("Supabase isn't configured.");
+      return;
+    }
+    setSubmitting(true);
+    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+    setSubmitting(false);
+    if (err) {
+      setError(err.message === "Invalid login credentials" ? "Wrong email or password." : err.message);
+      return;
+    }
     router.push("/releases");
+  }
+
+  async function handleResetRequest(e) {
+    e.preventDefault();
+    setError(null);
+    if (!supabase) {
+      setError("Supabase isn't configured.");
+      return;
+    }
+    setSubmitting(true);
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    setSubmitting(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    setResetSent(true);
   }
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)" }}>
-      <div style={{ width: 420 }}>
+      <div style={{ width: 380 }}>
         <div className={styles.eyebrow}>// VIEENT</div>
-        <h1 className={styles.title} style={{ marginBottom: 8 }}>Sign in</h1>
-        <div className={styles.errorBox} style={{ background: "#1a1a1a", borderColor: "#5a4a1a", color: "#ffca4d" }}>
-          Temporary pseudo sign-in — real login is being fixed. Pick who you are below, no password or
-          verification involved. Not secure — for internal testing only.
-        </div>
+        <h1 className={styles.title} style={{ marginBottom: 20 }}>{resetMode ? "Reset password" : "Sign in"}</h1>
 
-        {loading ? (
-          <div className={styles.emptyState}>Loading roster…</div>
-        ) : profiles.length === 0 ? (
-          <div className={styles.emptyState}>
-            No one on the roster yet. Add the first admin/dev row directly via the Supabase SQL editor.
-          </div>
-        ) : (
-          <div style={{ display: "grid", gap: 8 }}>
-            {profiles.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => pick(p)}
-                style={{
-                  textAlign: "left",
-                  background: "var(--bg-card)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  padding: "12px 16px",
-                  cursor: "pointer",
-                  color: "var(--text)",
-                }}
-              >
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
-                <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
-                  {p.email} · {p.role}{p.segment ? ` · ${p.segment}` : ""}
-                </div>
+        {error && <div className={styles.errorBox}>{error}</div>}
+
+        {resetMode ? (
+          resetSent ? (
+            <div className={styles.emptyState}>
+              Check {email} for a reset link. It'll bring you back here to set a new password.
+            </div>
+          ) : (
+            <form onSubmit={handleResetRequest}>
+              <div className={styles.field}>
+                <label className={styles.fieldLabel}>Email</label>
+                <input className={styles.input} type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+              </div>
+              <button className={styles.btnPrimary} type="submit" disabled={submitting} style={{ width: "100%" }}>
+                {submitting ? "Sending…" : "Send reset link"}
               </button>
-            ))}
-          </div>
+              <button
+                type="button"
+                onClick={() => { setResetMode(false); setError(null); }}
+                style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 12, marginTop: 12, cursor: "pointer" }}
+              >
+                ← Back to sign in
+              </button>
+            </form>
+          )
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <div className={styles.field}>
+              <label className={styles.fieldLabel}>Email</label>
+              <input className={styles.input} type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+            <div className={styles.field}>
+              <label className={styles.fieldLabel}>Password</label>
+              <input className={styles.input} type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            </div>
+            <button className={styles.btnPrimary} type="submit" disabled={submitting} style={{ width: "100%" }}>
+              {submitting ? "Signing in…" : "Sign in"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setResetMode(true); setError(null); }}
+              style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 12, marginTop: 12, cursor: "pointer" }}
+            >
+              Forgot password?
+            </button>
+          </form>
         )}
       </div>
     </div>
