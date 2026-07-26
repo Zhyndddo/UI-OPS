@@ -10,12 +10,16 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
+// These 3 are always offered alongside whatever real packages Marketing
+// has actually built for this release — they're plain picks with no
+// itemized breakdown, not full packages.
+const SIMPLE_OPTIONS = ["Chỉ Phát Hành", "Không Độc Quyền", "Int Media"];
+
 export default function PickPackagePage() {
   const { token } = useParams();
   const [magicLink, setMagicLink] = useState(null);
   const [release, setRelease] = useState(null);
-  const [contractTypes, setContractTypes] = useState([]);
-  const [templates, setTemplates] = useState({}); // contract_type -> {total_value, items}
+  const [pickOptions, setPickOptions] = useState([]); // real built packages + the 3 simple ones
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState(false);
@@ -47,43 +51,36 @@ export default function PickPackagePage() {
 
     const { data: rel } = await supabase.from("releases").select("*").eq("id", link.release_id).single();
     setRelease(rel);
+
+    const { data: realPackages } = await supabase
+      .from("media_booking_packages")
+      .select("*, media_booking_package_lines(*)")
+      .eq("release_id", link.release_id)
+      .order("sort_order");
+    const { data: pkgCategories } = await supabase.from("package_categories").select("id, name");
+    const categoryNameById = {};
+    (pkgCategories || []).forEach((c) => (categoryNameById[c.id] = c.name));
+
+    const realOptions = (realPackages || []).map((p) => ({
+      value: p.name,
+      label: p.name,
+      kind: "real",
+      totalValue: (p.media_booking_package_lines || []).some((l) => l.amount != null)
+        ? p.media_booking_package_lines.reduce((sum, l) => sum + (l.amount || 0), 0)
+        : null,
+      items: (p.media_booking_package_lines || []).map((l) => ({
+        category: (categoryNameById[l.category_id] || "—") + (l.brand ? ` — ${l.brand}` : ""),
+        unit: l.unit, quantity: l.quantity, detail: l.detail, amount: l.amount,
+      })),
+    }));
+    const simpleOptions = SIMPLE_OPTIONS.map((name) => ({ value: name, label: name, kind: "simple", totalValue: null, items: [] }));
+    const options = [...realOptions, ...simpleOptions];
+    setPickOptions(options);
+
     if (rel && !["BRIEF & DATA", "DEALING"].includes(rel.project_type)) {
       setSelectedValue(rel.project_type);
       setConfirmed(true);
     }
-
-    const { data: contracts } = await supabase
-      .from("lookup_options")
-      .select("value, label")
-      .eq("category", "contract_type")
-      .eq("active", true)
-      .order("sort_order");
-    setContractTypes(contracts || []);
-
-    // Prefer the release's own customized package (Marketing's working
-    // copy) over the generic template — falls back to the template if
-    // Marketing hasn't prepared one yet for a given contract type.
-    const { data: releaseItems } = await supabase
-      .from("release_package_items")
-      .select("*")
-      .eq("release_id", link.release_id)
-      .order("sort_order");
-    const { data: templateRows } = await supabase.from("contract_type_packages").select("*");
-
-    const byType = {};
-    (templateRows || []).forEach((t) => {
-      byType[t.contract_type] = { total_value: t.total_value, items: t.items || [] };
-    });
-    // If this release has its own customized items at all, they apply to
-    // whichever contract type is currently selected/resolved (Marketing
-    // works on one specific deal, not a library of options simultaneously).
-    if (releaseItems && releaseItems.length > 0 && rel?.project_type) {
-      byType[rel.project_type] = {
-        total_value: rel.package_total_value,
-        items: releaseItems.map((i) => ({ category: i.category, unit: i.unit, quantity: i.quantity, detail: i.detail, amount: i.amount })),
-      };
-    }
-    setTemplates(byType);
 
     supabase.from("magic_links").update({ last_used_at: new Date().toISOString() }).eq("id", link.id);
     setLoading(false);
@@ -100,22 +97,25 @@ export default function PickPackagePage() {
   }
 
   // The actual commit — resolves project_type out of the pipeline, locks
-  // in the package, and auto-creates the Phụ Lục ticket (once).
+  // in the package, and auto-creates the Phụ Lục ticket (once). A real
+  // package's lines get copied into release_package_items (matching how
+  // the old template flow worked); a simple option just sets project_type
+  // with no itemized breakdown at all.
   async function confirmChoice() {
     if (isLocked || !selectedValue) return;
     setPicking(true);
     const wasPipelineStage = ["BRIEF & DATA", "DEALING"].includes(release?.project_type);
-    const pkg = templates[selectedValue];
+    const option = pickOptions.find((o) => o.value === selectedValue);
     const { error: err } = await supabase
       .from("releases")
       .update({
         project_type: selectedValue,
-        package_total_value: pkg?.total_value ?? null,
+        package_total_value: option?.totalValue ?? null,
       })
       .eq("id", release.id);
     setPicking(false);
     if (err) { setError(err.message); return; }
-    setRelease((r) => ({ ...r, project_type: selectedValue, package_total_value: pkg?.total_value ?? null }));
+    setRelease((r) => ({ ...r, project_type: selectedValue, package_total_value: option?.totalValue ?? null }));
     setConfirmed(true);
 
     if (wasPipelineStage) {
@@ -128,17 +128,17 @@ export default function PickPackagePage() {
       }
     }
 
-    // If Marketing hasn't already built a customized package for this
-    // release, seed release_package_items from the template right now —
-    // otherwise the Media Booking tab has nothing to show until someone
-    // manually opens the popup builder later.
-    const { data: existingItems } = await supabase.from("release_package_items").select("id").eq("release_id", release.id).limit(1);
-    if ((!existingItems || existingItems.length === 0) && pkg?.items?.length > 0) {
-      const rows = pkg.items.map((it, i) => ({
-        release_id: release.id, category: it.category, unit: it.unit,
-        quantity: it.quantity, detail: it.detail, amount: it.amount, sort_order: i,
-      }));
-      await supabase.from("release_package_items").insert(rows);
+    // Only real packages have items to seed release_package_items with —
+    // simple options (Chỉ Phát Hành etc.) genuinely have none.
+    if (option?.kind === "real" && option.items.length > 0) {
+      const { data: existingItems } = await supabase.from("release_package_items").select("id").eq("release_id", release.id).limit(1);
+      if (!existingItems || existingItems.length === 0) {
+        const rows = option.items.map((it, i) => ({
+          release_id: release.id, category: it.category, unit: it.unit,
+          quantity: it.quantity, detail: it.detail, amount: it.amount, sort_order: i,
+        }));
+        await supabase.from("release_package_items").insert(rows);
+      }
     }
   }
 
@@ -177,9 +177,8 @@ export default function PickPackagePage() {
         </p>
 
         <div style={{ display: "grid", gap: 12 }}>
-          {contractTypes.map((c) => {
+          {pickOptions.map((c) => {
             const selected = selectedValue === c.value;
-            const pkg = templates[c.value];
             const isOpen = expanded === c.value;
             return (
               <div
@@ -211,12 +210,12 @@ export default function PickPackagePage() {
                       </span>
                       {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700, marginLeft: 10 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
                     </div>
-                    {pkg?.total_value != null && (
-                      <span style={{ fontSize: 13, color: "#999" }}>{fmtVnd(pkg.total_value)}</span>
+                    {c.totalValue != null && (
+                      <span style={{ fontSize: 13, color: "#999" }}>{fmtVnd(c.totalValue)}</span>
                     )}
                   </div>
                 </button>
-                {pkg?.items?.length > 0 && (
+                {c.items?.length > 0 && (
                   <div style={{ borderTop: "1px solid #262626", padding: "8px 16px" }}>
                     <button
                       onClick={() => setExpanded(isOpen ? null : c.value)}
@@ -230,7 +229,7 @@ export default function PickPackagePage() {
                           <tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr>
                         </thead>
                         <tbody>
-                          {pkg.items.map((item, i) => (
+                          {c.items.map((item, i) => (
                             <tr key={i}>
                               <td>{item.category}</td>
                               <td>{item.quantity} {item.unit}</td>
@@ -248,8 +247,8 @@ export default function PickPackagePage() {
           })}
         </div>
 
-        {contractTypes.length === 0 && (
-          <div className={styles.emptyState}>No contract types configured yet.</div>
+        {pickOptions.length === 0 && (
+          <div className={styles.emptyState}>No packages built yet.</div>
         )}
 
         {!isLocked && selectedValue && (
@@ -277,3 +276,4 @@ export default function PickPackagePage() {
     </div>
   );
 }
+

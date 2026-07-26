@@ -393,20 +393,82 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   );
 }
 
+// Best-effort match against contract_type_packages' item categories —
+// "ads" alone would collide with both ADS FACEBOOK and ADS YOUTUBE, so
+// this needs real aliases per category, not a loose substring check.
+const CATEGORY_REFERENCE_ALIASES = {
+  "social": ["social vieent"],
+  "community": ["page cộng đồng"],
+  "ads": ["ads facebook", "ads youtube"],
+};
+
+function referenceDetailFor(referenceTiers, categoryName) {
+  const aliases = CATEGORY_REFERENCE_ALIASES[categoryName?.toLowerCase()] || [];
+  for (const t of referenceTiers) {
+    const item = (t.items || []).find((it) => aliases.some((a) => (it.category || "").toLowerCase() === a));
+    if (item) return item;
+  }
+  return null;
+}
+
+// Small popup for naming a package — replaces the browser prompt, and
+// hides Vĩnh Viễn once one already exists for this release.
+function PackageNamePopup({ existingNames, onConfirm, onCancel }) {
+  const vinhVienTaken = existingNames.includes("Độc Quyền Vĩnh Viễn");
+  const [tierMode, setTierMode] = useState(vinhVienTaken ? "years" : "vinhVien");
+  const [years, setYears] = useState("2");
+  const name = tierMode === "vinhVien" ? "Độc Quyền Vĩnh Viễn" : `Độc Quyền ${years} năm`;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onCancel}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: 320 }} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.eyebrow}>// Name Package</div>
+        <h3 style={{ fontSize: 15, fontWeight: 800, margin: "0 0 14px" }}>Which tier is this?</h3>
+        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          <button
+            className={styles.btnSmall}
+            onClick={() => !vinhVienTaken && setTierMode("vinhVien")}
+            disabled={vinhVienTaken}
+            style={tierMode === "vinhVien" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}
+            title={vinhVienTaken ? "Already created for this release" : undefined}
+          >
+            Vĩnh Viễn
+          </button>
+          <button className={styles.btnSmall} onClick={() => setTierMode("years")} style={tierMode === "years" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}>
+            Custom Years
+          </button>
+          {tierMode === "years" && (
+            <input type="number" className={styles.input} style={{ width: 60, padding: "4px 8px", fontSize: 12 }} value={years} onChange={(e) => setYears(e.target.value)} />
+          )}
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 16 }}>Will be named: <strong style={{ color: "var(--text)" }}>{name}</strong></div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className={styles.btnSmall} onClick={onCancel} style={{ flex: 1 }}>Cancel</button>
+          <button className={styles.btnPrimary} onClick={() => onConfirm(name)} style={{ flex: 1 }}>Confirm</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Second popup — assembling named packages (custom tiers, not a fixed
 // pick-list anymore) out of the summarized Hạng Mục totals. First popup
 // shifts left, this one takes the right, purely decorative arrow between
 // them (no wiring — just showing "this becomes that").
+//
+// The left panel always reflects and edits whichever package tab is
+// active — checking a line adds it immediately, unchecking removes it
+// immediately, same for edit/delete on the right. Nothing here is staged
+// then saved — that staging model was the actual source of both the
+// "second package doesn't save" bug and the checkbox cross-talk bug.
 function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagicLinkGenerated }) {
-  const [summarizedRows, setSummarizedRows] = useState([]); // one per (category, brand)
+  const [summarizedRows, setSummarizedRows] = useState([]);
   const [packages, setPackages] = useState([]);
   const [activePackageId, setActivePackageId] = useState(null);
-  const [checkedKeys, setCheckedKeys] = useState(new Set());
-  const [tierMode, setTierMode] = useState("vinhVien"); // "vinhVien" | "years"
-  const [years, setYears] = useState("2");
   const [referenceTiers, setReferenceTiers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generatingLink, setGeneratingLink] = useState(false);
+  const [namePopup, setNamePopup] = useState(null); // null | "create" | "clone"
 
   useEffect(() => {
     if (!release) return;
@@ -426,80 +488,71 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
   }, [release]);
 
   const activePackage = packages.find((p) => p.id === activePackageId);
-  const packageName = tierMode === "vinhVien" ? "Độc Quyền Vĩnh Viễn" : `Độc Quyền ${years} năm`;
 
-  function rowKey(r) { return `${r.category_id}|${r.brand || ""}`; }
-
-  function referenceDetailFor(categoryName) {
-    // "The line right under the package name" — the matching item's own
-    // description text in the real template, used as this line's detail.
-    for (const t of referenceTiers) {
-      const item = (t.items || []).find((it) => (it.category || "").toLowerCase().includes(categoryName.toLowerCase()));
-      if (item) return item;
+  async function createPackage(name, cloneFromId) {
+    const { data: pkg } = await supabase.from("media_booking_packages").insert({ release_id: release.id, name, sort_order: packages.length }).select().single();
+    if (!pkg) return;
+    let lines = [];
+    if (cloneFromId) {
+      const source = packages.find((p) => p.id === cloneFromId);
+      const cloneRows = (source?.media_booking_package_lines || []).map((l, i) => ({
+        package_id: pkg.id, category_id: l.category_id, brand: l.brand, unit: l.unit, quantity: l.quantity, detail: l.detail, amount: l.amount, sort_order: i,
+      }));
+      if (cloneRows.length > 0) {
+        const { data: inserted } = await supabase.from("media_booking_package_lines").insert(cloneRows).select();
+        lines = inserted || [];
+      }
     }
-    return null;
+    setPackages((prev) => [...prev, { ...pkg, media_booking_package_lines: lines }]);
+    setActivePackageId(pkg.id);
+    setNamePopup(null);
   }
 
-  async function savePackage() {
-    if (checkedKeys.size === 0) {
-      window.alert("Pick at least one Hạng Mục line first.");
-      return;
-    }
-    const { data: pkg } = await supabase
-      .from("media_booking_packages")
-      .insert({ release_id: release.id, name: packageName, sort_order: packages.length })
-      .select()
-      .single();
-    if (!pkg) return;
-
-    const rowsToInsert = summarizedRows.filter((r) => checkedKeys.has(rowKey(r))).map((r, i) => {
-      const categoryName = r.package_categories?.name || "";
-      const ref = referenceDetailFor(categoryName);
-      return {
-        package_id: pkg.id,
-        category_id: r.category_id,
-        brand: r.brand,
-        unit: ref?.unit || "Bài Đăng",
-        quantity: r.total_posts,
-        detail: ref?.detail || null,
-        amount: null,
-        sort_order: i,
-      };
+  async function deletePackage(pkg) {
+    if (!window.confirm(`Delete package "${pkg.name}"? This can't be undone.`)) return;
+    await supabase.from("media_booking_packages").delete().eq("id", pkg.id);
+    setPackages((prev) => {
+      const next = prev.filter((p) => p.id !== pkg.id);
+      if (activePackageId === pkg.id) setActivePackageId(next[0]?.id || null);
+      return next;
     });
-    const { data: lines } = await supabase.from("media_booking_package_lines").insert(rowsToInsert).select();
-    setPackages((prev) => [...prev, { ...pkg, media_booking_package_lines: lines || [] }]);
-    setActivePackageId(pkg.id);
-    setCheckedKeys(new Set());
   }
 
-  // Clones whichever tab is currently active — matches "on the event of
-  // two or more packages already created, use the tab they're on."
-  async function addAnotherPackage() {
-    if (!activePackage) {
-      window.alert("Save a package first, then you can add another.");
-      return;
+  function lineFor(categoryId, brand) {
+    return (activePackage?.media_booking_package_lines || []).find((l) => l.category_id === categoryId && (l.brand || null) === (brand || null));
+  }
+
+  // Checking/unchecking a Hạng Mục line writes to the DB immediately —
+  // no separate save step, which is what was breaking on the 2nd+ package.
+  async function toggleLine(row, checked) {
+    if (!activePackage) return;
+    if (checked) {
+      const categoryName = row.package_categories?.name || "";
+      const ref = referenceDetailFor(referenceTiers, categoryName);
+      const { data: line } = await supabase
+        .from("media_booking_package_lines")
+        .insert({
+          package_id: activePackage.id, category_id: row.category_id, brand: row.brand,
+          unit: ref?.unit || "Bài Đăng", quantity: row.total_posts, detail: ref?.detail || null, amount: null,
+          sort_order: (activePackage.media_booking_package_lines || []).length,
+        })
+        .select()
+        .single();
+      if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
+    } else {
+      const existing = lineFor(row.category_id, row.brand);
+      if (!existing) return;
+      await supabase.from("media_booking_package_lines").delete().eq("id", existing.id);
+      setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.filter((l) => l.id !== existing.id) })));
     }
-    const newName = window.prompt("Name for the new package?", packageName);
-    if (!newName) return;
-    const { data: pkg } = await supabase
-      .from("media_booking_packages")
-      .insert({ release_id: release.id, name: newName, sort_order: packages.length })
-      .select()
-      .single();
-    if (!pkg) return;
-    const cloneRows = (activePackage.media_booking_package_lines || []).map((l, i) => ({
-      package_id: pkg.id, category_id: l.category_id, brand: l.brand, unit: l.unit, quantity: l.quantity, detail: l.detail, amount: l.amount, sort_order: i,
-    }));
-    const { data: lines } = await supabase.from("media_booking_package_lines").insert(cloneRows).select();
-    setPackages((prev) => [...prev, { ...pkg, media_booking_package_lines: lines || [] }]);
-    setActivePackageId(pkg.id);
   }
 
   async function editLine(line) {
     const newQty = window.prompt("New quantity?", line.quantity);
     if (newQty === null) return;
-    await supabase.from("media_booking_package_lines").update({ quantity: parseFloat(newQty) || 0 }).eq("id", line.id);
-    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, quantity: parseFloat(newQty) || 0 } : l)) })));
+    const val = parseFloat(newQty) || 0;
+    await supabase.from("media_booking_package_lines").update({ quantity: val }).eq("id", line.id);
+    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, quantity: val } : l)) })));
   }
 
   async function deleteLine(line) {
@@ -521,28 +574,22 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
     <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
       <div style={{ display: "flex", alignItems: "stretch", gap: 0, maxWidth: 1100, width: "100%", maxHeight: "88vh" }} onClick={(e) => e.stopPropagation()}>
 
-        {/* LEFT — pick lines, name package */}
+        {/* LEFT — always reflects the active package's lines */}
         <div style={{ flex: 1, background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: "10px 0 0 10px", padding: 20, overflowY: "auto" }}>
-          <div className={styles.eyebrow}>// Pick Lines</div>
+          <div className={styles.eyebrow}>// {activePackage ? activePackage.name : "Pick Lines"}</div>
           <h3 style={{ fontSize: 16, fontWeight: 800, margin: "0 0 14px" }}>Summarized Hạng Mục</h3>
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
+          ) : !activePackage ? (
+            <div className={styles.emptyState}>Create a package on the right first — then its lines show up here to pick.</div>
           ) : (
-            <div style={{ display: "grid", gap: 8, marginBottom: 20 }}>
+            <div style={{ display: "grid", gap: 8 }}>
               {summarizedRows.map((r) => {
-                const key = rowKey(r);
+                const line = lineFor(r.category_id, r.brand);
                 const categoryName = r.package_categories?.name || "";
                 return (
-                  <label key={key} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", cursor: "pointer", fontSize: 12 }}>
-                    <input
-                      type="checkbox"
-                      checked={checkedKeys.has(key)}
-                      onChange={(e) => {
-                        const next = new Set(checkedKeys);
-                        if (e.target.checked) next.add(key); else next.delete(key);
-                        setCheckedKeys(next);
-                      }}
-                    />
+                  <label key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", cursor: "pointer", fontSize: 12 }}>
+                    <input type="checkbox" checked={!!line} onChange={(e) => toggleLine(r, e.target.checked)} />
                     <span style={{ flex: 1 }}>{categoryName}{r.brand ? ` — ${r.brand}` : ""}</span>
                     <strong>{r.total_posts} posts</strong>
                   </label>
@@ -550,18 +597,6 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
               })}
             </div>
           )}
-
-          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16 }}>
-            <label className={styles.fieldLabel} style={{ fontSize: 10 }}>Package Name</label>
-            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-              <button className={styles.btnSmall} onClick={() => setTierMode("vinhVien")} style={tierMode === "vinhVien" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}>Vĩnh Viễn</button>
-              <button className={styles.btnSmall} onClick={() => setTierMode("years")} style={tierMode === "years" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}>Custom Years</button>
-              {tierMode === "years" && (
-                <input type="number" className={styles.input} style={{ width: 60, padding: "4px 8px", fontSize: 12 }} value={years} onChange={(e) => setYears(e.target.value)} />
-              )}
-            </div>
-            <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 10 }}>Will be named: <strong style={{ color: "var(--text)" }}>{packageName}</strong></div>
-          </div>
         </div>
 
         {/* MIDDLE — decorative arrow, no wiring */}
@@ -579,26 +614,28 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
             <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer" }}>✕</button>
           </div>
 
-          {packages.length > 0 && (
-            <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
-              {packages.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setActivePackageId(p.id)}
-                  className={`${styles.tabBtn} ${activePackageId === p.id ? styles.tabBtnActive : ""}`}
-                  style={{ border: "1px solid var(--border)", borderRadius: 6 }}
-                >
-                  {p.name}
-                </button>
-              ))}
-            </div>
-          )}
+          <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+            {packages.map((p) => (
+              <div
+                key={p.id}
+                onClick={() => setActivePackageId(p.id)}
+                className={`${styles.tabBtn} ${activePackageId === p.id ? styles.tabBtnActive : ""}`}
+                style={{ border: "1px solid var(--border)", borderRadius: 6, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+              >
+                {p.name}
+                <span onClick={(e) => { e.stopPropagation(); deletePackage(p); }} style={{ color: "var(--text-faint)", fontSize: 11 }}>✕</span>
+              </div>
+            ))}
+            <button className={styles.btnSmall} onClick={() => setNamePopup(packages.length === 0 ? "create" : "clone")}>
+              {packages.length === 0 ? "+ Create Package" : "Clone Package"}
+            </button>
+          </div>
 
           <div style={{ flex: 1, overflowY: "auto", marginBottom: 14 }}>
             {!activePackage ? (
-              <div className={styles.emptyState}>No package saved yet — pick lines on the left and click Save Package.</div>
+              <div className={styles.emptyState}>No package yet — click "Create Package" above.</div>
             ) : (activePackage.media_booking_package_lines || []).length === 0 ? (
-              <div className={styles.emptyState}>This package has no lines yet.</div>
+              <div className={styles.emptyState}>Check a Hạng Mục on the left to add it here.</div>
             ) : (
               <table className={styles.table}>
                 <thead><tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th></th></tr></thead>
@@ -622,11 +659,6 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
             )}
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginBottom: hasSavedPackage ? 14 : 0 }}>
-            <button className={styles.btnPrimary} onClick={savePackage} style={{ flex: 1 }}>Save Package</button>
-            <button className={styles.btnSecondary} onClick={addAnotherPackage} style={{ flex: 1 }}>Add Another Package</button>
-          </div>
-
           {hasSavedPackage && (
             <>
               {!magicLinkUrl ? (
@@ -645,6 +677,14 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
           )}
         </div>
       </div>
+
+      {namePopup && (
+        <PackageNamePopup
+          existingNames={packages.map((p) => p.name)}
+          onCancel={() => setNamePopup(null)}
+          onConfirm={(name) => createPackage(name, namePopup === "clone" ? activePackageId : null)}
+        />
+      )}
     </div>
   );
 }
