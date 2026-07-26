@@ -332,11 +332,6 @@ const CATEGORY_REFERENCE_ALIASES = {
   "tiktok channel": ["tiktok channel"],
 };
 
-function fmtVnd(n) {
-  if (n === null || n === undefined || n === "") return "—";
-  return new Intl.NumberFormat("vi-VN").format(n) + " đ";
-}
-
 // The new system: fill in the real detail grid (which channel posted how
 // much per phase) first, then roll it up — instead of starting from an
 // abstract template's quantities. Lives alongside the old Template flow,
