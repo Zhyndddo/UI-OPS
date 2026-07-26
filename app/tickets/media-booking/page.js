@@ -159,6 +159,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const [loading, setLoading] = useState(true);
   const [magicLinkUrl, setMagicLinkUrl] = useState(null);
   const [generatingLink, setGeneratingLink] = useState(false);
+  const [mode, setMode] = useState("template"); // "template" | "contentPlan"
 
   useEffect(() => {
     (async () => {
@@ -219,8 +220,27 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
           <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 20, cursor: "pointer" }}>✕</button>
         </div>
 
+        <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
+          {[["template", "Template"], ["contentPlan", "Content Plan (new)"]].map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setMode(key)}
+              style={{
+                padding: "6px 14px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer",
+                border: mode === key ? "1px solid var(--accent)" : "1px solid var(--border-strong)",
+                background: mode === key ? "rgba(255,107,26,0.1)" : "transparent",
+                color: mode === key ? "var(--accent-soft)" : "var(--text)",
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {loading ? (
           <div className={styles.emptyState}>Loading…</div>
+        ) : mode === "contentPlan" ? (
+          <ContentPlanBuilder release={release} />
         ) : (
           <>
             <div className={styles.subheading} style={{ marginTop: 0 }}>Template</div>
@@ -296,6 +316,217 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+const PHASES = ["Tung Hint", "Out Now", "Listen Now", "Add-in Post"];
+
+// Best-effort match against contract_type_packages' item categories —
+// naming doesn't line up exactly (e.g. "Community" vs "PAGE CỘNG ĐỒNG"),
+// so this is advisory context for the human making the tier call, never
+// an automatic decision.
+const CATEGORY_REFERENCE_ALIASES = {
+  "social vieent": ["social vieent"],
+  "community": ["page cộng đồng", "cong dong"],
+  "tiktok channel": ["tiktok channel"],
+};
+
+function fmtVnd(n) {
+  if (n === null || n === undefined || n === "") return "—";
+  return new Intl.NumberFormat("vi-VN").format(n) + " đ";
+}
+
+// The new system: fill in the real detail grid (which channel posted how
+// much per phase) first, then roll it up — instead of starting from an
+// abstract template's quantities. Lives alongside the old Template flow,
+// not replacing it yet, since this is genuinely experimental.
+function ContentPlanBuilder({ release }) {
+  const [categories, setCategories] = useState([]);
+  const [channels, setChannels] = useState([]);
+  const [entries, setEntries] = useState([]);
+  const [built, setBuilt] = useState([]); // media_booking_package_categories rows
+  const [referenceTiers, setReferenceTiers] = useState([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!release) return;
+    (async () => {
+      setLoading(true);
+      const [{ data: cats }, { data: chans }, { data: ents }, { data: builtRows }, { data: tiers }] = await Promise.all([
+        supabase.from("package_categories").select("*").order("sort_order"),
+        supabase.from("booking_channels").select("*").order("sort_order"),
+        supabase.from("media_booking_content_entries").select("*").eq("release_id", release.id).order("sort_order"),
+        supabase.from("media_booking_package_categories").select("*").eq("release_id", release.id),
+        supabase.from("contract_type_packages").select("contract_type, items"),
+      ]);
+      setCategories(cats || []);
+      setChannels(chans || []);
+      setEntries(ents || []);
+      setBuilt(builtRows || []);
+      setReferenceTiers(tiers || []);
+      if (cats && cats.length > 0 && !selectedCategoryId) setSelectedCategoryId(cats[0].id);
+      setLoading(false);
+    })();
+  }, [release]);
+
+  const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
+  const categoryEntries = entries.filter((e) => e.category_id === selectedCategoryId);
+  const builtForCategory = built.find((b) => b.category_id === selectedCategoryId);
+
+  async function addRow() {
+    const { data } = await supabase
+      .from("media_booking_content_entries")
+      .insert({ release_id: release.id, category_id: selectedCategoryId, channel_id: null, phase: PHASES[0], count: 0, sort_order: categoryEntries.length })
+      .select()
+      .single();
+    if (data) setEntries((prev) => [...prev, data]);
+  }
+
+  async function updateEntry(entry, field, value) {
+    setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, [field]: value } : e)));
+    await supabase.from("media_booking_content_entries").update({ [field]: value }).eq("id", entry.id);
+  }
+
+  async function removeEntry(entry) {
+    await supabase.from("media_booking_content_entries").delete().eq("id", entry.id);
+    setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+  }
+
+  // Rolls up every entry for this category into one summary row. Safe to
+  // click again after adding more rows later — updates in place rather
+  // than creating a duplicate (unique on release_id+category_id).
+  async function buildPackage() {
+    const totalPosts = categoryEntries.reduce((sum, e) => sum + (e.count || 0), 0);
+    const existingUnitPrice = builtForCategory?.unit_price;
+    const unitPriceStr = window.prompt("Unit price per post (đ)?", existingUnitPrice ?? "200000");
+    if (unitPriceStr === null) return;
+    const unitPrice = parseFloat(unitPriceStr) || 0;
+    const totalMoney = totalPosts * unitPrice;
+
+    const { data } = await supabase
+      .from("media_booking_package_categories")
+      .upsert(
+        { release_id: release.id, category_id: selectedCategoryId, total_posts: totalPosts, unit_price: unitPrice, total_money: totalMoney, tier_type: builtForCategory?.tier_type || null, updated_at: new Date().toISOString() },
+        { onConflict: "release_id,category_id" }
+      )
+      .select()
+      .single();
+    if (data) setBuilt((prev) => [...prev.filter((b) => b.category_id !== selectedCategoryId), data]);
+  }
+
+  async function setTier(tierType) {
+    if (!builtForCategory) return;
+    await supabase.from("media_booking_package_categories").update({ tier_type: tierType }).eq("id", builtForCategory.id);
+    setBuilt((prev) => prev.map((b) => (b.id === builtForCategory.id ? { ...b, tier_type: tierType } : b)));
+  }
+
+  function referenceFor(categoryName, tierType) {
+    const aliases = CATEGORY_REFERENCE_ALIASES[categoryName?.toLowerCase()] || [categoryName?.toLowerCase()];
+    const tier = referenceTiers.find((t) => t.contract_type === tierType);
+    if (!tier) return null;
+    const item = (tier.items || []).find((it) => aliases.some((a) => (it.category || "").toLowerCase().includes(a)));
+    return item || null;
+  }
+
+  if (loading) return <div className={styles.emptyState}>Loading…</div>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {categories.map((c) => {
+          const isBuilt = built.some((b) => b.category_id === c.id);
+          return (
+            <button
+              key={c.id}
+              onClick={() => setSelectedCategoryId(c.id)}
+              style={{
+                padding: "6px 14px", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer",
+                border: selectedCategoryId === c.id ? "1px solid var(--accent)" : "1px solid var(--border-strong)",
+                background: selectedCategoryId === c.id ? "rgba(255,107,26,0.1)" : "transparent",
+                color: selectedCategoryId === c.id ? "var(--accent-soft)" : "var(--text)",
+              }}
+            >
+              {c.name} {isBuilt && <span style={{ color: "var(--success-fg)" }}>●</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {selectedCategory && (
+        <>
+          <table className={styles.table} style={{ marginBottom: 12 }}>
+            <thead>
+              <tr><th>Channel</th>{PHASES.map((p) => <th key={p}>{p}</th>)}<th></th></tr>
+            </thead>
+            <tbody>
+              {categoryEntries.length === 0 ? (
+                <tr><td colSpan={PHASES.length + 2} style={{ textAlign: "center", color: "var(--text-faint)", fontSize: 12, padding: 16 }}>No rows yet — add one below.</td></tr>
+              ) : (
+                categoryEntries.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>
+                      <select className={styles.select} style={{ minWidth: 140, fontSize: 12 }} value={entry.channel_id || ""} onChange={(e) => updateEntry(entry, "channel_id", e.target.value || null)}>
+                        <option value="">— Pick channel —</option>
+                        {channels.map((ch) => <option key={ch.id} value={ch.id}>{ch.name} ({ch.platform})</option>)}
+                      </select>
+                    </td>
+                    {PHASES.map((p) => (
+                      <td key={p}>
+                        {entry.phase === p ? (
+                          <input
+                            type="number"
+                            className={styles.input}
+                            style={{ width: 60, padding: "4px 6px", fontSize: 12 }}
+                            defaultValue={entry.count || 0}
+                            onBlur={(e) => updateEntry(entry, "count", parseInt(e.target.value, 10) || 0)}
+                          />
+                        ) : (
+                          <button onClick={() => updateEntry(entry, "phase", p)} style={{ background: "none", border: "1px dashed var(--border)", borderRadius: 4, color: "var(--text-faint)", fontSize: 10, cursor: "pointer", padding: "4px 6px" }}>
+                            use this phase
+                          </button>
+                        )}
+                      </td>
+                    ))}
+                    <td><button onClick={() => removeEntry(entry)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button></td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+          <button className={styles.btnSmall} onClick={addRow} style={{ marginBottom: 20 }}>+ Add Row</button>
+
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+            <button className={styles.btnPrimary} onClick={buildPackage} disabled={categoryEntries.length === 0}>Build Package</button>
+
+            {builtForCategory && (
+              <div style={{ marginTop: 16, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+                <div style={{ display: "flex", gap: 24, marginBottom: 12, fontSize: 12 }}>
+                  <div>Total Posts: <strong>{builtForCategory.total_posts}</strong></div>
+                  <div>Unit Price: <strong>{fmtVnd(builtForCategory.unit_price)}</strong></div>
+                  <div>Total: <strong style={{ color: "var(--accent-soft)" }}>{fmtVnd(builtForCategory.total_money)}</strong></div>
+                </div>
+                <label className={styles.fieldLabel} style={{ fontSize: 10 }}>Which tier is this for?</label>
+                <select className={styles.select} style={{ maxWidth: 240 }} value={builtForCategory.tier_type || ""} onChange={(e) => setTier(e.target.value)}>
+                  <option value="">— Not tagged yet —</option>
+                  {referenceTiers.map((t) => <option key={t.contract_type} value={t.contract_type}>{t.contract_type}</option>)}
+                </select>
+                {["Độc Quyền Vĩnh Viễn", "Độc Quyền 5 năm", "Độc Quyền 2 năm"].map((tierType) => {
+                  const ref = referenceFor(selectedCategory.name, tierType);
+                  if (!ref) return null;
+                  const match = ref.quantity === builtForCategory.total_posts;
+                  return (
+                    <div key={tierType} style={{ fontSize: 11, color: match ? "var(--success-fg)" : "var(--text-faint)", marginTop: 6 }}>
+                      {tierType} expects {ref.quantity} {ref.unit} — this one has {builtForCategory.total_posts} {match ? "✓" : ""}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
