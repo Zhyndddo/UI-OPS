@@ -212,7 +212,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   async function addRow(platform) {
     const { data } = await supabase
       .from("media_booking_content_entries")
-      .insert({ release_id: release.id, category_id: selectedCategoryId, platform, brand: isSocial ? brand : null, sort_order: entries.length })
+      .insert({ release_id: release.id, category_id: selectedCategoryId, platform, brand: isSocial ? brand : "", sort_order: entries.length })
       .select()
       .single();
     if (data) setEntries((prev) => [...prev, data]);
@@ -250,7 +250,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
 
     const totalPosts = rows.reduce((sum, r) => sum + r.totalPosts, 0);
     await supabase.from("media_booking_package_categories").upsert(
-      { release_id: release.id, category_id: selectedCategoryId, brand: isSocial ? brand : null, total_posts: totalPosts, updated_at: new Date().toISOString() },
+      { release_id: release.id, category_id: selectedCategoryId, brand: isSocial ? brand : "", total_posts: totalPosts, updated_at: new Date().toISOString() },
       { onConflict: "release_id,category_id,brand" }
     );
     setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
@@ -519,7 +519,7 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
   }
 
   function lineFor(categoryId, brand) {
-    return (activePackage?.media_booking_package_lines || []).find((l) => l.category_id === categoryId && (l.brand || null) === (brand || null));
+    return (activePackage?.media_booking_package_lines || []).find((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
   }
 
   // Checking/unchecking a Hạng Mục line writes to the DB immediately —
