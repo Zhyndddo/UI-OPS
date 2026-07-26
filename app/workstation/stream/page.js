@@ -24,6 +24,7 @@ const METRIC_GROUPS = [
   ["Facebook", [["views_fb", "Views"], ["creations_fb", "Creations"]]],
 ];
 const ALL_METRIC_KEYS = METRIC_GROUPS.flatMap(([, fields]) => fields.map(([k]) => k));
+const GROUP_START_KEYS = new Set(METRIC_GROUPS.map(([, fields]) => fields[0][0]));
 
 export default function StreamWorkstation() {
   const [tab, setTab] = useState("today");
@@ -190,7 +191,9 @@ function StreamTable({ rows, onUpdate, onRemove, manual }) {
           </tr>
           <tr>
             <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}></th>
-            {METRIC_GROUPS.flatMap(([group, fields]) => fields.map(([key, label]) => <th key={key} style={{ fontSize: 10, fontWeight: 400 }}>{label}</th>))}
+            {METRIC_GROUPS.flatMap(([group, fields]) => fields.map(([key, label]) => (
+              <th key={key} style={{ fontSize: 10, fontWeight: 400, borderLeft: GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>{label}</th>
+            )))}
             <th></th>
             {manual && <th></th>}
           </tr>
@@ -213,7 +216,7 @@ function StreamTable({ rows, onUpdate, onRemove, manual }) {
                 )}
               </td>
               {ALL_METRIC_KEYS.map((key) => (
-                <td key={key} style={{ padding: "3px 4px" }}>
+                <td key={key} style={{ padding: "3px 4px", borderLeft: GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>
                   <input
                     className={styles.input}
                     style={{ padding: "3px 6px", fontSize: 11, width: 80 }}

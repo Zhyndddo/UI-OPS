@@ -19,7 +19,7 @@ import styles from "../../shared.module.css";
 // like the release detail popup, not a tri-state gate.
 const DSP_CHECK_FIELDS = ["confirm_spotify_correct", "confirm_apple_correct", "confirm_zing_correct", "confirm_nct_correct", "confirm_fb_correct", "confirm_ytb_correct"];
 
-const SELECT_FIELDS = "id, did, title, main_artist, release_date, release_time, link_lbm, release_category, project_type, smartlink, confirm_insta_sound, confirm_tiktok_sound_updated, confirm_smartlink_updated, " + DSP_CHECK_FIELDS.join(", ");
+const SELECT_FIELDS = "id, did, title, main_artist, release_date, release_time, link_lbm, release_category, project_type, smartlink, confirm_insta_sound, confirm_tiktok_sound_updated, confirm_smartlink_updated, confirm_tag, " + DSP_CHECK_FIELDS.join(", ");
 
 export default function ConfirmWorkstation() {
   const [phase, setPhase] = useState("confirm_phase1");
@@ -134,7 +134,7 @@ export default function ConfirmWorkstation() {
                   <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>Release info</th>
                   <th>DSP check</th>
                   <th>URL LBM</th>
-                  <th>Tag Gói</th>
+                  <th>Tag Confirm</th>
                   <th>Product Type</th>
                   <th>PIC</th>
                 </tr>
@@ -152,7 +152,7 @@ export default function ConfirmWorkstation() {
                     <td style={{ minWidth: 180 }}>
                       <LbmCell release={r} onUpdateField={updateField} />
                     </td>
-                    <td><span className={styles.statusBadge} style={{ background: "var(--bg-hover)", color: "var(--text-muted)" }}>{r.release_category || "—"}</span></td>
+                    <td style={{ minWidth: 90 }}><BoolToggle value={!!r.confirm_tag} onChange={(v) => updateField(r, "confirm_tag", v)} /></td>
                     <td><span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.12)", color: "#ff9d5c" }}>{r.project_type || "—"}</span></td>
                     <td>
                       <select className={styles.select} style={{ minWidth: 130 }} value={assignments.confirm_phase1?.[r.id] ?? defaultPics.confirm_phase1 ?? ""} onChange={(e) => updatePic(r.id, e.target.value)}>
