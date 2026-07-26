@@ -307,8 +307,18 @@ export default function ReleaseDetailPage() {
           <h1 className={styles.title} style={{ marginBottom: 4 }}>
             {form.title} — {form.main_artist}
           </h1>
-          <div style={{ color: "#888", fontSize: 13 }}>
+          <div style={{ color: "#888", fontSize: 13, marginBottom: 14 }}>
             {form.release_date} {form.release_time}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 720 }}>
+            <div>
+              <label className={styles.fieldLabel} style={{ fontSize: 10 }}>Link Drive</label>
+              <UrlField styles={styles} value={form.drive_link} onChange={(v) => update("drive_link", v)} />
+            </div>
+            <div>
+              <label className={styles.fieldLabel} style={{ fontSize: 10 }}>URL LBM</label>
+              <input className={styles.input} value={form.link_lbm || ""} disabled style={{ opacity: 0.6 }} />
+            </div>
           </div>
         </div>
 
@@ -479,12 +489,6 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
   return (
     <div>
       <div className={styles.grid2}>
-        <Field label="Link Drive">
-          <input className={styles.input} value={form.drive_link || ""} onChange={(e) => update("drive_link", e.target.value)} />
-        </Field>
-        <Field label="Link LBM (locked — edit from URL tab or Ticket)">
-          <input className={styles.input} value={form.link_lbm || ""} disabled />
-        </Field>
         <Field label="Media Channel">
           <select className={styles.select} value={form.requester_segment || ""} onChange={(e) => update("requester_segment", e.target.value)}>
             <option value="">— Chọn —</option>
