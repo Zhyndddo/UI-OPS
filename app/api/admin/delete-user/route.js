@@ -33,6 +33,15 @@ export async function POST(request) {
     }
   }
 
+  // A departed team member's PIC assignments are stale, not real business
+  // data (unlike e.g. an Artist's label tie) — clean them up as part of
+  // "delete entirely" rather than blocking on the foreign key.
+  // workstation_assignments.pic_profile_id is NOT NULL, so those rows get
+  // removed outright; tickets.pic_profile_id is nullable, so those just
+  // get unassigned back to "— Unassigned —".
+  await supabaseAdmin.from("workstation_assignments").delete().eq("pic_profile_id", profileId);
+  await supabaseAdmin.from("tickets").update({ pic_profile_id: null }).eq("pic_profile_id", profileId);
+
   const { error: profileErr } = await supabaseAdmin.from("profiles").delete().eq("id", profileId);
   if (profileErr) {
     return NextResponse.json({ error: profileErr.message }, { status: 400 });
