@@ -229,6 +229,34 @@ function TeamSection() {
     load();
   }
 
+  async function updateName(p, newName) {
+    if (!newName.trim() || newName.trim() === p.name) return;
+    await supabase.from("profiles").update({ name: newName.trim() }).eq("id", p.id);
+    load();
+  }
+
+  // Removes both their real login and their profiles row — a real
+  // delete-user API route, since removing the auth account needs the
+  // service role key, which the browser never has direct access to.
+  async function deleteProfile(p) {
+    if (!window.confirm(`Delete "${p.name}" entirely? This removes their login too — they won't be able to sign in again unless re-invited. This can't be undone.`)) return;
+    setError(null);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    try {
+      const res = await fetch("/api/admin/delete-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ profileId: p.id }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Delete failed");
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
   return (
     <div>
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
@@ -277,11 +305,18 @@ function TeamSection() {
         <div className={styles.emptyState}>No one on the roster yet — add yourself first.</div>
       ) : (
         <table className={styles.table}>
-          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Signed In</th></tr></thead>
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Signed In</th><th></th></tr></thead>
           <tbody>
             {profiles.map((p) => (
               <tr key={p.id}>
-                <td>{p.name}</td>
+                <td>
+                  <input
+                    className={styles.input}
+                    style={{ padding: "4px 8px", fontSize: 12, minWidth: 120 }}
+                    defaultValue={p.name}
+                    onBlur={(e) => updateName(p, e.target.value)}
+                  />
+                </td>
                 <td>{p.email}</td>
                 <td>
                   <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={p.role} onChange={(e) => updateRole(p, e.target.value)}>
@@ -298,6 +333,9 @@ function TeamSection() {
                   )}
                 </td>
                 <td>{p.auth_id ? <span style={{ color: "var(--success-fg)" }}>Yes</span> : <span style={{ color: "var(--text-faint)" }}>Not yet</span>}</td>
+                <td>
+                  <button onClick={() => deleteProfile(p)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }} title="Delete this person entirely">✕</button>
+                </td>
               </tr>
             ))}
           </tbody>
