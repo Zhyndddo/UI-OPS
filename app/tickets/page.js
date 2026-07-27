@@ -13,6 +13,7 @@ const NOTES = {
   newrelease_upload: "Auto-sent when SEND UPLOAD is clicked",
   phu_luc: "Auto-created when an artist locks in a contract type",
   media_booking: "Also where the package builder lives — click a row to open it",
+  stream_update: "The real numbers live in the Streaming workstation — this is just the request",
 };
 
 export default function TicketsIndex() {
@@ -64,39 +65,63 @@ export default function TicketsIndex() {
         <div className={styles.eyebrow}>// Ticket System</div>
         <h1 className={styles.title}>Tickets</h1>
         <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -16, marginBottom: 24 }}>
-          Showing types relevant to {isDev ? "dev (all teams)" : profile?.segment || "your team"}.
+          {isDev ? "Grouped by team — you see everyone's." : `Showing types relevant to ${profile?.segment || "your team"}.`}
         </p>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
-          {types.map((key) => (
-            <Link
-              key={key}
-              href={TICKET_ROUTES[key]}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                background: "var(--bg-card)",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                padding: "16px 20px",
-                textDecoration: "none",
-                color: "var(--text)",
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{TICKET_TYPE_LABELS[key] || key}</div>
-                {NOTES[key] && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{NOTES[key]}</div>}
-              </div>
-              <span style={{ fontSize: 36, fontWeight: 800, color: "var(--accent-soft)", lineHeight: 1, flexShrink: 0 }}>
-                {counts[key] ?? 0}
-              </span>
-            </Link>
-          ))}
-        </div>
+        {isDev ? (
+          <>
+            {Object.entries(TEAM_TICKET_TYPES).map(([team, teamTypes]) => (
+              <TeamSection key={team} team={team} types={teamTypes} counts={counts} />
+            ))}
+            <TeamSection team="Shared" types={SHARED_TICKET_TYPES} counts={counts} />
+          </>
+        ) : (
+          <CardGrid types={types} counts={counts} />
+        )}
       </div>
     </div>
     </AppShell>
+  );
+}
+
+function TeamSection({ team, types, counts }) {
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>{team}</div>
+      <CardGrid types={types} counts={counts} />
+    </div>
+  );
+}
+
+function CardGrid({ types, counts }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+      {types.map((key) => (
+        <Link
+          key={key}
+          href={TICKET_ROUTES[key]}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            background: "var(--bg-card)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            padding: "16px 20px",
+            textDecoration: "none",
+            color: "var(--text)",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{TICKET_TYPE_LABELS[key] || key}</div>
+            {NOTES[key] && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{NOTES[key]}</div>}
+          </div>
+          <span style={{ fontSize: 36, fontWeight: 800, color: "var(--accent-soft)", lineHeight: 1, flexShrink: 0 }}>
+            {counts[key] ?? 0}
+          </span>
+        </Link>
+      ))}
+    </div>
   );
 }

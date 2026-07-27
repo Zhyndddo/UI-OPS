@@ -28,6 +28,9 @@ export default function BookingBoard() {
   const [round, setRound] = useState("INT"); // 'INT' | 'Đợt 1' | 'Đợt 2' — the 3 round tabs
   const [channelType, setChannelType] = useState("Direct"); // 'Direct' | 'Partner' — this is the one that gates on Phụ Lục, not round
   const [statusFilter, setStatusFilter] = useState("Tất cả");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [channelNameFilter, setChannelNameFilter] = useState("");
+  const [labelFilter, setLabelFilter] = useState("");
   const [expandedCell, setExpandedCell] = useState(null); // `${releaseId}:${platform}` or null
 
   useEffect(() => {
@@ -39,7 +42,7 @@ export default function BookingBoard() {
     setLoading(true);
     const { data: rels } = await supabase
       .from("releases")
-      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky")
+      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type")
       .order("release_date", { ascending: false });
     const { data: ents } = await supabase.from("media_booking_entries").select("*");
     const { data: chans } = await supabase.from("booking_channels").select("*").order("sort_order");
@@ -71,6 +74,12 @@ export default function BookingBoard() {
       if (month && r.release_date) {
         if (!r.release_date.startsWith(month)) return false;
       }
+      if (typeFilter && r.project_type !== typeFilter) return false;
+      if (labelFilter && r.label !== labelFilter) return false;
+      if (channelNameFilter) {
+        const relEntries = roundEntries.filter((e) => e.release_id === r.id);
+        if (!relEntries.some((e) => e.channel_name === channelNameFilter)) return false;
+      }
       if (statusFilter !== "Tất cả") {
         const wanted = STATUS_MAP[statusFilter];
         const relEntries = roundEntries.filter((e) => e.release_id === r.id);
@@ -79,7 +88,7 @@ export default function BookingBoard() {
       }
       return true;
     });
-  }, [releases, search, month, statusFilter, roundEntries]);
+  }, [releases, search, month, statusFilter, typeFilter, labelFilter, channelNameFilter, roundEntries]);
 
   const stats = useMemo(() => {
     const total = releases.length;
@@ -236,11 +245,23 @@ export default function BookingBoard() {
               </button>
             ))}
           </div>
-          {(search || month || statusFilter !== "Tất cả") && (
+          <select className={styles.select} style={{ maxWidth: 170 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+            <option value="">Type — all</option>
+            {[...new Set(releases.map((r) => r.project_type).filter(Boolean))].map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select className={styles.select} style={{ maxWidth: 170 }} value={channelNameFilter} onChange={(e) => setChannelNameFilter(e.target.value)}>
+            <option value="">Channel — all</option>
+            {[...new Set(channels.map((c) => c.name))].map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <select className={styles.select} style={{ maxWidth: 170 }} value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)}>
+            <option value="">Label — all</option>
+            {[...new Set(releases.map((r) => r.label).filter(Boolean))].map((l) => <option key={l} value={l}>{l}</option>)}
+          </select>
+          {(search || month || statusFilter !== "Tất cả" || typeFilter || channelNameFilter || labelFilter) && (
             <button
               className={styles.btnSmall}
               style={{ borderColor: "#c0392b", color: "#e57373" }}
-              onClick={() => { setSearch(""); setMonth(""); setStatusFilter("Tất cả"); }}
+              onClick={() => { setSearch(""); setMonth(""); setStatusFilter("Tất cả"); setTypeFilter(""); setChannelNameFilter(""); setLabelFilter(""); }}
             >
               ✕ Clear
             </button>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
+import { useAuth } from "../../lib/AuthContext";
 import styles from "../shared.module.css";
 
 const CATEGORIES = ["contract_type", "genre", "topic", "channel", "release_category"];
@@ -10,6 +11,8 @@ const ROLES = ["exc", "admin", "dev"];
 const TEAMS = ["AR", "Marketing", "OPS", "Design"];
 
 export default function ConfigPage() {
+  const { profile } = useAuth();
+  const isDev = profile?.role === "dev";
   const [section, setSection] = useState("lookups"); // "lookups" | "team"
 
   return (
@@ -26,6 +29,7 @@ export default function ConfigPage() {
               ["platforms", "Platforms"],
               ["designTypes", "Design Types"],
               ["sizes", "Sizes"],
+              ...(isDev ? [["sessions", "Sessions"]] : []),
             ].map(([key, label]) => (
               <button
                 key={key}
@@ -43,6 +47,7 @@ export default function ConfigPage() {
           {section === "platforms" && <PlatformsSection />}
           {section === "designTypes" && <DesignTypesSection />}
           {section === "sizes" && <SizesSection />}
+          {section === "sessions" && isDev && <SessionsSection />}
         </div>
       </div>
     </AppShell>
@@ -154,6 +159,7 @@ function TeamSection() {
   const [role, setRole] = useState("exc");
   const [segment, setSegment] = useState("AR");
   const [error, setError] = useState(null);
+  const [inviteStatus, setInviteStatus] = useState(null);
 
   useEffect(() => {
     if (!supabase) return;
@@ -170,21 +176,45 @@ function TeamSection() {
   async function addProfile(e) {
     e.preventDefault();
     setError(null);
+    setInviteStatus(null);
     if (!name.trim() || !email.trim()) {
       setError("Name and email are required.");
       return;
     }
-    const { error: err } = await supabase.from("profiles").insert({
-      name: name.trim(),
-      email: email.trim(),
-      role,
-      segment: role === "dev" ? null : segment,
-    });
-    if (err) setError(err.message);
-    else {
-      setName("");
-      setEmail("");
-      load();
+    const { data: created, error: err } = await supabase
+      .from("profiles")
+      .insert({
+        name: name.trim(),
+        email: email.trim(),
+        role,
+        segment: role === "dev" ? null : segment,
+      })
+      .select()
+      .single();
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    setName("");
+    setEmail("");
+    load();
+
+    // Send the real invite — they'll get an email to set their own
+    // password. If this fails, the profile row still exists (they just
+    // won't be able to log in yet) — surfaced clearly so it's not silent.
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    try {
+      const res = await fetch("/api/admin/invite-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ email: created.email, profileId: created.id }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Invite failed");
+      setInviteStatus({ ok: true, email: created.email });
+    } catch (inviteErr) {
+      setInviteStatus({ ok: false, email: created.email, message: inviteErr.message });
     }
   }
 
@@ -199,14 +229,49 @@ function TeamSection() {
     load();
   }
 
+  async function updateName(p, newName) {
+    if (!newName.trim() || newName.trim() === p.name) return;
+    await supabase.from("profiles").update({ name: newName.trim() }).eq("id", p.id);
+    load();
+  }
+
+  // Removes both their real login and their profiles row — a real
+  // delete-user API route, since removing the auth account needs the
+  // service role key, which the browser never has direct access to.
+  async function deleteProfile(p) {
+    if (!window.confirm(`Delete "${p.name}" entirely? This removes their login too — they won't be able to sign in again unless re-invited. This can't be undone.`)) return;
+    setError(null);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    try {
+      const res = await fetch("/api/admin/delete-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ profileId: p.id }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Delete failed");
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
   return (
     <div>
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
-        Add someone here with the email they'll sign in with — they won't be recognized by the app until
-        their row exists here, even after clicking a valid magic link.
+        Add someone here with the email they'll sign in with — this sends them a real invite email to set
+        their own password. They won't be recognized by the app until their row exists here.
       </p>
 
       {error && <div className={styles.errorBox}>{error}</div>}
+      {inviteStatus && (
+        <div className={inviteStatus.ok ? undefined : styles.errorBox} style={inviteStatus.ok ? { background: "#0f1f14", border: "1px solid #2e7d32", color: "#7ee6a8", borderRadius: 8, padding: "10px 14px", fontSize: 12, marginBottom: 16 } : undefined}>
+          {inviteStatus.ok
+            ? `Invite sent to ${inviteStatus.email}.`
+            : `Profile created, but the invite email to ${inviteStatus.email} failed: ${inviteStatus.message}`}
+        </div>
+      )}
 
       <form onSubmit={addProfile} style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
         <div className={styles.field} style={{ marginBottom: 0, minWidth: 160 }}>
@@ -240,11 +305,18 @@ function TeamSection() {
         <div className={styles.emptyState}>No one on the roster yet — add yourself first.</div>
       ) : (
         <table className={styles.table}>
-          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Signed In</th></tr></thead>
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Signed In</th><th></th></tr></thead>
           <tbody>
             {profiles.map((p) => (
               <tr key={p.id}>
-                <td>{p.name}</td>
+                <td>
+                  <input
+                    className={styles.input}
+                    style={{ padding: "4px 8px", fontSize: 12, minWidth: 120 }}
+                    defaultValue={p.name}
+                    onBlur={(e) => updateName(p, e.target.value)}
+                  />
+                </td>
                 <td>{p.email}</td>
                 <td>
                   <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={p.role} onChange={(e) => updateRole(p, e.target.value)}>
@@ -261,6 +333,9 @@ function TeamSection() {
                   )}
                 </td>
                 <td>{p.auth_id ? <span style={{ color: "var(--success-fg)" }}>Yes</span> : <span style={{ color: "var(--text-faint)" }}>Not yet</span>}</td>
+                <td>
+                  <button onClick={() => deleteProfile(p)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }} title="Delete this person entirely">✕</button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -466,6 +541,114 @@ function SizesSection() {
             </div>
           );
         })
+      )}
+    </div>
+  );
+}
+
+function SessionsSection() {
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+
+  useEffect(() => {
+    if (supabase) load();
+  }, []);
+
+  async function authHeader() {
+    const { data } = await supabase.auth.getSession();
+    return { "Content-Type": "application/json", Authorization: `Bearer ${data?.session?.access_token}` };
+  }
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/list-sessions", { headers: await authHeader() });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to load sessions");
+      setSessions(body.sessions);
+    } catch (e) {
+      setError(e.message);
+    }
+    setLoading(false);
+  }
+
+  async function kick(s) {
+    if (!window.confirm(`Kick ${s.profile?.name || s.email}? They'll be signed out within about a minute.`)) return;
+    setBusyId(s.authId);
+    try {
+      const res = await fetch("/api/admin/kick-user", { method: "POST", headers: await authHeader(), body: JSON.stringify({ authId: s.authId }) });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to kick");
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+    setBusyId(null);
+  }
+
+  async function restore(s) {
+    setBusyId(s.authId);
+    try {
+      const res = await fetch("/api/admin/restore-user", { method: "POST", headers: await authHeader(), body: JSON.stringify({ authId: s.authId }) });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to restore");
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+    setBusyId(null);
+  }
+
+  function fmtWhen(iso) {
+    if (!iso) return "Never signed in";
+    return new Date(iso).toLocaleString();
+  }
+
+  return (
+    <div>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
+        dev-only. "Last sign-in" is the closest thing Supabase offers to a live session list — there's no
+        literal "currently open tabs" view. Kicking someone signs them out within about a minute (their
+        current token has to actually try to refresh before the ban takes effect), not instantly.
+      </p>
+
+      {error && <div className={styles.errorBox}>{error}</div>}
+
+      {loading ? (
+        <div className={styles.emptyState}>Loading…</div>
+      ) : sessions.length === 0 ? (
+        <div className={styles.emptyState}>No linked accounts yet.</div>
+      ) : (
+        <table className={styles.table}>
+          <thead><tr><th>Name</th><th>Email</th><th>Team</th><th>Last Sign-in</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {sessions.map((s) => (
+              <tr key={s.authId}>
+                <td>{s.profile?.name || "— unlinked —"}</td>
+                <td style={{ fontSize: 12 }}>{s.email}</td>
+                <td>{s.profile?.segment || (s.profile?.role === "dev" ? "dev" : "—")}</td>
+                <td style={{ fontSize: 12, color: "var(--text-faint)" }}>{fmtWhen(s.lastSignInAt)}</td>
+                <td>
+                  {s.isKicked ? (
+                    <span className={styles.statusBadge} style={{ background: "var(--error-bg)", color: "var(--error-fg)" }}>Kicked</span>
+                  ) : (
+                    <span className={styles.statusBadge} style={{ background: "var(--success-bg)", color: "var(--success-fg)" }}>Active</span>
+                  )}
+                </td>
+                <td>
+                  {s.isKicked ? (
+                    <button className={styles.btnSmall} disabled={busyId === s.authId} onClick={() => restore(s)}>Restore</button>
+                  ) : (
+                    <button className={styles.btnSmall} disabled={busyId === s.authId} onClick={() => kick(s)} style={{ color: "var(--error-fg)" }}>Kick</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );

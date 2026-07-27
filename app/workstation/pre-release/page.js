@@ -113,10 +113,10 @@ export default function PreReleaseWorkstation() {
                   <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>Release info</th>
                   <th>CANVA</th>
                   <th>MV</th>
-                  <th>Artist Pick</th>
-                  <th>Musixmatch Status</th>
+                  <th style={{ borderLeft: "1px solid var(--border)" }}>Artist Pick</th>
+                  <th style={{ borderLeft: "1px solid var(--border)" }}>Musixmatch Status</th>
                   <th>Musixmatch Link</th>
-                  <th>NCT Lyric</th>
+                  <th style={{ borderLeft: "1px solid var(--border)" }}>NCT Lyric</th>
                   <th>Zing Lyric</th>
                   <th>PIC</th>
                 </tr>
@@ -162,12 +162,12 @@ function PreReleaseRow({ release, pic, isOverride, profiles, onUpdateField, onUp
           {MV_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
         </select>
       </td>
-      <td>
+      <td style={{ borderLeft: "1px solid var(--border)" }}>
         <select className={styles.select} style={{ minWidth: 100 }} value={release.artist_pick_status || ""} onChange={(e) => onUpdateField(release, "artist_pick_status", e.target.value)}>
           {PICK_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
         </select>
       </td>
-      <td>
+      <td style={{ borderLeft: "1px solid var(--border)" }}>
         <select className={styles.select} style={{ minWidth: 100 }} value={release.musixmatch_status || ""} onChange={(e) => onUpdateField(release, "musixmatch_status", e.target.value)}>
           {MUSIXMATCH_STATUS_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
         </select>
@@ -175,7 +175,7 @@ function PreReleaseRow({ release, pic, isOverride, profiles, onUpdateField, onUp
       <td style={{ minWidth: 180 }}>
         <UrlField styles={styles} value={mmLink} onChange={setMmLink} onBlur={() => onUpdateField(release, "musixmatch_link", mmLink)} />
       </td>
-      <td>
+      <td style={{ borderLeft: "1px solid var(--border)" }}>
         <select className={styles.select} style={{ minWidth: 100 }} value={release.nct_lyric || ""} onChange={(e) => onUpdateField(release, "nct_lyric", e.target.value)}>
           {PICK_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
         </select>
