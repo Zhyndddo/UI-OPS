@@ -173,6 +173,9 @@ const PHASE_GROUP_START_KEYS = new Set((() => {
   return starts;
 })());
 const BRANDS = ["VIEENT", "ENVI"];
+// Community's own brand bracket — flat list (no In-house/Partner grouping
+// like TikTok Channel), same pattern as Social's VIEENT/ENVI toggle.
+const COMMUNITY_BRANDS = ["PAGE BOLERO / MT", "PAGE VPOP", "PAGE INDIE"];
 
 // TikTok Channel's structure — 2 fixed groups, each with 4 fixed brands,
 // each brand always has the same 5 fixed sub-channel rows. Not
@@ -206,9 +209,10 @@ const TIKTOK_COUNTS_BRAND_COLORS = {
 // right below the DSP grid once a category has been summarized at least
 // once. Shape differs per category: TikTok Channel groups by
 // External/Internal → brand (matches the reference picture exactly);
-// Social groups by VIEENT/ENVI; Community/Ads have no sub-grouping so it's
-// a single total.
-function CategoryCountsPopup({ isTikTokChannel, isSocial, categoryTotals, tiktokBrandTotals, brand, tiktokBrand }) {
+// Social (VIEENT/ENVI) and Community (PAGE BOLERO/MT, PAGE VPOP, PAGE
+// INDIE) are both flat brand rows via brandList/currentBrand; Ads has no
+// brand bracket at all, so it's a single total.
+function CategoryCountsPopup({ isTikTokChannel, brandList, currentBrand, categoryTotals, tiktokBrandTotals, tiktokBrand }) {
   if (isTikTokChannel) {
     const orderedBrands = TIKTOK_COUNTS_GROUP_ORDER.flatMap((g) => TIKTOK_GROUPS[g]);
     return (
@@ -238,17 +242,17 @@ function CategoryCountsPopup({ isTikTokChannel, isSocial, categoryTotals, tiktok
     );
   }
 
-  if (isSocial) {
+  if (brandList && brandList.length > 0) {
     return (
       <div style={{ marginTop: 14, border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
         <div style={{ display: "flex" }}>
-          {BRANDS.map((b) => (
-            <div key={b} style={{ flex: 1, background: "#141414", color: "#fff", textAlign: "center", fontSize: 11, fontWeight: 700, padding: "6px 0" }}>{b}</div>
+          {brandList.map((b) => (
+            <div key={b} style={{ flex: 1, background: "#141414", color: "#fff", textAlign: "center", fontSize: 11, fontWeight: 700, padding: "6px 4px" }}>{b}</div>
           ))}
         </div>
         <div style={{ display: "flex" }}>
-          {BRANDS.map((b) => (
-            <div key={b} style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 700, padding: "8px 0", background: b === brand ? "rgba(255,107,26,0.1)" : "var(--bg-card)", borderTop: "1px solid var(--border)" }}>{categoryTotals[b] || 0}</div>
+          {brandList.map((b) => (
+            <div key={b} style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 700, padding: "8px 0", background: b === currentBrand ? "rgba(255,107,26,0.1)" : "var(--bg-card)", borderTop: "1px solid var(--border)" }}>{categoryTotals[b] || 0}</div>
           ))}
         </div>
       </div>
@@ -272,6 +276,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const [categories, setCategories] = useState([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [brand, setBrand] = useState("VIEENT");
+  const [communityBrand, setCommunityBrand] = useState(COMMUNITY_BRANDS[0]);
   const [tiktokGroup, setTiktokGroup] = useState("In-house");
   const [tiktokBrand, setTiktokBrand] = useState(TIKTOK_GROUPS["In-house"][0]);
   const [tiktokBrandTotals, setTiktokBrandTotals] = useState({}); // brand name -> total_posts, for the live comparison popup
@@ -285,7 +290,11 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
 
   const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
   const isSocial = selectedCategory?.name === "Social";
+  const isCommunity = selectedCategory?.name === "Community";
   const isTikTokChannel = selectedCategory?.name === "TikTok Channel";
+  const rowOptions = isTikTokChannel ? TIKTOK_SUBCHANNELS : PLATFORMS;
+  const currentBrand = isSocial ? brand : isCommunity ? communityBrand : null;
+  const brandList = isSocial ? BRANDS : isCommunity ? COMMUNITY_BRANDS : null;
 
   useEffect(() => {
     (async () => {
@@ -309,23 +318,17 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     if (!selectedCategoryId || !release) return;
     (async () => {
       if (isTikTokChannel) {
-        let { data } = await supabase
+        // Rows are user-added now (picker of the 5 sub-channel names, same
+        // pattern as every other Hạng Mục's +Platform buttons) — no more
+        // auto-inserting a fixed 5 per brand.
+        const { data } = await supabase
           .from("media_booking_content_entries")
           .select("*")
           .eq("release_id", release.id)
           .eq("category_id", selectedCategoryId)
           .eq("brand", tiktokBrand)
           .order("sort_order");
-        // Auto-create the 5 fixed sub-channel rows the first time this
-        // brand is opened — they're not user-added like other categories.
-        if (!data || data.length === 0) {
-          const rows = TIKTOK_SUBCHANNELS.map((sub, i) => ({
-            release_id: release.id, category_id: selectedCategoryId, platform: sub, brand: tiktokBrand, channel_count: 0, sort_order: i,
-          }));
-          const { data: inserted } = await supabase.from("media_booking_content_entries").insert(rows).select();
-          data = inserted || [];
-        }
-        setEntries(data);
+        setEntries(data || []);
         setSummary(null);
 
         // Live totals for every brand, for the comparison popup below Summarize.
@@ -339,26 +342,29 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
 
       let query = supabase.from("media_booking_content_entries").select("*").eq("release_id", release.id).eq("category_id", selectedCategoryId);
       if (isSocial) query = query.eq("brand", brand);
+      if (isCommunity) query = query.eq("brand", communityBrand);
       const { data } = await query.order("sort_order");
       setEntries(data || []);
       setSummary(null);
 
       // Live per-brand totals for this category, for the small counts popup
-      // below Summarize (Social has real brands; Community/Ads always roll
-      // up under the empty-string brand — see lesson in §7 about NULL vs '').
+      // below Summarize. Social/Community have real brand brackets; Ads
+      // always rolls up under the empty-string brand — see lesson in §7
+      // about NULL vs '' inside the composite unique constraint.
       const { data: rollups } = await supabase.from("media_booking_package_categories").select("brand, total_posts").eq("release_id", release.id).eq("category_id", selectedCategoryId);
       const totals = {};
-      if (isSocial) BRANDS.forEach((b) => (totals[b] = 0));
+      if (brandList) brandList.forEach((b) => (totals[b] = 0));
       else totals[""] = 0;
       (rollups || []).forEach((r) => { totals[r.brand ?? ""] = r.total_posts; });
       setCategoryTotals(totals);
     })();
-  }, [selectedCategoryId, brand, tiktokBrand, release]);
+  }, [selectedCategoryId, brand, communityBrand, tiktokBrand, release]);
 
   async function addRow(platform) {
+    const rowBrand = isSocial ? brand : isCommunity ? communityBrand : isTikTokChannel ? tiktokBrand : "";
     const { data } = await supabase
       .from("media_booking_content_entries")
-      .insert({ release_id: release.id, category_id: selectedCategoryId, platform, brand: isSocial ? brand : "", sort_order: entries.length })
+      .insert({ release_id: release.id, category_id: selectedCategoryId, platform, brand: rowBrand, sort_order: entries.length })
       .select()
       .single();
     if (data) setEntries((prev) => [...prev, data]);
@@ -414,7 +420,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     setSummary(rows);
 
     const totalPosts = rows.reduce((sum, r) => sum + r.totalPosts, 0);
-    const rollupBrand = isSocial ? brand : "";
+    const rollupBrand = isSocial ? brand : isCommunity ? communityBrand : "";
     await supabase.from("media_booking_package_categories").upsert(
       { release_id: release.id, category_id: selectedCategoryId, brand: rollupBrand, total_posts: totalPosts, updated_at: new Date().toISOString() },
       { onConflict: "release_id,category_id,brand" }
@@ -465,6 +471,22 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                     </div>
                   </div>
                 )}
+                {isCommunity && (
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>Brand</div>
+                    <div style={{ display: "grid", gap: 4 }}>
+                      {COMMUNITY_BRANDS.map((b) => (
+                        <button
+                          key={b}
+                          onClick={() => setCommunityBrand(b)}
+                          style={{ textAlign: "left", padding: "6px 8px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", border: communityBrand === b ? "1px solid var(--accent)" : "1px solid var(--border-strong)", background: communityBrand === b ? "rgba(255,107,26,0.1)" : "transparent", color: communityBrand === b ? "var(--accent-soft)" : "var(--text)" }}
+                        >
+                          {b}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {isTikTokChannel && (
                   <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>Group</div>
@@ -501,16 +523,14 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   <div>
                     <div className={styles.eyebrow}>// Package Builder</div>
                     <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>{release?.title || ticket.data?.releaseId}</h2>
-                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release?.main_artist} · {selectedCategory?.name}{isSocial ? ` — ${brand}` : ""}{isTikTokChannel ? ` — ${tiktokBrand}` : ""}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release?.main_artist} · {selectedCategory?.name}{isSocial ? ` — ${brand}` : ""}{isCommunity ? ` — ${communityBrand}` : ""}{isTikTokChannel ? ` — ${tiktokBrand}` : ""}</div>
                   </div>
                   <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 20, cursor: "pointer" }}>✕</button>
                 </div>
 
-                {!isTikTokChannel && (
-                  <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
-                    {PLATFORMS.map((p) => <button key={p} className={styles.btnSmall} onClick={() => addRow(p)}>+ {p}</button>)}
-                  </div>
-                )}
+                <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+                  {rowOptions.map((p) => <button key={p} className={styles.btnSmall} onClick={() => addRow(p)}>+ {p}</button>)}
+                </div>
 
                 {entries.length === 0 ? (
                   <div className={styles.emptyState}>Pick a DSP above to add a row.</div>
@@ -522,6 +542,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                         {PHASE_GROUPS.map(([label, span], i) => <th key={label} colSpan={span} style={{ textAlign: "center", borderLeft: i > 0 ? "1px solid var(--border)" : undefined }}>{label}</th>)}
                         <th rowSpan={2} style={{ borderLeft: "1px solid var(--border)" }}>Số Lượng Kênh</th>
                         {summary && <th rowSpan={2} style={{ borderLeft: "1px solid var(--border)" }}>Số Lượng Bài Đăng</th>}
+                        <th rowSpan={2}></th>
                       </tr>
                       <tr>{PHASES.map(([key, label]) => <th key={label} style={{ fontSize: 10, fontWeight: 400, borderLeft: PHASE_GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>{label}</th>)}</tr>
                     </thead>
@@ -554,6 +575,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                             {summary && (
                               <td style={{ borderLeft: "1px solid var(--border)", fontWeight: 700 }}>{summaryRow?.totalPosts ?? 0}</td>
                             )}
+                            <td><button onClick={() => removeEntry(entry)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button></td>
                           </tr>
                         );
                       })}
@@ -596,10 +618,10 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                 {summarizedCategoryIds.has(selectedCategoryId) && (
                   <CategoryCountsPopup
                     isTikTokChannel={isTikTokChannel}
-                    isSocial={isSocial}
+                    brandList={brandList}
+                    currentBrand={currentBrand}
                     categoryTotals={categoryTotals}
                     tiktokBrandTotals={tiktokBrandTotals}
-                    brand={brand}
                     tiktokBrand={tiktokBrand}
                   />
                 )}
