@@ -188,6 +188,28 @@ const TIKTOK_GROUPS = {
 const TIKTOK_ALL_BRANDS = Object.values(TIKTOK_GROUPS).flat();
 const TIKTOK_SUBCHANNELS = ["TIKTOK NEWS", "TIKTOK CAPCUT", "MẪU CAPCUT", "TIKTOK REUP MV", "TIKTOK LYRICS"];
 
+// Ads' 4 ad-platform groups — always shown together (no single "selected
+// brand" toggle like Social/Community/TikTok), each with its own fixed
+// metric list and its own color. Metric names double as the row label
+// (entry.platform) AND the pickable "+ button" tag; entry.brand holds the
+// group name. Unlike every other Hạng Mục, pricing (Đơn Giá) happens right
+// here at the entry level, not later in the package-line stage — see
+// handleSummarize's Ads branch and BuildPackagePopup's Ads-line special
+// case for why.
+const ADS_BRANDS = ["Facebook Ads", "YouTube Ads", "TikTok Ads", "Spotify Ads"];
+const ADS_BRAND_COLORS = {
+  "Facebook Ads": "#1a7a4c",
+  "YouTube Ads": "#c9b91a",
+  "TikTok Ads": "#e0672c",
+  "Spotify Ads": "#3f7de0",
+};
+const ADS_METRICS = {
+  "Facebook Ads": ["Lượt tiếp cận", "Lượt tương tác", "Lượt truy cập (Link click)"],
+  "YouTube Ads": ["Thruplays (Views)"],
+  "TikTok Ads": ["Lượt tiếp cận", "Lượt xem video", "Lượt theo dõi", "Lượt truy cập (Link click)"],
+  "Spotify Ads": ["HPTO", "In-Stream Audio", "In-Stream Video", "In-Feed Display", "In-Feed Video"],
+};
+
 // Reference layout (team-supplied picture): EXTERNAL group first (= the
 // "Partner" group internally), then INTERNAL (= "In-house"), each brand
 // cell colored distinctly. Display order/labels differ from TIKTOK_GROUPS'
@@ -212,7 +234,7 @@ const TIKTOK_COUNTS_BRAND_COLORS = {
 // Social (VIEENT/ENVI) and Community (PAGE BOLERO/MT, PAGE VPOP, PAGE
 // INDIE) are both flat brand rows via brandList/currentBrand; Ads has no
 // brand bracket at all, so it's a single total.
-function CategoryCountsPopup({ isTikTokChannel, brandList, currentBrand, categoryTotals, tiktokBrandTotals, tiktokBrand }) {
+function CategoryCountsPopup({ isTikTokChannel, isAds, brandList, currentBrand, categoryTotals, tiktokBrandTotals, tiktokBrand }) {
   if (isTikTokChannel) {
     const orderedBrands = TIKTOK_COUNTS_GROUP_ORDER.flatMap((g) => TIKTOK_GROUPS[g]);
     return (
@@ -261,7 +283,7 @@ function CategoryCountsPopup({ isTikTokChannel, brandList, currentBrand, categor
 
   return (
     <div style={{ marginTop: 14, border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 12, color: "var(--text-faint)" }}>Số Lượng Bài Đăng</span>
+      <span style={{ fontSize: 12, color: "var(--text-faint)" }}>{isAds ? "Tổng Số Lượng (mọi metric)" : "Số Lượng Bài Đăng"}</span>
       <strong style={{ fontSize: 15 }}>{categoryTotals[""] || 0}</strong>
     </div>
   );
@@ -295,6 +317,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const isSocial = selectedCategory?.name === "Social";
   const isCommunity = selectedCategory?.name === "Community";
   const isTikTokChannel = selectedCategory?.name === "TikTok Channel";
+  const isAds = selectedCategory?.name === "Ads";
   const rowOptions = isTikTokChannel ? TIKTOK_SUBCHANNELS : PLATFORMS;
   const currentBrand = isSocial ? brand : isCommunity ? communityBrand : null;
   const brandList = isSocial ? BRANDS : isCommunity ? COMMUNITY_BRANDS : null;
@@ -373,8 +396,11 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     })();
   }, [selectedCategoryId, brand, communityBrand, tiktokBrand, release]);
 
-  async function addRow(platform) {
-    const rowBrand = isSocial ? brand : isCommunity ? communityBrand : isTikTokChannel ? tiktokBrand : "";
+  // brandOverride is only used by Ads — its "brand" is picked per-click
+  // (which of the 4 colored ad-group mini-tables the + button lives in),
+  // not from a single selected-brand state like every other category.
+  async function addRow(platform, brandOverride) {
+    const rowBrand = brandOverride ?? (isSocial ? brand : isCommunity ? communityBrand : isTikTokChannel ? tiktokBrand : "");
     const { data } = await supabase
       .from("media_booking_content_entries")
       .insert({ release_id: release.id, category_id: selectedCategoryId, platform, brand: rowBrand, sort_order: entries.length })
@@ -420,6 +446,30 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         { onConflict: "release_id,category_id,brand" }
       );
       setTiktokBrandTotals((prev) => ({ ...prev, [tiktokBrand]: brandTotal }));
+      setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
+      setSkippedCategoryIds((prev) => { const next = new Set(prev); next.delete(selectedCategoryId); return next; });
+      return;
+    }
+
+    if (isAds) {
+      // Pricing lives at the entry level here (Số Lượng × Đơn Giá per
+      // metric row) — everything mushes into ONE '' rollup regardless of
+      // which of the 4 ad-platform groups a metric belongs to, matching
+      // the mushed "ADS" package line (Chi Tiết lists every filled metric,
+      // Thành Tiền is the pre-computed grand total — see BuildPackagePopup's
+      // Ads-line special case, which must never let a later Chi Tiết edit
+      // recompute this amount from scratch).
+      const rows = entries.map((e) => ({ ...e, amount: (e.count_posts || 0) * (e.unit_price || 0) }));
+      setSummary(rows);
+      const totalMoney = rows.reduce((sum, r) => sum + r.amount, 0);
+      const totalQty = rows.reduce((sum, r) => sum + (r.count_posts || 0), 0);
+      const detailText = rows.filter((r) => (r.count_posts || 0) > 0).map((r) => `SL ${r.platform}`).join("; ");
+
+      await supabase.from("media_booking_package_categories").upsert(
+        { release_id: release.id, category_id: selectedCategoryId, brand: "", total_posts: totalQty, total_money: totalMoney, detail_text: detailText || null, skipped: false, updated_at: new Date().toISOString() },
+        { onConflict: "release_id,category_id,brand" }
+      );
+      setCategoryTotals((prev) => ({ ...prev, "": totalQty }));
       setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
       setSkippedCategoryIds((prev) => { const next = new Set(prev); next.delete(selectedCategoryId); return next; });
       return;
@@ -571,11 +621,69 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 20, cursor: "pointer" }}>✕</button>
                 </div>
 
-                <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
-                  {rowOptions.map((p) => <button key={p} className={styles.btnSmall} onClick={() => addRow(p)}>+ {p}</button>)}
-                </div>
+                {!isAds && (
+                  <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+                    {rowOptions.map((p) => <button key={p} className={styles.btnSmall} onClick={() => addRow(p)}>+ {p}</button>)}
+                  </div>
+                )}
 
-                {entries.length === 0 ? (
+                {isAds ? (
+                  // Ads is structurally different from every other Hạng
+                  // Mục — no single selected brand, all 4 ad-platform
+                  // groups shown together, each with its own metric list,
+                  // and Đơn Giá lives right here at the entry level.
+                  <div style={{ display: "grid", gap: 16, marginBottom: 14 }}>
+                    {ADS_BRANDS.map((adsBrand) => {
+                      const brandEntries = entries.filter((e) => e.brand === adsBrand);
+                      return (
+                        <div key={adsBrand} style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+                          <div style={{ background: ADS_BRAND_COLORS[adsBrand], color: "#fff", padding: "8px 12px", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                            {adsBrand}
+                          </div>
+                          <div style={{ padding: 10, display: "flex", gap: 6, flexWrap: "wrap", borderBottom: brandEntries.length > 0 ? "1px solid var(--border)" : undefined }}>
+                            {ADS_METRICS[adsBrand].map((metric) => (
+                              <button key={metric} className={styles.btnSmall} onClick={() => addRow(metric, adsBrand)}>+ {metric}</button>
+                            ))}
+                          </div>
+                          {brandEntries.length > 0 && (
+                            <table className={styles.table}>
+                              <thead>
+                                <tr><th></th><th>Số Lượng</th><th>Đơn Giá</th><th>Thành Tiền</th><th></th></tr>
+                              </thead>
+                              <tbody>
+                                {brandEntries.map((entry) => (
+                                  <tr key={entry.id}>
+                                    <td style={{ fontSize: 12, fontWeight: 700 }}>{entry.platform}</td>
+                                    <td>
+                                      <input
+                                        type="number"
+                                        className={styles.input}
+                                        style={{ width: 80, padding: "4px 6px", fontSize: 12 }}
+                                        defaultValue={entry.count_posts || 0}
+                                        onBlur={(e) => updateEntryCount(entry, "count_posts", parseInt(e.target.value, 10) || 0)}
+                                      />
+                                    </td>
+                                    <td>
+                                      <input
+                                        type="number"
+                                        className={styles.input}
+                                        style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
+                                        defaultValue={entry.unit_price || 0}
+                                        onBlur={(e) => updateEntryCount(entry, "unit_price", parseFloat(e.target.value) || 0)}
+                                      />
+                                    </td>
+                                    <td style={{ fontSize: 12, fontWeight: 700 }}>{fmtVnd((entry.count_posts || 0) * (entry.unit_price || 0))}</td>
+                                    <td><button onClick={() => removeEntry(entry)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button></td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : entries.length === 0 ? (
                   <div className={styles.emptyState}>Pick a DSP above to add a row.</div>
                 ) : isTikTokChannel ? (
                   <table className={styles.table} style={{ marginBottom: 14 }}>
@@ -700,6 +808,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                 {summarizedCategoryIds.has(selectedCategoryId) && (
                   <CategoryCountsPopup
                     isTikTokChannel={isTikTokChannel}
+                    isAds={isAds}
                     brandList={brandList}
                     currentBrand={currentBrand}
                     categoryTotals={categoryTotals}
@@ -708,7 +817,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   />
                 )}
 
-                {summary && !isTikTokChannel && (
+                {summary && !isTikTokChannel && !isAds && (
                   <table className={styles.table} style={{ marginTop: 14 }}>
                     <thead><tr><th>DSP</th><th>Số Lượng Bài Đăng</th><th>Số Lượng Kênh</th></tr></thead>
                     <tbody>
@@ -1005,14 +1114,24 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
     if (!activePackage) return;
     if (checked) {
       const categoryName = row.package_categories?.name || "";
-      const ref = referenceDetailFor(referenceTiers, categoryName);
+      // Ads mushes into one line with a pre-computed Chi Tiết + Thành Tiền
+      // straight from Summarize's entry-level pricing — no unit/quantity,
+      // no reference-template lookup, nothing to compute later.
+      const insertPayload = categoryName === "Ads"
+        ? {
+            package_id: activePackage.id, category_id: row.category_id, brand: row.brand,
+            unit: null, quantity: null, detail: row.detail_text || null, amount: row.total_money ?? null,
+            sort_order: (activePackage.media_booking_package_lines || []).length,
+          }
+        : {
+            package_id: activePackage.id, category_id: row.category_id, brand: row.brand,
+            unit: referenceDetailFor(referenceTiers, categoryName)?.unit || "Bài Đăng",
+            quantity: row.total_posts, detail: referenceDetailFor(referenceTiers, categoryName)?.detail || null, amount: null,
+            sort_order: (activePackage.media_booking_package_lines || []).length,
+          };
       const { data: line } = await supabase
         .from("media_booking_package_lines")
-        .insert({
-          package_id: activePackage.id, category_id: row.category_id, brand: row.brand,
-          unit: ref?.unit || "Bài Đăng", quantity: row.total_posts, detail: ref?.detail || null, amount: null,
-          sort_order: (activePackage.media_booking_package_lines || []).length,
-        })
+        .insert(insertPayload)
         .select()
         .single();
       if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
@@ -1031,7 +1150,14 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
   // since it's always derived, never typed directly.
   async function updateLine(line, patch) {
     const merged = { ...line, ...patch };
-    const amount = computeLineAmount(merged);
+    const cat = categories.find((c) => c.id === line.category_id);
+    // Ads lines are mushed and pre-priced at Summarize time (amount comes
+    // from media_booking_package_categories.total_money) — they never carry
+    // a unit_price here, so the generic computeLineAmount() would always
+    // null the amount out the moment someone edits Chi Tiết. Skip recompute
+    // for Ads and just keep whatever amount the line already has.
+    const isAdsLine = cat?.name === "Ads";
+    const amount = isAdsLine ? line.amount : computeLineAmount(merged);
     const fullPatch = { ...patch, amount };
     await supabase.from("media_booking_package_lines").update(fullPatch).eq("id", line.id);
     setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...fullPatch } : l)) })));
@@ -1176,11 +1302,17 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
                 <tbody>
                   {activePackage.media_booking_package_lines.map((line) => {
                     const cat = categories.find((c) => c.id === line.category_id);
+                    const isAdsLine = cat?.name === "Ads";
                     return (
                       <tr key={line.id}>
                         <td style={{ fontSize: 12 }}>{cat?.name || line.platform || "—"}{line.brand ? ` — ${line.brand}` : ""}</td>
                         <td>
-                          {line.is_package_priced ? (
+                          {isAdsLine ? (
+                            // Ads is mushed and pre-priced at Summarize time —
+                            // there's no single quantity or Số Gói toggle to
+                            // show here, the number already lives in Thành Tiền.
+                            <span style={{ color: "var(--text-faint)" }}>—</span>
+                          ) : line.is_package_priced ? (
                             <input
                               type="number"
                               className={styles.input}
@@ -1192,13 +1324,15 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
                           ) : (
                             <span>{line.quantity ?? "—"} {line.unit}</span>
                           )}
-                          <button
-                            onClick={() => toggleLinePricing(line)}
-                            title="Convert to Package"
-                            style={{ display: "block", marginTop: 4, background: "none", border: "none", color: line.is_package_priced ? "var(--accent-soft)" : "var(--text-faint)", cursor: "pointer", fontSize: 10, padding: 0 }}
-                          >
-                            {line.is_package_priced ? "↺ Bài Đăng" : "⇄ Convert to Package"}
-                          </button>
+                          {!isAdsLine && (
+                            <button
+                              onClick={() => toggleLinePricing(line)}
+                              title="Convert to Package"
+                              style={{ display: "block", marginTop: 4, background: "none", border: "none", color: line.is_package_priced ? "var(--accent-soft)" : "var(--text-faint)", cursor: "pointer", fontSize: 10, padding: 0 }}
+                            >
+                              {line.is_package_priced ? "↺ Bài Đăng" : "⇄ Convert to Package"}
+                            </button>
+                          )}
                         </td>
                         <td style={{ maxWidth: 220 }}>
                           <input
@@ -1209,13 +1343,20 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
                           />
                         </td>
                         <td>
-                          <input
-                            type="number"
-                            className={styles.input}
-                            style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
-                            defaultValue={line.unit_price ?? ""}
-                            onBlur={(e) => updateLine(line, { unit_price: e.target.value === "" ? null : parseFloat(e.target.value) })}
-                          />
+                          {isAdsLine ? (
+                            // Đơn Giá already happened per-metric at the entry
+                            // level for Ads — there's no single unit price to
+                            // edit here.
+                            <span style={{ color: "var(--text-faint)" }}>—</span>
+                          ) : (
+                            <input
+                              type="number"
+                              className={styles.input}
+                              style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
+                              defaultValue={line.unit_price ?? ""}
+                              onBlur={(e) => updateLine(line, { unit_price: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                            />
+                          )}
                         </td>
                         <td style={{ fontSize: 12, fontWeight: 700 }}>{fmtVnd(line.amount)}</td>
                         <td style={{ whiteSpace: "nowrap" }}>

@@ -240,7 +240,7 @@ export default function PickPackagePage() {
                         {c.items.map((item, i) => (
                           <tr key={i}>
                             <td>{item.category}</td>
-                            <td>{item.quantity} {item.unit}</td>
+                            <td>{item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
                             <td style={{ fontSize: 11, color: "#999", whiteSpace: "pre-line" }}>{item.detail || "—"}</td>
                             <td>{fmtVnd(item.amount)}</td>
                           </tr>

@@ -352,7 +352,7 @@ export default function BookingBoard() {
           <table className={styles.table} style={{ minWidth: 900 }}>
             <thead>
               <tr>
-                <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>Release</th>
+                <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 240, minWidth: 240, maxWidth: 240 }}>Release</th>
                 <th>Package</th>
                 <th>Result</th>
                 {columns.map((c) => (
@@ -363,7 +363,7 @@ export default function BookingBoard() {
             <tbody>
               {filteredReleases.map((r) => (
                 <tr key={r.id}>
-                  <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>
+                  <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 240, minWidth: 240, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis" }}>
                     <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
                     <div style={{ fontSize: 11, color: "#666" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)}</div>
                     {channelType === "Partner" && (
