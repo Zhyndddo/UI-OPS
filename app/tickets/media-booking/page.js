@@ -158,8 +158,32 @@ const PHASES = [
   ["count_listen_now", "Listen Now"],
   ["count_addin_post", "Add-in Post"],
 ];
-const PHASE_GROUPS = [["Pre-release", 1], ["Release", 1], ["Post-release", 2]];
+const PHASE_GROUPS = [["Pre-release", 1], ["Release", 2], ["Post-release", 1]];
+// Which phase key starts each group — used to draw a real separator line
+// through the sub-header AND every body row, not just the top label row
+// (a label-only border doesn't actually look like a separator once there's
+// data underneath it).
+const PHASE_GROUP_START_KEYS = new Set((() => {
+  const starts = [];
+  let idx = 0;
+  for (const [, span] of PHASE_GROUPS) {
+    starts.push(PHASES[idx][0]);
+    idx += span;
+  }
+  return starts;
+})());
 const BRANDS = ["VIEENT", "ENVI"];
+
+// TikTok Channel's structure — 2 fixed groups, each with 4 fixed brands,
+// each brand always has the same 5 fixed sub-channel rows. Not
+// user-configurable (unlike package_categories/booking_channels), these
+// are specific to this one Hạng Mục.
+const TIKTOK_GROUPS = {
+  "In-house": ["TIKTOK BOLERO / MT", "TIKTOK VPOP", "TIKTOK INDIE", "CAPCUT"],
+  "Partner": ["EXT TIKTOK - BK MUSIC", "EXT TIKTOK - DUCTH", "EXT TIKTOK - BK GROUP", "EXT TIKTOK - CTV MẪU"],
+};
+const TIKTOK_ALL_BRANDS = Object.values(TIKTOK_GROUPS).flat();
+const TIKTOK_SUBCHANNELS = ["TIKTOK NEWS", "TIKTOK CAPCUT", "MẪU CAPCUT", "TIKTOK REUP MV", "TIKTOK LYRICS"];
 
 // This is the corrected, from-scratch rebuild, now living inside the
 // Media Booking ticket (replacing the old Template/Content-Plan modes
@@ -170,6 +194,9 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const [categories, setCategories] = useState([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [brand, setBrand] = useState("VIEENT");
+  const [tiktokGroup, setTiktokGroup] = useState("In-house");
+  const [tiktokBrand, setTiktokBrand] = useState(TIKTOK_GROUPS["In-house"][0]);
+  const [tiktokBrandTotals, setTiktokBrandTotals] = useState({}); // brand name -> total_posts, for the live comparison popup
   const [entries, setEntries] = useState([]);
   const [summary, setSummary] = useState(null);
   const [summarizedCategoryIds, setSummarizedCategoryIds] = useState(new Set()); // which categories have EVER been summarized (persisted)
@@ -179,6 +206,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
 
   const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
   const isSocial = selectedCategory?.name === "Social";
+  const isTikTokChannel = selectedCategory?.name === "TikTok Channel";
 
   useEffect(() => {
     (async () => {
@@ -201,13 +229,42 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   useEffect(() => {
     if (!selectedCategoryId || !release) return;
     (async () => {
+      if (isTikTokChannel) {
+        let { data } = await supabase
+          .from("media_booking_content_entries")
+          .select("*")
+          .eq("release_id", release.id)
+          .eq("category_id", selectedCategoryId)
+          .eq("brand", tiktokBrand)
+          .order("sort_order");
+        // Auto-create the 5 fixed sub-channel rows the first time this
+        // brand is opened — they're not user-added like other categories.
+        if (!data || data.length === 0) {
+          const rows = TIKTOK_SUBCHANNELS.map((sub, i) => ({
+            release_id: release.id, category_id: selectedCategoryId, platform: sub, brand: tiktokBrand, channel_count: 0, sort_order: i,
+          }));
+          const { data: inserted } = await supabase.from("media_booking_content_entries").insert(rows).select();
+          data = inserted || [];
+        }
+        setEntries(data);
+        setSummary(null);
+
+        // Live totals for every brand, for the comparison popup below Summarize.
+        const { data: rollups } = await supabase.from("media_booking_package_categories").select("brand, total_posts").eq("release_id", release.id).eq("category_id", selectedCategoryId);
+        const totals = {};
+        TIKTOK_ALL_BRANDS.forEach((b) => (totals[b] = 0));
+        (rollups || []).forEach((r) => { if (r.brand) totals[r.brand] = r.total_posts; });
+        setTiktokBrandTotals(totals);
+        return;
+      }
+
       let query = supabase.from("media_booking_content_entries").select("*").eq("release_id", release.id).eq("category_id", selectedCategoryId);
       if (isSocial) query = query.eq("brand", brand);
       const { data } = await query.order("sort_order");
       setEntries(data || []);
       setSummary(null);
     })();
-  }, [selectedCategoryId, brand, release]);
+  }, [selectedCategoryId, brand, tiktokBrand, release]);
 
   async function addRow(platform) {
     const { data } = await supabase
@@ -234,10 +291,29 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   }
 
   // Summarize both computes the on-screen rollup AND persists a
-  // lightweight marker (total posts per platform) — that persisted
-  // marker is what the "all 3 categories" gate below checks, so it
-  // survives closing and reopening the ticket.
+  // lightweight marker (total posts) — that persisted marker is what the
+  // "all 4 categories" gate below checks, so it survives closing and
+  // reopening the ticket. TikTok Channel uses a different formula (per-row
+  // (sum of phases) × channel count, not just an additive row count) and
+  // rolls up per-brand instead of per-platform.
   async function handleSummarize() {
+    if (isTikTokChannel) {
+      const rows = entries.map((e) => ({
+        ...e,
+        totalPosts: PHASES.reduce((sum, [key]) => sum + (e[key] || 0), 0) * (e.channel_count || 0),
+      }));
+      setSummary(rows);
+      const brandTotal = rows.reduce((sum, r) => sum + r.totalPosts, 0);
+
+      await supabase.from("media_booking_package_categories").upsert(
+        { release_id: release.id, category_id: selectedCategoryId, brand: tiktokBrand, total_posts: brandTotal, updated_at: new Date().toISOString() },
+        { onConflict: "release_id,category_id,brand" }
+      );
+      setTiktokBrandTotals((prev) => ({ ...prev, [tiktokBrand]: brandTotal }));
+      setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
+      return;
+    }
+
     const byPlatform = {};
     PLATFORMS.forEach((p) => (byPlatform[p] = { platform: p, channelCount: 0, totalPosts: 0 }));
     entries.forEach((e) => {
@@ -298,6 +374,34 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                     </div>
                   </div>
                 )}
+                {isTikTokChannel && (
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>Group</div>
+                    <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
+                      {Object.keys(TIKTOK_GROUPS).map((g) => (
+                        <button
+                          key={g}
+                          onClick={() => { setTiktokGroup(g); setTiktokBrand(TIKTOK_GROUPS[g][0]); }}
+                          style={{ flex: 1, padding: "6px 0", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", border: tiktokGroup === g ? "1px solid var(--accent)" : "1px solid var(--border-strong)", background: tiktokGroup === g ? "rgba(255,107,26,0.1)" : "transparent", color: tiktokGroup === g ? "var(--accent-soft)" : "var(--text)" }}
+                        >
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>Brand</div>
+                    <div style={{ display: "grid", gap: 4 }}>
+                      {TIKTOK_GROUPS[tiktokGroup].map((b) => (
+                        <button
+                          key={b}
+                          onClick={() => setTiktokBrand(b)}
+                          style={{ textAlign: "left", padding: "6px 8px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", border: tiktokBrand === b ? "1px solid var(--accent)" : "1px solid var(--border-strong)", background: tiktokBrand === b ? "rgba(255,107,26,0.1)" : "transparent", color: tiktokBrand === b ? "var(--accent-soft)" : "var(--text)" }}
+                        >
+                          {b} {tiktokBrandTotals[b] > 0 && <span style={{ color: "var(--success-fg)" }}>●</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* RIGHT — DSP grid */}
@@ -306,33 +410,80 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   <div>
                     <div className={styles.eyebrow}>// Package Builder</div>
                     <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>{release?.title || ticket.data?.releaseId}</h2>
-                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release?.main_artist} · {selectedCategory?.name}{isSocial ? ` — ${brand}` : ""}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release?.main_artist} · {selectedCategory?.name}{isSocial ? ` — ${brand}` : ""}{isTikTokChannel ? ` — ${tiktokBrand}` : ""}</div>
                   </div>
                   <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 20, cursor: "pointer" }}>✕</button>
                 </div>
 
-                <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
-                  {PLATFORMS.map((p) => <button key={p} className={styles.btnSmall} onClick={() => addRow(p)}>+ {p}</button>)}
-                </div>
+                {!isTikTokChannel && (
+                  <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+                    {PLATFORMS.map((p) => <button key={p} className={styles.btnSmall} onClick={() => addRow(p)}>+ {p}</button>)}
+                  </div>
+                )}
 
                 {entries.length === 0 ? (
                   <div className={styles.emptyState}>Pick a DSP above to add a row.</div>
+                ) : isTikTokChannel ? (
+                  <table className={styles.table} style={{ marginBottom: 14 }}>
+                    <thead>
+                      <tr>
+                        <th rowSpan={2}>Kênh</th>
+                        {PHASE_GROUPS.map(([label, span], i) => <th key={label} colSpan={span} style={{ textAlign: "center", borderLeft: i > 0 ? "1px solid var(--border)" : undefined }}>{label}</th>)}
+                        <th rowSpan={2} style={{ borderLeft: "1px solid var(--border)" }}>Số Lượng Kênh</th>
+                        {summary && <th rowSpan={2} style={{ borderLeft: "1px solid var(--border)" }}>Số Lượng Bài Đăng</th>}
+                      </tr>
+                      <tr>{PHASES.map(([key, label]) => <th key={label} style={{ fontSize: 10, fontWeight: 400, borderLeft: PHASE_GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>{label}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {entries.map((entry) => {
+                        const summaryRow = summary?.find((r) => r.id === entry.id);
+                        return (
+                          <tr key={entry.id}>
+                            <td style={{ fontSize: 12, fontWeight: 700 }}>{entry.platform}</td>
+                            {PHASES.map(([key]) => (
+                              <td key={key} style={{ borderLeft: PHASE_GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>
+                                <input
+                                  type="number"
+                                  className={styles.input}
+                                  style={{ width: 55, padding: "4px 6px", fontSize: 12 }}
+                                  defaultValue={entry[key] || 0}
+                                  onBlur={(e) => updateEntryCount(entry, key, parseInt(e.target.value, 10) || 0)}
+                                />
+                              </td>
+                            ))}
+                            <td style={{ borderLeft: "1px solid var(--border)" }}>
+                              <input
+                                type="number"
+                                className={styles.input}
+                                style={{ width: 55, padding: "4px 6px", fontSize: 12 }}
+                                defaultValue={entry.channel_count || 0}
+                                onBlur={(e) => updateEntryCount(entry, "channel_count", parseInt(e.target.value, 10) || 0)}
+                              />
+                            </td>
+                            {summary && (
+                              <td style={{ borderLeft: "1px solid var(--border)", fontWeight: 700 }}>{summaryRow?.totalPosts ?? 0}</td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 ) : (
                   <table className={styles.table} style={{ marginBottom: 14 }}>
                     <thead>
                       <tr>
                         <th rowSpan={2}>DSP</th>
-                        {PHASE_GROUPS.map(([label, span]) => <th key={label} colSpan={span} style={{ textAlign: "center" }}>{label}</th>)}
+                        {PHASE_GROUPS.map(([label, span], i) => <th key={label} colSpan={span} style={{ textAlign: "center", borderLeft: i > 0 ? "1px solid var(--border)" : undefined }}>{label}</th>)}
                         <th rowSpan={2}></th>
                       </tr>
-                      <tr>{PHASES.map(([, label]) => <th key={label} style={{ fontSize: 10, fontWeight: 400 }}>{label}</th>)}</tr>
+                      <tr>{PHASES.map(([key, label]) => <th key={label} style={{ fontSize: 10, fontWeight: 400, borderLeft: PHASE_GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>{label}</th>)}</tr>
                     </thead>
                     <tbody>
                       {entries.map((entry) => (
                         <tr key={entry.id}>
                           <td style={{ fontSize: 12, fontWeight: 700 }}>{entry.platform}</td>
                           {PHASES.map(([key]) => (
-                            <td key={key}>
+                            <td key={key} style={{ borderLeft: PHASE_GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>
                               <input
                                 type="number"
                                 className={styles.input}
@@ -351,7 +502,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
 
                 <button className={styles.btnSecondary} onClick={handleSummarize} disabled={entries.length === 0}>Summarize</button>
 
-                {summary && (
+                {summary && !isTikTokChannel && (
                   <table className={styles.table} style={{ marginTop: 14 }}>
                     <thead><tr><th>DSP</th><th>Số Lượng Bài Đăng</th><th>Số Lượng Kênh</th></tr></thead>
                     <tbody>
@@ -364,6 +515,36 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                       ))}
                     </tbody>
                   </table>
+                )}
+
+                {isTikTokChannel && Object.values(tiktokBrandTotals).some((v) => v > 0) && (
+                  <div style={{ marginTop: 14, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
+                      Brand Comparison — {selectedCategory?.name}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                      {Object.entries(TIKTOK_GROUPS).map(([group, brands]) => (
+                        <div key={group}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", marginBottom: 6 }}>{group}</div>
+                          <div style={{ display: "grid", gap: 4 }}>
+                            {brands.map((b) => (
+                              <div
+                                key={b}
+                                style={{
+                                  display: "flex", justifyContent: "space-between", fontSize: 12, padding: "5px 8px", borderRadius: 5,
+                                  background: b === tiktokBrand ? "rgba(255,107,26,0.1)" : "transparent",
+                                  color: b === tiktokBrand ? "var(--accent-soft)" : "var(--text)",
+                                }}
+                              >
+                                <span>{b}</span>
+                                <strong>{tiktokBrandTotals[b] || 0}</strong>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
