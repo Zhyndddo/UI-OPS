@@ -56,7 +56,6 @@ const ADS_METRICS = {
 };
 
 const ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
-const PLATFORM_OPTIONS = ["Facebook", "Instagram", "TikTok", "YouTube", "Thread"]; // fallback dropdown for columns with no fixed platform (TikTok Channel, "All")
 
 export default function BookingBoard() {
   const [releases, setReleases] = useState([]);
@@ -546,15 +545,20 @@ function ResultCell({ release, categories, bookedFor, entries, categoryIdByName 
 
 function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, onAdd, onCycleStatus, canAdd, cellBorderLeft }) {
   const [showAddPopup, setShowAddPopup] = useState(false);
-  const [platform, setPlatform] = useState(PLATFORM_OPTIONS[0]);
+  const [channelName, setChannelName] = useState("");
   const [link, setLink] = useState("");
   const added = cellEntries.length;
   const isDone = booked != null && booked > 0 && added >= booked;
 
+  // Stays open after each add — the cell (column.brand/column.categoryName)
+  // already fully identifies what's being booked, so there's nothing left
+  // to re-pick between links. This is also how 2 links under the same
+  // channel both end up counting: add one, leave Channel Name as-is, type
+  // the next URL, add again.
   function submitAdd() {
-    onAdd(platform, link);
+    if (!link.trim()) return;
+    onAdd(channelName, link);
     setLink("");
-    setShowAddPopup(false);
   }
 
   return (
@@ -612,26 +616,50 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
               Add Link — {column.label}
             </div>
             {!column.platform && (
-              <>
-                <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>Platform (informational)</label>
-                <select className={styles.select} style={{ width: "100%", marginBottom: 8, padding: "6px 8px", fontSize: 12 }} value={platform} onChange={(e) => setPlatform(e.target.value)}>
-                  {PLATFORM_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </>
+              <div style={{ marginBottom: 6 }}>
+                <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>Channel Name</label>
+                <input
+                  className={styles.input}
+                  style={{ width: "100%", padding: "6px 8px", fontSize: 12 }}
+                  placeholder="e.g. Kênh chính"
+                  value={channelName}
+                  onChange={(e) => setChannelName(e.target.value)}
+                />
+              </div>
             )}
             <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>URL</label>
-            <input
-              autoFocus
-              className={styles.input}
-              style={{ width: "100%", padding: "6px 8px", fontSize: 12 }}
-              placeholder="https://…"
-              value={link}
-              onChange={(e) => setLink(e.target.value)}
-            />
-            <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-              <button className={styles.btnSmall} onClick={() => setShowAddPopup(false)} style={{ flex: 1 }}>Cancel</button>
-              <button className={styles.btnPrimary} onClick={submitAdd} style={{ flex: 1, padding: "7px 0", fontSize: 12 }}>Add</button>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                autoFocus
+                className={styles.input}
+                style={{ flex: 1, padding: "6px 8px", fontSize: 12 }}
+                placeholder="https://…"
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") submitAdd(); }}
+              />
+              <button
+                className={styles.btnPrimary}
+                onClick={submitAdd}
+                title="Add — stays open so you can add another"
+                style={{ padding: "0 14px", fontSize: 16, fontWeight: 800, lineHeight: 1 }}
+              >
+                +
+              </button>
             </div>
+            {cellEntries.length > 0 && (
+              <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 8, display: "grid", gap: 4, maxHeight: 140, overflowY: "auto" }}>
+                {cellEntries.map((e) => (
+                  <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, gap: 6 }}>
+                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {e.platform && <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{e.platform}: </span>}
+                      <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "#ccc" }}>{e.link}</a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button className={styles.btnSmall} onClick={() => setShowAddPopup(false)} style={{ width: "100%", marginTop: 10 }}>Done</button>
           </div>
         </>
       )}

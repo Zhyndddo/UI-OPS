@@ -36,7 +36,6 @@ const META_ITEMS = [
 ];
 
 const BOOKING_ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
-const BOOKING_PLATFORMS = ["TikTok", "Facebook", "Instagram", "YouTube"];
 
 export default function ReleaseDetailPage() {
   const { id } = useParams();
@@ -51,6 +50,7 @@ export default function ReleaseDetailPage() {
   const [saved, setSaved] = useState(false);
   const [packageItems, setPackageItems] = useState([]);
   const [bookingEntries, setBookingEntries] = useState([]);
+  const [bookingCategories, setBookingCategories] = useState([]); // package_categories — for the Media Booking tab's per-Hạng-Mục summary
   const [magicLinkUrl, setMagicLinkUrl] = useState(null);
 
   useEffect(() => {
@@ -104,6 +104,11 @@ export default function ReleaseDetailPage() {
       .select("*")
       .eq("release_id", id)
       .then(({ data }) => setBookingEntries(data || []));
+    supabase
+      .from("package_categories")
+      .select("id, name")
+      .order("sort_order")
+      .then(({ data }) => setBookingCategories(data || []));
     // Magic links never expire once created — fetch the most recent one so
     // it shows up on return visits instead of only right after generating.
     supabase
@@ -259,22 +264,6 @@ export default function ReleaseDetailPage() {
     setPitchingTypesDraft((d) => ({ ...d, [key]: checked }));
   }
 
-  async function addBookingEntry(round, platform, channelType, link) {
-    if (!link) return;
-    const { data, error: err } = await supabase
-      .from("media_booking_entries")
-      .insert({ release_id: id, booking_round: round, platform, channel_type: channelType, link, status: "Chưa Booking" })
-      .select()
-      .single();
-    if (!err && data) setBookingEntries((prev) => [...prev, data]);
-  }
-
-  async function cycleBookingStatus(entry) {
-    const order = ["Chưa Booking", "Đã Gửi", "Done"];
-    const next = order[(order.indexOf(entry.status) + 1) % order.length];
-    await supabase.from("media_booking_entries").update({ status: next }).eq("id", entry.id);
-    setBookingEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, status: next } : e)));
-  }
 
   // Magic link generation moved to Marketing's package spec builder (not
   // built yet) — this page only reads/displays an existing link now,
@@ -358,7 +347,7 @@ export default function ReleaseDetailPage() {
         )}
         {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "media_booking" && (
-          <MediaBookingTab form={form} entries={bookingEntries} onAdd={addBookingEntry} onCycleStatus={cycleBookingStatus} packageItems={packageItems} />
+          <MediaBookingTab form={form} entries={bookingEntries} categories={bookingCategories} packageItems={packageItems} />
         )}
         {tab === "pitching" && <PitchingTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "pre_release" && <PreReleaseTab form={form} update={update} onSave={saveTab} saving={saving} />}
@@ -734,18 +723,35 @@ function phuLucStatusClient(form) {
   return "Chưa Soạn";
 }
 
-function MediaBookingTab({ form, entries, onAdd, onCycleStatus, packageItems }) {
+// Mirrors the Booking Board's "All" filter exactly (app/booking/page.js) —
+// one aggregate ratio per Hạng Mục, no brand/platform breakdown, and (same
+// as Booking Board's "All" view) read-only: no add-link here anymore.
+// Actual booking happens on the Booking Board, which has the real
+// brand/platform-scoped columns this page used to fake with a flat
+// TikTok/Facebook/Instagram/YouTube grid — that grid predated the
+// category+brand model entirely and could drift from it (no category_id,
+// no brand), so it's gone rather than kept in sync by hand. The old
+// Direct/Partner "Channel Type" switch here is gone for the same reason —
+// that split only ever applied to TikTok Channel (see Booking Board), not
+// every category the way this page treated it.
+function MediaBookingTab({ form, entries, categories, packageItems }) {
   const [round, setRound] = useState("INT");
-  const [channelType, setChannelType] = useState("Direct");
+  const roundEntries = entries.filter((e) => e.booking_round === round);
 
-  const visibleEntries = entries.filter((e) => e.booking_round === round && e.channel_type === channelType);
-  // Per the real workflow: Direct booking (VIEENT-run, no third party) runs
-  // immediately in parallel with the Phụ Lục signing process; Partner
-  // booking (an outside vendor/channel) waits until it's actually signed.
-  // This gates on channel_type, NOT booking_round — round is a scheduling
-  // phase, channel_type is what actually determines legal exposure.
-  const plSigned = phuLucStatusClient(form) === "Đã Ký";
-  const isRestricted = channelType === "Partner" && !plSigned;
+  // "Booked" per Hạng Mục, read off the confirmed package (release_package_items
+  // — set once the magic link is picked). Its `category` field is either
+  // "CategoryName" or "CategoryName — Brand", so matching by prefix sums
+  // every brand under that Hạng Mục, same aggregate the Booking Board's
+  // "All" column computes from the live package lines.
+  function bookedFor(categoryName) {
+    const matching = packageItems.filter((it) => it.category === categoryName || (it.category || "").startsWith(`${categoryName} — `));
+    if (matching.length === 0) return null;
+    return matching.reduce((sum, it) => sum + (it.quantity || 0), 0);
+  }
+
+  function addedFor(categoryId) {
+    return roundEntries.filter((e) => e.category_id === categoryId).length;
+  }
 
   return (
     <div>
@@ -770,7 +776,7 @@ function MediaBookingTab({ form, entries, onAdd, onCycleStatus, packageItems }) 
               {packageItems.map((item) => (
                 <tr key={item.id}>
                   <td>{item.category}</td>
-                  <td>{item.quantity} {item.unit}</td>
+                  <td>{item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
                   <td style={{ fontSize: 11, color: "#999" }}>{item.detail || "—"}</td>
                   <td>{fmtVnd(item.amount)}</td>
                 </tr>
@@ -793,116 +799,30 @@ function MediaBookingTab({ form, entries, onAdd, onCycleStatus, packageItems }) 
         ))}
       </div>
 
-      {isRestricted && (
-        <div className={styles.errorBox} style={{ background: "#1a1a1a", borderColor: "#5a4a1a", color: "#ffca4d", marginBottom: 16 }}>
-          ⚠ Partner booking should wait — Phụ Lục isn't signed yet (Status Phụ Lục: {phuLucStatusClient(form)}).
-          Not a hard block yet, just a heads up.
-        </div>
-      )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
-        {BOOKING_PLATFORMS.map((platform) => {
-          const cellEntries = visibleEntries.filter((e) => e.platform === platform);
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+        {categories.map((c) => {
+          const booked = bookedFor(c.name);
+          const added = addedFor(c.id);
+          const isDone = booked != null && booked > 0 && added >= booked;
           return (
-            <div key={platform} style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12 }}>
+            <div key={c.id} style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
-                {platform}
+                {c.name}
               </div>
-              <BookingCell
-                round={round}
-                platform={platform}
-                channelType={channelType}
-                entries={cellEntries}
-                onAdd={onAdd}
-                onCycleStatus={onCycleStatus}
-              />
+              {isDone ? (
+                <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: 13 }}>DONE</span>
+              ) : booked != null ? (
+                <span style={{ color: "#ccc", fontSize: 13 }}>{added} / {booked}</span>
+              ) : (
+                <span style={{ color: "#666", fontSize: 13 }}>{added} / —</span>
+              )}
             </div>
           );
         })}
       </div>
-
-      <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 16 }}>
-        <div className={styles.fieldLabel} style={{ marginBottom: 8 }}>Channel Type</div>
-        <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden", width: "fit-content" }}>
-          {["Direct", "Partner"].map((c) => (
-            <button
-              key={c}
-              onClick={() => setChannelType(c)}
-              style={{
-                padding: "9px 20px",
-                fontSize: 12,
-                fontWeight: 700,
-                border: "none",
-                cursor: "pointer",
-                background: channelType === c ? "#ff6b1a" : "transparent",
-                color: channelType === c ? "#0a0a0a" : "#ccc",
-              }}
-            >
-              {c}
-            </button>
-          ))}
-        </div>
-        <p style={{ color: "#666", fontSize: 11, marginTop: 8 }}>
-          Round "INT" (top) means no Partner channel is currently planned for this release (though that
-          could change) — a scheduling phase, separate from this Direct/Partner switch below, which is
-          what actually determines whether Phụ Lục needs to be signed first.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function BookingCell({ round, platform, channelType, entries, onAdd, onCycleStatus }) {
-  const [open, setOpen] = useState(false);
-  const [link, setLink] = useState("");
-  const done = entries.filter((e) => e.status === "Done").length;
-  return (
-    <div style={{ fontSize: 12 }}>
-      <div
-        style={{ display: "flex", justifyContent: "space-between", cursor: "pointer" }}
-        onClick={() => setOpen((o) => !o)}
-        title={entries.map((e) => `${e.status}: ${e.link}`).join("\n")}
-      >
-        <span style={{ color: "#ccc" }}>Links</span>
-        <span style={{ color: entries.length ? "#ff9d5c" : "#555", fontWeight: 700 }}>
-          {done} / {entries.length}
-        </span>
-      </div>
-      {open && (
-        <div style={{ marginTop: 6 }}>
-          {entries.map((e) => (
-            <div key={e.id} style={{ display: "flex", justifyContent: "space-between", gap: 6, marginBottom: 4 }}>
-              <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "#ccc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 100 }}>
-                {e.link}
-              </a>
-              <button
-                onClick={() => onCycleStatus(e)}
-                style={{ background: "none", border: "none", cursor: "pointer", color: "#ff9d5c", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}
-              >
-                {e.status}
-              </button>
-            </div>
-          ))}
-          <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-            <input
-              className={styles.input}
-              style={{ padding: "4px 8px", fontSize: 11 }}
-              placeholder="link…"
-              value={link}
-              onChange={(e) => setLink(e.target.value)}
-            />
-            <button
-              className={styles.btnSmall}
-              onClick={() => {
-                onAdd(round, platform, channelType, link);
-                setLink("");
-              }}
-            >
-              Add
-            </button>
-          </div>
-        </div>
-      )}
+      <p style={{ color: "#666", fontSize: 11, marginTop: 12 }}>
+        Add/manage individual booking links on the Booking Board — this is a read-only summary per Hạng Mục, same as its "All" filter.
+      </p>
     </div>
   );
 }
