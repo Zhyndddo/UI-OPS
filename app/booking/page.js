@@ -352,18 +352,31 @@ export default function BookingBoard() {
           <table className={styles.table} style={{ minWidth: 900 }}>
             <thead>
               <tr>
-                <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 240, minWidth: 240, maxWidth: 240 }}>Release</th>
-                <th>Package</th>
-                <th>Result</th>
-                {columns.map((c) => (
-                  <th key={c.key} style={{ textAlign: "center" }}>{c.label}<div style={{ fontWeight: 400, color: "#666", fontSize: 10 }}>{round} · {channelType}</div></th>
-                ))}
+                <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288 }}>Release</th>
+                <th style={{ borderRight: "2px solid var(--accent)", width: 154, minWidth: 154, maxWidth: 154 }}>Package</th>
+                <th style={{ borderRight: "2px solid var(--accent)" }}>Result</th>
+                {columns.map((c, i) => {
+                  const prev = columns[i - 1];
+                  const isGroupStart = prev && prev.categoryName !== c.categoryName;
+                  return (
+                    <th
+                      key={c.key}
+                      style={{
+                        textAlign: "center",
+                        borderLeft: isGroupStart ? "2px solid #555" : "1px solid var(--border)",
+                      }}
+                    >
+                      {c.label}
+                      <div style={{ fontWeight: 400, color: "#666", fontSize: 10 }}>{round} · {channelType}</div>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
               {filteredReleases.map((r) => (
                 <tr key={r.id}>
-                  <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 240, minWidth: 240, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288, overflow: "hidden", textOverflow: "ellipsis" }}>
                     <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
                     <div style={{ fontSize: 11, color: "#666" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)}</div>
                     {channelType === "Partner" && (
@@ -379,32 +392,37 @@ export default function BookingBoard() {
                       </span>
                     )}
                   </td>
-                  <td style={{ verticalAlign: "top" }}>
+                  <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 154, minWidth: 154, maxWidth: 154, overflow: "hidden", textOverflow: "ellipsis" }}>
                     {r.project_type ? (
-                      <button onClick={() => setPackagePreview(r)} style={{ background: "none", border: "none", color: "var(--accent-soft)", cursor: "pointer", fontSize: 12, textAlign: "left", padding: 0 }}>
+                      <button onClick={() => setPackagePreview(r)} style={{ background: "none", border: "none", color: "var(--accent-soft)", cursor: "pointer", fontSize: 12, textAlign: "left", padding: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%", display: "block" }}>
                         {r.project_type}
                       </button>
                     ) : (
                       <span style={{ color: "#666", fontSize: 12 }}>—</span>
                     )}
                   </td>
-                  <td style={{ verticalAlign: "top" }}>
+                  <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)" }}>
                     <ResultCell release={r} categories={categories} bookedFor={bookedFor} entries={roundEntries} categoryIdByName={categoryIdByName} />
                   </td>
-                  {columns.map((c) => (
-                    <BrandCell
-                      key={c.key}
-                      release={r}
-                      column={c}
-                      booked={bookedFor(r, c.categoryName, c.brand)}
-                      cellEntries={roundEntries.filter((e) => e.release_id === r.id && e.category_id === categoryIdByName[c.categoryName] && (c.brand === null || (e.channel_name || "") === (c.brand || "")))}
-                      expanded={expandedCell === `${r.id}:${c.key}`}
-                      onToggle={() => setExpandedCell(expandedCell === `${r.id}:${c.key}` ? null : `${r.id}:${c.key}`)}
-                      onAdd={(platform, link) => addEntry(r.id, c.categoryName, c.brand, platform, link)}
-                      onCycleStatus={cycleStatus}
-                      canAdd={hangMucFilter !== "All"}
-                    />
-                  ))}
+                  {columns.map((c, i) => {
+                    const prev = columns[i - 1];
+                    const isGroupStart = prev && prev.categoryName !== c.categoryName;
+                    return (
+                      <BrandCell
+                        key={c.key}
+                        release={r}
+                        column={c}
+                        booked={bookedFor(r, c.categoryName, c.brand)}
+                        cellEntries={roundEntries.filter((e) => e.release_id === r.id && e.category_id === categoryIdByName[c.categoryName] && (c.brand === null || (e.channel_name || "") === (c.brand || "")))}
+                        expanded={expandedCell === `${r.id}:${c.key}`}
+                        onToggle={() => setExpandedCell(expandedCell === `${r.id}:${c.key}` ? null : `${r.id}:${c.key}`)}
+                        onAdd={(platform, link) => addEntry(r.id, c.categoryName, c.brand, platform, link)}
+                        onCycleStatus={cycleStatus}
+                        canAdd={hangMucFilter !== "All"}
+                        cellBorderLeft={isGroupStart ? "2px solid #555" : "1px solid var(--border)"}
+                      />
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -447,7 +465,7 @@ function ResultCell({ release, categories, bookedFor, entries, categoryIdByName 
   );
 }
 
-function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, onAdd, onCycleStatus, canAdd }) {
+function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, onAdd, onCycleStatus, canAdd, cellBorderLeft }) {
   const [showAddPopup, setShowAddPopup] = useState(false);
   const [platform, setPlatform] = useState(PLATFORM_OPTIONS[0]);
   const [link, setLink] = useState("");
@@ -461,7 +479,7 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
   }
 
   return (
-    <td style={{ verticalAlign: "top", minWidth: 130, position: "relative" }}>
+    <td style={{ verticalAlign: "top", minWidth: 130, position: "relative", borderLeft: cellBorderLeft || "1px solid var(--border)" }}>
       <div
         onClick={onToggle}
         style={{ cursor: "pointer", fontSize: 12, textAlign: "center", fontWeight: isDone ? 800 : 400 }}
