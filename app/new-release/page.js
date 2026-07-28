@@ -203,6 +203,25 @@ export default function NewReleasePage() {
           requester_segment: form.requester_segment || null,
         });
       }
+
+      // Pitching Info (DSP editorial tagging — Genre/Moods/Song Styles/
+      // Music Cultures/Instruments for Spotify + Apple Music) only makes
+      // sense for the 2 platforms that actually take editorial tags —
+      // Priority Pitching and Spotify, not NCT/Zing. Requester OPS,
+      // executor AR (picks it up from their ticket list, same PIC pattern
+      // as every other ticket type).
+      if (pitchingTypes.priority || pitchingTypes.spotify) {
+        const { data: infoTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching_info").single();
+        if (infoTab) {
+          await supabase.from("tickets").insert({
+            tab_id: infoTab.id,
+            data: { releaseId: data.did },
+            status: infoTab.default_status,
+            status_log: { [infoTab.default_status]: new Date().toISOString() },
+            requester_segment: form.requester_segment || null,
+          });
+        }
+      }
     }
 
     // gate_artist_profile = "true" means an Artist Profile ticket should

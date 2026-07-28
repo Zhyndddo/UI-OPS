@@ -14,6 +14,7 @@ const NOTES = {
   phu_luc: "Auto-created when an artist locks in a contract type",
   media_booking: "Also where the package builder lives — click a row to open it",
   stream_update: "The real numbers live in the Streaming workstation — this is just the request",
+  pitching_info: "Auto-sent when Priority Pitching or Spotify is checked at New Release creation",
 };
 
 export default function TicketsIndex() {
