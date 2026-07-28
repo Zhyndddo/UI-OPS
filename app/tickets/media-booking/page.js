@@ -185,6 +185,84 @@ const TIKTOK_GROUPS = {
 const TIKTOK_ALL_BRANDS = Object.values(TIKTOK_GROUPS).flat();
 const TIKTOK_SUBCHANNELS = ["TIKTOK NEWS", "TIKTOK CAPCUT", "MẪU CAPCUT", "TIKTOK REUP MV", "TIKTOK LYRICS"];
 
+// Reference layout (team-supplied picture): EXTERNAL group first (= the
+// "Partner" group internally), then INTERNAL (= "In-house"), each brand
+// cell colored distinctly. Display order/labels differ from TIKTOK_GROUPS'
+// own keys, so mapped here rather than renamed at the source.
+const TIKTOK_COUNTS_GROUP_ORDER = ["Partner", "In-house"];
+const TIKTOK_COUNTS_GROUP_LABELS = { "Partner": "EXTERNAL", "In-house": "INTERNAL" };
+const TIKTOK_COUNTS_BRAND_COLORS = {
+  "EXT TIKTOK - BK MUSIC": "#5b7fdb",
+  "EXT TIKTOK - DUCTH": "#5b7fdb",
+  "EXT TIKTOK - BK GROUP": "#5b7fdb",
+  "EXT TIKTOK - CTV MẪU": "#5b7fdb",
+  "TIKTOK BOLERO / MT": "#2f6b4f",
+  "TIKTOK VPOP": "#d9c22e",
+  "TIKTOK INDIE": "#3fa7a0",
+  "CAPCUT": "#e07b39",
+};
+
+// The small "how many things has been added per Hạng Mục" popup that sits
+// right below the DSP grid once a category has been summarized at least
+// once. Shape differs per category: TikTok Channel groups by
+// External/Internal → brand (matches the reference picture exactly);
+// Social groups by VIEENT/ENVI; Community/Ads have no sub-grouping so it's
+// a single total.
+function CategoryCountsPopup({ isTikTokChannel, isSocial, categoryTotals, tiktokBrandTotals, brand, tiktokBrand }) {
+  if (isTikTokChannel) {
+    const orderedBrands = TIKTOK_COUNTS_GROUP_ORDER.flatMap((g) => TIKTOK_GROUPS[g]);
+    return (
+      <div style={{ marginTop: 14, border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+        <div style={{ display: "flex" }}>
+          {TIKTOK_COUNTS_GROUP_ORDER.map((g) => (
+            <div key={g} style={{ flex: TIKTOK_GROUPS[g].length, background: "#141414", color: "#fff", textAlign: "center", fontSize: 11, fontWeight: 700, padding: "6px 0", letterSpacing: 0.5 }}>
+              {TIKTOK_COUNTS_GROUP_LABELS[g]}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex" }}>
+          {orderedBrands.map((b) => (
+            <div key={b} style={{ flex: 1, background: TIKTOK_COUNTS_BRAND_COLORS[b], color: "#fff", textAlign: "center", fontSize: 10, fontWeight: 700, padding: "6px 4px" }}>
+              {b}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex" }}>
+          {orderedBrands.map((b) => (
+            <div key={b} style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 700, padding: "8px 4px", background: b === tiktokBrand ? "rgba(255,107,26,0.1)" : "var(--bg-card)", borderTop: "1px solid var(--border)" }}>
+              {tiktokBrandTotals[b] || 0}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (isSocial) {
+    return (
+      <div style={{ marginTop: 14, border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+        <div style={{ display: "flex" }}>
+          {BRANDS.map((b) => (
+            <div key={b} style={{ flex: 1, background: "#141414", color: "#fff", textAlign: "center", fontSize: 11, fontWeight: 700, padding: "6px 0" }}>{b}</div>
+          ))}
+        </div>
+        <div style={{ display: "flex" }}>
+          {BRANDS.map((b) => (
+            <div key={b} style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 700, padding: "8px 0", background: b === brand ? "rgba(255,107,26,0.1)" : "var(--bg-card)", borderTop: "1px solid var(--border)" }}>{categoryTotals[b] || 0}</div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 14, border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <span style={{ fontSize: 12, color: "var(--text-faint)" }}>Số Lượng Bài Đăng</span>
+      <strong style={{ fontSize: 15 }}>{categoryTotals[""] || 0}</strong>
+    </div>
+  );
+}
+
 // This is the corrected, from-scratch rebuild, now living inside the
 // Media Booking ticket (replacing the old Template/Content-Plan modes
 // entirely) — gated the same way the ticket itself always was, not by
@@ -197,6 +275,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const [tiktokGroup, setTiktokGroup] = useState("In-house");
   const [tiktokBrand, setTiktokBrand] = useState(TIKTOK_GROUPS["In-house"][0]);
   const [tiktokBrandTotals, setTiktokBrandTotals] = useState({}); // brand name -> total_posts, for the live comparison popup
+  const [categoryTotals, setCategoryTotals] = useState({}); // brand ("" for non-branded categories) -> total_posts, for the currently selected non-TikTok category
   const [entries, setEntries] = useState([]);
   const [summary, setSummary] = useState(null);
   const [summarizedCategoryIds, setSummarizedCategoryIds] = useState(new Set()); // which categories have EVER been summarized (persisted)
@@ -263,6 +342,16 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       const { data } = await query.order("sort_order");
       setEntries(data || []);
       setSummary(null);
+
+      // Live per-brand totals for this category, for the small counts popup
+      // below Summarize (Social has real brands; Community/Ads always roll
+      // up under the empty-string brand — see lesson in §7 about NULL vs '').
+      const { data: rollups } = await supabase.from("media_booking_package_categories").select("brand, total_posts").eq("release_id", release.id).eq("category_id", selectedCategoryId);
+      const totals = {};
+      if (isSocial) BRANDS.forEach((b) => (totals[b] = 0));
+      else totals[""] = 0;
+      (rollups || []).forEach((r) => { totals[r.brand ?? ""] = r.total_posts; });
+      setCategoryTotals(totals);
     })();
   }, [selectedCategoryId, brand, tiktokBrand, release]);
 
@@ -325,10 +414,12 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     setSummary(rows);
 
     const totalPosts = rows.reduce((sum, r) => sum + r.totalPosts, 0);
+    const rollupBrand = isSocial ? brand : "";
     await supabase.from("media_booking_package_categories").upsert(
-      { release_id: release.id, category_id: selectedCategoryId, brand: isSocial ? brand : "", total_posts: totalPosts, updated_at: new Date().toISOString() },
+      { release_id: release.id, category_id: selectedCategoryId, brand: rollupBrand, total_posts: totalPosts, updated_at: new Date().toISOString() },
       { onConflict: "release_id,category_id,brand" }
     );
+    setCategoryTotals((prev) => ({ ...prev, [rollupBrand]: totalPosts }));
     setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
   }
 
@@ -501,6 +592,17 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                 )}
 
                 <button className={styles.btnSecondary} onClick={handleSummarize} disabled={entries.length === 0}>Summarize</button>
+
+                {summarizedCategoryIds.has(selectedCategoryId) && (
+                  <CategoryCountsPopup
+                    isTikTokChannel={isTikTokChannel}
+                    isSocial={isSocial}
+                    categoryTotals={categoryTotals}
+                    tiktokBrandTotals={tiktokBrandTotals}
+                    brand={brand}
+                    tiktokBrand={tiktokBrand}
+                  />
+                )}
 
                 {summary && !isTikTokChannel && (
                   <table className={styles.table} style={{ marginTop: 14 }}>
