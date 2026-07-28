@@ -716,20 +716,43 @@ function referenceDetailFor(referenceTiers, categoryName) {
   return null;
 }
 
+// Prebuilt add-on lines — seeded with the real default wording from the
+// template, then freely editable same as any other line. category_id is
+// left null (the existing signal for "not tied to a real Hạng Mục"); the
+// add-on's own name rides in `platform`, which no other package-line
+// write path uses. No live-sync to contract_type_packages needed.
+const PREBUILT_ADDONS = [
+  { name: "Design", unit: "Gói", detail: "Hỗ trợ thiết kế ảnh social, resize từ Key visual" },
+  { name: "Discovery Mode on Spotify", unit: "Gói", detail: "Đề xuất & triển khai Discovery Mode theo chu kỳ hàng tháng" },
+  { name: "Priority Pitching Spotify Homepage Banner", unit: "Gói", detail: "Banner Trang Chủ Spotify tháng 6 hoặc tháng 7" },
+];
+
+// Thành Tiền is always derived, never typed directly — Đơn Giá × Tổng Số
+// Bài Đăng normally, or Đơn Giá × Số Gói once "Convert to Package" is on.
+function computeLineAmount(line) {
+  if (line.unit_price == null) return null;
+  const qty = line.is_package_priced ? line.package_count : line.quantity;
+  if (qty == null) return null;
+  return line.unit_price * qty;
+}
+
 // Small popup for naming a package — replaces the browser prompt, and
-// hides Vĩnh Viễn once one already exists for this release.
+// hides Vĩnh Viễn (and INT MEDIA) once one already exists for this
+// release — both are fixed, one-per-release names, not custom-typed like
+// the years tiers.
 function PackageNamePopup({ existingNames, onConfirm, onCancel }) {
   const vinhVienTaken = existingNames.includes("Độc Quyền Vĩnh Viễn");
-  const [tierMode, setTierMode] = useState(vinhVienTaken ? "years" : "vinhVien");
+  const intMediaTaken = existingNames.includes("INT MEDIA");
+  const [tierMode, setTierMode] = useState(vinhVienTaken ? (intMediaTaken ? "years" : "intMedia") : "vinhVien");
   const [years, setYears] = useState("2");
-  const name = tierMode === "vinhVien" ? "Độc Quyền Vĩnh Viễn" : `Độc Quyền ${years} năm`;
+  const name = tierMode === "vinhVien" ? "Độc Quyền Vĩnh Viễn" : tierMode === "intMedia" ? "INT MEDIA" : `Độc Quyền ${years} năm`;
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onCancel}>
       <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: 320 }} onClick={(e) => e.stopPropagation()}>
         <div className={styles.eyebrow}>// Name Package</div>
         <h3 style={{ fontSize: 15, fontWeight: 800, margin: "0 0 14px" }}>Which tier is this?</h3>
-        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
           <button
             className={styles.btnSmall}
             onClick={() => !vinhVienTaken && setTierMode("vinhVien")}
@@ -738,6 +761,15 @@ function PackageNamePopup({ existingNames, onConfirm, onCancel }) {
             title={vinhVienTaken ? "Already created for this release" : undefined}
           >
             Vĩnh Viễn
+          </button>
+          <button
+            className={styles.btnSmall}
+            onClick={() => !intMediaTaken && setTierMode("intMedia")}
+            disabled={intMediaTaken}
+            style={tierMode === "intMedia" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}
+            title={intMediaTaken ? "Already created for this release" : "Mushed package — Hạng Mục names only, no quantities or pricing"}
+          >
+            INT MEDIA
           </button>
           <button className={styles.btnSmall} onClick={() => setTierMode("years")} style={tierMode === "years" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}>
             Custom Years
@@ -793,6 +825,7 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
   }, [release]);
 
   const activePackage = packages.find((p) => p.id === activePackageId);
+  const isIntMedia = activePackage?.name === "INT MEDIA";
 
   async function createPackage(name, cloneFromId) {
     const { data: pkg } = await supabase.from("media_booking_packages").insert({ release_id: release.id, name, sort_order: packages.length }).select().single();
@@ -852,12 +885,38 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
     }
   }
 
-  async function editLine(line) {
-    const newQty = window.prompt("New quantity?", line.quantity);
-    if (newQty === null) return;
-    const val = parseFloat(newQty) || 0;
-    await supabase.from("media_booking_package_lines").update({ quantity: val }).eq("id", line.id);
-    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, quantity: val } : l)) })));
+  // Generic field-level line editor — writes to DB the moment a value
+  // changes (same immediate-write convention as everywhere else in this
+  // popup; no separate Save step, that staging model already caused real
+  // bugs once). Recomputes and persists Thành Tiền alongside every write
+  // since it's always derived, never typed directly.
+  async function updateLine(line, patch) {
+    const merged = { ...line, ...patch };
+    const amount = computeLineAmount(merged);
+    const fullPatch = { ...patch, amount };
+    await supabase.from("media_booking_package_lines").update(fullPatch).eq("id", line.id);
+    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...fullPatch } : l)) })));
+  }
+
+  // "Convert to Package" — 2-way toggle, flips the Thành Tiền formula
+  // between Đơn Giá × Tổng Số Bài Đăng and Đơn Giá × Số Gói. Free to flip
+  // back anytime, writes immediately either way.
+  function toggleLinePricing(line) {
+    updateLine(line, { is_package_priced: !line.is_package_priced });
+  }
+
+  async function addPrebuiltLine(addon) {
+    if (!activePackage) return;
+    const { data: line } = await supabase
+      .from("media_booking_package_lines")
+      .insert({
+        package_id: activePackage.id, category_id: null, platform: addon.name, brand: "",
+        unit: addon.unit, quantity: 1, detail: addon.detail, amount: null,
+        sort_order: (activePackage.media_booking_package_lines || []).length,
+      })
+      .select()
+      .single();
+    if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
   }
 
   async function deleteLine(line) {
@@ -936,24 +995,91 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
             </button>
           </div>
 
+          {activePackage && (
+            <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+              {PREBUILT_ADDONS.map((addon) => (
+                <button key={addon.name} className={styles.btnSmall} onClick={() => addPrebuiltLine(addon)}>+ {addon.name}</button>
+              ))}
+            </div>
+          )}
+
           <div style={{ flex: 1, overflowY: "auto", marginBottom: 14 }}>
             {!activePackage ? (
               <div className={styles.emptyState}>No package yet — click "Create Package" above.</div>
             ) : (activePackage.media_booking_package_lines || []).length === 0 ? (
               <div className={styles.emptyState}>Check a Hạng Mục on the left to add it here.</div>
+            ) : isIntMedia ? (
+              // INT MEDIA — a mushed package: Hạng Mục names only, no
+              // quantities, pricing, or detail at all.
+              <div style={{ display: "grid", gap: 6 }}>
+                {activePackage.media_booking_package_lines.map((line) => {
+                  const cat = categories.find((c) => c.id === line.category_id);
+                  return (
+                    <div key={line.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", fontSize: 12 }}>
+                      <span>{cat?.name || line.platform || "—"}{line.brand ? ` — ${line.brand}` : ""}</span>
+                      <button onClick={() => deleteLine(line)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 11 }}>Delete</button>
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
               <table className={styles.table}>
-                <thead><tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th></th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Hạng Mục</th>
+                    <th>Tổng Số Bài Đăng / Số Gói</th>
+                    <th>Chi Tiết</th>
+                    <th>Đơn Giá</th>
+                    <th>Thành Tiền</th>
+                    <th></th>
+                  </tr>
+                </thead>
                 <tbody>
                   {activePackage.media_booking_package_lines.map((line) => {
                     const cat = categories.find((c) => c.id === line.category_id);
                     return (
                       <tr key={line.id}>
-                        <td style={{ fontSize: 12 }}>{cat?.name}{line.brand ? ` — ${line.brand}` : ""}</td>
-                        <td>{line.quantity} {line.unit}</td>
-                        <td style={{ fontSize: 11, color: "var(--text-faint)", maxWidth: 220 }}>{line.detail || "—"}</td>
+                        <td style={{ fontSize: 12 }}>{cat?.name || line.platform || "—"}{line.brand ? ` — ${line.brand}` : ""}</td>
+                        <td>
+                          {line.is_package_priced ? (
+                            <input
+                              type="number"
+                              className={styles.input}
+                              style={{ width: 70, padding: "4px 6px", fontSize: 12 }}
+                              defaultValue={line.package_count ?? ""}
+                              placeholder="Số Gói"
+                              onBlur={(e) => updateLine(line, { package_count: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                            />
+                          ) : (
+                            <span>{line.quantity ?? "—"} {line.unit}</span>
+                          )}
+                          <button
+                            onClick={() => toggleLinePricing(line)}
+                            title="Convert to Package"
+                            style={{ display: "block", marginTop: 4, background: "none", border: "none", color: line.is_package_priced ? "var(--accent-soft)" : "var(--text-faint)", cursor: "pointer", fontSize: 10, padding: 0 }}
+                          >
+                            {line.is_package_priced ? "↺ Bài Đăng" : "⇄ Convert to Package"}
+                          </button>
+                        </td>
+                        <td style={{ maxWidth: 220 }}>
+                          <input
+                            className={styles.input}
+                            style={{ width: "100%", padding: "4px 6px", fontSize: 11 }}
+                            defaultValue={line.detail || ""}
+                            onBlur={(e) => updateLine(line, { detail: e.target.value || null })}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            className={styles.input}
+                            style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
+                            defaultValue={line.unit_price ?? ""}
+                            onBlur={(e) => updateLine(line, { unit_price: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                          />
+                        </td>
+                        <td style={{ fontSize: 12, fontWeight: 700 }}>{fmtVnd(line.amount)}</td>
                         <td style={{ whiteSpace: "nowrap" }}>
-                          <button onClick={() => editLine(line)} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11, marginRight: 8 }}>Edit</button>
                           <button onClick={() => deleteLine(line)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 11 }}>Delete</button>
                         </td>
                       </tr>

@@ -10,10 +10,13 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-// These 3 are always offered alongside whatever real packages Marketing
+// These 2 are always offered alongside whatever real packages Marketing
 // has actually built for this release — they're plain picks with no
-// itemized breakdown, not full packages.
-const SIMPLE_OPTIONS = ["Chỉ Phát Hành", "Không Độc Quyền", "Int Media"];
+// itemized breakdown, not full packages. ("Int Media" used to be a 3rd
+// entry here as a fake quick-pick; it's now a real buildable package type
+// — see BuildPackagePopup — so it was removed from this list to avoid two
+// different things both being called "Int Media".)
+const SIMPLE_OPTIONS = ["Chỉ Phát Hành", "Không Độc Quyền"];
 
 export default function PickPackagePage() {
   const { token } = useParams();
@@ -23,7 +26,6 @@ export default function PickPackagePage() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState(false);
-  const [expanded, setExpanded] = useState(null);
   const [selectedValue, setSelectedValue] = useState(null); // local pick, not yet committed
   const [confirmed, setConfirmed] = useState(false);
 
@@ -61,18 +63,23 @@ export default function PickPackagePage() {
     const categoryNameById = {};
     (pkgCategories || []).forEach((c) => (categoryNameById[c.id] = c.name));
 
-    const realOptions = (realPackages || []).map((p) => ({
-      value: p.name,
-      label: p.name,
-      kind: "real",
-      totalValue: (p.media_booking_package_lines || []).some((l) => l.amount != null)
-        ? p.media_booking_package_lines.reduce((sum, l) => sum + (l.amount || 0), 0)
-        : null,
-      items: (p.media_booking_package_lines || []).map((l) => ({
-        category: (categoryNameById[l.category_id] || "—") + (l.brand ? ` — ${l.brand}` : ""),
-        unit: l.unit, quantity: l.quantity, detail: l.detail, amount: l.amount,
-      })),
-    }));
+    const realOptions = (realPackages || []).map((p) => {
+      // INT MEDIA is a mushed package — Hạng Mục names only, never a
+      // price or a calculation, on the build side or here.
+      const isIntMedia = p.name === "INT MEDIA";
+      return {
+        value: p.name,
+        label: p.name,
+        kind: isIntMedia ? "intMedia" : "real",
+        totalValue: isIntMedia || !(p.media_booking_package_lines || []).some((l) => l.amount != null)
+          ? null
+          : p.media_booking_package_lines.reduce((sum, l) => sum + (l.amount || 0), 0),
+        items: (p.media_booking_package_lines || []).map((l) => ({
+          category: (categoryNameById[l.category_id] || l.platform || "—") + (l.brand ? ` — ${l.brand}` : ""),
+          unit: l.unit, quantity: l.quantity, detail: l.detail, amount: l.amount,
+        })),
+      };
+    });
     const simpleOptions = SIMPLE_OPTIONS.map((name) => ({ value: name, label: name, kind: "simple", totalValue: null, items: [] }));
     const options = [...realOptions, ...simpleOptions];
     setPickOptions(options);
@@ -128,9 +135,11 @@ export default function PickPackagePage() {
       }
     }
 
-    // Only real packages have items to seed release_package_items with —
+    // Real packages (including INT MEDIA, which still carries the full
+    // underlying quantity/detail data even though it's hidden from this
+    // client-facing view) have items to seed release_package_items with —
     // simple options (Chỉ Phát Hành etc.) genuinely have none.
-    if (option?.kind === "real" && option.items.length > 0) {
+    if ((option?.kind === "real" || option?.kind === "intMedia") && option.items.length > 0) {
       const { data: existingItems } = await supabase.from("release_package_items").select("id").eq("release_id", release.id).limit(1);
       if (!existingItems || existingItems.length === 0) {
         const rows = option.items.map((it, i) => ({
@@ -150,7 +159,7 @@ export default function PickPackagePage() {
 
   return (
     <div className={styles.page}>
-      <div className={styles.container} style={{ maxWidth: 640 }}>
+      <div className={styles.container} style={{ maxWidth: 1180 }}>
         <div className={styles.eyebrow}>// Chọn Loại Hợp Đồng</div>
         <h1 className={styles.title} style={{ marginBottom: 4 }}>
           {release?.title}
@@ -172,14 +181,15 @@ export default function PickPackagePage() {
         )}
 
         <p style={{ color: "#888", fontSize: 12, marginBottom: 20 }}>
-          Each contract type comes with its own package — pick the one that fits, tap to see the full
-          breakdown, then confirm your choice below.
+          Each contract type comes with its own package — compare them side by side below, then confirm
+          your choice.
         </p>
 
-        <div style={{ display: "grid", gap: 12 }}>
+        {/* All options shown at once, full breakdown always expanded — a
+            side-by-side comparison, not a stack of collapsible cards. */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, alignItems: "start" }}>
           {pickOptions.map((c) => {
             const selected = selectedValue === c.value;
-            const isOpen = expanded === c.value;
             return (
               <div
                 key={c.value}
@@ -203,45 +213,42 @@ export default function PickPackagePage() {
                     opacity: isLocked && !selected ? 0.5 : 1,
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <span style={{ fontSize: 15, fontWeight: 800, color: selected ? "#ff9d5c" : "#f4f4f4" }}>
-                        {c.label || c.value}
-                      </span>
-                      {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700, marginLeft: 10 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
-                    </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: selected ? "#ff9d5c" : "#f4f4f4" }}>
+                      {c.label || c.value}
+                    </span>
+                    {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
                     {c.totalValue != null && (
                       <span style={{ fontSize: 13, color: "#999" }}>{fmtVnd(c.totalValue)}</span>
                     )}
                   </div>
                 </button>
-                {c.items?.length > 0 && (
-                  <div style={{ borderTop: "1px solid #262626", padding: "8px 16px" }}>
-                    <button
-                      onClick={() => setExpanded(isOpen ? null : c.value)}
-                      style={{ background: "none", border: "none", color: "#666", fontSize: 11, cursor: "pointer", padding: "4px 0" }}
-                    >
-                      {isOpen ? "▲ Ẩn chi tiết" : "▼ Xem chi tiết gói"}
-                    </button>
-                    {isOpen && (
-                      <table className={styles.table} style={{ marginTop: 8 }}>
-                        <thead>
-                          <tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr>
-                        </thead>
-                        <tbody>
-                          {c.items.map((item, i) => (
-                            <tr key={i}>
-                              <td>{item.category}</td>
-                              <td>{item.quantity} {item.unit}</td>
-                              <td style={{ fontSize: 11, color: "#999", whiteSpace: "pre-line" }}>{item.detail || "—"}</td>
-                              <td>{fmtVnd(item.amount)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
+                {c.kind === "intMedia" ? (
+                  // INT MEDIA — Hạng Mục names only, no numbers or pricing.
+                  <div style={{ borderTop: "1px solid #262626", padding: "10px 16px", display: "grid", gap: 6 }}>
+                    {c.items.map((item, i) => (
+                      <div key={i} style={{ fontSize: 12, color: "#ccc" }}>{item.category}</div>
+                    ))}
                   </div>
-                )}
+                ) : c.items?.length > 0 ? (
+                  <div style={{ borderTop: "1px solid #262626", padding: "8px 16px" }}>
+                    <table className={styles.table} style={{ marginTop: 8 }}>
+                      <thead>
+                        <tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr>
+                      </thead>
+                      <tbody>
+                        {c.items.map((item, i) => (
+                          <tr key={i}>
+                            <td>{item.category}</td>
+                            <td>{item.quantity} {item.unit}</td>
+                            <td style={{ fontSize: 11, color: "#999", whiteSpace: "pre-line" }}>{item.detail || "—"}</td>
+                            <td>{fmtVnd(item.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
               </div>
             );
           })}
