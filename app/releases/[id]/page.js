@@ -302,11 +302,11 @@ export default function ReleaseDetailPage() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 720 }}>
             <div>
               <label className={styles.fieldLabel} style={{ fontSize: 10 }}>Link Drive</label>
-              <UrlField styles={styles} value={form.drive_link} onChange={(v) => update("drive_link", v)} />
+              <ViewOnlyLinks value={form.drive_link} />
             </div>
             <div>
               <label className={styles.fieldLabel} style={{ fontSize: 10 }}>URL LBM</label>
-              <input className={styles.input} value={form.link_lbm || ""} disabled style={{ opacity: 0.6 }} />
+              <ViewOnlyLinks value={form.link_lbm} />
             </div>
           </div>
         </div>
@@ -359,6 +359,33 @@ export default function ReleaseDetailPage() {
   );
 }
 
+
+// View-only rendering for URL fields that shouldn't be editable here (the
+// top-of-page Link Drive / URL LBM fields) — same newline-joined multi-URL
+// storage as UrlField, just rendered as plain clickable link(s) instead of
+// an input/textarea.
+function ViewOnlyLinks({ value }) {
+  const urls = (value || "").split("\n").map((s) => s.trim()).filter(Boolean);
+  if (urls.length === 0) {
+    return <div style={{ fontSize: 13, color: "var(--text-faint)", padding: "6px 0" }}>—</div>;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "6px 0" }}>
+      {urls.map((u, i) => (
+        <a
+          key={i}
+          href={u}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={u}
+          style={{ fontSize: 13, color: "var(--accent)", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 340 }}
+        >
+          🔗 {urls.length > 1 ? `Link ${i + 1}` : u}
+        </a>
+      ))}
+    </div>
+  );
+}
 
 function SaveBar({ onSave, saving }) {
   return (

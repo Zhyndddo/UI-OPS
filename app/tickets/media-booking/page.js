@@ -299,6 +299,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [brand, setBrand] = useState("VIEENT");
   const [communityBrand, setCommunityBrand] = useState(COMMUNITY_BRANDS[0]);
+  const [adsBrand, setAdsBrand] = useState(ADS_BRANDS[0]); // which of the 4 colored ad-platform groups is shown — display only, doesn't filter what's fetched/summarized (Ads still mushes all 4 into one rollup)
   const [tiktokGroup, setTiktokGroup] = useState("In-house");
   const [tiktokBrand, setTiktokBrand] = useState(TIKTOK_GROUPS["In-house"][0]);
   const [tiktokBrandTotals, setTiktokBrandTotals] = useState({}); // brand name -> total_posts, for the live comparison popup
@@ -580,6 +581,30 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                     </div>
                   </div>
                 )}
+                {isAds && (
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>Ad Platform</div>
+                    <div style={{ display: "grid", gap: 4 }}>
+                      {ADS_BRANDS.map((b) => {
+                        const brandEntryCount = entries.filter((e) => e.brand === b).length;
+                        return (
+                          <button
+                            key={b}
+                            onClick={() => setAdsBrand(b)}
+                            style={{
+                              textAlign: "left", padding: "6px 8px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer",
+                              border: adsBrand === b ? `1px solid ${ADS_BRAND_COLORS[b]}` : "1px solid var(--border-strong)",
+                              background: adsBrand === b ? ADS_BRAND_COLORS[b] : "transparent",
+                              color: adsBrand === b ? "#fff" : "var(--text)",
+                            }}
+                          >
+                            {b} {brandEntryCount > 0 && <span style={{ opacity: 0.8 }}>({brandEntryCount})</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {isTikTokChannel && (
                   <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>Group</div>
@@ -616,7 +641,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   <div>
                     <div className={styles.eyebrow}>// Package Builder</div>
                     <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>{release?.title || ticket.data?.releaseId}</h2>
-                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release?.main_artist} · {selectedCategory?.name}{isSocial ? ` — ${brand}` : ""}{isCommunity ? ` — ${communityBrand}` : ""}{isTikTokChannel ? ` — ${tiktokBrand}` : ""}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release?.main_artist} · {selectedCategory?.name}{isSocial ? ` — ${brand}` : ""}{isCommunity ? ` — ${communityBrand}` : ""}{isTikTokChannel ? ` — ${tiktokBrand}` : ""}{isAds ? ` — ${adsBrand}` : ""}</div>
                   </div>
                   <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 20, cursor: "pointer" }}>✕</button>
                 </div>
@@ -628,61 +653,65 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                 )}
 
                 {isAds ? (
-                  // Ads is structurally different from every other Hạng
-                  // Mục — no single selected brand, all 4 ad-platform
-                  // groups shown together, each with its own metric list,
-                  // and Đơn Giá lives right here at the entry level.
-                  <div style={{ display: "grid", gap: 16, marginBottom: 14 }}>
-                    {ADS_BRANDS.map((adsBrand) => {
-                      const brandEntries = entries.filter((e) => e.brand === adsBrand);
-                      return (
-                        <div key={adsBrand} style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
-                          <div style={{ background: ADS_BRAND_COLORS[adsBrand], color: "#fff", padding: "8px 12px", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                            {adsBrand}
-                          </div>
-                          <div style={{ padding: 10, display: "flex", gap: 6, flexWrap: "wrap", borderBottom: brandEntries.length > 0 ? "1px solid var(--border)" : undefined }}>
-                            {ADS_METRICS[adsBrand].map((metric) => (
-                              <button key={metric} className={styles.btnSmall} onClick={() => addRow(metric, adsBrand)}>+ {metric}</button>
-                            ))}
-                          </div>
-                          {brandEntries.length > 0 && (
-                            <table className={styles.table}>
-                              <thead>
-                                <tr><th></th><th>Số Lượng</th><th>Đơn Giá</th><th>Thành Tiền</th><th></th></tr>
-                              </thead>
-                              <tbody>
-                                {brandEntries.map((entry) => (
-                                  <tr key={entry.id}>
-                                    <td style={{ fontSize: 12, fontWeight: 700 }}>{entry.platform}</td>
-                                    <td>
-                                      <input
-                                        type="number"
-                                        className={styles.input}
-                                        style={{ width: 80, padding: "4px 6px", fontSize: 12 }}
-                                        defaultValue={entry.count_posts || 0}
-                                        onBlur={(e) => updateEntryCount(entry, "count_posts", parseInt(e.target.value, 10) || 0)}
-                                      />
-                                    </td>
-                                    <td>
-                                      <input
-                                        type="number"
-                                        className={styles.input}
-                                        style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
-                                        defaultValue={entry.unit_price || 0}
-                                        onBlur={(e) => updateEntryCount(entry, "unit_price", parseFloat(e.target.value) || 0)}
-                                      />
-                                    </td>
-                                    <td style={{ fontSize: 12, fontWeight: 700 }}>{fmtVnd((entry.count_posts || 0) * (entry.unit_price || 0))}</td>
-                                    <td><button onClick={() => removeEntry(entry)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button></td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          )}
+                  // Ads keeps its own metric list + Đơn Giá-at-entry-level
+                  // shape, but now shows only the ad-platform group picked
+                  // in the left "Ad Platform" bracket (same single-active-
+                  // brand pattern as Social/Community/TikTok Channel)
+                  // instead of stacking all 4 colored tables at once.
+                  // Summarize still mushes ALL 4 groups' entries into one
+                  // rollup regardless of which is on screen — this is
+                  // purely a display change.
+                  (() => {
+                    const brandEntries = entries.filter((e) => e.brand === adsBrand);
+                    return (
+                      <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden", marginBottom: 14 }}>
+                        <div style={{ background: ADS_BRAND_COLORS[adsBrand], color: "#fff", padding: "8px 12px", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                          {adsBrand}
                         </div>
-                      );
-                    })}
-                  </div>
+                        <div style={{ padding: 10, display: "flex", gap: 6, flexWrap: "wrap", borderBottom: brandEntries.length > 0 ? "1px solid var(--border)" : undefined }}>
+                          {ADS_METRICS[adsBrand].map((metric) => (
+                            <button key={metric} className={styles.btnSmall} onClick={() => addRow(metric, adsBrand)}>+ {metric}</button>
+                          ))}
+                        </div>
+                        {brandEntries.length > 0 ? (
+                          <table className={styles.table}>
+                            <thead>
+                              <tr><th></th><th>Số Lượng</th><th>Đơn Giá</th><th>Thành Tiền</th><th></th></tr>
+                            </thead>
+                            <tbody>
+                              {brandEntries.map((entry) => (
+                                <tr key={entry.id}>
+                                  <td style={{ fontSize: 12, fontWeight: 700 }}>{entry.platform}</td>
+                                  <td>
+                                    <input
+                                      type="number"
+                                      className={styles.input}
+                                      style={{ width: 80, padding: "4px 6px", fontSize: 12 }}
+                                      defaultValue={entry.count_posts || 0}
+                                      onBlur={(e) => updateEntryCount(entry, "count_posts", parseInt(e.target.value, 10) || 0)}
+                                    />
+                                  </td>
+                                  <td>
+                                    <input
+                                      type="number"
+                                      className={styles.input}
+                                      style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
+                                      defaultValue={entry.unit_price || 0}
+                                      onBlur={(e) => updateEntryCount(entry, "unit_price", parseFloat(e.target.value) || 0)}
+                                    />
+                                  </td>
+                                  <td style={{ fontSize: 12, fontWeight: 700 }}>{fmtVnd((entry.count_posts || 0) * (entry.unit_price || 0))}</td>
+                                  <td><button onClick={() => removeEntry(entry)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button></td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div style={{ padding: 14, fontSize: 12, color: "var(--text-faint)" }}>No metrics added yet for {adsBrand}.</div>
+                        )}
+                      </div>
+                    );
+                  })()
                 ) : entries.length === 0 ? (
                   <div className={styles.emptyState}>Pick a DSP above to add a row.</div>
                 ) : isTikTokChannel ? (

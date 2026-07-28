@@ -33,6 +33,7 @@ export default function PickPackagePage() {
   const [packageItems, setPackageItems] = useState([]); // release_package_items — the confirmed/locked package's real breakdown
   const [bookingEntries, setBookingEntries] = useState([]);
   const [round, setRound] = useState("INT");
+  const [sharedTerms, setSharedTerms] = useState({ a: "", b: "" }); // global_settings' 2 canned blocks, shown alongside any real package's own terms_text
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -68,6 +69,18 @@ export default function PickPackagePage() {
     const categoryNameById = {};
     (pkgCategories || []).forEach((c) => (categoryNameById[c.id] = c.name));
 
+    // terms_text per contract type — matched against the package's own
+    // (free-typed) name. Only the 3 real Độc Quyền tiers carry one; a
+    // custom-named package just shows nothing extra here.
+    const { data: termsRows } = await supabase.from("contract_type_packages").select("contract_type, terms_text");
+    const termsByName = {};
+    (termsRows || []).forEach((t) => { if (t.terms_text) termsByName[t.contract_type.trim().toLowerCase()] = t.terms_text; });
+
+    const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_shared_b"]);
+    const settingsByKey = {};
+    (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
+    setSharedTerms({ a: settingsByKey.package_terms_shared_a || "", b: settingsByKey.package_terms_shared_b || "" });
+
     const realOptions = (realPackages || []).map((p) => {
       // INT MEDIA is a mushed package — Hạng Mục names only, never a
       // price or a calculation, on the build side or here.
@@ -76,6 +89,7 @@ export default function PickPackagePage() {
         value: p.name,
         label: p.name,
         kind: isIntMedia ? "intMedia" : "real",
+        termsText: termsByName[(p.name || "").trim().toLowerCase()] || null,
         totalValue: isIntMedia || !(p.media_booking_package_lines || []).some((l) => l.amount != null)
           ? null
           : p.media_booking_package_lines.reduce((sum, l) => sum + (l.amount || 0), 0),
@@ -250,6 +264,17 @@ export default function PickPackagePage() {
                     )}
                   </div>
                 </button>
+                {c.termsText && (
+                  <div style={{ borderTop: "1px solid #262626", padding: "10px 16px", background: "rgba(255,107,26,0.04)" }}>
+                    <div style={{ fontSize: 11, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>{c.termsText}</div>
+                    {(sharedTerms.a || sharedTerms.b) && (
+                      <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #333", display: "grid", gap: 6 }}>
+                        {sharedTerms.a && <div style={{ fontSize: 10, color: "#888", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.a}</div>}
+                        {sharedTerms.b && <div style={{ fontSize: 10, color: "#888", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.b}</div>}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {c.kind === "intMedia" ? (
                   // INT MEDIA — Hạng Mục names only, no numbers or pricing.
                   <div style={{ borderTop: "1px solid #262626", padding: "10px 16px", display: "grid", gap: 6 }}>
@@ -268,7 +293,13 @@ export default function PickPackagePage() {
                           <tr key={i}>
                             <td>{item.category}</td>
                             <td>{item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
-                            <td style={{ fontSize: 11, color: "#999", whiteSpace: "pre-line" }}>{item.detail || "—"}</td>
+                            <td style={{ fontSize: 11, color: "#999" }}>
+                              {item.detail ? (
+                                <div title={item.detail} style={{ whiteSpace: "pre-line", maxHeight: 54, overflowY: "auto", lineHeight: 1.4, paddingRight: 2 }}>
+                                  {item.detail}
+                                </div>
+                              ) : "—"}
+                            </td>
                             <td>{fmtVnd(item.amount)}</td>
                           </tr>
                         ))}

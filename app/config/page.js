@@ -26,6 +26,8 @@ export default function ConfigPage() {
             {[
               ["lookups", "Lookup Options"],
               ["team", "Team"],
+              ["picDefaults", "PIC Defaults"],
+              ["packageTerms", "Package Terms"],
               ["platforms", "Platforms"],
               ["designTypes", "Design Types"],
               ["sizes", "Sizes"],
@@ -44,6 +46,8 @@ export default function ConfigPage() {
 
           {section === "lookups" && <LookupOptionsSection />}
           {section === "team" && <TeamSection />}
+          {section === "picDefaults" && <PicDefaultsSection />}
+          {section === "packageTerms" && <PackageTermsSection />}
           {section === "platforms" && <PlatformsSection />}
           {section === "designTypes" && <DesignTypesSection />}
           {section === "sizes" && <SizesSection />}
@@ -341,6 +345,242 @@ function TeamSection() {
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+// ── PIC Defaults ────────────────────────────────────────────────────────
+// Sets the "column default" PIC for a workstation — a workstation_assignments
+// row with column_key='all' and release_id=null. This is the fallback used
+// whenever a release has no row-level override. Every workstation page
+// below already reads this default and lets a per-release override be set
+// inline, but none of them exposed a way to set the DEFAULT itself — that
+// used to only happen via a hardcoded SQL seed (the old "Hiếu Trần" row,
+// now removed for good). This is the real UI for it.
+//
+// "wired: true" workstations already read/use this default in their own
+// page today. "wired: false" ones (booking, package_price, stream,
+// milestone) don't have any PIC concept in their UI yet — this still lets
+// an admin record who owns them, ready for whenever those pages grow a
+// picker of their own.
+const PIC_WORKSTATIONS = [
+  { key: "upload", label: "Upload", wired: true },
+  { key: "pitching", label: "Pitching", wired: true },
+  { key: "confirm_phase1", label: "Re-Check — Phase 1", wired: true },
+  { key: "confirm_phase2", label: "Re-Check — Phase 2", wired: true },
+  { key: "pre_release", label: "Pre-release", wired: true },
+  { key: "booking", label: "Booking", wired: false },
+  { key: "package_price", label: "Package Price Management", wired: false },
+  { key: "stream", label: "Streaming", wired: false },
+  { key: "milestone", label: "Milestone", wired: false },
+];
+
+function PicDefaultsSection() {
+  const [profiles, setProfiles] = useState([]);
+  const [defaults, setDefaults] = useState({}); // workstation -> pic_profile_id
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(null); // workstation key currently saving
+
+  useEffect(() => {
+    if (!supabase) return;
+    load();
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    const [{ data: profs }, { data: assigns }] = await Promise.all([
+      supabase.from("profiles").select("id, name").order("name"),
+      supabase.from("workstation_assignments").select("workstation, pic_profile_id").is("release_id", null).eq("column_key", "all"),
+    ]);
+    setProfiles(profs || []);
+    const map = {};
+    (assigns || []).forEach((a) => (map[a.workstation] = a.pic_profile_id));
+    setDefaults(map);
+    setLoading(false);
+  }
+
+  async function setDefault(workstation, profileId) {
+    setSaving(workstation);
+    const { data: existing } = await supabase
+      .from("workstation_assignments")
+      .select("id")
+      .eq("workstation", workstation)
+      .eq("column_key", "all")
+      .is("release_id", null)
+      .maybeSingle();
+
+    if (!profileId) {
+      // Clearing — remove the row entirely rather than leaving a
+      // null-PIC row, since pic_profile_id is not-null on this table.
+      if (existing) await supabase.from("workstation_assignments").delete().eq("id", existing.id);
+    } else if (existing) {
+      await supabase.from("workstation_assignments").update({ pic_profile_id: profileId }).eq("id", existing.id);
+    } else {
+      await supabase.from("workstation_assignments").insert({ workstation, column_key: "all", release_id: null, pic_profile_id: profileId });
+    }
+
+    setDefaults((d) => ({ ...d, [workstation]: profileId || undefined }));
+    setSaving(null);
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20, maxWidth: 640 }}>
+        The fallback PIC for each workstation — used whenever a release has no per-row override set on its own page.
+        Changes save immediately. Set to "— Unassigned —" to clear the default entirely.
+      </p>
+
+      <table className={styles.table} style={{ maxWidth: 560 }}>
+        <thead>
+          <tr>
+            <th>Workstation</th>
+            <th>Default PIC</th>
+          </tr>
+        </thead>
+        <tbody>
+          {PIC_WORKSTATIONS.map((w) => (
+            <tr key={w.key}>
+              <td>
+                {w.label}
+                {!w.wired && (
+                  <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>
+                    Not yet shown on its own page — recorded here for now
+                  </div>
+                )}
+              </td>
+              <td>
+                <select
+                  className={styles.select}
+                  style={{ minWidth: 160 }}
+                  value={defaults[w.key] || ""}
+                  disabled={saving === w.key}
+                  onChange={(e) => setDefault(w.key, e.target.value)}
+                >
+                  <option value="">— Unassigned —</option>
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── Package Terms ───────────────────────────────────────────────────────
+// Two pieces, both shown on the magic-link pick-package page under a
+// package's name: (1) each real contract_type's own canned terms_text
+// (contract_type_packages.terms_text — VĨNH VIỄN/05 năm/02 năm etc.),
+// (2) the 2 shared blocks every real package shows alongside its own
+// terms (global_settings). Both save on blur, immediate-write like
+// everything else in this app.
+function PackageTermsSection() {
+  const [packages, setPackages] = useState([]);
+  const [sharedA, setSharedA] = useState("");
+  const [sharedB, setSharedB] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [savedKey, setSavedKey] = useState(null);
+
+  useEffect(() => {
+    if (!supabase) return;
+    load();
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    const [{ data: pkgs }, { data: settings }] = await Promise.all([
+      supabase.from("contract_type_packages").select("id, contract_type, terms_text").order("contract_type"),
+      supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_shared_b"]),
+    ]);
+    setPackages(pkgs || []);
+    const byKey = {};
+    (settings || []).forEach((s) => (byKey[s.key] = s.value));
+    setSharedA(byKey.package_terms_shared_a || "");
+    setSharedB(byKey.package_terms_shared_b || "");
+    setLoading(false);
+  }
+
+  function flashSaved(key) {
+    setSavedKey(key);
+    setTimeout(() => setSavedKey((k) => (k === key ? null : k)), 1500);
+  }
+
+  async function savePackageTerms(pkg, value) {
+    setPackages((prev) => prev.map((p) => (p.id === pkg.id ? { ...p, terms_text: value } : p)));
+    await supabase.from("contract_type_packages").update({ terms_text: value || null }).eq("id", pkg.id);
+    flashSaved(pkg.id);
+  }
+
+  async function saveShared(key, value) {
+    await supabase.from("global_settings").upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    flashSaved(key);
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20, maxWidth: 640 }}>
+        Fixed wording shown under each package's name on the magic-link page — picking a given contract type
+        always shows the same terms every time. Changes save on blur.
+      </p>
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
+        Per-Package Terms
+      </div>
+      <div style={{ display: "grid", gap: 16, marginBottom: 28, maxWidth: 640 }}>
+        {packages.map((p) => (
+          <div key={p.id}>
+            <label className={styles.fieldLabel} style={{ fontSize: 11, display: "flex", justifyContent: "space-between" }}>
+              <span>{p.contract_type}</span>
+              {savedKey === p.id && <span style={{ color: "var(--success-fg)", fontWeight: 400 }}>Saved</span>}
+            </label>
+            <textarea
+              className={styles.textarea}
+              style={{ width: "100%", minHeight: 60, fontSize: 12 }}
+              defaultValue={p.terms_text || ""}
+              placeholder="No terms text — nothing extra shown for this package."
+              onBlur={(e) => savePackageTerms(p, e.target.value)}
+            />
+          </div>
+        ))}
+        {packages.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)" }}>No contract-type packages found.</div>}
+      </div>
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
+        Shared Terms (shown under every package's own terms above)
+      </div>
+      <div style={{ display: "grid", gap: 16, maxWidth: 640 }}>
+        <div>
+          <label className={styles.fieldLabel} style={{ fontSize: 11, display: "flex", justifyContent: "space-between" }}>
+            <span>Block A</span>
+            {savedKey === "package_terms_shared_a" && <span style={{ color: "var(--success-fg)", fontWeight: 400 }}>Saved</span>}
+          </label>
+          <textarea
+            className={styles.textarea}
+            style={{ width: "100%", minHeight: 90, fontSize: 12 }}
+            defaultValue={sharedA}
+            onBlur={(e) => { setSharedA(e.target.value); saveShared("package_terms_shared_a", e.target.value); }}
+          />
+        </div>
+        <div>
+          <label className={styles.fieldLabel} style={{ fontSize: 11, display: "flex", justifyContent: "space-between" }}>
+            <span>Block B</span>
+            {savedKey === "package_terms_shared_b" && <span style={{ color: "var(--success-fg)", fontWeight: 400 }}>Saved</span>}
+          </label>
+          <textarea
+            className={styles.textarea}
+            style={{ width: "100%", minHeight: 110, fontSize: 12 }}
+            defaultValue={sharedB}
+            onBlur={(e) => { setSharedB(e.target.value); saveShared("package_terms_shared_b", e.target.value); }}
+          />
+        </div>
+      </div>
     </div>
   );
 }
