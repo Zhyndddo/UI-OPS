@@ -17,10 +17,11 @@ export default function ReleasesDashboard() {
   const [error, setError] = useState(null);
 
   const [statusFilter, setStatusFilter] = useState(null); // "preRelease" | "released" | "postRelease"
-  const [createdFilter, setCreatedFilter] = useState(null); // "week" | "month"
+  const [createdFilter, setCreatedFilter] = useState(null); // "today" | "week" | "month"
   const [channelFilter, setChannelFilter] = useState(null); // "VIEENT" | "ENVI" (from stat click or dropdown, same state)
   const [typeFilter, setTypeFilter] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
+  const [search, setSearch] = useState(""); // regex tested against main_artist, title, label
   const [hoverRelease, setHoverRelease] = useState(null);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
 
@@ -51,16 +52,19 @@ export default function ReleasesDashboard() {
 
   const stats = useMemo(() => {
     const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay());
     startOfWeek.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    let thisWeek = 0, thisMonth = 0, preRelease = 0, released = 0, postRelease = 0;
+    let today = 0, thisWeek = 0, thisMonth = 0, preRelease = 0, released = 0, postRelease = 0;
     const byChannel = { VIEENT: 0, ENVI: 0 };
 
     releases.forEach((r) => {
       const created = new Date(r.created_at);
+      if (created >= startOfToday) today++;
       if (created >= startOfWeek) thisWeek++;
       if (created >= startOfMonth) thisMonth++;
 
@@ -76,11 +80,30 @@ export default function ReleasesDashboard() {
       if (byChannel[r.requester_segment] !== undefined) byChannel[r.requester_segment]++;
     });
 
-    return { total: releases.length, thisWeek, thisMonth, preRelease, released, postRelease, byChannel };
+    return { total: releases.length, today, thisWeek, thisMonth, preRelease, released, postRelease, byChannel };
   }, [releases]);
+
+  // Regex-first: if the typed text is a valid regex, it's tested as one
+  // (case-insensitive) against artist/song/label; anything that fails to
+  // compile (unbalanced groups, etc. — easy to type by accident) just
+  // falls back to a plain case-insensitive substring match instead of
+  // erroring the whole page out.
+  const searchTest = useMemo(() => {
+    const q = search.trim();
+    if (!q) return null;
+    try {
+      const re = new RegExp(q, "i");
+      return (s) => re.test(s || "");
+    } catch {
+      const needle = q.toLowerCase();
+      return (s) => (s || "").toLowerCase().includes(needle);
+    }
+  }, [search]);
 
   const filteredReleases = useMemo(() => {
     const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay());
     startOfWeek.setHours(0, 0, 0, 0);
@@ -89,6 +112,7 @@ export default function ReleasesDashboard() {
     return releases.filter((r) => {
       if (createdFilter) {
         const created = new Date(r.created_at);
+        if (createdFilter === "today" && !(created >= startOfToday)) return false;
         if (createdFilter === "week" && !(created >= startOfWeek)) return false;
         if (createdFilter === "month" && !(created >= startOfMonth)) return false;
       }
@@ -102,9 +126,10 @@ export default function ReleasesDashboard() {
       if (channelFilter && r.requester_segment !== channelFilter) return false;
       if (typeFilter && r.project_type !== typeFilter) return false;
       if (labelFilter && r.label !== labelFilter) return false;
+      if (searchTest && !(searchTest(r.main_artist) || searchTest(r.title) || searchTest(r.label))) return false;
       return true;
     });
-  }, [releases, createdFilter, statusFilter, channelFilter, typeFilter, labelFilter]);
+  }, [releases, createdFilter, statusFilter, channelFilter, typeFilter, labelFilter, searchTest]);
 
   const anyStatClickFilter = statusFilter || channelFilter || createdFilter;
 
@@ -122,6 +147,7 @@ export default function ReleasesDashboard() {
 
         <div className={styles.statRow}>
           <StatCard label="Total Releases" value={stats.total} active={!createdFilter} onClick={() => setCreatedFilter(null)} onClear={() => setCreatedFilter(null)} hideClear />
+          <StatCard label="Today" value={stats.today} active={createdFilter === "today"} onClick={() => setCreatedFilter((f) => (f === "today" ? null : "today"))} onClear={() => setCreatedFilter(null)} />
           <StatCard label="This Week" value={stats.thisWeek} active={createdFilter === "week"} onClick={() => setCreatedFilter((f) => (f === "week" ? null : "week"))} onClear={() => setCreatedFilter(null)} />
           <StatCard label="This Month" value={stats.thisMonth} active={createdFilter === "month"} onClick={() => setCreatedFilter((f) => (f === "month" ? null : "month"))} onClear={() => setCreatedFilter(null)} />
           <StatCard label="Pre-release" value={stats.preRelease} active={statusFilter === "preRelease"} onClick={() => setStatusFilter((f) => (f === "preRelease" ? null : "preRelease"))} onClear={() => setStatusFilter(null)} />
@@ -138,6 +164,13 @@ export default function ReleasesDashboard() {
         </div>
 
         <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            className={styles.input}
+            style={{ width: 260 }}
+            placeholder="Tìm nghệ sĩ, bài hát, label… (hỗ trợ regex)"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
           <select className={styles.select} style={{ maxWidth: 200 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
             <option value="">Type — all</option>
             {[...new Set(releases.map((r) => r.project_type).filter(Boolean))].map((t) => <option key={t} value={t}>{t}</option>)}
@@ -150,9 +183,9 @@ export default function ReleasesDashboard() {
             <option value="">Label — all</option>
             {labels.map((l) => <option key={l.label_name} value={l.label_name}>{l.label_name}</option>)}
           </select>
-          {(typeFilter || labelFilter || anyStatClickFilter) && (
+          {(typeFilter || labelFilter || search || anyStatClickFilter) && (
             <button
-              onClick={() => { setStatusFilter(null); setChannelFilter(null); setCreatedFilter(null); setTypeFilter(""); setLabelFilter(""); }}
+              onClick={() => { setStatusFilter(null); setChannelFilter(null); setCreatedFilter(null); setTypeFilter(""); setLabelFilter(""); setSearch(""); }}
               style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "6px 12px", fontSize: 11, color: "var(--text-faint)", cursor: "pointer" }}
             >
               ✕ Clear all filters

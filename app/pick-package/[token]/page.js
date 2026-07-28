@@ -17,6 +17,7 @@ function fmtVnd(n) {
 // — see BuildPackagePopup — so it was removed from this list to avoid two
 // different things both being called "Int Media".)
 const SIMPLE_OPTIONS = ["Chỉ Phát Hành", "Không Độc Quyền"];
+const BOOKING_ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
 
 export default function PickPackagePage() {
   const { token } = useParams();
@@ -28,6 +29,10 @@ export default function PickPackagePage() {
   const [picking, setPicking] = useState(false);
   const [selectedValue, setSelectedValue] = useState(null); // local pick, not yet committed
   const [confirmed, setConfirmed] = useState(false);
+  const [categories, setCategories] = useState([]); // package_categories — for the booking-progress summary
+  const [packageItems, setPackageItems] = useState([]); // release_package_items — the confirmed/locked package's real breakdown
+  const [bookingEntries, setBookingEntries] = useState([]);
+  const [round, setRound] = useState("INT");
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -89,8 +94,30 @@ export default function PickPackagePage() {
       setConfirmed(true);
     }
 
+    const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
+    setCategories(cats || []);
+    const { data: items } = await supabase.from("release_package_items").select("*").eq("release_id", link.release_id);
+    setPackageItems(items || []);
+    const { data: entries } = await supabase.from("media_booking_entries").select("*").eq("release_id", link.release_id);
+    setBookingEntries(entries || []);
+
     supabase.from("magic_links").update({ last_used_at: new Date().toISOString() }).eq("id", link.id);
     setLoading(false);
+  }
+
+  // Same aggregate "All" filter the Booking Board and the release detail
+  // page's Media Booking tab both use — one ratio per Hạng Mục, no brand/
+  // platform breakdown, read-only. Lets whoever's on the other end of this
+  // magic link (the artist/label) see booking progress alongside the
+  // package they picked, without exposing the internal Booking Board.
+  function bookedFor(categoryName) {
+    const matching = packageItems.filter((it) => it.category === categoryName || (it.category || "").startsWith(`${categoryName} — `));
+    if (matching.length === 0) return null;
+    return matching.reduce((sum, it) => sum + (it.quantity || 0), 0);
+  }
+
+  function addedFor(categoryId) {
+    return bookingEntries.filter((e) => e.booking_round === round && e.category_id === categoryId).length;
   }
 
   // Clicking a card only selects it locally now — nothing commits until
@@ -278,6 +305,45 @@ export default function PickPackagePage() {
           >
             {picking ? "Confirming…" : confirmed ? "✓ Package Confirmed" : "Xác Nhận Gói Đã Chọn"}
           </button>
+        )}
+
+        {confirmed && (
+          <div style={{ marginTop: 32 }}>
+            <div className={styles.subheading} style={{ marginTop: 0 }}>Booking Progress</div>
+            <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+              {BOOKING_ROUNDS.map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setRound(r)}
+                  className={`${styles.tabBtn} ${round === r ? styles.tabBtnActive : ""}`}
+                  style={{ border: "1px solid #262626", borderRadius: 6 }}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+              {categories.map((c) => {
+                const booked = bookedFor(c.name);
+                const added = addedFor(c.id);
+                const isDone = booked != null && booked > 0 && added >= booked;
+                return (
+                  <div key={c.id} style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
+                      {c.name}
+                    </div>
+                    {isDone ? (
+                      <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: 13 }}>DONE</span>
+                    ) : booked != null ? (
+                      <span style={{ color: "#ccc", fontSize: 13 }}>{added} / {booked}</span>
+                    ) : (
+                      <span style={{ color: "#666", fontSize: 13 }}>{added} / —</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
     </div>
