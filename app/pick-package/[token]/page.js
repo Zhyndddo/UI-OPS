@@ -19,6 +19,11 @@ function fmtVnd(n) {
 const SIMPLE_OPTIONS = ["Chỉ Phát Hành", "Không Độc Quyền"];
 const BOOKING_ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
 
+// Shared Terms Block B ("Chỉ áp dụng cho gói 5 năm và 2 năm…") is only
+// ever relevant to these 2 tiers — Vĩnh Viễn (or anything else) never
+// shows it, even though Block A still shows for every real package.
+const SHARED_B_TIERS = ["độc quyền 5 năm", "độc quyền 2 năm"];
+
 export default function PickPackagePage() {
   const { token } = useParams();
   const [magicLink, setMagicLink] = useState(null);
@@ -85,11 +90,13 @@ export default function PickPackagePage() {
       // INT MEDIA is a mushed package — Hạng Mục names only, never a
       // price or a calculation, on the build side or here.
       const isIntMedia = p.name === "INT MEDIA";
+      const matchedTier = (p.name || "").trim().toLowerCase();
       return {
         value: p.name,
         label: p.name,
         kind: isIntMedia ? "intMedia" : "real",
-        termsText: termsByName[(p.name || "").trim().toLowerCase()] || null,
+        termsText: termsByName[matchedTier] || null,
+        showSharedB: SHARED_B_TIERS.includes(matchedTier),
         totalValue: isIntMedia || !(p.media_booking_package_lines || []).some((l) => l.amount != null)
           ? null
           : p.media_booking_package_lines.reduce((sum, l) => sum + (l.amount || 0), 0),
@@ -198,9 +205,17 @@ export default function PickPackagePage() {
   const isLocked = magicLink?.locked || release?.package_locked;
   const isPipelineStage = ["BRIEF & DATA", "DEALING"].includes(release?.project_type);
 
+  // "Rich" cards (real built packages, incl. INT MEDIA) get the wide
+  // itemized-table treatment; "compact" ones (the 2 always-offered simple
+  // picks — Chỉ Phát Hành / Không Độc Quyền — which never have a
+  // breakdown) are just small stacked pills off to the side instead of
+  // eating a full card's worth of width for a single line of text.
+  const richOptions = pickOptions.filter((c) => c.kind !== "simple");
+  const compactOptions = pickOptions.filter((c) => c.kind === "simple");
+
   return (
     <div className={styles.page}>
-      <div className={styles.container} style={{ maxWidth: 1180 }}>
+      <div className={styles.container} style={{ maxWidth: 1320 }}>
         <div className={styles.eyebrow}>// Chọn Loại Hợp Đồng</div>
         <h1 className={styles.title} style={{ marginBottom: 4 }}>
           {release?.title}
@@ -227,9 +242,13 @@ export default function PickPackagePage() {
         </p>
 
         {/* All options shown at once, full breakdown always expanded — a
-            side-by-side comparison, not a stack of collapsible cards. */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, alignItems: "start" }}>
-          {pickOptions.map((c) => {
+            side-by-side comparison, not a stack of collapsible cards. Rich
+            (itemized) packages get a wide grid on the left; the always-
+            offered simple picks stack narrowly on the right so they don't
+            burn a whole card's width on one line of text. */}
+        <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ flex: "3 1 640px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 12, alignItems: "start" }}>
+          {richOptions.map((c) => {
             const selected = selectedValue === c.value;
             return (
               <div
@@ -267,10 +286,10 @@ export default function PickPackagePage() {
                 {c.termsText && (
                   <div style={{ borderTop: "1px solid #262626", padding: "10px 16px", background: "rgba(255,107,26,0.04)" }}>
                     <div style={{ fontSize: 11, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>{c.termsText}</div>
-                    {(sharedTerms.a || sharedTerms.b) && (
+                    {(sharedTerms.a || (c.showSharedB && sharedTerms.b)) && (
                       <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #333", display: "grid", gap: 6 }}>
                         {sharedTerms.a && <div style={{ fontSize: 10, color: "#888", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.a}</div>}
-                        {sharedTerms.b && <div style={{ fontSize: 10, color: "#888", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.b}</div>}
+                        {c.showSharedB && sharedTerms.b && <div style={{ fontSize: 10, color: "#888", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.b}</div>}
                       </div>
                     )}
                   </div>
@@ -284,22 +303,22 @@ export default function PickPackagePage() {
                   </div>
                 ) : c.items?.length > 0 ? (
                   <div style={{ borderTop: "1px solid #262626", padding: "8px 16px" }}>
-                    <table className={styles.table} style={{ marginTop: 8 }}>
+                    <table className={styles.table} style={{ marginTop: 8, tableLayout: "fixed", width: "100%" }}>
+                      <colgroup>
+                        <col style={{ width: "22%" }} />
+                        <col style={{ width: "14%" }} />
+                        <col style={{ width: "46%" }} />
+                        <col style={{ width: "18%" }} />
+                      </colgroup>
                       <thead>
                         <tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr>
                       </thead>
                       <tbody>
                         {c.items.map((item, i) => (
                           <tr key={i}>
-                            <td>{item.category}</td>
+                            <td style={{ wordBreak: "break-word" }}>{item.category}</td>
                             <td>{item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
-                            <td style={{ fontSize: 11, color: "#999" }}>
-                              {item.detail ? (
-                                <div title={item.detail} style={{ whiteSpace: "pre-line", maxHeight: 54, overflowY: "auto", lineHeight: 1.4, paddingRight: 2 }}>
-                                  {item.detail}
-                                </div>
-                              ) : "—"}
-                            </td>
+                            <td style={{ fontSize: 11, color: "#999", whiteSpace: "pre-line", lineHeight: 1.4 }}>{item.detail || "—"}</td>
                             <td>{fmtVnd(item.amount)}</td>
                           </tr>
                         ))}
@@ -310,11 +329,42 @@ export default function PickPackagePage() {
               </div>
             );
           })}
+          {richOptions.length === 0 && (
+            <div className={styles.emptyState}>No packages built yet.</div>
+          )}
         </div>
 
-        {pickOptions.length === 0 && (
-          <div className={styles.emptyState}>No packages built yet.</div>
+        {compactOptions.length > 0 && (
+          <div style={{ flex: "0 0 200px", display: "grid", gap: 10 }}>
+            {compactOptions.map((c) => {
+              const selected = selectedValue === c.value;
+              return (
+                <button
+                  key={c.value}
+                  onClick={() => selectPackage(c.value)}
+                  disabled={isLocked || picking}
+                  style={{
+                    textAlign: "left",
+                    background: selected ? "rgba(255,107,26,0.1)" : "#121212",
+                    border: selected ? "1px solid #ff6b1a" : "1px solid #262626",
+                    borderRadius: 10,
+                    padding: "14px 16px",
+                    cursor: isLocked ? "not-allowed" : "pointer",
+                    opacity: isLocked && !selected ? 0.5 : 1,
+                  }}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: selected ? "#ff9d5c" : "#f4f4f4" }}>
+                      {c.label || c.value}
+                    </span>
+                    {selected && <span style={{ fontSize: 10, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         )}
+        </div>{/* end options flex row */}
 
         {!isLocked && selectedValue && (
           <button
