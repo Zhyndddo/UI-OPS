@@ -20,12 +20,24 @@ import styles from "../shared.module.css";
 const CATEGORY_BRANDS = {
   "Social": ["VIEENT", "ENVI"],
   "Community": ["PAGE BOLERO / MT", "PAGE VPOP", "PAGE INDIE"],
-  "TikTok Channel": [
-    "TIKTOK BOLERO / MT", "TIKTOK VPOP", "TIKTOK INDIE", "CAPCUT",
-    "EXT TIKTOK - BK MUSIC", "EXT TIKTOK - DUCTH", "EXT TIKTOK - BK GROUP", "EXT TIKTOK - CTV MẪU",
-  ],
   "Ads": [""],
 };
+
+// TikTok Channel is the only Hạng Mục with an In-house/Partner split — same
+// grouping and brand lists as TIKTOK_GROUPS in the media-booking ticket
+// (app/tickets/media-booking/page.js), kept separate from CATEGORY_BRANDS
+// because it's a 2-layer pick here (group first, then that group's 4
+// brands become the columns) rather than one flat brand list.
+const TIKTOK_CHANNEL_GROUPS = {
+  "In-house": ["TIKTOK BOLERO / MT", "TIKTOK VPOP", "TIKTOK INDIE", "CAPCUT"],
+  "Partner": ["EXT TIKTOK - BK MUSIC", "EXT TIKTOK - DUCTH", "EXT TIKTOK - BK GROUP", "EXT TIKTOK - CTV MẪU"],
+};
+
+function tiktokGroupForBrand(brand) {
+  if (TIKTOK_CHANNEL_GROUPS["In-house"].includes(brand)) return "In-house";
+  if (TIKTOK_CHANNEL_GROUPS["Partner"].includes(brand)) return "Partner";
+  return null;
+}
 
 const ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
 const PLATFORM_OPTIONS = ["Facebook", "Instagram", "TikTok", "YouTube", "Thread"]; // informational only now, doesn't split columns
@@ -41,7 +53,7 @@ export default function BookingBoard() {
   const [month, setMonth] = useState("");
   const [round, setRound] = useState("Đợt 1"); // 'INT' | 'Đợt 1' | 'Đợt 2' — now a RELEASE-level (row) filter, see roundFilteredReleases
   const [hangMucFilter, setHangMucFilter] = useState("All"); // 'All' | a category name — determines the columns
-  const [channelType, setChannelType] = useState("Direct"); // 'Direct' | 'Partner' — still independent of round/brand, still gates the Phụ Lục warning
+  const [tiktokGroupFilter, setTiktokGroupFilter] = useState("In-house"); // 'In-house' | 'Partner' — only shown/relevant when hangMucFilter === "TikTok Channel"; picks which 4 of its 8 brands become columns
   const [typeFilter, setTypeFilter] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
   const [expandedCell, setExpandedCell] = useState(null); // `${releaseId}:${categoryName}:${brand}` or null
@@ -122,8 +134,8 @@ export default function BookingBoard() {
   // to), so it still filters which entries count for "already added" —
   // AND it now also filters which releases show up as rows (see below).
   const roundEntries = useMemo(() => {
-    return entries.filter((e) => e.booking_round === round && e.channel_type === channelType);
-  }, [entries, round, channelType]);
+    return entries.filter((e) => e.booking_round === round);
+  }, [entries, round]);
 
   // Row-level round filter: INT = an INT MEDIA package was chosen; Đợt 1 =
   // any real chosen package that isn't INT MEDIA or the Chỉ Phát Hành-only
@@ -160,13 +172,21 @@ export default function BookingBoard() {
     if (hangMucFilter === "All") {
       return categories.map((c) => ({ key: c.name, label: c.name, categoryName: c.name, brand: null }));
     }
+    if (hangMucFilter === "TikTok Channel") {
+      return (TIKTOK_CHANNEL_GROUPS[tiktokGroupFilter] || []).map((b) => ({
+        key: `${hangMucFilter}:${b}`,
+        label: b,
+        categoryName: hangMucFilter,
+        brand: b,
+      }));
+    }
     return (CATEGORY_BRANDS[hangMucFilter] || []).map((b) => ({
       key: `${hangMucFilter}:${b}`,
       label: b || hangMucFilter,
       categoryName: hangMucFilter,
       brand: b,
     }));
-  }, [hangMucFilter, categories]);
+  }, [hangMucFilter, categories, tiktokGroupFilter]);
 
   const stats = useMemo(() => {
     const total = releases.length;
@@ -187,10 +207,15 @@ export default function BookingBoard() {
   // gate the ratio, matching "already added" literally.
   async function addEntry(releaseId, categoryName, brand, platform, link) {
     if (!link.trim()) return;
+    // channel_type is only meaningful for TikTok Channel (its In-house vs
+    // Partner split) — derived straight from the brand so it always agrees
+    // with the group the column actually belongs to, never a leftover
+    // global toggle. Every other Hạng Mục just gets null.
+    const channelTypeTag = categoryName === "TikTok Channel" ? tiktokGroupForBrand(brand) : null;
     const { data, error } = await supabase
       .from("media_booking_entries")
       .insert({
-        release_id: releaseId, booking_round: round, channel_type: channelType,
+        release_id: releaseId, booking_round: round, channel_type: channelTypeTag,
         category_id: categoryIdByName[categoryName] || null, channel_name: brand || null,
         platform: platform || null, link, status: "Chưa Booking",
       })
@@ -304,17 +329,19 @@ export default function BookingBoard() {
               </button>
             ))}
           </div>
-          <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden" }}>
-            {["Direct", "Partner"].map((c) => (
-              <button
-                key={c}
-                onClick={() => setChannelType(c)}
-                style={{ padding: "9px 16px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: channelType === c ? "#ff6b1a" : "transparent", color: channelType === c ? "#0a0a0a" : "#ccc" }}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
+          {hangMucFilter === "TikTok Channel" && (
+            <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden" }}>
+              {["In-house", "Partner"].map((g) => (
+                <button
+                  key={g}
+                  onClick={() => setTiktokGroupFilter(g)}
+                  style={{ padding: "9px 16px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: tiktokGroupFilter === g ? "#ff6b1a" : "transparent", color: tiktokGroupFilter === g ? "#0a0a0a" : "#ccc" }}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
+          )}
           <select className={styles.select} style={{ maxWidth: 170 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
             <option value="">Type — all</option>
             {[...new Set(releases.map((r) => r.project_type).filter(Boolean))].map((t) => <option key={t} value={t}>{t}</option>)}
@@ -334,7 +361,7 @@ export default function BookingBoard() {
           )}
         </div>
 
-        {channelType === "Partner" && (
+        {hangMucFilter === "TikTok Channel" && tiktokGroupFilter === "Partner" && (
           <div className={styles.errorBox} style={{ background: "#1a1a1a", borderColor: "#5a4a1a", color: "#ffca4d", marginBottom: 16 }}>
             ⚠ Partner booking should wait for releases whose Phụ Lục isn't signed yet — check the badge next to each release below. Not a hard block yet, just a heads up.
           </div>
@@ -367,7 +394,7 @@ export default function BookingBoard() {
                       }}
                     >
                       {c.label}
-                      <div style={{ fontWeight: 400, color: "#666", fontSize: 10 }}>{round} · {channelType}</div>
+                      <div style={{ fontWeight: 400, color: "#666", fontSize: 10 }}>{round}{hangMucFilter === "TikTok Channel" ? ` · ${tiktokGroupFilter}` : ""}</div>
                     </th>
                   );
                 })}
@@ -379,7 +406,7 @@ export default function BookingBoard() {
                   <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288, overflow: "hidden", textOverflow: "ellipsis" }}>
                     <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
                     <div style={{ fontSize: 11, color: "#666" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)}</div>
-                    {channelType === "Partner" && (
+                    {hangMucFilter === "TikTok Channel" && tiktokGroupFilter === "Partner" && (
                       <span
                         className={styles.statusBadge}
                         style={{
