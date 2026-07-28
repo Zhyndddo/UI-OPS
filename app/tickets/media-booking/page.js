@@ -284,6 +284,9 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const [entries, setEntries] = useState([]);
   const [summary, setSummary] = useState(null);
   const [summarizedCategoryIds, setSummarizedCategoryIds] = useState(new Set()); // which categories have EVER been summarized (persisted)
+  const [skippedCategoryIds, setSkippedCategoryIds] = useState(new Set()); // subset of the above that were Skip'd rather than really summarized
+  const [dot2Targets, setDot2Targets] = useState(null); // { creation_target, links_paid_target } for TikTok Channel on this release, or null if never set
+  const [showDot2Popup, setShowDot2Popup] = useState(false);
   const [magicLinkUrl, setMagicLinkUrl] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showBuildPopup, setShowBuildPopup] = useState(false);
@@ -305,8 +308,14 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       setCategories(cats || []);
       if (cats && cats.length > 0) setSelectedCategoryId(cats[0].id);
       if (rel) {
-        const { data: rollups } = await supabase.from("media_booking_package_categories").select("category_id").eq("release_id", rel.id);
+        const { data: rollups } = await supabase.from("media_booking_package_categories").select("category_id, skipped").eq("release_id", rel.id);
         setSummarizedCategoryIds(new Set((rollups || []).map((r) => r.category_id)));
+        // A category can have both a real (non-skipped) row and a skipped
+        // row across different brands — only treat it as "skipped" in the
+        // sidebar if every row for it is a skip, not a real Summarize.
+        const byCategory = {};
+        (rollups || []).forEach((r) => { byCategory[r.category_id] = byCategory[r.category_id] ?? true; byCategory[r.category_id] = byCategory[r.category_id] && r.skipped; });
+        setSkippedCategoryIds(new Set(Object.keys(byCategory).filter((id) => byCategory[id])));
         const { data: link } = await supabase.from("magic_links").select("token").eq("release_id", rel.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
         if (link) setMagicLinkUrl(`${window.location.origin}/pick-package/${link.token}`);
       }
@@ -337,6 +346,10 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         TIKTOK_ALL_BRANDS.forEach((b) => (totals[b] = 0));
         (rollups || []).forEach((r) => { if (r.brand) totals[r.brand] = r.total_posts; });
         setTiktokBrandTotals(totals);
+
+        // Đợt 2 targets — scoped to (release, category), not brand.
+        const { data: targets } = await supabase.from("media_booking_dot2_targets").select("creation_target, links_paid_target").eq("release_id", release.id).eq("category_id", selectedCategoryId).maybeSingle();
+        setDot2Targets(targets || null);
         return;
       }
 
@@ -393,19 +406,22 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // rolls up per-brand instead of per-platform.
   async function handleSummarize() {
     if (isTikTokChannel) {
+      // Đợt 1 only — Số Kênh × Số Bài per row. Đợt 2's own pair is tracked
+      // separately (see saveDot2Targets) and never feeds this total.
       const rows = entries.map((e) => ({
         ...e,
-        totalPosts: PHASES.reduce((sum, [key]) => sum + (e[key] || 0), 0) * (e.channel_count || 0),
+        totalPosts: (e.channel_count || 0) * (e.count_posts || 0),
       }));
       setSummary(rows);
       const brandTotal = rows.reduce((sum, r) => sum + r.totalPosts, 0);
 
       await supabase.from("media_booking_package_categories").upsert(
-        { release_id: release.id, category_id: selectedCategoryId, brand: tiktokBrand, total_posts: brandTotal, updated_at: new Date().toISOString() },
+        { release_id: release.id, category_id: selectedCategoryId, brand: tiktokBrand, total_posts: brandTotal, skipped: false, updated_at: new Date().toISOString() },
         { onConflict: "release_id,category_id,brand" }
       );
       setTiktokBrandTotals((prev) => ({ ...prev, [tiktokBrand]: brandTotal }));
       setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
+      setSkippedCategoryIds((prev) => { const next = new Set(prev); next.delete(selectedCategoryId); return next; });
       return;
     }
 
@@ -422,11 +438,37 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     const totalPosts = rows.reduce((sum, r) => sum + r.totalPosts, 0);
     const rollupBrand = isSocial ? brand : isCommunity ? communityBrand : "";
     await supabase.from("media_booking_package_categories").upsert(
-      { release_id: release.id, category_id: selectedCategoryId, brand: rollupBrand, total_posts: totalPosts, updated_at: new Date().toISOString() },
+      { release_id: release.id, category_id: selectedCategoryId, brand: rollupBrand, total_posts: totalPosts, skipped: false, updated_at: new Date().toISOString() },
       { onConflict: "release_id,category_id,brand" }
     );
     setCategoryTotals((prev) => ({ ...prev, [rollupBrand]: totalPosts }));
     setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
+    setSkippedCategoryIds((prev) => { const next = new Set(prev); next.delete(selectedCategoryId); return next; });
+  }
+
+  // "Skip" — marks a Hạng Mục as intentionally not applicable, satisfying
+  // the same all-4-Hạng-Mục gate as a real Summarize without needing any
+  // entries. Disabled once real rows exist (see the button below) so it
+  // can't accidentally stomp real data with a 0.
+  async function handleSkip() {
+    const rollupBrand = isTikTokChannel ? "" : isSocial ? brand : isCommunity ? communityBrand : "";
+    await supabase.from("media_booking_package_categories").upsert(
+      { release_id: release.id, category_id: selectedCategoryId, brand: rollupBrand, total_posts: 0, skipped: true, updated_at: new Date().toISOString() },
+      { onConflict: "release_id,category_id,brand" }
+    );
+    setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
+    setSkippedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
+  }
+
+  // Đợt 2 targets save immediately on blur, same convention as everywhere
+  // else here — no separate Save step.
+  async function saveDot2Targets(patch) {
+    const merged = { ...dot2Targets, ...patch };
+    setDot2Targets(merged);
+    await supabase.from("media_booking_dot2_targets").upsert(
+      { release_id: release.id, category_id: selectedCategoryId, ...merged, updated_at: new Date().toISOString() },
+      { onConflict: "release_id,category_id" }
+    );
   }
 
   const allCategoriesSummarized = categories.length > 0 && categories.every((c) => summarizedCategoryIds.has(c.id));
@@ -444,6 +486,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                 <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>Hạng Mục</div>
                 {categories.map((c) => {
                   const done = summarizedCategoryIds.has(c.id);
+                  const skipped = skippedCategoryIds.has(c.id);
                   return (
                     <button
                       key={c.id}
@@ -455,7 +498,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                         color: selectedCategoryId === c.id ? "var(--accent-soft)" : "var(--text)",
                       }}
                     >
-                      {c.name} {done && <span style={{ color: "var(--success-fg)" }}>●</span>}
+                      {c.name} {done && <span style={{ color: skipped ? "var(--text-faint)" : "var(--success-fg)" }}>●</span>}{skipped && <span style={{ fontSize: 9, color: "var(--text-faint)", marginLeft: 4 }}>SKIPPED</span>}
                     </button>
                   );
                 })}
@@ -539,12 +582,25 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                     <thead>
                       <tr>
                         <th rowSpan={2}>Kênh</th>
-                        {PHASE_GROUPS.map(([label, span], i) => <th key={label} colSpan={span} style={{ textAlign: "center", borderLeft: i > 0 ? "1px solid var(--border)" : undefined }}>{label}</th>)}
-                        <th rowSpan={2} style={{ borderLeft: "1px solid var(--border)" }}>Số Lượng Kênh</th>
+                        <th colSpan={2} style={{ textAlign: "center" }}>ĐỢT 1</th>
+                        <th colSpan={2} style={{ textAlign: "center", borderLeft: "1px solid var(--border)" }}>
+                          <button
+                            onClick={() => setShowDot2Popup(true)}
+                            style={{ background: "none", border: "none", color: "var(--accent-soft)", fontWeight: 700, fontSize: 11, cursor: "pointer", padding: 0, textTransform: "uppercase", letterSpacing: 0.5 }}
+                            title="Set Creation cần đạt / Số Link Đã Trả Cần Đạt for Đợt 2"
+                          >
+                            ĐỢT 2 ⚙
+                          </button>
+                        </th>
                         {summary && <th rowSpan={2} style={{ borderLeft: "1px solid var(--border)" }}>Số Lượng Bài Đăng</th>}
                         <th rowSpan={2}></th>
                       </tr>
-                      <tr>{PHASES.map(([key, label]) => <th key={label} style={{ fontSize: 10, fontWeight: 400, borderLeft: PHASE_GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>{label}</th>)}</tr>
+                      <tr>
+                        <th style={{ fontSize: 10, fontWeight: 400 }}>Số Kênh</th>
+                        <th style={{ fontSize: 10, fontWeight: 400 }}>Số Bài</th>
+                        <th style={{ fontSize: 10, fontWeight: 400, borderLeft: "1px solid var(--border)" }}>Số Kênh</th>
+                        <th style={{ fontSize: 10, fontWeight: 400 }}>Số Bài</th>
+                      </tr>
                     </thead>
                     <tbody>
                       {entries.map((entry) => {
@@ -552,24 +608,40 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                         return (
                           <tr key={entry.id}>
                             <td style={{ fontSize: 12, fontWeight: 700 }}>{entry.platform}</td>
-                            {PHASES.map(([key]) => (
-                              <td key={key} style={{ borderLeft: PHASE_GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>
-                                <input
-                                  type="number"
-                                  className={styles.input}
-                                  style={{ width: 55, padding: "4px 6px", fontSize: 12 }}
-                                  defaultValue={entry[key] || 0}
-                                  onBlur={(e) => updateEntryCount(entry, key, parseInt(e.target.value, 10) || 0)}
-                                />
-                              </td>
-                            ))}
-                            <td style={{ borderLeft: "1px solid var(--border)" }}>
+                            <td>
                               <input
                                 type="number"
                                 className={styles.input}
                                 style={{ width: 55, padding: "4px 6px", fontSize: 12 }}
                                 defaultValue={entry.channel_count || 0}
                                 onBlur={(e) => updateEntryCount(entry, "channel_count", parseInt(e.target.value, 10) || 0)}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="number"
+                                className={styles.input}
+                                style={{ width: 55, padding: "4px 6px", fontSize: 12 }}
+                                defaultValue={entry.count_posts || 0}
+                                onBlur={(e) => updateEntryCount(entry, "count_posts", parseInt(e.target.value, 10) || 0)}
+                              />
+                            </td>
+                            <td style={{ borderLeft: "1px solid var(--border)" }}>
+                              <input
+                                type="number"
+                                className={styles.input}
+                                style={{ width: 55, padding: "4px 6px", fontSize: 12 }}
+                                defaultValue={entry.channel_count_dot2 || 0}
+                                onBlur={(e) => updateEntryCount(entry, "channel_count_dot2", parseInt(e.target.value, 10) || 0)}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="number"
+                                className={styles.input}
+                                style={{ width: 55, padding: "4px 6px", fontSize: 12 }}
+                                defaultValue={entry.count_posts_dot2 || 0}
+                                onBlur={(e) => updateEntryCount(entry, "count_posts_dot2", parseInt(e.target.value, 10) || 0)}
                               />
                             </td>
                             {summary && (
@@ -613,7 +685,17 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   </table>
                 )}
 
-                <button className={styles.btnSecondary} onClick={handleSummarize} disabled={entries.length === 0}>Summarize</button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className={styles.btnSecondary} onClick={handleSummarize} disabled={entries.length === 0}>Summarize</button>
+                  <button
+                    className={styles.btnSecondary}
+                    onClick={handleSkip}
+                    disabled={entries.length > 0}
+                    title={entries.length > 0 ? "Can't skip — this Hạng Mục already has rows" : "Mark as intentionally not applicable"}
+                  >
+                    Skip
+                  </button>
+                </div>
 
                 {summarizedCategoryIds.has(selectedCategoryId) && (
                   <CategoryCountsPopup
@@ -694,6 +776,63 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
           onMagicLinkGenerated={setMagicLinkUrl}
         />
       )}
+
+      {showDot2Popup && (
+        <Dot2TargetsPopup
+          targets={dot2Targets}
+          onSave={saveDot2Targets}
+          onClose={() => setShowDot2Popup(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Đợt 2 targets — scoped to (release, TikTok Channel category) as a
+// whole, not per brand or per row (that's the whole reason this is its
+// own small popup rather than another column on every row).
+function Dot2TargetsPopup({ targets, onSave, onClose }) {
+  const [creationTarget, setCreationTarget] = useState(targets?.creation_target ?? "");
+  const [linksPaidTarget, setLinksPaidTarget] = useState(targets?.links_paid_target ?? "");
+
+  function save() {
+    onSave({
+      creation_target: creationTarget === "" ? null : parseFloat(creationTarget),
+      links_paid_target: linksPaidTarget === "" ? null : parseFloat(linksPaidTarget),
+    });
+    onClose();
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: 320 }} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.eyebrow}>// Đợt 2</div>
+        <h3 style={{ fontSize: 15, fontWeight: 800, margin: "0 0 14px" }}>Targets for this release</h3>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Creation cần đạt</label>
+          <input
+            type="number"
+            className={styles.input}
+            style={{ width: "100%", padding: "8px 10px", fontSize: 13 }}
+            value={creationTarget}
+            onChange={(e) => setCreationTarget(e.target.value)}
+          />
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Số Link Đã Trả Cần Đạt</label>
+          <input
+            type="number"
+            className={styles.input}
+            style={{ width: "100%", padding: "8px 10px", fontSize: 13 }}
+            value={linksPaidTarget}
+            onChange={(e) => setLinksPaidTarget(e.target.value)}
+          />
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className={styles.btnSmall} onClick={onClose} style={{ flex: 1 }}>Cancel</button>
+          <button className={styles.btnPrimary} onClick={save} style={{ flex: 1 }}>Save</button>
+        </div>
+      </div>
     </div>
   );
 }
