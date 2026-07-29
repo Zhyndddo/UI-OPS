@@ -31,7 +31,7 @@ export default function ConfigPage() {
               ["platforms", "Platforms"],
               ["designTypes", "Design Types"],
               ["sizes", "Sizes"],
-              ...(isDev ? [["sessions", "Sessions"]] : []),
+              ...(isDev ? [["notifications", "Notifications"], ["sessions", "Sessions"]] : []),
             ].map(([key, label]) => (
               <button
                 key={key}
@@ -51,6 +51,7 @@ export default function ConfigPage() {
           {section === "platforms" && <PlatformsSection />}
           {section === "designTypes" && <DesignTypesSection />}
           {section === "sizes" && <SizesSection />}
+          {section === "notifications" && isDev && <NotificationsSection />}
           {section === "sessions" && isDev && <SessionsSection />}
         </div>
       </div>
@@ -580,6 +581,134 @@ function PackageTermsSection() {
             onBlur={(e) => { setSharedB(e.target.value); saveShared("package_terms_shared_b", e.target.value); }}
           />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Notifications ────────────────────────────────────────────────────────
+// Dev-only master switches for the notification system (Config item 5):
+// in-app notifications on new ticket / ticket complete (fanned out by DB
+// trigger — see add-notifications.sql), and the daily digest email (sent
+// by /api/cron/daily-digest, scheduled via vercel.json's hourly cron; the
+// digest_hour/digest_last_sent_date fields here are what makes it actually
+// fire once, at the configured hour, despite the coarser hourly poll).
+function NotificationsSection() {
+  const [settings, setSettings] = useState(null);
+  const [recipientsDraft, setRecipientsDraft] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saved, setSaved] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    load();
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    const { data } = await supabase.from("notification_settings").select("*").eq("id", 1).maybeSingle();
+    setSettings(data);
+    setRecipientsDraft((data?.digest_recipients || []).join(", "));
+    setLoading(false);
+  }
+
+  function flashSaved() {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  async function updateSetting(patch) {
+    setSettings((prev) => ({ ...prev, ...patch }));
+    await supabase.from("notification_settings").update(patch).eq("id", 1);
+    flashSaved();
+  }
+
+  function saveRecipients() {
+    const list = recipientsDraft.split(",").map((s) => s.trim()).filter(Boolean);
+    updateSetting({ digest_recipients: list });
+  }
+
+  async function sendTestDigest() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/cron/daily-digest?force=1");
+      const body = await res.json();
+      setTestResult(body);
+    } catch (e) {
+      setTestResult({ error: e.message });
+    }
+    setTesting(false);
+  }
+
+  if (loading || !settings) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
+        Master switches for the notification system — dev only. When off, no in-app notifications fire and no digest
+        email is sent, regardless of the sub-settings below.
+      </p>
+
+      <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, cursor: "pointer" }}>
+        <input type="checkbox" checked={settings.enabled} onChange={(e) => updateSetting({ enabled: e.target.checked })} />
+        <span style={{ fontSize: 13, fontWeight: 700 }}>Notifications enabled</span>
+        {saved && <span style={{ color: "var(--success-fg)", fontSize: 11 }}>Saved</span>}
+      </label>
+
+      <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, cursor: "pointer", opacity: settings.enabled ? 1 : 0.5 }}>
+        <input
+          type="checkbox"
+          checked={settings.notify_team_on_complete}
+          disabled={!settings.enabled}
+          onChange={(e) => updateSetting({ notify_team_on_complete: e.target.checked })}
+        />
+        <span style={{ fontSize: 12 }}>Also notify the executor team (not just the requester) when a ticket completes</span>
+      </label>
+
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16, marginBottom: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>
+          Daily Digest Email
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 10, flexWrap: "wrap" }}>
+          <div>
+            <label className={styles.fieldLabel} style={{ fontSize: 10 }}>Hour (UTC)</label>
+            <select
+              className={styles.select}
+              style={{ minWidth: 100 }}
+              value={settings.digest_hour}
+              onChange={(e) => updateSetting({ digest_hour: parseInt(e.target.value, 10) })}
+            >
+              {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+            </select>
+          </div>
+        </div>
+        <label className={styles.fieldLabel} style={{ fontSize: 10 }}>Recipients (comma-separated emails — blank = every admin/dev)</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            className={styles.input}
+            style={{ flex: 1 }}
+            value={recipientsDraft}
+            onChange={(e) => setRecipientsDraft(e.target.value)}
+            onBlur={saveRecipients}
+            placeholder="alice@vieent.com, bob@vieent.com"
+          />
+        </div>
+        <p style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 10 }}>
+          Requires RESEND_API_KEY set in the deployment's environment to actually send — without it, "Send test" below
+          still computes the digest but reports the email as unsent. Fires via an hourly scheduled job (vercel.json);
+          the hour above + a same-day guard is what makes it land once, at the right time.
+        </p>
+        <button className={styles.btnSecondary} onClick={sendTestDigest} disabled={testing} style={{ marginTop: 10 }}>
+          {testing ? "Sending…" : "Send test digest now"}
+        </button>
+        {testResult && (
+          <pre style={{ marginTop: 10, fontSize: 10, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, padding: 10, overflowX: "auto", maxHeight: 200 }}>
+            {JSON.stringify(testResult, null, 2)}
+          </pre>
+        )}
       </div>
     </div>
   );

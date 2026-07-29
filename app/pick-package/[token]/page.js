@@ -216,7 +216,7 @@ export default function PickPackagePage() {
   return (
     <div className={styles.page}>
       <div className={styles.container} style={{ maxWidth: 1320 }}>
-        <div className={styles.eyebrow}>// Chọn Loại Hợp Đồng</div>
+        <div className={styles.eyebrow}>// chọn gói hỗ trợ truyền thông</div>
         <h1 className={styles.title} style={{ marginBottom: 4 }}>
           {release?.title}
         </h1>

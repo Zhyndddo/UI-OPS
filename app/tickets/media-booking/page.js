@@ -480,7 +480,10 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     PLATFORMS.forEach((p) => (byPlatform[p] = { platform: p, channelCount: 0, totalPosts: 0 }));
     entries.forEach((e) => {
       if (!e.platform) return;
-      byPlatform[e.platform].channelCount += 1;
+      // channel_count defaults to 1 and stays that way for Social (no
+      // Số Kênh column there) — so summing it is equivalent to counting
+      // rows for every category except Community, where it's now editable.
+      byPlatform[e.platform].channelCount += e.channel_count || 1;
       byPlatform[e.platform].totalPosts += PHASES.reduce((sum, [key]) => sum + (e[key] || 0), 0);
     });
     const rows = PLATFORMS.map((p) => byPlatform[p]).filter((r) => r.channelCount > 0);
@@ -795,6 +798,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                     <thead>
                       <tr>
                         <th rowSpan={2}>DSP</th>
+                        {isCommunity && <th rowSpan={2}>Số Kênh</th>}
                         {PHASE_GROUPS.map(([label, span], i) => <th key={label} colSpan={span} style={{ textAlign: "center", borderLeft: i > 0 ? "1px solid var(--border)" : undefined }}>{label}</th>)}
                         <th rowSpan={2}></th>
                       </tr>
@@ -804,6 +808,17 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                       {entries.map((entry) => (
                         <tr key={entry.id}>
                           <td style={{ fontSize: 12, fontWeight: 700 }}>{entry.platform}</td>
+                          {isCommunity && (
+                            <td>
+                              <input
+                                type="number"
+                                className={styles.input}
+                                style={{ width: 55, padding: "4px 6px", fontSize: 12 }}
+                                defaultValue={entry.channel_count ?? 1}
+                                onBlur={(e) => updateEntryCount(entry, "channel_count", parseInt(e.target.value, 10) || 0)}
+                              />
+                            </td>
+                          )}
                           {PHASES.map(([key]) => (
                             <td key={key} style={{ borderLeft: PHASE_GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>
                               <input
