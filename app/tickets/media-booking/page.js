@@ -1195,13 +1195,26 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
               <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
                 {allCategoriesSummarized ? "All Hạng Mục summarized." : `Summarize all ${categories.length} Hạng Mục before building a package.`}
               </div>
-              <button
-                className={styles.btnPrimary}
-                onClick={() => { setShowBuildPopup((v) => !v); if (packages.length === 0) setNamePopup("create"); }}
-                disabled={!allCategoriesSummarized}
-              >
-                {showBuildPopup ? "Hide Packages" : "Build Package"}
-              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  className={styles.btnPrimary}
+                  onClick={() => { setShowBuildPopup((v) => !v); if (packages.length === 0) setNamePopup("create"); }}
+                  disabled={!allCategoriesSummarized}
+                >
+                  {showBuildPopup ? "Hide Packages" : "Build Package"}
+                </button>
+                {/* Everything here already writes to the DB the moment it
+                    changes — nothing is staged. This button doesn't do any
+                    extra saving; it exists so the person building a package
+                    has an explicit, reassuring "I'm done" action instead of
+                    just clicking the ✕ and wondering if their last edit
+                    actually stuck. */}
+                {packages.length > 0 && (
+                  <button className={styles.btnSecondary} onClick={onClose} title="Everything is already saved — this just closes the ticket.">
+                    Save &amp; Close
+                  </button>
+                )}
+              </div>
             </div>
           </>
         )}
@@ -1381,12 +1394,13 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
 // immediately, same for edit/delete on the right. Nothing here is staged
 // then saved — that staging model was the actual source of both the
 // "second package doesn't save" bug and the checkbox cross-talk bug.
-// Presentational only now — every field, quantity, and Đơn Giá is edited
-// from the DSP grid above (via the "Add to Package"/"Remove" button next to
-// Summarize/Skip and the card that appears there once a line is added).
-// This panel just shows the built package(s): tabs, the read-only overview
-// table (Chi Tiết is still edited right here — it's package-specific, not
-// something the DSP grid has a natural home for), and the send-link step.
+// Mostly presentational now — quantity/Số Gói is edited from the DSP grid
+// above (via the "Add to Package"/"Remove" button next to Summarize/Skip
+// and the card that appears there once a line is added), and this panel
+// mirrors it read-only. Chi Tiết and Đơn Giá are editable in BOTH places —
+// Chi Tiết is package-specific text with no natural home in the DSP grid,
+// and Đơn Giá isn't reachable from the left tool for every line (Ads never
+// has one), so it's kept editable here too rather than being inconsistent.
 // Renders as a plain in-flow column (not its own fixed-overlay popup) so it
 // sits beside the DSP grid instead of covering it.
 function PackagesPanel({
@@ -1481,17 +1495,31 @@ function PackagesPanel({
                             <span>{line.quantity ?? "—"} {line.unit}</span>
                           )}
                         </td>
-                        <td style={{ maxWidth: 220 }}>
-                          <input
-                            className={styles.input}
-                            style={{ width: "100%", padding: "4px 6px", fontSize: 11 }}
+                        <td style={{ minWidth: 260 }}>
+                          <textarea
+                            className={styles.textarea}
+                            style={{ width: "100%", padding: "4px 6px", fontSize: 11, minHeight: 44, boxSizing: "border-box" }}
                             defaultValue={line.detail || ""}
                             onBlur={(e) => updateLine(line, { detail: e.target.value || null })}
                           />
                         </td>
-                        {/* Also read-only — edited from the left data tool. */}
-                        <td style={{ fontSize: 12, color: "#ccc" }}>
-                          {isAdsLine ? <span style={{ color: "var(--text-faint)" }}>—</span> : fmtVnd(line.unit_price)}
+                        {/* Editable here too now — Đơn Giá wasn't
+                            consistently reachable everywhere (Ads lines
+                            never have one), so this mirrors the left data
+                            tool's field for the categories that do, instead
+                            of being read-only-only on this side. */}
+                        <td>
+                          {isAdsLine ? (
+                            <span style={{ color: "var(--text-faint)" }}>—</span>
+                          ) : (
+                            <input
+                              type="number"
+                              className={styles.input}
+                              style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
+                              defaultValue={line.unit_price ?? ""}
+                              onBlur={(e) => updateLine(line, { unit_price: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                            />
+                          )}
                         </td>
                         <td style={{ fontSize: 12, fontWeight: 700 }}>{fmtVnd(line.amount)}</td>
                         <td style={{ whiteSpace: "nowrap" }}>

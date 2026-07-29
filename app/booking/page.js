@@ -4,7 +4,7 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
-import { fmtDate } from "../../lib/helpers";
+import { fmtDate, formatDetailText } from "../../lib/helpers";
 import TypeSwitcher from "../../lib/TypeSwitcher";
 import styles from "../shared.module.css";
 
@@ -698,7 +698,13 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
 
       {showAddPopup && (
         <>
-          <div onClick={() => { setShowAddPopup(false); setChannels([blankChannel()]); setSubmitResult(null); }} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
+          {/* Clicking outside used to discard whatever was typed — an easy
+              misclick (this popup sits right over other cells/buttons) that
+              silently threw away the whole batch. Outside click now saves
+              exactly like "Done" instead of canceling: any non-empty rows
+              get added, and if nothing was typed it just closes, so there's
+              no path where a stray click loses work. */}
+          <div onClick={() => (bulkMode ? setShowAddPopup(false) : submitChannels())} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
@@ -886,7 +892,7 @@ function PackagePreviewPopup({ release, categories, onClose }) {
                 <tr key={l.id}>
                   <td style={{ fontSize: 12 }}>{categoryNameById[l.category_id] || l.platform || "—"}{l.brand ? ` — ${l.brand}` : ""}</td>
                   <td>{l.quantity ?? "—"} {l.unit}</td>
-                  <td style={{ fontSize: 11, color: "var(--text-faint)" }}>{l.detail || "—"}</td>
+                  <td style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "pre-line" }}>{formatDetailText(l.detail) || "—"}</td>
                   <td>{l.amount != null ? new Intl.NumberFormat("vi-VN").format(l.amount) + " đ" : "—"}</td>
                 </tr>
               ))}

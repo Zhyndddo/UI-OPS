@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
-import { fmtDate } from "../../../lib/helpers";
+import { fmtDate, formatDetailText } from "../../../lib/helpers";
 import { GateFields, BoolToggle } from "../../../lib/GateFields";
 import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
@@ -951,7 +951,7 @@ function MediaBookingTab({ form, entries, categories, packageItems }) {
                 <tr key={item.id}>
                   <td>{item.category}</td>
                   <td>{item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
-                  <td style={{ fontSize: 11, color: "#999" }}>{item.detail || "—"}</td>
+                  <td style={{ fontSize: 11, color: "#999", whiteSpace: "pre-line" }}>{formatDetailText(item.detail) || "—"}</td>
                   <td>{fmtVnd(item.amount)}</td>
                 </tr>
               ))}

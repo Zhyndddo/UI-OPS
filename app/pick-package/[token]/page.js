@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
+import { formatDetailText } from "../../../lib/helpers";
 import styles from "../../shared.module.css";
 
 function fmtVnd(n) {
@@ -343,7 +344,7 @@ export default function PickPackagePage() {
                           <tr key={i}>
                             <td style={{ wordBreak: "break-word" }}>{item.category}</td>
                             <td>{item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
-                            <td style={{ fontSize: 11, color: "#999", whiteSpace: "pre-line", lineHeight: 1.4 }}>{item.detail || "—"}</td>
+                            <td style={{ fontSize: 11, color: "#999", whiteSpace: "pre-line", lineHeight: 1.4 }}>{formatDetailText(item.detail) || "—"}</td>
                             <td>{fmtVnd(item.amount)}</td>
                           </tr>
                         ))}
