@@ -159,12 +159,15 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onU
   }
 
   const releaseGroup = [d.releaseDate ? fmtDate(d.releaseDate) : "", d.releaseTime].filter(Boolean).join(" ") || "—";
-  // Lyricist defaults to Composer's name when left blank at creation
-  // (see app/tickets/phai-sinh/new/page.js) — this line always reads
-  // "Composer/Lyricist" now, whichever of the two actually has a value.
+  // Lyricist and Mixer both default to Composer's name when left blank at
+  // creation (see app/tickets/phai-sinh/new/page.js) — these lines always
+  // show that fallback, whichever of the pair actually has a value.
   const composerLyricist = d.lyricist || d.composer;
-  const artistGroup = (d.artist || "") + (composerLyricist ? `\nComposer/Lyricist: ${composerLyricist}` : "");
-  const contributorGroup = [d.producer ? `Producer: ${d.producer}` : "", d.mixer ? `Mixer: ${d.mixer}` : ""].filter(Boolean).join("\n");
+  const mixerDisplay = d.mixer || d.composer;
+  const artistGroup = (d.artist || "")
+    + (d.featureArtist ? `\nFeat: ${d.featureArtist}` : "")
+    + (composerLyricist ? `\nComposer/Lyricist: ${composerLyricist}` : "");
+  const contributorGroup = [d.producer ? `Producer: ${d.producer}` : "", mixerDisplay ? `Mixer: ${mixerDisplay}` : ""].filter(Boolean).join("\n");
 
   return (
     <tr>

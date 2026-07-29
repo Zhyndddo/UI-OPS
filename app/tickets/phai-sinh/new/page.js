@@ -13,10 +13,15 @@ import styles from "../../../shared.module.css";
 const TYPE_OPTIONS = ["Phái sinh", "Kho nhạc"];
 
 // Bespoke — like Design, Phái Sinh outgrew the generic form: Type +
-// Deadline share a row up top, Composer/Lyricist are paired with a
-// default-inherits-from-Composer note, and Artist/Label reference the
-// same Artist/Label List tables the New Release form uses (free text
-// still allowed, matching an existing row just lets you pick it).
+// Deadline share a row up top, Composer/Lyricist/Mixer default off each
+// other, Artist/Feature Artist/Label reference the same Artist/Label List
+// tables the New Release form uses (free text still allowed, matching an
+// existing row just lets you pick it).
+//
+// LBM url and Note are intentionally NOT collected here — OPS fills those
+// in after the work is actually done, from the ticket list
+// (app/tickets/phai-sinh/page.js), same as before. Nothing downstream
+// changed; the requester just isn't asked to guess at them up front.
 export default function PhaiSinhNewTicket() {
   const router = useRouter();
   const { profile } = useAuth();
@@ -27,18 +32,17 @@ export default function PhaiSinhNewTicket() {
   const [tenBai, setTenBai] = useState("");
   const [relatedDid, setRelatedDid] = useState("");
   const [artist, setArtist] = useState("");
+  const [featureArtist, setFeatureArtist] = useState("");
   const [label, setLabel] = useState("");
   const [composer, setComposer] = useState("");
   const [lyricist, setLyricist] = useState("");
   const [producer, setProducer] = useState("");
   const [mixer, setMixer] = useState("");
   const [url, setUrl] = useState("");
-  const [refLink, setRefLink] = useState("");
   const [releaseDate, setReleaseDate] = useState("");
   const [releaseTime, setReleaseTime] = useState("");
   const [tacQuyen, setTacQuyen] = useState("");
   const [description, setDescription] = useState("Full CID, FB +4 ngày, TikTok +7 ngày");
-  const [note, setNote] = useState("");
 
   const [artists, setArtists] = useState([]);
   const [labels, setLabels] = useState([]);
@@ -91,19 +95,19 @@ export default function PhaiSinhNewTicket() {
       label,
       composer,
       producer,
-      mixer,
       url,
-      refLink,
       tacQuyen,
       releaseDate,
       releaseTime,
       description,
-      note,
     };
-    // Lyricist only goes into the record if actually filled in — leaving
-    // it blank means "same as Composer", which the list view's computed
-    // Composer/Lyricist column already falls back to on its own.
+    if (featureArtist.trim()) data.featureArtist = featureArtist;
+    // Lyricist/Mixer only go into the record if actually filled in —
+    // leaving either blank means "same as Composer", which the list
+    // view's computed Composer/Lyricist and Mixer display already falls
+    // back to on its own.
     if (lyricist.trim()) data.lyricist = lyricist;
+    if (mixer.trim()) data.mixer = mixer;
 
     const { error: insertErr } = await supabase.from("tickets").insert({
       tab_id: tab.id,
@@ -159,8 +163,17 @@ export default function PhaiSinhNewTicket() {
                 <ArtistInput styles={styles} value={artist} onChange={setArtist} artists={artists} placeholder="Type or pick from Artist List…" />
               </div>
               <div className={styles.field}>
+                <label className={styles.fieldLabel}>Feature Artist</label>
+                <ArtistInput styles={styles} value={featureArtist} onChange={setFeatureArtist} artists={artists} placeholder="Feat. artist(s), if any…" />
+              </div>
+
+              <div className={styles.field}>
                 <label className={styles.fieldLabel}>Label</label>
                 <LabelInput styles={styles} value={label} onChange={setLabel} labels={labels} placeholder="Type or pick from Label List…" />
+              </div>
+              <div className={styles.field}>
+                <label className={styles.fieldLabel}>URL</label>
+                <input className={styles.input} value={url} onChange={(e) => setUrl(e.target.value)} />
               </div>
 
               <div className={styles.field}>
@@ -182,15 +195,9 @@ export default function PhaiSinhNewTicket() {
               <div className={styles.field}>
                 <label className={styles.fieldLabel}>Mixer</label>
                 <input className={styles.input} value={mixer} onChange={(e) => setMixer(e.target.value)} />
-              </div>
-
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>URL</label>
-                <input className={styles.input} value={url} onChange={(e) => setUrl(e.target.value)} />
-              </div>
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>LBM url</label>
-                <input className={styles.input} value={refLink} onChange={(e) => setRefLink(e.target.value)} />
+                <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4, marginBottom: 0 }}>
+                  If not filled, defaults to taking the same name as Composer.
+                </p>
               </div>
 
               <div className={styles.field}>
@@ -210,10 +217,6 @@ export default function PhaiSinhNewTicket() {
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Description</label>
               <textarea className={styles.textarea} value={description} onChange={(e) => setDescription(e.target.value)} />
-            </div>
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Note</label>
-              <textarea className={styles.textarea} value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
 
             <button className={styles.btnPrimary} type="submit" disabled={submitting}>
