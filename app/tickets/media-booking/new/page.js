@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import AppShell from "../../../../lib/AppShell";
@@ -22,6 +22,21 @@ export default function NewMediaBookingTicket() {
   const [proposedPackage, setProposedPackage] = useState("");
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [excludeDids, setExcludeDids] = useState(new Set());
+
+  // Releases that already have a (non-deleted) Media Booking ticket don't
+  // show up in the search at all — creating a duplicate from here is a
+  // mistake, not a real workflow. Resending for one of them is still
+  // possible, just from the release detail popup's own button instead.
+  useEffect(() => {
+    if (!supabase) return;
+    (async () => {
+      const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "media_booking").single();
+      if (!tab) return;
+      const { data: existing } = await supabase.from("tickets").select("data").eq("tab_id", tab.id).is("deleted_at", null);
+      setExcludeDids(new Set((existing || []).map((t) => t.data?.releaseId).filter(Boolean)));
+    })();
+  }, []);
 
   function handlePick(release) {
     setReleaseId(release.did);
@@ -68,7 +83,7 @@ export default function NewMediaBookingTicket() {
               <label className={styles.fieldLabel}>Release <span className={styles.required}>*</span></label>
               <div style={{ position: "relative" }}>
                 <input className={styles.input} style={{ paddingRight: 34 }} value={releaseLabel} readOnly placeholder="Search and pick a release…" />
-                <ReleasePicker onSelect={handlePick} />
+                <ReleasePicker onSelect={handlePick} excludeDids={excludeDids} />
               </div>
             </div>
 

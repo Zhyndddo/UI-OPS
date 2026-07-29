@@ -24,6 +24,7 @@ export default function MediaBookingList() {
   const [tab, setTab] = useState(null);
   const [tickets, setTickets] = useState([]);
   const [profiles, setProfiles] = useState([]);
+  const [releasesByDid, setReleasesByDid] = useState({});
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
   const [openTicket, setOpenTicket] = useState(null);
@@ -45,6 +46,14 @@ export default function MediaBookingList() {
       ? await supabase.from("tickets").select("*, profiles(name)").eq("tab_id", tabRow.id).is("deleted_at", null).order("created_at", { ascending: false })
       : { data: [] };
     setTickets(data || []);
+
+    const dids = [...new Set((data || []).map((t) => t.data?.releaseId).filter(Boolean))];
+    if (dids.length > 0) {
+      const { data: rels } = await supabase.from("releases").select("did, title, main_artist, label, release_date, release_time").in("did", dids);
+      const map = {};
+      (rels || []).forEach((r) => { map[r.did] = r; });
+      setReleasesByDid(map);
+    }
     setLoading(false);
   }
 
@@ -103,14 +112,26 @@ export default function MediaBookingList() {
           ) : (
             <table className={styles.table}>
               <thead>
-                <tr><th>Release (DID)</th><th>Propose Package</th><th>PIC</th><th>Deadline</th><th>Status</th></tr>
+                <tr><th>Release (DID)</th><th>Release</th><th>Propose Package</th><th>PIC</th><th>Deadline</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {visibleTickets.map((t) => {
                   const color = statusColor(t.status);
+                  const rel = releasesByDid[t.data?.releaseId];
                   return (
                     <tr key={t.id} onClick={() => setOpenTicket(t)} style={{ cursor: "pointer" }}>
                       <td><span className={styles.rowLink}>{t.data?.releaseId}</span></td>
+                      <td style={{ fontSize: 11, lineHeight: 1.5 }}>
+                        {rel ? (
+                          <>
+                            <div style={{ color: "#ccc", fontWeight: 700 }}>{rel.title} - {rel.main_artist}</div>
+                            <div style={{ color: "#888" }}>Label: {rel.label || "—"}</div>
+                            <div style={{ color: "#888" }}>{fmtDate(rel.release_date)} {rel.release_time || ""}</div>
+                          </>
+                        ) : (
+                          <span style={{ color: "#555" }}>—</span>
+                        )}
+                      </td>
                       <td>{t.data?.proposedPackage || "—"}</td>
                       <td onClick={(e) => e.stopPropagation()}>
                         {isExecutorView ? (
@@ -1295,7 +1316,15 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
     setGeneratingLink(true);
     const { data, error } = await supabase.from("magic_links").insert({ release_id: release.id }).select("token").single();
     setGeneratingLink(false);
-    if (!error && data) onMagicLinkGenerated(`${window.location.origin}/pick-package/${data.token}`);
+    if (!error && data) {
+      const url = `${window.location.origin}/pick-package/${data.token}`;
+      // "Link Media Report" on the URL tab is no longer hand-typed — it's
+      // just wherever the release's magic link points, so keep it in sync
+      // the moment a link is generated (older notes/tasklist code that
+      // reads releases.link_media_report keeps working unchanged).
+      await supabase.from("releases").update({ link_media_report: url }).eq("id", release.id);
+      onMagicLinkGenerated(url);
+    }
   }
 
   const hasSavedPackage = packages.length > 0;

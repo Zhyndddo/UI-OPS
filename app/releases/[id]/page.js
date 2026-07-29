@@ -214,10 +214,10 @@ export default function ReleaseDetailPage() {
 
   // Asymmetric on purpose: SEND UPLOAD sends both (Newrelease Upload +
   // Media Booking), but Send Package Ticket only ever sends itself — it
-  // never touches Upload. Each is its own one-time gate (requested /
-  // package_ticket_sent) — the real bug being fixed here is that Upload
-  // used to be a toggle (could flip back off), not a proper one-time
-  // action like Package always was.
+  // never touches Upload. Upload keeps its own one-time gate (`requested`)
+  // so this whole function — including the sendPackageTicket() call below
+  // — only ever runs once per release from this path; Send Package
+  // Ticket's own button is a separate, repeatable action (see its comment).
   async function sendUpload() {
     if (form.requested) return;
 
@@ -234,12 +234,17 @@ export default function ReleaseDetailPage() {
     setForm((f) => ({ ...f, ...patch }));
     setRelease((r) => ({ ...r, ...patch }));
 
-    // Avoids double-sending if Marketing's button already fired independently.
     await sendPackageTicket();
   }
 
+  // Deliberately NOT gated on package_ticket_sent anymore — imported
+  // releases don't always have that flag mapped/set correctly, so this
+  // stays the reliable escape hatch: from here, sending another Media
+  // Booking ticket for this release always works, regardless of whether
+  // one was already sent before. (The "New Ticket" search page is where
+  // duplicates actually get prevented — it filters out releases that
+  // already have a ticket, see ReleasePicker's excludeIds.)
   async function sendPackageTicket() {
-    if (form.package_ticket_sent) return;
     const { data: mbTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "media_booking").single();
     if (mbTab) {
       await supabase.from("tickets").insert({
@@ -437,10 +442,32 @@ function firstUrl(value) {
 
 // Short label-as-hyperlink — "Link Drive" / "Smartlink" / "Magic Link"
 // text itself is the link, not the raw URL. Dims to plain text (no href)
-// when there's nothing to link to yet.
+// when there's nothing to link to yet. A small dot in front makes the
+// available/not-available state scannable at a glance without having to
+// notice the text color/underline — green + filled when a URL is set,
+// grey + hollow when it isn't.
 function LinkPill({ label, href }) {
+  const dot = (
+    <span
+      title={href ? "Link available" : "No link set yet"}
+      style={{
+        display: "inline-block",
+        width: 7,
+        height: 7,
+        borderRadius: "50%",
+        marginRight: 5,
+        background: href ? "#3ddc84" : "transparent",
+        border: href ? "1px solid #3ddc84" : "1px solid #555",
+      }}
+    />
+  );
   if (!href) {
-    return <span style={{ fontSize: 12, fontWeight: 700, color: "#555" }}>{label}</span>;
+    return (
+      <span style={{ fontSize: 12, fontWeight: 700, color: "#555" }}>
+        {dot}
+        {label}
+      </span>
+    );
   }
   return (
     <a
@@ -450,6 +477,7 @@ function LinkPill({ label, href }) {
       title={href}
       style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", textDecoration: "none" }}
     >
+      {dot}
       {label}
     </a>
   );
@@ -727,10 +755,9 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           <button
             className={styles.btnSmall}
             onClick={onSendPackageTicket}
-            disabled={form.package_ticket_sent}
-            style={form.package_ticket_sent ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+            title={form.package_ticket_sent ? "A package ticket was already sent — this sends another one." : undefined}
           >
-            {form.package_ticket_sent ? "Package Ticket Sent" : "Send Package Ticket to Marketing"}
+            {form.package_ticket_sent ? "Send Another Package Ticket" : "Send Package Ticket to Marketing"}
           </button>
           {form.project_type === "Chỉ Phát Hành" && (
             <button
@@ -780,7 +807,6 @@ function UrlTab({ form, update, onSave, saving }) {
     ["link_share", "Link Share"],
     ["link_preorder", "Link Pre-order"],
     ["link_ugc", "Link UGC"],
-    ["link_media_report", "Link Media Report"],
     ["promotion_package_url", "URL Promotion Package"],
     ["artist_photo_url", "Artist Photo URL"],
     ["project_proposal_url", "Project Proposal URL"],
@@ -792,6 +818,27 @@ function UrlTab({ form, update, onSave, saving }) {
       <div className={styles.grid2}>
         <Field label="UPC">
           <input className={styles.input} value={form.upc || ""} onChange={(e) => update("upc", e.target.value)} />
+        </Field>
+        {/* Link Media Report keeps its label but is no longer hand-typed —
+            it's auto-mapped to whatever magic link exists for this release
+            (set the moment one is generated from the media-booking ticket),
+            so it always matches what the artist was actually sent. */}
+        <Field label="Link Media Report">
+          {form.link_media_report ? (
+            <a
+              href={form.link_media_report}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.input}
+              style={{ display: "block", color: "var(--accent)", textDecoration: "none", wordBreak: "break-all", lineHeight: "1.4" }}
+            >
+              {form.link_media_report}
+            </a>
+          ) : (
+            <div className={styles.input} style={{ color: "#555", display: "flex", alignItems: "center" }}>
+              auto-filled once a magic link is generated
+            </div>
+          )}
         </Field>
         {urlFields.map(([key, label]) => (
           <Field key={key} label={label}>
