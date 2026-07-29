@@ -335,6 +335,17 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const [loading, setLoading] = useState(true);
   const [showBuildPopup, setShowBuildPopup] = useState(false);
 
+  // Package-building state — lives here now (not in a separate BuildPackagePopup
+  // overlay) so the DSP grid (the real live data tool) and the Packages panel
+  // sit side by side in ONE screen, and an "Add to Package" button next to
+  // Summarize/Skip can act on whichever Hạng Mục/brand is currently selected.
+  const [summarizedRows, setSummarizedRows] = useState([]); // full media_booking_package_categories rows (with category name) for package building
+  const [packages, setPackages] = useState([]);
+  const [activePackageId, setActivePackageId] = useState(null);
+  const [referenceTiers, setReferenceTiers] = useState([]);
+  const [namePopup, setNamePopup] = useState(null); // null | "create" | "clone"
+  const [generatingLink, setGeneratingLink] = useState(false);
+
   const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
   const isSocial = selectedCategory?.name === "Social";
   const isCommunity = selectedCategory?.name === "Community";
@@ -357,7 +368,13 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       setCategories(cats || []);
       if (cats && cats.length > 0) setSelectedCategoryId(cats[0].id);
       if (rel) {
-        const { data: rollups } = await supabase.from("media_booking_package_categories").select("category_id, skipped").eq("release_id", rel.id);
+        const [{ data: rollups }, { data: pkgs }, { data: tiers }, { data: link }] = await Promise.all([
+          supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", rel.id),
+          supabase.from("media_booking_packages").select("*, media_booking_package_lines(*)").eq("release_id", rel.id).order("sort_order"),
+          supabase.from("contract_type_packages").select("contract_type, items"),
+          supabase.from("magic_links").select("token").eq("release_id", rel.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+        ]);
+        setSummarizedRows(rollups || []);
         setSummarizedCategoryIds(new Set((rollups || []).map((r) => r.category_id)));
         // A category can have both a real (non-skipped) row and a skipped
         // row across different brands — only treat it as "skipped" in the
@@ -365,12 +382,24 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         const byCategory = {};
         (rollups || []).forEach((r) => { byCategory[r.category_id] = byCategory[r.category_id] ?? true; byCategory[r.category_id] = byCategory[r.category_id] && r.skipped; });
         setSkippedCategoryIds(new Set(Object.keys(byCategory).filter((id) => byCategory[id])));
-        const { data: link } = await supabase.from("magic_links").select("token").eq("release_id", rel.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+        setPackages(pkgs || []);
+        if (pkgs && pkgs.length > 0) setActivePackageId(pkgs[0].id);
+        setReferenceTiers(tiers || []);
         if (link) setMagicLinkUrl(`${window.location.origin}/pick-package/${link.token}`);
       }
       setLoading(false);
     })();
   }, []);
+
+  // Re-fetches just the rollup rows — called after handleSummarize/handleSkip
+  // write new totals, so the "Add to Package" button and the grouped
+  // package-building data always reflect the latest Summarize, without a
+  // full-page reload.
+  async function refreshSummarizedRows() {
+    if (!release) return;
+    const { data: rollups } = await supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", release.id);
+    setSummarizedRows(rollups || []);
+  }
 
   useEffect(() => {
     if (!selectedCategoryId || !release) return;
@@ -474,6 +503,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       setTiktokBrandTotals((prev) => ({ ...prev, [tiktokBrand]: brandTotal }));
       setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
       setSkippedCategoryIds((prev) => { const next = new Set(prev); next.delete(selectedCategoryId); return next; });
+      await refreshSummarizedRows();
       return;
     }
 
@@ -505,6 +535,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       setCategoryTotals((prev) => ({ ...prev, ...totalsByBrand }));
       setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
       setSkippedCategoryIds((prev) => { const next = new Set(prev); next.delete(selectedCategoryId); return next; });
+      await refreshSummarizedRows();
       return;
     }
 
@@ -530,6 +561,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     setCategoryTotals((prev) => ({ ...prev, [rollupBrand]: totalPosts }));
     setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
     setSkippedCategoryIds((prev) => { const next = new Set(prev); next.delete(selectedCategoryId); return next; });
+    await refreshSummarizedRows();
   }
 
   // "Skip" — marks a Hạng Mục as intentionally not applicable, satisfying
@@ -544,6 +576,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     );
     setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
     setSkippedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
+    await refreshSummarizedRows();
   }
 
   // Đợt 2 targets save immediately on blur, same convention as everywhere
@@ -559,9 +592,181 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
 
   const allCategoriesSummarized = categories.length > 0 && categories.every((c) => summarizedCategoryIds.has(c.id));
 
+  // --- Package building — was BuildPackagePopup's own state/logic, moved
+  // up here so the DSP grid (this component's real data-entry tool) and the
+  // Packages panel can sit side by side and share the same "Add to Package"
+  // action, instead of two separate overlays with their own duplicate
+  // "Summarized Hạng Mục" picker in between. ---
+
+  const activePackage = packages.find((p) => p.id === activePackageId);
+  const isIntMedia = activePackage?.name === "INT MEDIA";
+
+  async function createPackage(name, cloneFromId) {
+    const { data: pkg } = await supabase.from("media_booking_packages").insert({ release_id: release.id, name, sort_order: packages.length }).select().single();
+    if (!pkg) return;
+    let lines = [];
+    if (cloneFromId) {
+      const source = packages.find((p) => p.id === cloneFromId);
+      const cloneRows = (source?.media_booking_package_lines || []).map((l, i) => ({
+        package_id: pkg.id, category_id: l.category_id, brand: l.brand, unit: l.unit, quantity: l.quantity, detail: l.detail, amount: l.amount, sort_order: i,
+      }));
+      if (cloneRows.length > 0) {
+        const { data: inserted } = await supabase.from("media_booking_package_lines").insert(cloneRows).select();
+        lines = inserted || [];
+      }
+    }
+    setPackages((prev) => [...prev, { ...pkg, media_booking_package_lines: lines }]);
+    setActivePackageId(pkg.id);
+    setNamePopup(null);
+  }
+
+  async function deletePackage(pkg) {
+    if (!window.confirm(`Delete package "${pkg.name}"? This can't be undone.`)) return;
+    await supabase.from("media_booking_packages").delete().eq("id", pkg.id);
+    setPackages((prev) => {
+      const next = prev.filter((p) => p.id !== pkg.id);
+      if (activePackageId === pkg.id) setActivePackageId(next[0]?.id || null);
+      return next;
+    });
+  }
+
+  function lineFor(categoryId, brand) {
+    return (activePackage?.media_booking_package_lines || []).find((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
+  }
+
+  // Every OTHER Hạng Mục mushes its brand rows into ONE combined package
+  // line (brand '') when building — Social's VIEENT+ENVI, Community's 3
+  // page brands, TikTok Channel's 8 sub-brands all become a single row
+  // with a summed quantity, since the built package/magic link never
+  // needs the brand breakdown. Ads is the one exception — since
+  // handleSummarize now rolls it up per ad-platform brand (Facebook/
+  // YouTube/TikTok/Spotify Ads), it keeps one group per summarized row,
+  // i.e. one line per brand, on purpose.
+  function groupSummarizedRows(rows) {
+    const groups = {};
+    rows.forEach((r) => {
+      const categoryName = r.package_categories?.name || "";
+      if (categoryName === "Ads") {
+        const key = `${r.category_id}::${r.brand || ""}`;
+        groups[key] = { key, categoryId: r.category_id, categoryName, isAds: true, brand: r.brand, totalPosts: r.total_posts, detailText: r.detail_text, totalMoney: r.total_money, rows: [r] };
+      } else {
+        const key = r.category_id;
+        if (!groups[key]) groups[key] = { key, categoryId: r.category_id, categoryName, isAds: false, brand: "", totalPosts: 0, rows: [] };
+        groups[key].totalPosts += r.total_posts || 0;
+        groups[key].rows.push(r);
+      }
+    });
+    return Object.values(groups);
+  }
+
+  // The group matching whatever Hạng Mục/brand is currently selected in the
+  // DSP grid — this is what the "Add to Package"/"Remove" button (next to
+  // Summarize/Skip) acts on. null until that Hạng Mục has been summarized
+  // at least once (nothing to add yet).
+  function currentGroup() {
+    const groups = groupSummarizedRows(summarizedRows);
+    if (isAds) return groups.find((g) => g.categoryId === selectedCategoryId && g.brand === adsBrand) || null;
+    return groups.find((g) => g.categoryId === selectedCategoryId) || null;
+  }
+
+  // Adding/removing writes to the DB immediately — no separate save step.
+  async function toggleLine(group, checked) {
+    if (!activePackage) return;
+    if (checked) {
+      const categoryName = group.categoryName;
+      // Ads mushes into one line PER BRAND with a pre-computed Chi Tiết +
+      // Thành Tiền straight from Summarize's per-brand pricing — no unit/
+      // quantity, no reference-template lookup, nothing to compute later.
+      const insertPayload = group.isAds
+        ? {
+            package_id: activePackage.id, category_id: group.categoryId, brand: group.brand,
+            unit: null, quantity: null, detail: group.detailText || null, amount: group.totalMoney ?? null,
+            sort_order: (activePackage.media_booking_package_lines || []).length,
+          }
+        : {
+            package_id: activePackage.id, category_id: group.categoryId, brand: "",
+            unit: referenceDetailFor(referenceTiers, categoryName)?.unit || "Bài Đăng",
+            quantity: group.totalPosts, detail: referenceDetailFor(referenceTiers, categoryName)?.detail || null, amount: null,
+            sort_order: (activePackage.media_booking_package_lines || []).length,
+          };
+      const { data: line } = await supabase
+        .from("media_booking_package_lines")
+        .insert(insertPayload)
+        .select()
+        .single();
+      if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
+    } else {
+      const existing = lineFor(group.categoryId, group.brand);
+      if (!existing) return;
+      await supabase.from("media_booking_package_lines").delete().eq("id", existing.id);
+      setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.filter((l) => l.id !== existing.id) })));
+    }
+  }
+
+  // Generic field-level line editor — writes to DB the moment a value
+  // changes. Recomputes and persists Thành Tiền alongside every write since
+  // it's always derived, never typed directly.
+  async function updateLine(line, patch) {
+    const merged = { ...line, ...patch };
+    const cat = categories.find((c) => c.id === line.category_id);
+    // Ads lines are mushed and pre-priced at Summarize time (amount comes
+    // from media_booking_package_categories.total_money) — they never carry
+    // a unit_price here, so the generic computeLineAmount() would always
+    // null the amount out the moment someone edits Chi Tiết. Skip recompute
+    // for Ads and just keep whatever amount the line already has.
+    const isAdsLine = cat?.name === "Ads";
+    const amount = isAdsLine ? line.amount : computeLineAmount(merged);
+    const fullPatch = { ...patch, amount };
+    await supabase.from("media_booking_package_lines").update(fullPatch).eq("id", line.id);
+    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...fullPatch } : l)) })));
+  }
+
+  // "Convert to Package" — 2-way toggle, flips the Thành Tiền formula
+  // between Đơn Giá × Tổng Số Bài Đăng and Đơn Giá × Số Gói. Free to flip
+  // back anytime, writes immediately either way.
+  function toggleLinePricing(line) {
+    updateLine(line, { is_package_priced: !line.is_package_priced });
+  }
+
+  async function addPrebuiltLine(addon) {
+    if (!activePackage) return;
+    const { data: line } = await supabase
+      .from("media_booking_package_lines")
+      .insert({
+        package_id: activePackage.id, category_id: null, platform: addon.name, brand: "",
+        unit: addon.unit, quantity: 1, detail: addon.detail, amount: null,
+        sort_order: (activePackage.media_booking_package_lines || []).length,
+      })
+      .select()
+      .single();
+    if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
+  }
+
+  async function deleteLine(line) {
+    await supabase.from("media_booking_package_lines").delete().eq("id", line.id);
+    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.filter((l) => l.id !== line.id) })));
+  }
+
+  async function handleGenerateLink() {
+    if (!release) return;
+    setGeneratingLink(true);
+    const { data, error } = await supabase.from("magic_links").insert({ release_id: release.id }).select("token").single();
+    setGeneratingLink(false);
+    if (!error && data) {
+      const url = `${window.location.origin}/pick-package/${data.token}`;
+      // "Link Media Report" on the URL tab is no longer hand-typed — it's
+      // just wherever the release's magic link points, so keep it in sync
+      // the moment a link is generated.
+      await supabase.from("releases").update({ link_media_report: url }).eq("id", release.id);
+      setMagicLinkUrl(url);
+    }
+  }
+
+  const hasSavedPackage = packages.length > 0;
+
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, maxWidth: 900, width: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, maxWidth: showBuildPopup ? 1400 : 900, width: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
         {loading ? (
           <div className={styles.emptyState} style={{ padding: 24 }}>Loading…</div>
         ) : (
@@ -869,7 +1074,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   </table>
                 )}
 
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                   <button className={styles.btnSecondary} onClick={handleSummarize} disabled={entries.length === 0}>Summarize</button>
                   <button
                     className={styles.btnSecondary}
@@ -879,6 +1084,24 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   >
                     Skip
                   </button>
+                  {/* Slots the current Hạng Mục/brand straight into whichever
+                      package tab is active on the right — this IS "Add to
+                      Package", right where the numbers are edited, instead
+                      of a separate picker elsewhere. */}
+                  {activePackage && (() => {
+                    const group = currentGroup();
+                    if (!group) return null;
+                    const line = lineFor(group.categoryId, group.brand);
+                    return (
+                      <button
+                        className={styles.btnSmall}
+                        onClick={() => toggleLine(group, !line)}
+                        style={{ marginLeft: "auto", border: line ? "1px solid var(--accent)" : undefined, color: line ? "var(--accent-soft)" : undefined }}
+                      >
+                        {line ? `− Remove from "${activePackage.name}"` : `+ Add to "${activePackage.name}"`}
+                      </button>
+                    );
+                  })()}
                 </div>
 
                 {summarizedCategoryIds.has(selectedCategoryId) && (
@@ -938,30 +1161,51 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   </div>
                 )}
               </div>
+
+              {/* THIRD — Packages panel. Sits right next to the DSP grid
+                  (same screen, same scroll area) instead of a separate
+                  overlay on top of this one — editing an entry above and
+                  seeing its package line update are now the same view. */}
+              {showBuildPopup && (
+                <PackagesPanel
+                  release={release}
+                  categories={categories}
+                  packages={packages}
+                  activePackageId={activePackageId}
+                  setActivePackageId={setActivePackageId}
+                  activePackage={activePackage}
+                  isIntMedia={isIntMedia}
+                  namePopup={namePopup}
+                  setNamePopup={setNamePopup}
+                  createPackage={createPackage}
+                  deletePackage={deletePackage}
+                  addPrebuiltLine={addPrebuiltLine}
+                  deleteLine={deleteLine}
+                  updateLine={updateLine}
+                  magicLinkUrl={magicLinkUrl}
+                  generatingLink={generatingLink}
+                  onGenerateLink={handleGenerateLink}
+                  proposedPackage={ticket.data?.proposedPackage}
+                  onHide={() => setShowBuildPopup(false)}
+                />
+              )}
             </div>
 
             <div style={{ borderTop: "1px solid var(--border)", padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
                 {allCategoriesSummarized ? "All Hạng Mục summarized." : `Summarize all ${categories.length} Hạng Mục before building a package.`}
               </div>
-              <button className={styles.btnPrimary} onClick={() => setShowBuildPopup(true)} disabled={!allCategoriesSummarized}>
-                Build Package
+              <button
+                className={styles.btnPrimary}
+                onClick={() => { setShowBuildPopup((v) => !v); if (packages.length === 0) setNamePopup("create"); }}
+                disabled={!allCategoriesSummarized}
+              >
+                {showBuildPopup ? "Hide Packages" : "Build Package"}
               </button>
             </div>
           </>
         )}
       </div>
-
-      {showBuildPopup && (
-        <BuildPackagePopup
-          release={release}
-          categories={categories}
-          onClose={() => setShowBuildPopup(false)}
-          magicLinkUrl={magicLinkUrl}
-          onMagicLinkGenerated={setMagicLinkUrl}
-          proposedPackage={ticket.data?.proposedPackage}
-        />
-      )}
 
       {showDot2Popup && (
         <Dot2TargetsPopup
@@ -1137,287 +1381,30 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
 // immediately, same for edit/delete on the right. Nothing here is staged
 // then saved — that staging model was the actual source of both the
 // "second package doesn't save" bug and the checkbox cross-talk bug.
-function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagicLinkGenerated, proposedPackage }) {
-  const [summarizedRows, setSummarizedRows] = useState([]);
-  const [packages, setPackages] = useState([]);
-  const [activePackageId, setActivePackageId] = useState(null);
-  const [referenceTiers, setReferenceTiers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [generatingLink, setGeneratingLink] = useState(false);
-  const [namePopup, setNamePopup] = useState(null); // null | "create" | "clone"
-
-  useEffect(() => {
-    if (!release) return;
-    (async () => {
-      setLoading(true);
-      const [{ data: rollups }, { data: pkgs }, { data: tiers }] = await Promise.all([
-        supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", release.id),
-        supabase.from("media_booking_packages").select("*, media_booking_package_lines(*)").eq("release_id", release.id).order("sort_order"),
-        supabase.from("contract_type_packages").select("contract_type, items"),
-      ]);
-      setSummarizedRows(rollups || []);
-      setPackages(pkgs || []);
-      if (pkgs && pkgs.length > 0) setActivePackageId(pkgs[0].id);
-      setReferenceTiers(tiers || []);
-      setLoading(false);
-    })();
-  }, [release]);
-
-  const activePackage = packages.find((p) => p.id === activePackageId);
-  const isIntMedia = activePackage?.name === "INT MEDIA";
-
-  async function createPackage(name, cloneFromId) {
-    const { data: pkg } = await supabase.from("media_booking_packages").insert({ release_id: release.id, name, sort_order: packages.length }).select().single();
-    if (!pkg) return;
-    let lines = [];
-    if (cloneFromId) {
-      const source = packages.find((p) => p.id === cloneFromId);
-      const cloneRows = (source?.media_booking_package_lines || []).map((l, i) => ({
-        package_id: pkg.id, category_id: l.category_id, brand: l.brand, unit: l.unit, quantity: l.quantity, detail: l.detail, amount: l.amount, sort_order: i,
-      }));
-      if (cloneRows.length > 0) {
-        const { data: inserted } = await supabase.from("media_booking_package_lines").insert(cloneRows).select();
-        lines = inserted || [];
-      }
-    }
-    setPackages((prev) => [...prev, { ...pkg, media_booking_package_lines: lines }]);
-    setActivePackageId(pkg.id);
-    setNamePopup(null);
-  }
-
-  async function deletePackage(pkg) {
-    if (!window.confirm(`Delete package "${pkg.name}"? This can't be undone.`)) return;
-    await supabase.from("media_booking_packages").delete().eq("id", pkg.id);
-    setPackages((prev) => {
-      const next = prev.filter((p) => p.id !== pkg.id);
-      if (activePackageId === pkg.id) setActivePackageId(next[0]?.id || null);
-      return next;
-    });
-  }
-
-  function lineFor(categoryId, brand) {
-    return (activePackage?.media_booking_package_lines || []).find((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
-  }
-
-  // Every OTHER Hạng Mục mushes its brand rows into ONE combined package
-  // line (brand '') when building — Social's VIEENT+ENVI, Community's 3
-  // page brands, TikTok Channel's 8 sub-brands all become a single row
-  // with a summed quantity, since the built package/magic link never
-  // needs the brand breakdown. Ads is the one exception — since
-  // handleSummarize now rolls it up per ad-platform brand (Facebook/
-  // YouTube/TikTok/Spotify Ads), it keeps one group per summarized row,
-  // i.e. one line per brand, on purpose.
-  //
-  // Note: this only groups what's shown here for checking/unchecking — a
-  // package built before this change that already has separate per-brand
-  // lines for a non-Ads category keeps them (nothing here deletes old
-  // data), they just won't show as "checked" against this combined view.
-  function groupSummarizedRows(rows) {
-    const groups = {};
-    rows.forEach((r) => {
-      const categoryName = r.package_categories?.name || "";
-      if (categoryName === "Ads") {
-        const key = `${r.category_id}::${r.brand || ""}`;
-        groups[key] = { key, categoryId: r.category_id, categoryName, isAds: true, brand: r.brand, totalPosts: r.total_posts, detailText: r.detail_text, totalMoney: r.total_money, rows: [r] };
-      } else {
-        const key = r.category_id;
-        if (!groups[key]) groups[key] = { key, categoryId: r.category_id, categoryName, isAds: false, brand: "", totalPosts: 0, rows: [] };
-        groups[key].totalPosts += r.total_posts || 0;
-        groups[key].rows.push(r);
-      }
-    });
-    return Object.values(groups);
-  }
-  const groupedSummarizedRows = groupSummarizedRows(summarizedRows);
-
-  // Checking/unchecking a Hạng Mục line writes to the DB immediately —
-  // no separate save step, which is what was breaking on the 2nd+ package.
-  async function toggleLine(group, checked) {
-    if (!activePackage) return;
-    if (checked) {
-      const categoryName = group.categoryName;
-      // Ads mushes into one line PER BRAND with a pre-computed Chi Tiết +
-      // Thành Tiền straight from Summarize's per-brand pricing — no unit/
-      // quantity, no reference-template lookup, nothing to compute later.
-      const insertPayload = group.isAds
-        ? {
-            package_id: activePackage.id, category_id: group.categoryId, brand: group.brand,
-            unit: null, quantity: null, detail: group.detailText || null, amount: group.totalMoney ?? null,
-            sort_order: (activePackage.media_booking_package_lines || []).length,
-          }
-        : {
-            package_id: activePackage.id, category_id: group.categoryId, brand: "",
-            unit: referenceDetailFor(referenceTiers, categoryName)?.unit || "Bài Đăng",
-            quantity: group.totalPosts, detail: referenceDetailFor(referenceTiers, categoryName)?.detail || null, amount: null,
-            sort_order: (activePackage.media_booking_package_lines || []).length,
-          };
-      const { data: line } = await supabase
-        .from("media_booking_package_lines")
-        .insert(insertPayload)
-        .select()
-        .single();
-      if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
-    } else {
-      const existing = lineFor(group.categoryId, group.brand);
-      if (!existing) return;
-      await supabase.from("media_booking_package_lines").delete().eq("id", existing.id);
-      setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.filter((l) => l.id !== existing.id) })));
-    }
-  }
-
-  // Generic field-level line editor — writes to DB the moment a value
-  // changes (same immediate-write convention as everywhere else in this
-  // popup; no separate Save step, that staging model already caused real
-  // bugs once). Recomputes and persists Thành Tiền alongside every write
-  // since it's always derived, never typed directly.
-  async function updateLine(line, patch) {
-    const merged = { ...line, ...patch };
-    const cat = categories.find((c) => c.id === line.category_id);
-    // Ads lines are mushed and pre-priced at Summarize time (amount comes
-    // from media_booking_package_categories.total_money) — they never carry
-    // a unit_price here, so the generic computeLineAmount() would always
-    // null the amount out the moment someone edits Chi Tiết. Skip recompute
-    // for Ads and just keep whatever amount the line already has.
-    const isAdsLine = cat?.name === "Ads";
-    const amount = isAdsLine ? line.amount : computeLineAmount(merged);
-    const fullPatch = { ...patch, amount };
-    await supabase.from("media_booking_package_lines").update(fullPatch).eq("id", line.id);
-    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...fullPatch } : l)) })));
-  }
-
-  // "Convert to Package" — 2-way toggle, flips the Thành Tiền formula
-  // between Đơn Giá × Tổng Số Bài Đăng and Đơn Giá × Số Gói. Free to flip
-  // back anytime, writes immediately either way.
-  function toggleLinePricing(line) {
-    updateLine(line, { is_package_priced: !line.is_package_priced });
-  }
-
-  async function addPrebuiltLine(addon) {
-    if (!activePackage) return;
-    const { data: line } = await supabase
-      .from("media_booking_package_lines")
-      .insert({
-        package_id: activePackage.id, category_id: null, platform: addon.name, brand: "",
-        unit: addon.unit, quantity: 1, detail: addon.detail, amount: null,
-        sort_order: (activePackage.media_booking_package_lines || []).length,
-      })
-      .select()
-      .single();
-    if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
-  }
-
-  async function deleteLine(line) {
-    await supabase.from("media_booking_package_lines").delete().eq("id", line.id);
-    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.filter((l) => l.id !== line.id) })));
-  }
-
-  async function handleGenerateLink() {
-    if (!release) return;
-    setGeneratingLink(true);
-    const { data, error } = await supabase.from("magic_links").insert({ release_id: release.id }).select("token").single();
-    setGeneratingLink(false);
-    if (!error && data) {
-      const url = `${window.location.origin}/pick-package/${data.token}`;
-      // "Link Media Report" on the URL tab is no longer hand-typed — it's
-      // just wherever the release's magic link points, so keep it in sync
-      // the moment a link is generated (older notes/tasklist code that
-      // reads releases.link_media_report keeps working unchanged).
-      await supabase.from("releases").update({ link_media_report: url }).eq("id", release.id);
-      onMagicLinkGenerated(url);
-    }
-  }
-
+// Presentational only now — every field, quantity, and Đơn Giá is edited
+// from the DSP grid above (via the "Add to Package"/"Remove" button next to
+// Summarize/Skip and the card that appears there once a line is added).
+// This panel just shows the built package(s): tabs, the read-only overview
+// table (Chi Tiết is still edited right here — it's package-specific, not
+// something the DSP grid has a natural home for), and the send-link step.
+// Renders as a plain in-flow column (not its own fixed-overlay popup) so it
+// sits beside the DSP grid instead of covering it.
+function PackagesPanel({
+  release, categories, packages, activePackageId, setActivePackageId, activePackage, isIntMedia,
+  namePopup, setNamePopup, createPackage, deletePackage, addPrebuiltLine, deleteLine, updateLine,
+  magicLinkUrl, generatingLink, onGenerateLink, proposedPackage, onHide,
+}) {
   const hasSavedPackage = packages.length > 0;
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div style={{ display: "flex", alignItems: "stretch", gap: 0, maxWidth: 1100, width: "100%", maxHeight: "88vh" }} onClick={(e) => e.stopPropagation()}>
-
-        {/* LEFT — the data tool. Not in the active package yet: shows the
-            live Summarize total, read-only, with an Add button. Already in
-            it: this IS the editor for that line's own numbers (quantity/
-            Số Gói toggle, Đơn Giá) — the right panel only shows these
-            read-only now, Chi Tiết is the only thing still edited there. */}
-        <div style={{ flex: 1, background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: "10px 0 0 10px", padding: 20, overflowY: "auto" }}>
-          <div className={styles.eyebrow}>// {activePackage ? activePackage.name : "Pick Lines"}</div>
-          <h3 style={{ fontSize: 16, fontWeight: 800, margin: "0 0 14px" }}>Summarized Hạng Mục</h3>
-          {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
-          ) : !activePackage ? (
-            <div className={styles.emptyState}>Create a package on the right first — then its lines show up here to pick.</div>
-          ) : (
-            <div style={{ display: "grid", gap: 8 }}>
-              {groupedSummarizedRows.map((g) => {
-                const line = lineFor(g.categoryId, g.brand);
-                if (!line) {
-                  return (
-                    <div key={g.key} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", fontSize: 12 }}>
-                      <span style={{ flex: 1 }}>{g.categoryName}{g.brand ? ` — ${g.brand}` : ""}</span>
-                      <span style={{ color: "var(--text-faint)" }}>{g.totalPosts} posts</span>
-                      <button className={styles.btnSmall} onClick={() => toggleLine(g, true)}>+ Add</button>
-                    </div>
-                  );
-                }
-                return (
-                  <div key={g.key} style={{ background: "var(--bg-card)", border: "1px solid var(--accent)", borderRadius: 6, padding: "8px 12px", fontSize: 12 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: g.isAds ? 0 : 6 }}>
-                      <span style={{ flex: 1, fontWeight: 700 }}>{g.categoryName}{g.brand ? ` — ${g.brand}` : ""}</span>
-                      <button className={styles.btnSmall} onClick={() => toggleLine(g, false)}>− Remove</button>
-                    </div>
-                    {g.isAds ? (
-                      <div style={{ color: "var(--text-faint)", fontSize: 11 }}>Pre-priced from entries — {fmtVnd(line.amount)}</div>
-                    ) : (
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                        {line.is_package_priced ? (
-                          <input
-                            type="number"
-                            className={styles.input}
-                            style={{ width: 70, padding: "4px 6px", fontSize: 12 }}
-                            defaultValue={line.package_count ?? ""}
-                            placeholder="Số Gói"
-                            onBlur={(e) => updateLine(line, { package_count: e.target.value === "" ? null : parseFloat(e.target.value) })}
-                          />
-                        ) : (
-                          <span>{line.quantity ?? "—"} {line.unit}</span>
-                        )}
-                        <button
-                          onClick={() => toggleLinePricing(line)}
-                          title="Convert to Package"
-                          style={{ background: "none", border: "none", color: line.is_package_priced ? "var(--accent-soft)" : "var(--text-faint)", cursor: "pointer", fontSize: 10, padding: 0 }}
-                        >
-                          {line.is_package_priced ? "↺ Bài Đăng" : "⇄ Convert to Package"}
-                        </button>
-                        <input
-                          type="number"
-                          className={styles.input}
-                          style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
-                          defaultValue={line.unit_price ?? ""}
-                          placeholder="Đơn Giá"
-                          onBlur={(e) => updateLine(line, { unit_price: e.target.value === "" ? null : parseFloat(e.target.value) })}
-                        />
-                        <strong style={{ marginLeft: "auto" }}>{fmtVnd(line.amount)}</strong>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* MIDDLE — decorative arrow, no wiring */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 50, flexShrink: 0 }}>
-          <div style={{ fontSize: 28, color: "var(--accent)" }}>➜</div>
-        </div>
-
-        {/* RIGHT — package tabs, lines, send */}
-        <div style={{ flex: 1, background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: "0 10px 10px 0", padding: 20, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <>
+      <div style={{ width: 460, flexShrink: 0, borderLeft: "1px solid var(--border)", padding: 20, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
             <div>
               <div className={styles.eyebrow}>// Packages</div>
               <h3 style={{ fontSize: 16, fontWeight: 800, margin: 0 }}>{release?.title}</h3>
             </div>
-            <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer" }}>✕</button>
+            <button onClick={onHide} title="Hide this panel — the package stays as-is" style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer" }}>✕</button>
           </div>
 
           <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
@@ -1449,7 +1436,7 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
             {!activePackage ? (
               <div className={styles.emptyState}>No package yet — click "Create Package" above.</div>
             ) : (activePackage.media_booking_package_lines || []).length === 0 ? (
-              <div className={styles.emptyState}>Check a Hạng Mục on the left to add it here.</div>
+              <div className={styles.emptyState}>Pick a Hạng Mục on the left and click "+ Add to {activePackage.name}" next to Summarize.</div>
             ) : isIntMedia ? (
               // INT MEDIA — a mushed package: Hạng Mục names only, no
               // quantities, pricing, or detail at all.
@@ -1521,7 +1508,7 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
           {hasSavedPackage && (
             <>
               {!magicLinkUrl ? (
-                <button className={styles.btnPrimary} onClick={handleGenerateLink} disabled={generatingLink} style={{ width: "100%" }}>
+                <button className={styles.btnPrimary} onClick={onGenerateLink} disabled={generatingLink} style={{ width: "100%" }}>
                   {generatingLink ? "Generating…" : "Create magic link and send package to product"}
                 </button>
               ) : (
@@ -1535,7 +1522,6 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
             </>
           )}
         </div>
-      </div>
 
       {namePopup && (
         <PackageNamePopup
@@ -1545,6 +1531,6 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
           onConfirm={(name) => createPackage(name, namePopup === "clone" ? activePackageId : null)}
         />
       )}
-    </div>
+    </>
   );
 }

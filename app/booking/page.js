@@ -587,10 +587,17 @@ function parseBulkLinks(text, hasChannelCol) {
     .filter((row) => row.link);
 }
 
+// One blank channel — { channelName, urls: [""] } — a channel typically
+// carries 5-6 URLs (per the team), so it starts with one URL field and
+// grows via its own "+" rather than asking for a count upfront.
+function blankChannel() {
+  return { channelName: "", urls: [""] };
+}
+
 function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, onAdd, onAddBulk, onCycleStatus, canAdd, cellBorderLeft }) {
   const [showAddPopup, setShowAddPopup] = useState(false);
-  const [channelName, setChannelName] = useState("");
-  const [link, setLink] = useState("");
+  const [channels, setChannels] = useState([blankChannel()]);
+  const [submitResult, setSubmitResult] = useState(null);
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [bulkResult, setBulkResult] = useState(null);
@@ -598,15 +605,30 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
   const isDone = booked != null && booked > 0 && added >= booked;
   const hasChannelCol = !column.platform;
 
-  // Stays open after each add — the cell (column.brand/column.categoryName)
-  // already fully identifies what's being booked, so there's nothing left
-  // to re-pick between links. This is also how 2 links under the same
-  // channel both end up counting: add one, leave Channel Name as-is, type
-  // the next URL, add again.
-  function submitAdd() {
-    if (!link.trim()) return;
-    onAdd(channelName, link);
-    setLink("");
+  function updateChannelName(ci, value) {
+    setChannels((prev) => prev.map((c, i) => (i === ci ? { ...c, channelName: value } : c)));
+  }
+  function updateUrl(ci, ui, value) {
+    setChannels((prev) => prev.map((c, i) => (i !== ci ? c : { ...c, urls: c.urls.map((u, j) => (j === ui ? value : u)) })));
+  }
+  function addUrlField(ci) {
+    setChannels((prev) => prev.map((c, i) => (i !== ci ? c : { ...c, urls: [...c.urls, ""] })));
+  }
+  function addChannel() {
+    setChannels((prev) => [...prev, blankChannel()]);
+  }
+
+  // "Done" saves every non-empty URL across every channel row in one batch
+  // (reuses the same bulk insert as CSV import), then closes the popup —
+  // this is the primary add flow now, not a secondary "bulk" mode.
+  async function submitChannels() {
+    const rows = channels.flatMap((c) => c.urls.filter((u) => u.trim()).map((u) => ({ channelName: c.channelName, link: u.trim() })));
+    if (rows.length === 0) { setShowAddPopup(false); return; }
+    const { count, error } = await onAddBulk(rows);
+    if (error) { setSubmitResult({ error: error.message }); return; }
+    setChannels([blankChannel()]);
+    setSubmitResult(null);
+    setShowAddPopup(false);
   }
 
   async function submitBulk() {
@@ -676,7 +698,7 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
 
       {showAddPopup && (
         <>
-          <div onClick={() => setShowAddPopup(false)} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
+          <div onClick={() => { setShowAddPopup(false); setChannels([blankChannel()]); setSubmitResult(null); }} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
@@ -693,45 +715,65 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
                 onClick={() => { setBulkMode((m) => !m); setBulkResult(null); }}
                 style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 10, cursor: "pointer", textDecoration: "underline" }}
               >
-                {bulkMode ? "single link" : "bulk / CSV"}
+                {bulkMode ? "channels" : "bulk / CSV"}
               </button>
             </div>
 
             {!bulkMode ? (
-              <>
-                {!column.platform && (
-                  <div style={{ marginBottom: 6 }}>
-                    <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>Channel Name</label>
-                    <input
-                      className={styles.input}
-                      style={{ width: "100%", padding: "6px 8px", fontSize: 12 }}
-                      placeholder="e.g. Kênh chính"
-                      value={channelName}
-                      onChange={(e) => setChannelName(e.target.value)}
-                    />
+              <div>
+                {channels.map((c, ci) => (
+                  <div key={ci} style={{ display: "flex", gap: 6, marginBottom: 8, alignItems: "flex-start" }}>
+                    {hasChannelCol && (
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>Channel Name</label>
+                        <input
+                          className={styles.input}
+                          style={{ width: "100%", padding: "6px 8px", fontSize: 12, boxSizing: "border-box" }}
+                          placeholder="e.g. Kênh chính"
+                          value={c.channelName}
+                          onChange={(e) => updateChannelName(ci, e.target.value)}
+                        />
+                      </div>
+                    )}
+                    <div style={{ flex: 1.4 }}>
+                      {c.urls.map((u, ui) => (
+                        <div key={ui} style={{ display: "flex", gap: 6, marginBottom: ui === c.urls.length - 1 ? 0 : 6 }}>
+                          <div style={{ flex: 1 }}>
+                            {ui === 0 && <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>URL</label>}
+                            <input
+                              autoFocus={ci === 0 && ui === 0}
+                              className={styles.input}
+                              style={{ width: "100%", padding: "6px 8px", fontSize: 12, boxSizing: "border-box" }}
+                              placeholder="https://…"
+                              value={u}
+                              onChange={(e) => updateUrl(ci, ui, e.target.value)}
+                            />
+                          </div>
+                          {ui === c.urls.length - 1 && (
+                            <button
+                              onClick={() => addUrlField(ci)}
+                              title="Add another URL for this channel — usually 5-6 per channel"
+                              style={{
+                                alignSelf: ui === 0 ? "flex-end" : "center",
+                                background: "var(--accent)", border: "none", borderRadius: 6, color: "#fff",
+                                width: 28, height: 28, fontSize: 16, fontWeight: 800, lineHeight: 1, cursor: "pointer", flexShrink: 0,
+                              }}
+                            >
+                              +
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
+                ))}
+                <button className={styles.btnSmall} onClick={addChannel} style={{ width: "100%", marginBottom: 8 }}>
+                  + Add Channel
+                </button>
+                {submitResult?.error && (
+                  <div style={{ fontSize: 11, color: "#ff6b6b", marginBottom: 6 }}>Error: {submitResult.error}</div>
                 )}
-                <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>URL</label>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <input
-                    autoFocus
-                    className={styles.input}
-                    style={{ flex: 1, padding: "6px 8px", fontSize: 12 }}
-                    placeholder="https://…"
-                    value={link}
-                    onChange={(e) => setLink(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") submitAdd(); }}
-                  />
-                  <button
-                    className={styles.btnPrimary}
-                    onClick={submitAdd}
-                    title="Add — stays open so you can add another"
-                    style={{ padding: "0 14px", fontSize: 16, fontWeight: 800, lineHeight: 1 }}
-                  >
-                    +
-                  </button>
-                </div>
-              </>
+              </div>
             ) : (
               <div>
                 <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>
@@ -775,7 +817,13 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
                 ))}
               </div>
             )}
-            <button className={styles.btnSmall} onClick={() => setShowAddPopup(false)} style={{ width: "100%", marginTop: 10 }}>Done</button>
+            <button
+              className={styles.btnPrimary}
+              onClick={() => (bulkMode ? setShowAddPopup(false) : submitChannels())}
+              style={{ width: "100%", marginTop: 10 }}
+            >
+              Done
+            </button>
           </div>
         </>
       )}
