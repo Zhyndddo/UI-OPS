@@ -697,9 +697,10 @@ function NotificationsSection() {
           />
         </div>
         <p style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 10 }}>
-          Requires RESEND_API_KEY set in the deployment's environment to actually send — without it, "Send test" below
-          still computes the digest but reports the email as unsent. Fires via an hourly scheduled job (vercel.json);
-          the hour above + a same-day guard is what makes it land once, at the right time.
+          Sent via SMTP through a real mailbox (SMTP_HOST/SMTP_USER/SMTP_PASS in the deployment's environment) — no
+          domain ownership needed. Without those set, "Send test" below still computes the digest but reports the
+          email as unsent. Fires via an hourly scheduled job (vercel.json); the hour above + a same-day guard is what
+          makes it land once, at the right time.
         </p>
         <button className={styles.btnSecondary} onClick={sendTestDigest} disabled={testing} style={{ marginTop: 10 }}>
           {testing ? "Sending…" : "Send test digest now"}

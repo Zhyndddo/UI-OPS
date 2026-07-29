@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import nodemailer from "nodemailer";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getNotDoneCount } from "../../../../lib/notDoneCounts";
 import { TEAM_WORKSTATION_TYPES, WORKSTATION_TYPE_LABELS, TICKET_TYPE_LABELS } from "../../../../lib/teamTypes";
@@ -13,13 +14,21 @@ import { TEAM_WORKSTATION_TYPES, WORKSTATION_TYPE_LABELS, TICKET_TYPE_LABELS } f
 // hourly poll + an in-DB dedup guard is the reliable way to hit an
 // admin-configurable hour.
 //
-// Needs RESEND_API_KEY set (https://resend.com) to actually send — without
-// it this still computes and returns the digest (dryRun) so it's testable
-// before email is wired up. Set CRON_SECRET too and Vercel Cron will send
-// it automatically as a Bearer token; without CRON_SECRET configured, any
-// caller can trigger this (fine for local/dev, not for production).
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const DIGEST_FROM = process.env.DIGEST_FROM_EMAIL || "ops@vieent.local";
+// Sends via SMTP through a real mailbox you already control (SMTP_USER/
+// SMTP_PASS below) rather than a third-party email API — no domain
+// ownership or DNS verification needed, since it's just logging in and
+// sending the way any mail client would. Without SMTP_HOST/SMTP_USER/
+// SMTP_PASS configured, this still computes and returns the digest
+// (dryRun) so it's testable before email is wired up. Set CRON_SECRET too
+// and Vercel Cron will send it automatically as a Bearer token; without
+// CRON_SECRET configured, any caller can trigger this (fine for local/dev,
+// not for production).
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = parseInt(process.env.SMTP_PORT || "587", 10);
+const SMTP_SECURE = process.env.SMTP_SECURE === "true"; // true for port 465, false (STARTTLS) for 587/25
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
+const DIGEST_FROM = process.env.DIGEST_FROM_EMAIL || SMTP_USER;
 const CRON_SECRET = process.env.CRON_SECRET;
 
 function todayUTC() {
@@ -96,18 +105,34 @@ function renderDigestHtml({ date, ticketRows, workstationRows }) {
   `;
 }
 
-async function sendEmail(to, html) {
-  if (!RESEND_API_KEY) return { sent: false, reason: "RESEND_API_KEY not configured" };
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: DIGEST_FROM, to, subject: `VIEENT OPS — Daily Digest, ${todayUTC()}`, html }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    return { sent: false, reason: `Resend error: ${res.status} ${body}` };
+let cachedTransporter = null;
+function getTransporter() {
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
+  if (!cachedTransporter) {
+    cachedTransporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_SECURE,
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    });
   }
-  return { sent: true };
+  return cachedTransporter;
+}
+
+async function sendEmail(to, html) {
+  const transporter = getTransporter();
+  if (!transporter) return { sent: false, reason: "SMTP_HOST/SMTP_USER/SMTP_PASS not configured" };
+  try {
+    await transporter.sendMail({
+      from: DIGEST_FROM,
+      to,
+      subject: `VIEENT OPS — Daily Digest, ${todayUTC()}`,
+      html,
+    });
+    return { sent: true };
+  } catch (err) {
+    return { sent: false, reason: `SMTP error: ${err.message}` };
+  }
 }
 
 export async function GET(request) {
