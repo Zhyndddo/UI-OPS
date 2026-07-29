@@ -104,7 +104,7 @@ export default function PhaiSinhList() {
             <table className={styles.table} style={{ minWidth: 1700 }}>
               <thead>
                 <tr>
-                  <th>Type</th><th>Label</th><th>Tên Bài</th><th>Artist</th><th>Contributor</th>
+                  <th>Type</th><th>Label</th><th>Tên Bài</th><th>Related DID</th><th>Artist</th><th>Contributor</th>
                   <th>Release</th><th>Description</th><th>Tác Quyền</th><th>URL</th><th>Note</th><th>LBM url</th>
                   <th>PIC</th><th>Status</th>
                 </tr>
@@ -167,6 +167,7 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onU
       {textCell("typeRequest", d.typeRequest, isExecutorView)}
       {textCell("label", d.label, isExecutorView)}
       {textCell("tenBai", d.tenBai, isExecutorView)}
+      {textCell("relatedDid", d.relatedDid, isExecutorView)}
       <td style={{ fontSize: 12, whiteSpace: "pre-line" }}>{artistGroup || "—"}</td>
       <td style={{ fontSize: 12, whiteSpace: "pre-line" }}>{contributorGroup || "—"}</td>
       <td style={{ fontSize: 12 }}>{releaseGroup}</td>
