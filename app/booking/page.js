@@ -270,6 +270,28 @@ export default function BookingBoard() {
     if (!error && data) setEntries((prev) => [...prev, data]);
   }
 
+  // Same insert shape as addEntry, but for N rows at once — used by the
+  // "Bulk Add" textarea and the CSV import path in BrandCell's popup, so
+  // pasting/importing a batch of channels+URLs doesn't mean N round trips.
+  // `rows` is [{ channelName, link }]; platformFixed mirrors addEntry's
+  // `platform` arg (the column's own fixed metric name for Ads-like
+  // columns, or null everywhere else where each row's own channelName is
+  // what actually becomes the entry's `platform` field).
+  async function addEntries(releaseId, categoryName, brand, platformFixed, rows) {
+    const channelTypeTag = categoryName === "TikTok Channel" ? tiktokGroupForBrand(brand) : null;
+    const payload = (rows || [])
+      .filter((row) => row.link && row.link.trim())
+      .map((row) => ({
+        release_id: releaseId, booking_round: round, channel_type: channelTypeTag,
+        category_id: categoryIdByName[categoryName] || null, channel_name: brand || null,
+        platform: platformFixed || row.channelName || null, link: row.link.trim(), status: "Chưa Booking",
+      }));
+    if (payload.length === 0) return { count: 0 };
+    const { data, error } = await supabase.from("media_booking_entries").insert(payload).select();
+    if (!error && data) setEntries((prev) => [...prev, ...data]);
+    return { count: error ? 0 : payload.length, error };
+  }
+
   async function cycleStatus(entry) {
     const order = ["Chưa Booking", "Đã Gửi", "Done"];
     const next = order[(order.indexOf(entry.status) + 1) % order.length];
@@ -495,6 +517,7 @@ export default function BookingBoard() {
                         expanded={expandedCell === `${r.id}:${c.key}`}
                         onToggle={() => setExpandedCell(expandedCell === `${r.id}:${c.key}` ? null : `${r.id}:${c.key}`)}
                         onAdd={(platform, link) => addEntry(r.id, c.categoryName, c.brand, c.platform || platform, link)}
+                        onAddBulk={(rows) => addEntries(r.id, c.categoryName, c.brand, c.platform, rows)}
                         onCycleStatus={cycleStatus}
                         canAdd={hangMucFilter !== "All"}
                         cellBorderLeft={isGroupStart ? "2px solid #555" : "1px solid var(--border)"}
@@ -543,12 +566,37 @@ function ResultCell({ release, categories, bookedFor, entries, categoryIdByName 
   );
 }
 
-function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, onAdd, onCycleStatus, canAdd, cellBorderLeft }) {
+// Shared by the Bulk Add textarea and CSV import — one row per line,
+// `channel,url` when the column doesn't have a fixed platform (comma
+// splits on the FIRST comma only, so URLs are never truncated), or just
+// `url` per line when it does. Blank lines and a header line matching the
+// template's own column names are skipped so pasting the template back in
+// (with or without its header) never creates a junk row.
+function parseBulkLinks(text, hasChannelCol) {
+  return (text || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^(channel_name|channel|url)\s*,?\s*(url)?$/i.test(line))
+    .map((line) => {
+      if (!hasChannelCol) return { channelName: "", link: line };
+      const idx = line.indexOf(",");
+      if (idx === -1) return { channelName: "", link: line.trim() };
+      return { channelName: line.slice(0, idx).trim(), link: line.slice(idx + 1).trim() };
+    })
+    .filter((row) => row.link);
+}
+
+function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, onAdd, onAddBulk, onCycleStatus, canAdd, cellBorderLeft }) {
   const [showAddPopup, setShowAddPopup] = useState(false);
   const [channelName, setChannelName] = useState("");
   const [link, setLink] = useState("");
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkResult, setBulkResult] = useState(null);
   const added = cellEntries.length;
   const isDone = booked != null && booked > 0 && added >= booked;
+  const hasChannelCol = !column.platform;
 
   // Stays open after each add — the cell (column.brand/column.categoryName)
   // already fully identifies what's being booked, so there's nothing left
@@ -559,6 +607,31 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
     if (!link.trim()) return;
     onAdd(channelName, link);
     setLink("");
+  }
+
+  async function submitBulk() {
+    const rows = parseBulkLinks(bulkText, hasChannelCol);
+    if (rows.length === 0) { setBulkResult({ count: 0, error: "No valid rows found." }); return; }
+    const { count, error } = await onAddBulk(rows);
+    setBulkResult({ count, error: error?.message });
+    if (!error) setBulkText("");
+  }
+
+  function handleCsvFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setBulkText((prev) => (prev ? prev + "\n" : "") + String(reader.result || ""));
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+
+  function downloadTemplate() {
+    const csv = hasChannelCol ? "channel_name,url\nKênh chính,https://…\n" : "url\nhttps://…\n";
+    const a = document.createElement("a");
+    a.href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
+    a.download = "booking-links-template.csv";
+    a.click();
   }
 
   return (
@@ -612,41 +685,84 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
               boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
             }}
           >
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>
-              Add Link — {column.label}
-            </div>
-            {!column.platform && (
-              <div style={{ marginBottom: 6 }}>
-                <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>Channel Name</label>
-                <input
-                  className={styles.input}
-                  style={{ width: "100%", padding: "6px 8px", fontSize: 12 }}
-                  placeholder="e.g. Kênh chính"
-                  value={channelName}
-                  onChange={(e) => setChannelName(e.target.value)}
-                />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase" }}>
+                Add Link — {column.label}
               </div>
-            )}
-            <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>URL</label>
-            <div style={{ display: "flex", gap: 6 }}>
-              <input
-                autoFocus
-                className={styles.input}
-                style={{ flex: 1, padding: "6px 8px", fontSize: 12 }}
-                placeholder="https://…"
-                value={link}
-                onChange={(e) => setLink(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") submitAdd(); }}
-              />
               <button
-                className={styles.btnPrimary}
-                onClick={submitAdd}
-                title="Add — stays open so you can add another"
-                style={{ padding: "0 14px", fontSize: 16, fontWeight: 800, lineHeight: 1 }}
+                onClick={() => { setBulkMode((m) => !m); setBulkResult(null); }}
+                style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 10, cursor: "pointer", textDecoration: "underline" }}
               >
-                +
+                {bulkMode ? "single link" : "bulk / CSV"}
               </button>
             </div>
+
+            {!bulkMode ? (
+              <>
+                {!column.platform && (
+                  <div style={{ marginBottom: 6 }}>
+                    <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>Channel Name</label>
+                    <input
+                      className={styles.input}
+                      style={{ width: "100%", padding: "6px 8px", fontSize: 12 }}
+                      placeholder="e.g. Kênh chính"
+                      value={channelName}
+                      onChange={(e) => setChannelName(e.target.value)}
+                    />
+                  </div>
+                )}
+                <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>URL</label>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    autoFocus
+                    className={styles.input}
+                    style={{ flex: 1, padding: "6px 8px", fontSize: 12 }}
+                    placeholder="https://…"
+                    value={link}
+                    onChange={(e) => setLink(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") submitAdd(); }}
+                  />
+                  <button
+                    className={styles.btnPrimary}
+                    onClick={submitAdd}
+                    title="Add — stays open so you can add another"
+                    style={{ padding: "0 14px", fontSize: 16, fontWeight: 800, lineHeight: 1 }}
+                  >
+                    +
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div>
+                <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 3 }}>
+                  {hasChannelCol ? "One per line: channel name, url" : "One URL per line"}
+                </label>
+                <textarea
+                  className={styles.textarea}
+                  style={{ width: "100%", fontSize: 11, minHeight: 90, boxSizing: "border-box" }}
+                  placeholder={hasChannelCol ? "Kênh chính, https://…\nKênh phụ, https://…" : "https://…\nhttps://…"}
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                />
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                  <label style={{ fontSize: 10, color: "var(--accent-soft)", cursor: "pointer", textDecoration: "underline" }}>
+                    Import CSV
+                    <input type="file" accept=".csv,text/csv" onChange={handleCsvFile} style={{ display: "none" }} />
+                  </label>
+                  <button onClick={downloadTemplate} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 10, cursor: "pointer", textDecoration: "underline" }}>
+                    Download template
+                  </button>
+                </div>
+                <button className={styles.btnPrimary} onClick={submitBulk} style={{ width: "100%", marginTop: 8 }}>
+                  Add All
+                </button>
+                {bulkResult && (
+                  <div style={{ fontSize: 11, marginTop: 6, color: bulkResult.error ? "#ff6b6b" : "#7ee6a8" }}>
+                    {bulkResult.error ? `Error: ${bulkResult.error}` : `Added ${bulkResult.count} link${bulkResult.count === 1 ? "" : "s"}.`}
+                  </div>
+                )}
+              </div>
+            )}
             {cellEntries.length > 0 && (
               <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 8, display: "grid", gap: 4, maxHeight: 140, overflowY: "auto" }}>
                 {cellEntries.map((e) => (

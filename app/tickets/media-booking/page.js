@@ -1333,7 +1333,11 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
     <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
       <div style={{ display: "flex", alignItems: "stretch", gap: 0, maxWidth: 1100, width: "100%", maxHeight: "88vh" }} onClick={(e) => e.stopPropagation()}>
 
-        {/* LEFT — always reflects the active package's lines */}
+        {/* LEFT — the data tool. Not in the active package yet: shows the
+            live Summarize total, read-only, with an Add button. Already in
+            it: this IS the editor for that line's own numbers (quantity/
+            Số Gói toggle, Đơn Giá) — the right panel only shows these
+            read-only now, Chi Tiết is the only thing still edited there. */}
         <div style={{ flex: 1, background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: "10px 0 0 10px", padding: 20, overflowY: "auto" }}>
           <div className={styles.eyebrow}>// {activePackage ? activePackage.name : "Pick Lines"}</div>
           <h3 style={{ fontSize: 16, fontWeight: 800, margin: "0 0 14px" }}>Summarized Hạng Mục</h3>
@@ -1345,12 +1349,56 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
             <div style={{ display: "grid", gap: 8 }}>
               {groupedSummarizedRows.map((g) => {
                 const line = lineFor(g.categoryId, g.brand);
+                if (!line) {
+                  return (
+                    <div key={g.key} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", fontSize: 12 }}>
+                      <span style={{ flex: 1 }}>{g.categoryName}{g.brand ? ` — ${g.brand}` : ""}</span>
+                      <span style={{ color: "var(--text-faint)" }}>{g.totalPosts} posts</span>
+                      <button className={styles.btnSmall} onClick={() => toggleLine(g, true)}>+ Add</button>
+                    </div>
+                  );
+                }
                 return (
-                  <label key={g.key} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", cursor: "pointer", fontSize: 12 }}>
-                    <input type="checkbox" checked={!!line} onChange={(e) => toggleLine(g, e.target.checked)} />
-                    <span style={{ flex: 1 }}>{g.categoryName}{g.brand ? ` — ${g.brand}` : ""}</span>
-                    <strong>{g.totalPosts} posts</strong>
-                  </label>
+                  <div key={g.key} style={{ background: "var(--bg-card)", border: "1px solid var(--accent)", borderRadius: 6, padding: "8px 12px", fontSize: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: g.isAds ? 0 : 6 }}>
+                      <span style={{ flex: 1, fontWeight: 700 }}>{g.categoryName}{g.brand ? ` — ${g.brand}` : ""}</span>
+                      <button className={styles.btnSmall} onClick={() => toggleLine(g, false)}>− Remove</button>
+                    </div>
+                    {g.isAds ? (
+                      <div style={{ color: "var(--text-faint)", fontSize: 11 }}>Pre-priced from entries — {fmtVnd(line.amount)}</div>
+                    ) : (
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        {line.is_package_priced ? (
+                          <input
+                            type="number"
+                            className={styles.input}
+                            style={{ width: 70, padding: "4px 6px", fontSize: 12 }}
+                            defaultValue={line.package_count ?? ""}
+                            placeholder="Số Gói"
+                            onBlur={(e) => updateLine(line, { package_count: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                          />
+                        ) : (
+                          <span>{line.quantity ?? "—"} {line.unit}</span>
+                        )}
+                        <button
+                          onClick={() => toggleLinePricing(line)}
+                          title="Convert to Package"
+                          style={{ background: "none", border: "none", color: line.is_package_priced ? "var(--accent-soft)" : "var(--text-faint)", cursor: "pointer", fontSize: 10, padding: 0 }}
+                        >
+                          {line.is_package_priced ? "↺ Bài Đăng" : "⇄ Convert to Package"}
+                        </button>
+                        <input
+                          type="number"
+                          className={styles.input}
+                          style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
+                          defaultValue={line.unit_price ?? ""}
+                          placeholder="Đơn Giá"
+                          onBlur={(e) => updateLine(line, { unit_price: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                        />
+                        <strong style={{ marginLeft: "auto" }}>{fmtVnd(line.amount)}</strong>
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -1435,32 +1483,15 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
                     return (
                       <tr key={line.id}>
                         <td style={{ fontSize: 12 }}>{cat?.name || line.platform || "—"}{line.brand ? ` — ${line.brand}` : ""}</td>
-                        <td>
+                        {/* Read-only now — quantity/Số Gói is edited from the
+                            left data tool, this just mirrors it live. */}
+                        <td style={{ fontSize: 12, color: "#ccc" }}>
                           {isAdsLine ? (
-                            // Ads is mushed and pre-priced at Summarize time —
-                            // there's no single quantity or Số Gói toggle to
-                            // show here, the number already lives in Thành Tiền.
                             <span style={{ color: "var(--text-faint)" }}>—</span>
                           ) : line.is_package_priced ? (
-                            <input
-                              type="number"
-                              className={styles.input}
-                              style={{ width: 70, padding: "4px 6px", fontSize: 12 }}
-                              defaultValue={line.package_count ?? ""}
-                              placeholder="Số Gói"
-                              onBlur={(e) => updateLine(line, { package_count: e.target.value === "" ? null : parseFloat(e.target.value) })}
-                            />
+                            <span>{line.package_count ?? "—"} Gói</span>
                           ) : (
                             <span>{line.quantity ?? "—"} {line.unit}</span>
-                          )}
-                          {!isAdsLine && (
-                            <button
-                              onClick={() => toggleLinePricing(line)}
-                              title="Convert to Package"
-                              style={{ display: "block", marginTop: 4, background: "none", border: "none", color: line.is_package_priced ? "var(--accent-soft)" : "var(--text-faint)", cursor: "pointer", fontSize: 10, padding: 0 }}
-                            >
-                              {line.is_package_priced ? "↺ Bài Đăng" : "⇄ Convert to Package"}
-                            </button>
                           )}
                         </td>
                         <td style={{ maxWidth: 220 }}>
@@ -1471,21 +1502,9 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
                             onBlur={(e) => updateLine(line, { detail: e.target.value || null })}
                           />
                         </td>
-                        <td>
-                          {isAdsLine ? (
-                            // Đơn Giá already happened per-metric at the entry
-                            // level for Ads — there's no single unit price to
-                            // edit here.
-                            <span style={{ color: "var(--text-faint)" }}>—</span>
-                          ) : (
-                            <input
-                              type="number"
-                              className={styles.input}
-                              style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
-                              defaultValue={line.unit_price ?? ""}
-                              onBlur={(e) => updateLine(line, { unit_price: e.target.value === "" ? null : parseFloat(e.target.value) })}
-                            />
-                          )}
+                        {/* Also read-only — edited from the left data tool. */}
+                        <td style={{ fontSize: 12, color: "#ccc" }}>
+                          {isAdsLine ? <span style={{ color: "var(--text-faint)" }}>—</span> : fmtVnd(line.unit_price)}
                         </td>
                         <td style={{ fontSize: 12, fontWeight: 700 }}>{fmtVnd(line.amount)}</td>
                         <td style={{ whiteSpace: "nowrap" }}>

@@ -52,6 +52,7 @@ export default function ReleaseDetailPage() {
   const [bookingEntries, setBookingEntries] = useState([]);
   const [bookingCategories, setBookingCategories] = useState([]); // package_categories — for the Media Booking tab's per-Hạng-Mục summary
   const [magicLinkUrl, setMagicLinkUrl] = useState(null);
+  const [hasMediaBookingTicket, setHasMediaBookingTicket] = useState(false);
 
   useEffect(() => {
     if (!supabase || !id) return;
@@ -91,6 +92,21 @@ export default function ReleaseDetailPage() {
             .is("deleted_at", null)
             .limit(1);
           setArtistProfileTicket(apTix?.[0] || null);
+        }
+        // The real gate for "Send Package Ticket" — whether a Media
+        // Booking ticket for this release ACTUALLY exists right now, not
+        // the release.package_ticket_sent flag (imported releases don't
+        // always have that flag mapped, so it can't be trusted alone).
+        const { data: mbTab } = await supabase.from("ticket_tabs").select("id").eq("key", "media_booking").single();
+        if (mbTab) {
+          const { data: mbTix } = await supabase
+            .from("tickets")
+            .select("id")
+            .eq("tab_id", mbTab.id)
+            .eq("data->>releaseId", data.did)
+            .is("deleted_at", null)
+            .limit(1);
+          setHasMediaBookingTicket((mbTix || []).length > 0);
         }
       });
     supabase
@@ -237,14 +253,15 @@ export default function ReleaseDetailPage() {
     await sendPackageTicket();
   }
 
-  // Deliberately NOT gated on package_ticket_sent anymore — imported
-  // releases don't always have that flag mapped/set correctly, so this
-  // stays the reliable escape hatch: from here, sending another Media
-  // Booking ticket for this release always works, regardless of whether
-  // one was already sent before. (The "New Ticket" search page is where
-  // duplicates actually get prevented — it filters out releases that
-  // already have a ticket, see ReleasePicker's excludeIds.)
+  // Gated on hasMediaBookingTicket (a real existence check), not on
+  // release.package_ticket_sent — that flag isn't reliably set for
+  // imported releases, which was letting duplicate tickets slip through.
+  // No extra ticket from here once one exists; the only supported way to
+  // get another Media Booking ticket moving for this release is the
+  // dedicated INT MEDIA follow-up, which reopens the SAME ticket instead
+  // of creating a new one.
   async function sendPackageTicket() {
+    if (hasMediaBookingTicket) return;
     const { data: mbTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "media_booking").single();
     if (mbTab) {
       await supabase.from("tickets").insert({
@@ -254,6 +271,7 @@ export default function ReleaseDetailPage() {
         status_log: { [mbTab.default_status]: new Date().toISOString() },
       });
     }
+    setHasMediaBookingTicket(true);
 
     const patch = { package_ticket_sent: true };
     if (form.project_type === "BRIEF & DATA") patch.project_type = "DEALING";
@@ -409,6 +427,7 @@ export default function ReleaseDetailPage() {
             magicLinkUrl={magicLinkUrl}
             onToggleLock={togglePackageLock}
             onSendPackageTicket={sendPackageTicket}
+            hasMediaBookingTicket={hasMediaBookingTicket}
             onSendIntMediaTicket={sendIntMediaTicket}
             pitchingTicket={pitchingTicket}
             pitchingTypesDraft={pitchingTypesDraft}
@@ -556,7 +575,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, setTab }) {
+function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, setTab }) {
   const { profile } = useAuth();
   const isAdminOrAbove = profile?.role === "admin" || profile?.role === "dev";
   const [genres, setGenres] = useState([]);
@@ -755,9 +774,11 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           <button
             className={styles.btnSmall}
             onClick={onSendPackageTicket}
-            title={form.package_ticket_sent ? "A package ticket was already sent — this sends another one." : undefined}
+            disabled={hasMediaBookingTicket}
+            style={hasMediaBookingTicket ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+            title={hasMediaBookingTicket ? "A Media Booking ticket already exists for this release." : undefined}
           >
-            {form.package_ticket_sent ? "Send Another Package Ticket" : "Send Package Ticket to Marketing"}
+            {hasMediaBookingTicket ? "Package Ticket Already Sent" : "Send Package Ticket to Marketing"}
           </button>
           {form.project_type === "Chỉ Phát Hành" && (
             <button
