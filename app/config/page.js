@@ -685,6 +685,12 @@ function NotificationsSection() {
             </select>
           </div>
         </div>
+        <p style={{ fontSize: 10, color: "#d99", marginTop: -4, marginBottom: 10 }}>
+          On Vercel's Hobby plan, cron jobs are capped at once/day — the actual send time is fixed by vercel.json's
+          schedule (currently 00:00 UTC), not this picker. Changing it here records intent but needs vercel.json
+          edited + redeployed to actually move the send time, unless the project is on a paid Vercel plan with an
+          hourly cron schedule, where this picker becomes live.
+        </p>
         <label className={styles.fieldLabel} style={{ fontSize: 10 }}>Recipients (comma-separated emails — blank = every admin/dev)</label>
         <div style={{ display: "flex", gap: 8 }}>
           <input
@@ -699,8 +705,7 @@ function NotificationsSection() {
         <p style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 10 }}>
           Sent via SMTP through a real mailbox (SMTP_HOST/SMTP_USER/SMTP_PASS in the deployment's environment) — no
           domain ownership needed. Without those set, "Send test" below still computes the digest but reports the
-          email as unsent. Fires via an hourly scheduled job (vercel.json); the hour above + a same-day guard is what
-          makes it land once, at the right time.
+          email as unsent.
         </p>
         <button className={styles.btnSecondary} onClick={sendTestDigest} disabled={testing} style={{ marginTop: 10 }}>
           {testing ? "Sending…" : "Send test digest now"}

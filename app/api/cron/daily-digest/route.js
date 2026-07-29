@@ -7,12 +7,18 @@ import { TEAM_WORKSTATION_TYPES, WORKSTATION_TYPE_LABELS, TICKET_TYPE_LABELS } f
 // Daily digest — Config item 5b. Compiles today's ticket activity (sent /
 // completed, per ticket type) + every workstation's current not-done row
 // count, and emails it out. Fires from a scheduled job (see vercel.json's
-// cron entry, hourly) hitting this route; the actual "once a day, at the
-// configured hour" behavior is enforced HERE via notification_settings
-// (digest_hour + digest_last_sent_date), not by the cron schedule itself
-// — Vercel Cron's minimum interval is coarser than "any hour 0-23", so an
-// hourly poll + an in-DB dedup guard is the reliable way to hit an
-// admin-configurable hour.
+// cron entry) hitting this route once/day.
+//
+// NOTE on scheduling: the original design here was an hourly poll +
+// same-day dedup guard, so the Config -> Notifications "hour" picker could
+// actually control the send time. Vercel's Hobby plan caps cron jobs at
+// once/day (a cron expression that fires more often fails at deploy
+// time — this broke deploys entirely until vercel.json's schedule was
+// changed to "0 0 * * *"), so on Hobby the fire time is whatever
+// vercel.json says, fixed at deploy time — changing it means editing that
+// file and redeploying, not just changing the Config setting. Upgrading
+// to a paid Vercel plan and restoring an hourly schedule in vercel.json
+// makes the Config hour picker live again.
 //
 // Sends via SMTP through a real mailbox you already control (SMTP_USER/
 // SMTP_PASS below) rather than a third-party email API — no domain
@@ -155,15 +161,17 @@ export async function GET(request) {
     return NextResponse.json({ skipped: "Notifications disabled." });
   }
 
-  const currentUTCHour = new Date().getUTCHours();
+  // Vercel Hobby caps cron jobs at once/day, so vercel.json's schedule is
+  // the actual fixed fire time (currently 00:00 UTC — see that file's
+  // comment), not the digest_hour setting below. digest_hour still exists
+  // for orgs on a plan that allows more frequent cron (Pro+) — restore the
+  // hourly poll in vercel.json ("0 * * * *") and this hour-match check
+  // becomes live again; on Hobby it's informational only, and the
+  // same-day dedup guard is what actually prevents a double-send if this
+  // route gets hit more than once on the same day.
   const today = todayUTC();
-  if (!force) {
-    if (currentUTCHour !== settings.digest_hour) {
-      return NextResponse.json({ skipped: `Not the configured hour (now ${currentUTCHour}, configured ${settings.digest_hour}).` });
-    }
-    if (settings.digest_last_sent_date === today) {
-      return NextResponse.json({ skipped: "Already sent today." });
-    }
+  if (!force && settings.digest_last_sent_date === today) {
+    return NextResponse.json({ skipped: "Already sent today." });
   }
 
   const digest = await buildDigest(supabaseAdmin);
