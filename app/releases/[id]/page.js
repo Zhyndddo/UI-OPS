@@ -12,6 +12,7 @@ import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import UrlField from "../../../lib/UrlField";
 import { useAuth } from "../../../lib/AuthContext";
 import { validateLabelNameEdit } from "../../../lib/labelHelpers";
+import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -53,6 +54,7 @@ export default function ReleaseDetailPage() {
   const [bookingCategories, setBookingCategories] = useState([]); // package_categories — for the Media Booking tab's per-Hạng-Mục summary
   const [magicLinkUrl, setMagicLinkUrl] = useState(null);
   const [hasMediaBookingTicket, setHasMediaBookingTicket] = useState(false);
+  const [pitchingInfoTicket, setPitchingInfoTicket] = useState(null);
 
   useEffect(() => {
     if (!supabase || !id) return;
@@ -79,6 +81,23 @@ export default function ReleaseDetailPage() {
           const found = tix?.[0] || null;
           setPitchingTicket(found);
           if (found) setPitchingTypesDraft({ priority: false, spotify: false, nct: false, zing: false, ...found.data });
+        }
+        // Pitching Info (AR's genre/mood/DSP tagging ticket) — the New
+        // Release create form already auto-sends this the moment Priority
+        // or Spotify is ticked, but that side effect didn't exist here on
+        // the detail page, so releases edited after creation could tick
+        // Priority later and nothing would ever notify AR. Fetch existing
+        // state so the button below can tell "already sent" from "not yet".
+        const { data: piTab } = await supabase.from("ticket_tabs").select("id").eq("key", "pitching_info").single();
+        if (piTab) {
+          const { data: piTix } = await supabase
+            .from("tickets")
+            .select("id")
+            .eq("tab_id", piTab.id)
+            .eq("data->>releaseId", data.did)
+            .is("deleted_at", null)
+            .limit(1);
+          setPitchingInfoTicket(piTix?.[0] || null);
         }
         // Same idempotency check for Artist Profile — releaseId-matched,
         // not name-matched, since two releases can share an artist.
@@ -287,6 +306,31 @@ export default function ReleaseDetailPage() {
     setPitchingTypesDraft((d) => ({ ...d, [key]: checked }));
   }
 
+  // Explicit button rather than auto-firing on the Priority checkbox —
+  // ticking the box is just a draft edit until Save (like everything else
+  // here), and this needs the Pitching ticket to exist first anyway, so an
+  // automatic send right on click would either race Save or silently do
+  // nothing. Mirrors app/new-release/page.js's create-time logic (send
+  // Pitching Info the moment Priority or Spotify is wanted), just as an
+  // explicit action here instead of an implicit one at creation time.
+  async function sendPitchingInfoTicket() {
+    if (pitchingInfoTicket) return;
+    const { data: piTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching_info").single();
+    if (!piTab) return;
+    const { data: created } = await supabase
+      .from("tickets")
+      .insert({
+        tab_id: piTab.id,
+        data: { releaseId: form.did },
+        status: piTab.default_status,
+        status_log: { [piTab.default_status]: new Date().toISOString() },
+        requester_segment: form.requester_segment || null,
+      })
+      .select()
+      .single();
+    if (created) setPitchingInfoTicket(created);
+  }
+
 
   // Magic link generation moved to Marketing's package spec builder (not
   // built yet) — this page only reads/displays an existing link now,
@@ -432,6 +476,8 @@ export default function ReleaseDetailPage() {
             pitchingTicket={pitchingTicket}
             pitchingTypesDraft={pitchingTypesDraft}
             onPitchingToggle={handlePitchingToggle}
+            pitchingInfoTicket={pitchingInfoTicket}
+            onSendPitchingInfoTicket={sendPitchingInfoTicket}
             setTab={setTab}
           />
         )}
@@ -575,7 +621,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, setTab }) {
+function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, setTab }) {
   const { profile } = useAuth();
   const isAdminOrAbove = profile?.role === "admin" || profile?.role === "dev";
   const [genres, setGenres] = useState([]);
@@ -813,6 +859,8 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           update={update}
           pitchingTypes={pitchingTypesDraft}
           onPitchingToggle={onPitchingToggle}
+          pitchingInfoTicket={pitchingInfoTicket}
+          onSendPitchingInfoTicket={onSendPitchingInfoTicket}
         />
 
         <SaveBar onSave={onSave} saving={saving} />
@@ -1109,16 +1157,13 @@ function PreReleaseTab({ form, update, onSave, saving }) {
         <Field label="Tiktok Release Timing">
           <select className={styles.select} value={form.linkshare_tiktok_timing || ""} onChange={(e) => update("linkshare_tiktok_timing", e.target.value)}>
             <option value="">—</option>
-            <option>Cùng Ngày</option>
-            <option>Ngày release+4</option>
-            <option>Ngày release+7</option>
+            {LINKSHARE_TIKTOK_OPTIONS.map((o) => <option key={o}>{o}</option>)}
           </select>
         </Field>
         <Field label="Facebook Release Timing">
           <select className={styles.select} value={form.linkshare_facebook_timing || ""} onChange={(e) => update("linkshare_facebook_timing", e.target.value)}>
             <option value="">—</option>
-            <option>Cùng ngày</option>
-            <option>Ngày deliver+4</option>
+            {LINKSHARE_FACEBOOK_OPTIONS.map((o) => <option key={o}>{o}</option>)}
           </select>
         </Field>
       </div>
@@ -1270,34 +1315,6 @@ function TasklistTab({ form, bookingEntries }) {
   );
 }
 
-function buildProductNote(f) {
-  const lines = [
-    `Tên Bài Hát: ${f.title || ""}`,
-    `Ca sĩ: ${f.main_artist || ""}`,
-    `Ngày Phát Hành: ${f.release_date || ""} ${f.release_time || ""}`,
-    `---------------------`,
-    `CHANNEL: ${f.requester_segment || ""}`,
-    `---------------------`,
-  ];
-  const numbered = [
-    ["LINK DRIVE", f.drive_link],
-    ["LINK SHARE", f.link_share],
-    ["SMARTLINK", f.smartlink],
-    ["LINKDASH", f.link_lbm],
-    ["UPC", f.upc],
-    ["LINK UGC", f.link_ugc],
-    ["MEDIA REPORT", f.link_media_report],
-  ];
-  numbered.forEach(([label, val], i) => {
-    if (val) lines.push(`${i + 1}. ${label}: ${val}`);
-  });
-  return lines.join("\n");
-}
-
-function buildLinkshareNote(f) {
-  return [
-    `Thời gian phát hành Tiktok: ${f.linkshare_tiktok_timing || ""}`,
-    `Thời gian phát hành Facebook: ${f.linkshare_facebook_timing || ""}`,
-    `Link DATA: ${f.drive_link || ""}`,
-  ].join("\n");
-}
+// buildProductNote/buildLinkshareNote moved to lib/releaseNotes.js so the
+// OPS Upload ticket list can show the exact same live-computed notes
+// (imported at the top of this file) without re-deriving the template.
