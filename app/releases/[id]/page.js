@@ -269,6 +269,55 @@ export default function ReleaseDetailPage() {
   // built yet) — this page only reads/displays an existing link now,
   // fetched on load below, never creates one.
 
+  // INT MEDIA follow-up — special, not a normal "create a package" flow.
+  // Only ever offered after AR has locked in "Chỉ Phát Hành" (see the
+  // button's gating below). Reopens the SAME media_booking ticket rather
+  // than creating a duplicate — pulls it out of COMPLETE back to
+  // REQUESTED and pre-fills Propose Package = INT MEDIA, so Marketing
+  // sees it land back on their queue as new work. The magic-link page
+  // picks up the built INT MEDIA package automatically once it exists
+  // (see app/pick-package/[token]/page.js) — nothing else to wire here.
+  async function sendIntMediaTicket() {
+    if (form.int_media_requested) return;
+    const { data: mbTab } = await supabase.from("ticket_tabs").select("id").eq("key", "media_booking").single();
+    if (mbTab) {
+      const { data: existing } = await supabase
+        .from("tickets")
+        .select("id, data, status_log")
+        .eq("tab_id", mbTab.id)
+        .contains("data", { releaseId: form.did })
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existing) {
+        await supabase
+          .from("tickets")
+          .update({
+            status: "REQUESTED",
+            status_log: { ...(existing.status_log || {}), REQUESTED: new Date().toISOString() },
+            data: { ...(existing.data || {}), proposedPackage: "INT MEDIA" },
+          })
+          .eq("id", existing.id);
+      } else {
+        // No prior ticket somehow — fall back to creating one fresh
+        // rather than silently doing nothing.
+        await supabase.from("tickets").insert({
+          tab_id: mbTab.id,
+          data: { releaseId: form.did, proposedPackage: "INT MEDIA" },
+          status: "REQUESTED",
+          status_log: { REQUESTED: new Date().toISOString() },
+        });
+      }
+    }
+
+    const patch = { int_media_requested: true };
+    await supabase.from("releases").update(patch).eq("id", id);
+    setForm((f) => ({ ...f, ...patch }));
+    setRelease((r) => ({ ...r, ...patch }));
+  }
+
   async function togglePackageLock() {
     const newVal = !form.package_locked;
     setForm((f) => ({ ...f, package_locked: newVal }));
@@ -293,21 +342,37 @@ export default function ReleaseDetailPage() {
 
         <div style={{ marginBottom: 20 }}>
           <div className={styles.eyebrow}>{form.did || "—"}</div>
-          <h1 className={styles.title} style={{ marginBottom: 4 }}>
-            {form.title} — {form.main_artist}
-          </h1>
-          <div style={{ color: "#888", fontSize: 13, marginBottom: 14 }}>
+          {firstUrl(form.link_lbm) ? (
+            <a
+              href={firstUrl(form.link_lbm)}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: "block", textDecoration: "none" }}
+              title={firstUrl(form.link_lbm)}
+            >
+              <h1 className={styles.title} style={{ marginBottom: 4, color: "inherit" }}>
+                {form.title} — {form.main_artist}
+              </h1>
+            </a>
+          ) : (
+            <h1 className={styles.title} style={{ marginBottom: 4 }}>
+              {form.title} — {form.main_artist}
+            </h1>
+          )}
+          <div style={{ color: "#888", fontSize: 13, marginBottom: form.upc ? 4 : 14 }}>
             {form.release_date} {form.release_time}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 720 }}>
-            <div>
-              <label className={styles.fieldLabel} style={{ fontSize: 10 }}>Link Drive</label>
-              <ViewOnlyLinks value={form.drive_link} />
+          {form.upc && (
+            <div style={{ color: "#666", fontSize: 12, marginBottom: 14 }}>
+              UPC: <span style={{ color: "#999" }}>{form.upc}</span>
             </div>
-            <div>
-              <label className={styles.fieldLabel} style={{ fontSize: 10 }}>URL LBM</label>
-              <ViewOnlyLinks value={form.link_lbm} />
-            </div>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <LinkPill label="Link Drive" href={firstUrl(form.drive_link)} />
+            <span style={{ color: "#444" }}>|</span>
+            <LinkPill label="Smartlink" href={firstUrl(form.smartlink)} />
+            <span style={{ color: "#444" }}>|</span>
+            <LinkPill label="Magic Link" href={magicLinkUrl} />
           </div>
         </div>
 
@@ -339,6 +404,7 @@ export default function ReleaseDetailPage() {
             magicLinkUrl={magicLinkUrl}
             onToggleLock={togglePackageLock}
             onSendPackageTicket={sendPackageTicket}
+            onSendIntMediaTicket={sendIntMediaTicket}
             pitchingTicket={pitchingTicket}
             pitchingTypesDraft={pitchingTypesDraft}
             onPitchingToggle={handlePitchingToggle}
@@ -360,30 +426,32 @@ export default function ReleaseDetailPage() {
 }
 
 
-// View-only rendering for URL fields that shouldn't be editable here (the
-// top-of-page Link Drive / URL LBM fields) — same newline-joined multi-URL
-// storage as UrlField, just rendered as plain clickable link(s) instead of
-// an input/textarea.
-function ViewOnlyLinks({ value }) {
+// First non-empty URL out of a newline-joined multi-URL field (the same
+// storage convention UrlField/QuickCreate use everywhere) — used wherever
+// only ONE representative link is needed (the title hyperlink, the
+// Link Drive/Smartlink pills), not the full list.
+function firstUrl(value) {
   const urls = (value || "").split("\n").map((s) => s.trim()).filter(Boolean);
-  if (urls.length === 0) {
-    return <div style={{ fontSize: 13, color: "var(--text-faint)", padding: "6px 0" }}>—</div>;
+  return urls[0] || null;
+}
+
+// Short label-as-hyperlink — "Link Drive" / "Smartlink" / "Magic Link"
+// text itself is the link, not the raw URL. Dims to plain text (no href)
+// when there's nothing to link to yet.
+function LinkPill({ label, href }) {
+  if (!href) {
+    return <span style={{ fontSize: 12, fontWeight: 700, color: "#555" }}>{label}</span>;
   }
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "6px 0" }}>
-      {urls.map((u, i) => (
-        <a
-          key={i}
-          href={u}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={u}
-          style={{ fontSize: 13, color: "var(--accent)", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 340 }}
-        >
-          🔗 {urls.length > 1 ? `Link ${i + 1}` : u}
-        </a>
-      ))}
-    </div>
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={href}
+      style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", textDecoration: "none" }}
+    >
+      {label}
+    </a>
   );
 }
 
@@ -460,7 +528,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, setTab }) {
+function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, setTab }) {
   const { profile } = useAuth();
   const isAdminOrAbove = profile?.role === "admin" || profile?.role === "dev";
   const [genres, setGenres] = useState([]);
@@ -664,6 +732,17 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           >
             {form.package_ticket_sent ? "Package Ticket Sent" : "Send Package Ticket to Marketing"}
           </button>
+          {form.project_type === "Chỉ Phát Hành" && (
+            <button
+              className={styles.btnSmall}
+              onClick={onSendIntMediaTicket}
+              disabled={form.int_media_requested}
+              style={form.int_media_requested ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+              title="Reopens the Media Booking ticket for Marketing to build an INT MEDIA add-on package"
+            >
+              {form.int_media_requested ? "INT MEDIA Follow-up Sent" : "Send INT MEDIA Follow-up"}
+            </button>
+          )}
         </div>
 
         {magicLinkUrl && (

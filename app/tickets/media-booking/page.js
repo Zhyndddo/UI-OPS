@@ -320,8 +320,12 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const isTikTokChannel = selectedCategory?.name === "TikTok Channel";
   const isAds = selectedCategory?.name === "Ads";
   const rowOptions = isTikTokChannel ? TIKTOK_SUBCHANNELS : PLATFORMS;
-  const currentBrand = isSocial ? brand : isCommunity ? communityBrand : null;
-  const brandList = isSocial ? BRANDS : isCommunity ? COMMUNITY_BRANDS : null;
+  const currentBrand = isSocial ? brand : isCommunity ? communityBrand : isAds ? adsBrand : null;
+  // Ads now rolls up per ad-platform brand (Facebook/YouTube/TikTok/Spotify
+  // Ads), not one mushed '' total — see handleSummarize's Ads branch — so
+  // it needs a real brandList too, same as Social/Community, for the
+  // counts popup below Summarize to show real per-brand numbers.
+  const brandList = isSocial ? BRANDS : isCommunity ? COMMUNITY_BRANDS : isAds ? ADS_BRANDS : null;
 
   useEffect(() => {
     (async () => {
@@ -454,23 +458,30 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
 
     if (isAds) {
       // Pricing lives at the entry level here (Số Lượng × Đơn Giá per
-      // metric row) — everything mushes into ONE '' rollup regardless of
-      // which of the 4 ad-platform groups a metric belongs to, matching
-      // the mushed "ADS" package line (Chi Tiết lists every filled metric,
-      // Thành Tiền is the pre-computed grand total — see BuildPackagePopup's
-      // Ads-line special case, which must never let a later Chi Tiết edit
-      // recompute this amount from scratch).
+      // metric row). Rolls up PER ad-platform brand now (Facebook/
+      // YouTube/TikTok/Spotify Ads each get their own row) rather than one
+      // mushed '' total — matches the package builder now keeping Ads as
+      // separate brand lines while every other Hạng Mục combines into one
+      // (see BuildPackagePopup). Only brands with at least one filled-in
+      // metric get a row — an ad-platform group nobody touched doesn't
+      // leave a stray 0 row behind.
       const rows = entries.map((e) => ({ ...e, amount: (e.count_posts || 0) * (e.unit_price || 0) }));
       setSummary(rows);
-      const totalMoney = rows.reduce((sum, r) => sum + r.amount, 0);
-      const totalQty = rows.reduce((sum, r) => sum + (r.count_posts || 0), 0);
-      const detailText = rows.filter((r) => (r.count_posts || 0) > 0).map((r) => `SL ${r.platform}`).join("; ");
 
-      await supabase.from("media_booking_package_categories").upsert(
-        { release_id: release.id, category_id: selectedCategoryId, brand: "", total_posts: totalQty, total_money: totalMoney, detail_text: detailText || null, skipped: false, updated_at: new Date().toISOString() },
-        { onConflict: "release_id,category_id,brand" }
-      );
-      setCategoryTotals((prev) => ({ ...prev, "": totalQty }));
+      const totalsByBrand = {};
+      for (const adsBrandKey of ADS_BRANDS) {
+        const brandRows = rows.filter((r) => r.brand === adsBrandKey);
+        const totalMoney = brandRows.reduce((sum, r) => sum + r.amount, 0);
+        const totalQty = brandRows.reduce((sum, r) => sum + (r.count_posts || 0), 0);
+        const detailText = brandRows.filter((r) => (r.count_posts || 0) > 0).map((r) => `SL ${r.platform}`).join("; ");
+        if (brandRows.length === 0 || (totalQty === 0 && !detailText)) continue;
+        totalsByBrand[adsBrandKey] = totalQty;
+        await supabase.from("media_booking_package_categories").upsert(
+          { release_id: release.id, category_id: selectedCategoryId, brand: adsBrandKey, total_posts: totalQty, total_money: totalMoney, detail_text: detailText || null, skipped: false, updated_at: new Date().toISOString() },
+          { onConflict: "release_id,category_id,brand" }
+        );
+      }
+      setCategoryTotals((prev) => ({ ...prev, ...totalsByBrand }));
       setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
       setSkippedCategoryIds((prev) => { const next = new Set(prev); next.delete(selectedCategoryId); return next; });
       return;
@@ -927,6 +938,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
           onClose={() => setShowBuildPopup(false)}
           magicLinkUrl={magicLinkUrl}
           onMagicLinkGenerated={setMagicLinkUrl}
+          proposedPackage={ticket.data?.proposedPackage}
         />
       )}
 
@@ -1029,13 +1041,25 @@ function computeLineAmount(line) {
 }
 
 // Small popup for naming a package — replaces the browser prompt, and
-// hides Vĩnh Viễn (and INT MEDIA) once one already exists for this
-// release — both are fixed, one-per-release names, not custom-typed like
-// the years tiers.
-function PackageNamePopup({ existingNames, onConfirm, onCancel }) {
+// hides Vĩnh Viễn once one already exists for this release (a fixed,
+// one-per-release name, not custom-typed like the years tiers).
+//
+// INT MEDIA is no longer a normal, freely-pickable tier here — it's a
+// special add-on package that only ever gets built in response to the
+// "Send INT MEDIA Follow-up" button on the release detail page (see
+// app/releases/[id]/page.js), which sets this ticket's Propose Package to
+// "INT MEDIA". allowIntMedia reflects that — the button only shows at all
+// when this ticket was opened for exactly that purpose.
+function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel }) {
   const vinhVienTaken = existingNames.includes("Độc Quyền Vĩnh Viễn");
   const intMediaTaken = existingNames.includes("INT MEDIA");
-  const [tierMode, setTierMode] = useState(vinhVienTaken ? (intMediaTaken ? "years" : "intMedia") : "vinhVien");
+  // Never auto-default to the INT MEDIA tier, even when it's offered —
+  // INT MEDIA renders its package lines read-only (names only, no
+  // quantities/pricing), so silently pre-selecting it meant clicking
+  // "Clone Package" and confirming without looking could turn a normal,
+  // fully-editable clone into a locked one by accident. INT MEDIA must
+  // always be a deliberate click now, for both "create" and "clone".
+  const [tierMode, setTierMode] = useState(vinhVienTaken ? "years" : "vinhVien");
   const [years, setYears] = useState("2");
   const name = tierMode === "vinhVien" ? "Độc Quyền Vĩnh Viễn" : tierMode === "intMedia" ? "INT MEDIA" : `Độc Quyền ${years} năm`;
 
@@ -1054,15 +1078,17 @@ function PackageNamePopup({ existingNames, onConfirm, onCancel }) {
           >
             Vĩnh Viễn
           </button>
-          <button
-            className={styles.btnSmall}
-            onClick={() => !intMediaTaken && setTierMode("intMedia")}
-            disabled={intMediaTaken}
-            style={tierMode === "intMedia" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}
-            title={intMediaTaken ? "Already created for this release" : "Mushed package — Hạng Mục names only, no quantities or pricing"}
-          >
-            INT MEDIA
-          </button>
+          {allowIntMedia && (
+            <button
+              className={styles.btnSmall}
+              onClick={() => !intMediaTaken && setTierMode("intMedia")}
+              disabled={intMediaTaken}
+              style={tierMode === "intMedia" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}
+              title={intMediaTaken ? "Already created for this release" : "Mushed package — Hạng Mục names only, no quantities or pricing"}
+            >
+              INT MEDIA
+            </button>
+          )}
           <button className={styles.btnSmall} onClick={() => setTierMode("years")} style={tierMode === "years" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}>
             Custom Years
           </button>
@@ -1090,7 +1116,7 @@ function PackageNamePopup({ existingNames, onConfirm, onCancel }) {
 // immediately, same for edit/delete on the right. Nothing here is staged
 // then saved — that staging model was the actual source of both the
 // "second package doesn't save" bug and the checkbox cross-talk bug.
-function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagicLinkGenerated }) {
+function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagicLinkGenerated, proposedPackage }) {
   const [summarizedRows, setSummarizedRows] = useState([]);
   const [packages, setPackages] = useState([]);
   const [activePackageId, setActivePackageId] = useState(null);
@@ -1152,25 +1178,56 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
     return (activePackage?.media_booking_package_lines || []).find((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
   }
 
+  // Every OTHER Hạng Mục mushes its brand rows into ONE combined package
+  // line (brand '') when building — Social's VIEENT+ENVI, Community's 3
+  // page brands, TikTok Channel's 8 sub-brands all become a single row
+  // with a summed quantity, since the built package/magic link never
+  // needs the brand breakdown. Ads is the one exception — since
+  // handleSummarize now rolls it up per ad-platform brand (Facebook/
+  // YouTube/TikTok/Spotify Ads), it keeps one group per summarized row,
+  // i.e. one line per brand, on purpose.
+  //
+  // Note: this only groups what's shown here for checking/unchecking — a
+  // package built before this change that already has separate per-brand
+  // lines for a non-Ads category keeps them (nothing here deletes old
+  // data), they just won't show as "checked" against this combined view.
+  function groupSummarizedRows(rows) {
+    const groups = {};
+    rows.forEach((r) => {
+      const categoryName = r.package_categories?.name || "";
+      if (categoryName === "Ads") {
+        const key = `${r.category_id}::${r.brand || ""}`;
+        groups[key] = { key, categoryId: r.category_id, categoryName, isAds: true, brand: r.brand, totalPosts: r.total_posts, detailText: r.detail_text, totalMoney: r.total_money, rows: [r] };
+      } else {
+        const key = r.category_id;
+        if (!groups[key]) groups[key] = { key, categoryId: r.category_id, categoryName, isAds: false, brand: "", totalPosts: 0, rows: [] };
+        groups[key].totalPosts += r.total_posts || 0;
+        groups[key].rows.push(r);
+      }
+    });
+    return Object.values(groups);
+  }
+  const groupedSummarizedRows = groupSummarizedRows(summarizedRows);
+
   // Checking/unchecking a Hạng Mục line writes to the DB immediately —
   // no separate save step, which is what was breaking on the 2nd+ package.
-  async function toggleLine(row, checked) {
+  async function toggleLine(group, checked) {
     if (!activePackage) return;
     if (checked) {
-      const categoryName = row.package_categories?.name || "";
-      // Ads mushes into one line with a pre-computed Chi Tiết + Thành Tiền
-      // straight from Summarize's entry-level pricing — no unit/quantity,
-      // no reference-template lookup, nothing to compute later.
-      const insertPayload = categoryName === "Ads"
+      const categoryName = group.categoryName;
+      // Ads mushes into one line PER BRAND with a pre-computed Chi Tiết +
+      // Thành Tiền straight from Summarize's per-brand pricing — no unit/
+      // quantity, no reference-template lookup, nothing to compute later.
+      const insertPayload = group.isAds
         ? {
-            package_id: activePackage.id, category_id: row.category_id, brand: row.brand,
-            unit: null, quantity: null, detail: row.detail_text || null, amount: row.total_money ?? null,
+            package_id: activePackage.id, category_id: group.categoryId, brand: group.brand,
+            unit: null, quantity: null, detail: group.detailText || null, amount: group.totalMoney ?? null,
             sort_order: (activePackage.media_booking_package_lines || []).length,
           }
         : {
-            package_id: activePackage.id, category_id: row.category_id, brand: row.brand,
+            package_id: activePackage.id, category_id: group.categoryId, brand: "",
             unit: referenceDetailFor(referenceTiers, categoryName)?.unit || "Bài Đăng",
-            quantity: row.total_posts, detail: referenceDetailFor(referenceTiers, categoryName)?.detail || null, amount: null,
+            quantity: group.totalPosts, detail: referenceDetailFor(referenceTiers, categoryName)?.detail || null, amount: null,
             sort_order: (activePackage.media_booking_package_lines || []).length,
           };
       const { data: line } = await supabase
@@ -1180,7 +1237,7 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
         .single();
       if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
     } else {
-      const existing = lineFor(row.category_id, row.brand);
+      const existing = lineFor(group.categoryId, group.brand);
       if (!existing) return;
       await supabase.from("media_booking_package_lines").delete().eq("id", existing.id);
       setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.filter((l) => l.id !== existing.id) })));
@@ -1257,14 +1314,13 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
             <div className={styles.emptyState}>Create a package on the right first — then its lines show up here to pick.</div>
           ) : (
             <div style={{ display: "grid", gap: 8 }}>
-              {summarizedRows.map((r) => {
-                const line = lineFor(r.category_id, r.brand);
-                const categoryName = r.package_categories?.name || "";
+              {groupedSummarizedRows.map((g) => {
+                const line = lineFor(g.categoryId, g.brand);
                 return (
-                  <label key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", cursor: "pointer", fontSize: 12 }}>
-                    <input type="checkbox" checked={!!line} onChange={(e) => toggleLine(r, e.target.checked)} />
-                    <span style={{ flex: 1 }}>{categoryName}{r.brand ? ` — ${r.brand}` : ""}</span>
-                    <strong>{r.total_posts} posts</strong>
+                  <label key={g.key} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", cursor: "pointer", fontSize: 12 }}>
+                    <input type="checkbox" checked={!!line} onChange={(e) => toggleLine(g, e.target.checked)} />
+                    <span style={{ flex: 1 }}>{g.categoryName}{g.brand ? ` — ${g.brand}` : ""}</span>
+                    <strong>{g.totalPosts} posts</strong>
                   </label>
                 );
               })}
@@ -1436,6 +1492,7 @@ function BuildPackagePopup({ release, categories, onClose, magicLinkUrl, onMagic
       {namePopup && (
         <PackageNamePopup
           existingNames={packages.map((p) => p.name)}
+          allowIntMedia={proposedPackage === "INT MEDIA"}
           onCancel={() => setNamePopup(null)}
           onConfirm={(name) => createPackage(name, namePopup === "clone" ? activePackageId : null)}
         />

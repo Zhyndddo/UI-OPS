@@ -10,13 +10,14 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-// These 2 are always offered alongside whatever real packages Marketing
-// has actually built for this release — they're plain picks with no
-// itemized breakdown, not full packages. ("Int Media" used to be a 3rd
-// entry here as a fake quick-pick; it's now a real buildable package type
-// — see BuildPackagePopup — so it was removed from this list to avoid two
-// different things both being called "Int Media".)
-const SIMPLE_OPTIONS = ["Chỉ Phát Hành", "Không Độc Quyền"];
+// Only "Chỉ Phát Hành" remains as an always-offered plain pick (no
+// itemized breakdown) — "Không Độc Quyền" was removed entirely per
+// request. "Int Media" used to be a 3rd entry here as a fake quick-pick;
+// it's now a real buildable package type (see BuildPackagePopup) AND, as
+// of the INT MEDIA follow-up flow, a special add-on that overrides the
+// Chỉ Phát Hành card below once built — see the intMediaOverride logic
+// further down.
+const SIMPLE_OPTIONS = ["Chỉ Phát Hành"];
 const BOOKING_ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
 
 // Shared Terms Block B ("Chỉ áp dụng cho gói 5 năm và 2 năm…") is only
@@ -38,7 +39,7 @@ export default function PickPackagePage() {
   const [packageItems, setPackageItems] = useState([]); // release_package_items — the confirmed/locked package's real breakdown
   const [bookingEntries, setBookingEntries] = useState([]);
   const [round, setRound] = useState("INT");
-  const [sharedTerms, setSharedTerms] = useState({ a: "", b: "" }); // global_settings' 2 canned blocks, shown alongside any real package's own terms_text
+  const [sharedTerms, setSharedTerms] = useState({ a: "", conditions: "", b: "" }); // global_settings' canned blocks, shown alongside any real package's own terms_text
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -81,10 +82,14 @@ export default function PickPackagePage() {
     const termsByName = {};
     (termsRows || []).forEach((t) => { if (t.terms_text) termsByName[t.contract_type.trim().toLowerCase()] = t.terms_text; });
 
-    const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_shared_b"]);
+    const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_conditions", "package_terms_shared_b"]);
     const settingsByKey = {};
     (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
-    setSharedTerms({ a: settingsByKey.package_terms_shared_a || "", b: settingsByKey.package_terms_shared_b || "" });
+    setSharedTerms({
+      a: settingsByKey.package_terms_shared_a || "",
+      conditions: settingsByKey.package_terms_conditions || "",
+      b: settingsByKey.package_terms_shared_b || "",
+    });
 
     const realOptions = (realPackages || []).map((p) => {
       // INT MEDIA is a mushed package — Hạng Mục names only, never a
@@ -107,10 +112,23 @@ export default function PickPackagePage() {
       };
     });
     const simpleOptions = SIMPLE_OPTIONS.map((name) => ({ value: name, label: name, kind: "simple", totalValue: null, items: [] }));
-    const options = [...realOptions, ...simpleOptions];
+
+    // INT MEDIA follow-up override: once Marketing has built an "INT
+    // MEDIA" package for a release that was locked in as "Chỉ Phát Hành",
+    // INT MEDIA REPLACES the plain Chỉ Phát Hành card here — same
+    // underlying lock, richer display. This never touches
+    // releases.project_type (the historical "AR locked Chỉ Phát Hành"
+    // fact stays true) — purely what's shown on this page.
+    const intMediaBuilt = rel?.project_type === "Chỉ Phát Hành" && realOptions.find((o) => o.value === "INT MEDIA");
+    const options = intMediaBuilt
+      ? [...realOptions, ...simpleOptions.filter((o) => o.value !== "Chỉ Phát Hành")]
+      : [...realOptions, ...simpleOptions];
     setPickOptions(options);
 
-    if (rel && !["BRIEF & DATA", "DEALING"].includes(rel.project_type)) {
+    if (intMediaBuilt) {
+      setSelectedValue("INT MEDIA");
+      setConfirmed(true);
+    } else if (rel && !["BRIEF & DATA", "DEALING"].includes(rel.project_type)) {
       setSelectedValue(rel.project_type);
       setConfirmed(true);
     }
@@ -206,12 +224,15 @@ export default function PickPackagePage() {
   const isPipelineStage = ["BRIEF & DATA", "DEALING"].includes(release?.project_type);
 
   // "Rich" cards (real built packages, incl. INT MEDIA) get the wide
-  // itemized-table treatment; "compact" ones (the 2 always-offered simple
-  // picks — Chỉ Phát Hành / Không Độc Quyền — which never have a
-  // breakdown) are just small stacked pills off to the side instead of
-  // eating a full card's worth of width for a single line of text.
-  const richOptions = pickOptions.filter((c) => c.kind !== "simple");
-  const compactOptions = pickOptions.filter((c) => c.kind === "simple");
+  // itemized-table treatment; "compact" ones (the always-offered simple
+  // pick, Chỉ Phát Hành — no breakdown) are just small stacked pills off
+  // to the side instead of eating a full card's worth of width for a
+  // single line of text. Once locked, every OTHER option is hidden
+  // entirely (not just disabled) — there's nothing left to compare once
+  // the choice is final.
+  const visibleOptions = isLocked ? pickOptions.filter((c) => c.value === selectedValue) : pickOptions;
+  const richOptions = visibleOptions.filter((c) => c.kind !== "simple");
+  const compactOptions = visibleOptions.filter((c) => c.kind === "simple");
 
   return (
     <div className={styles.page}>
@@ -283,13 +304,17 @@ export default function PickPackagePage() {
                     )}
                   </div>
                 </button>
-                {c.termsText && (
-                  <div style={{ borderTop: "1px solid #262626", padding: "10px 16px", background: "rgba(255,107,26,0.04)" }}>
-                    <div style={{ fontSize: 11, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>{c.termsText}</div>
-                    {(sharedTerms.a || (c.showSharedB && sharedTerms.b)) && (
-                      <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #333", display: "grid", gap: 6 }}>
-                        {sharedTerms.a && <div style={{ fontSize: 10, color: "#888", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.a}</div>}
-                        {c.showSharedB && sharedTerms.b && <div style={{ fontSize: 10, color: "#888", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.b}</div>}
+                {(c.termsText || sharedTerms.a || sharedTerms.conditions) && (
+                  // Fixed order: intro (a) -> conditions -> this package's
+                  // own terms (c, e.g. VĨNH VIỄN/03 năm) -> the 5/2-năm
+                  // note, only for the tiers it applies to.
+                  <div style={{ borderTop: "1px solid #262626", padding: "10px 16px", background: "rgba(255,107,26,0.04)", display: "grid", gap: 8 }}>
+                    {sharedTerms.a && <div style={{ fontSize: 11, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.a}</div>}
+                    {sharedTerms.conditions && <div style={{ fontSize: 11, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.conditions}</div>}
+                    {c.termsText && <div style={{ fontSize: 11, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>{c.termsText}</div>}
+                    {c.showSharedB && sharedTerms.b && (
+                      <div style={{ paddingTop: 8, borderTop: "1px dashed #333" }}>
+                        <div style={{ fontSize: 10, color: "#888", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.b}</div>
                       </div>
                     )}
                   </div>

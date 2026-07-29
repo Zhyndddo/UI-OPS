@@ -483,6 +483,7 @@ function PicDefaultsSection() {
 function PackageTermsSection() {
   const [packages, setPackages] = useState([]);
   const [sharedA, setSharedA] = useState("");
+  const [conditions, setConditions] = useState("");
   const [sharedB, setSharedB] = useState("");
   const [loading, setLoading] = useState(true);
   const [savedKey, setSavedKey] = useState(null);
@@ -496,12 +497,13 @@ function PackageTermsSection() {
     setLoading(true);
     const [{ data: pkgs }, { data: settings }] = await Promise.all([
       supabase.from("contract_type_packages").select("id, contract_type, terms_text").order("contract_type"),
-      supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_shared_b"]),
+      supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_conditions", "package_terms_shared_b"]),
     ]);
     setPackages(pkgs || []);
     const byKey = {};
     (settings || []).forEach((s) => (byKey[s.key] = s.value));
     setSharedA(byKey.package_terms_shared_a || "");
+    setConditions(byKey.package_terms_conditions || "");
     setSharedB(byKey.package_terms_shared_b || "");
     setLoading(false);
   }
@@ -554,24 +556,40 @@ function PackageTermsSection() {
       </div>
 
       <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
-        Shared Terms (shown under every package's own terms above)
+        Shared Terms
       </div>
+      <p style={{ fontSize: 10, color: "var(--text-dim)", marginTop: -6, marginBottom: 12 }}>
+        Fixed render order on the magic-link page: Intro → Conditions → this package's own terms (above) → the
+        5/2-năm note (only shown for those 2 tiers).
+      </p>
       <div style={{ display: "grid", gap: 16, maxWidth: 640 }}>
         <div>
           <label className={styles.fieldLabel} style={{ fontSize: 11, display: "flex", justifyContent: "space-between" }}>
-            <span>Block A</span>
+            <span>Intro (shown first)</span>
             {savedKey === "package_terms_shared_a" && <span style={{ color: "var(--success-fg)", fontWeight: 400 }}>Saved</span>}
           </label>
           <textarea
             className={styles.textarea}
-            style={{ width: "100%", minHeight: 90, fontSize: 12 }}
+            style={{ width: "100%", minHeight: 60, fontSize: 12 }}
             defaultValue={sharedA}
             onBlur={(e) => { setSharedA(e.target.value); saveShared("package_terms_shared_a", e.target.value); }}
           />
         </div>
         <div>
           <label className={styles.fieldLabel} style={{ fontSize: 11, display: "flex", justifyContent: "space-between" }}>
-            <span>Block B</span>
+            <span>Conditions (shown second, before this package's own terms)</span>
+            {savedKey === "package_terms_conditions" && <span style={{ color: "var(--success-fg)", fontWeight: 400 }}>Saved</span>}
+          </label>
+          <textarea
+            className={styles.textarea}
+            style={{ width: "100%", minHeight: 70, fontSize: 12 }}
+            defaultValue={conditions}
+            onBlur={(e) => { setConditions(e.target.value); saveShared("package_terms_conditions", e.target.value); }}
+          />
+        </div>
+        <div>
+          <label className={styles.fieldLabel} style={{ fontSize: 11, display: "flex", justifyContent: "space-between" }}>
+            <span>5/2-năm note (shown last, 5-năm/2-năm packages only)</span>
             {savedKey === "package_terms_shared_b" && <span style={{ color: "var(--success-fg)", fontWeight: 400 }}>Saved</span>}
           </label>
           <textarea
