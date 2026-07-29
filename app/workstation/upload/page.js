@@ -9,6 +9,7 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import StatusCounter from "../../../lib/StatusCounter";
 import { sortByReleaseDateDesc, isThisWeekOrNext, filterProfilesByTeam } from "../../../lib/workstationHelpers";
+import NotePopup from "../../../lib/ReleaseNotePopup";
 import styles from "../../shared.module.css";
 
 const UPLOAD_STATUS_OPTS = ["Running", "Pending", "Cancel"];
@@ -25,6 +26,7 @@ export default function UploadWorkstation() {
   const [assignments, setAssignments] = useState({}); // release_id -> pic_profile_id
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
+  const [notePopup, setNotePopup] = useState(null); // { release, kind: "product" | "linkshare" } | null
 
   useEffect(() => {
     if (!supabase) return;
@@ -35,7 +37,10 @@ export default function UploadWorkstation() {
     setLoading(true);
     const { data: rels } = await supabase
       .from("releases")
-      .select("id, did, title, main_artist, release_date, release_time, upc, drive_link, link_lbm, link_share, smartlink, link_preorder, upload_status")
+      .select(
+        "id, did, title, main_artist, release_date, release_time, upc, drive_link, link_lbm, link_share, smartlink, link_preorder, upload_status, " +
+        "link_ugc, link_media_report, requester_segment, linkshare_tiktok_timing, linkshare_facebook_timing"
+      )
       .eq("requested", true);
     setReleases(rels || []);
 
@@ -61,6 +66,16 @@ export default function UploadWorkstation() {
   async function updateField(release, field, value) {
     setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, [field]: value } : r)));
     await supabase.from("releases").update({ [field]: value }).eq("id", release.id);
+  }
+
+  // Same immediate-write pattern as updateField, but takes a whole patch
+  // object (used by the Note/Linkshare Note popup, which can edit several
+  // config fields) and also keeps the open popup's own copy of the release
+  // in sync so the "Generated Note" preview updates live as you type.
+  async function updateNoteField(release, patch) {
+    setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, ...patch } : r)));
+    setNotePopup((p) => (p && p.release.id === release.id ? { ...p, release: { ...p.release, ...patch } } : p));
+    await supabase.from("releases").update(patch).eq("id", release.id);
   }
 
   async function updatePic(release, profileId) {
@@ -139,6 +154,7 @@ export default function UploadWorkstation() {
                   <th>Link Share</th>
                   <th>Smartlink</th>
                   <th>Pre-order</th>
+                  <th>Note</th>
                   <th>Upload Status</th>
                   <th title={defaultPic ? `Default: ${profiles.find((p) => p.id === defaultPic)?.name}` : "No default set"}>PIC</th>
                 </tr>
@@ -154,6 +170,7 @@ export default function UploadWorkstation() {
                     highlight={isThisWeekOrNext(r.release_date)}
                     onUpdateField={updateField}
                     onUpdatePic={updatePic}
+                    onOpenNote={(kind) => setNotePopup({ release: r, kind })}
                   />
                 ))}
               </tbody>
@@ -162,11 +179,20 @@ export default function UploadWorkstation() {
           )}
         </div>
       </div>
+
+      {notePopup && (
+        <NotePopup
+          release={notePopup.release}
+          kind={notePopup.kind}
+          onUpdate={(patch) => updateNoteField(notePopup.release, patch)}
+          onClose={() => setNotePopup(null)}
+        />
+      )}
     </AppShell>
   );
 }
 
-function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateField, onUpdatePic }) {
+function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateField, onUpdatePic, onOpenNote }) {
   const URL_KEYS = ["drive_link", "link_lbm", "link_share", "smartlink", "link_preorder"];
   const [drafts, setDrafts] = useState(() => {
     const initial = {};
@@ -212,6 +238,26 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateFiel
       </td>
       <td style={{ minWidth: 180 }}>
         <UrlField styles={styles} value={drafts.link_preorder} onChange={(v) => setDrafts((d) => ({ ...d, link_preorder: v }))} onBlur={() => onUpdateField(release, "link_preorder", drafts.link_preorder)} />
+      </td>
+      <td>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            onClick={() => onOpenNote("product")}
+            title="Note — Link Drive, Smartlink, UPC, etc."
+            style={{ background: "none", border: "none", color: "var(--accent-soft)", cursor: "pointer", fontSize: 16, padding: 0 }}
+          >
+            📝
+          </button>
+          <button
+            type="button"
+            onClick={() => onOpenNote("linkshare")}
+            title="Linkshare Note — Tiktok/Facebook release timing"
+            style={{ background: "none", border: "none", color: "var(--accent-soft)", cursor: "pointer", fontSize: 16, padding: 0 }}
+          >
+            🔗
+          </button>
+        </div>
       </td>
       <td>
         <select className={styles.select} style={{ minWidth: 110 }} value={release.upload_status || "Running"} onChange={(e) => onUpdateField(release, "upload_status", e.target.value)}>
