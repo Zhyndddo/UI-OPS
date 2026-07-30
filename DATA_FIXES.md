@@ -242,3 +242,40 @@ SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-ops-tracking.
 Same dry-run-by-default rule as everything else here, and same "Data Fix
 Scripts" Actions workflow can run it (pick `import-ops-tracking` from the
 dropdown, set `file_path` to wherever you commit the OPS_TRACKING file).
+
+### 6. Checklist repair (`scripts/repair-brief-ticks.js`)
+
+**Found a bug after the first `import-brief` run:** the dry-run log only
+printed title/artist/label/release date — never the checklist columns —
+so a mismatch there had nothing to catch it before `--confirm` wrote it.
+If your imported releases show 0/6 on Metadata Checklist (or the wrong
+values for SONY PUBLISH/PUBLISHING/Splitshare/Request Phụ lục/Single-
+Album-EP) even though the sheet has them filled in, this is why.
+
+`repair-brief-ticks.js` fixes it without redoing the whole import — it
+re-reads the same BRIEF sheet and re-applies ONLY the checklist/tick
+columns (Audio/Artwork/Working Files/Lyric/MV/Metadata, SONY PUBLISH,
+PUBLISHING, Splitshare, Request Phụ lục, Single/Album/EP) onto releases
+that already exist, matched by `legacy_id` — same matching approach as
+`import-ops-tracking.js`. Nothing else on the release (title, links,
+dates, etc.) gets touched.
+
+```bash
+npm install xlsx --no-save
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/repair-brief-ticks.js data/brief-import.xlsx
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/repair-brief-ticks.js data/brief-import.xlsx --confirm
+```
+
+Also available from the "Data Fix Scripts" Actions workflow — pick
+`repair-brief-ticks`. `import-brief.js`'s dry-run log now also prints
+each row's checklist values (`checklist: meta_audio=true meta_artwork=true
+...`), so future imports can be checked against the sheet before writing,
+not just after.
+
+**Still unclear:** whether this was a one-off (stale file committed vs.
+the one actually reviewed) or something in how the Node `xlsx` library
+read those specific columns in your Actions run. If `repair-brief-ticks`'s
+dry-run log shows the SAME wrong values (not just the DB) — i.e. it
+prints `meta_audio=false` for a release where the sheet clearly has "Đã
+có" — that would point to a real parsing issue and needs a closer look at
+the actual file being read, not just a re-apply.

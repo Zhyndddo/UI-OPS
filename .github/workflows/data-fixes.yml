@@ -34,6 +34,7 @@ on:
           - backfill-linkshare-timing
           - import-brief
           - import-ops-tracking
+          - repair-brief-ticks
       confirm:
         description: "Actually write changes (unchecked = dry run only)"
         required: false
@@ -58,7 +59,7 @@ jobs:
       - name: Install dependencies
         run: |
           npm install @supabase/supabase-js --no-save
-          if [ "${{ inputs.script }}" = "import-brief" ] || [ "${{ inputs.script }}" = "import-ops-tracking" ]; then
+          if [ "${{ inputs.script }}" = "import-brief" ] || [ "${{ inputs.script }}" = "import-ops-tracking" ] || [ "${{ inputs.script }}" = "repair-brief-ticks" ]; then
             npm install xlsx --no-save
           fi
 
@@ -67,7 +68,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          if [ "${{ inputs.script }}" = "import-brief" ] || [ "${{ inputs.script }}" = "import-ops-tracking" ]; then
+          if [ "${{ inputs.script }}" = "import-brief" ] || [ "${{ inputs.script }}" = "import-ops-tracking" ] || [ "${{ inputs.script }}" = "repair-brief-ticks" ]; then
             if [ "${{ inputs.confirm }}" = "true" ]; then
               node scripts/${{ inputs.script }}.js "${{ inputs.file_path }}" --confirm
             else

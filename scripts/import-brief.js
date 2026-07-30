@@ -204,7 +204,11 @@ async function main() {
     payload.legacy_id = legacyId;
     if (priorityPitching) payload.priority_pitching_used = true;
 
+    const tickSummary = ["meta_audio", "meta_artwork", "meta_working_files", "meta_lyric", "meta_mv", "meta_doc", "sony_publish", "is_publish", "has_splitshare", "phu_luc_requested"]
+      .map((f) => `${f}=${payload[f]}`)
+      .join(" ");
     console.log(`Row ${rowNum}: ${did} — "${payload.title}" (${payload.main_artist}) — Label ${payload.label} — Release ${payload.release_date}`);
+    console.log(`  checklist: ${tickSummary}`);
 
     if (!confirm) continue;
 
