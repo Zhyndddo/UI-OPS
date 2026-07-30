@@ -9,6 +9,8 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import StatusCounter from "../../../lib/StatusCounter";
 import { sortByReleaseDateDesc, filterProfilesByTeam } from "../../../lib/workstationHelpers";
+import { useSortableRows } from "../../../lib/useSortableRows";
+import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import styles from "../../shared.module.css";
 
 // Field labels swapped per the redesign: the column that used to show as
@@ -83,10 +85,11 @@ export default function PreReleaseWorkstation() {
     return { done, notDone, cancel: 0 };
   }, [releases]);
 
-  const visibleReleases = useMemo(() => {
-    const filtered = showDone ? releases : releases.filter((r) => !isDone(r));
-    return sortByReleaseDateDesc(filtered);
+  const filteredReleases = useMemo(() => {
+    return showDone ? releases : releases.filter((r) => !isDone(r));
   }, [releases, showDone]);
+
+  const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
 
   return (
     <AppShell>
@@ -100,6 +103,7 @@ export default function PreReleaseWorkstation() {
           <button onClick={() => setShowDone((s) => !s)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
             {showDone ? "Hide done rows" : `Show done rows (${counts.done})`}
           </button>
+          <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
@@ -110,7 +114,14 @@ export default function PreReleaseWorkstation() {
             <table className={styles.table} style={{ minWidth: 1100 }}>
               <thead>
                 <tr>
-                  <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>Release info</th>
+                  <SortableTh
+                    sortKey="release_date"
+                    sort={sort}
+                    onToggle={toggleSort}
+                    style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}
+                  >
+                    Release info
+                  </SortableTh>
                   <th>CANVA</th>
                   <th>MV</th>
                   <th style={{ borderLeft: "1px solid var(--border)" }}>Artist Pick</th>

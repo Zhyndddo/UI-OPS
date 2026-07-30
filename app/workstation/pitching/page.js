@@ -9,6 +9,8 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import StatusCounter from "../../../lib/StatusCounter";
 import UrlField from "../../../lib/UrlField";
 import { sortByReleaseDateDesc, filterProfilesByTeam } from "../../../lib/workstationHelpers";
+import { useSortableRows } from "../../../lib/useSortableRows";
+import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import styles from "../../shared.module.css";
 
 const STATUS_OPTS = ["", "Chưa thực hiện", "Đang thực hiện", "Đã pitching", "Không thực hiện"];
@@ -122,10 +124,12 @@ export default function PitchingWorkstation() {
     return { done, notDone, cancel };
   }, [rows]);
 
-  const visibleRows = useMemo(() => {
+  const filteredRows = useMemo(() => {
     const filtered = showDone ? rows : rows.filter((row) => !isDone(row));
-    return sortByReleaseDateDesc(filtered.map((row) => ({ ...row, release_date: row.release?.release_date })));
+    return filtered.map((row) => ({ ...row, release_date: row.release?.release_date }));
   }, [rows, showDone]);
+
+  const { sorted: visibleRows, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredRows);
 
   const openRow = rows.find((row) => row.ticket.id === openTicketId);
 
@@ -141,6 +145,7 @@ export default function PitchingWorkstation() {
           <button onClick={() => setShowDone((s) => !s)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
             {showDone ? "Hide done rows" : `Show done rows (${counts.done})`}
           </button>
+          <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
@@ -151,7 +156,14 @@ export default function PitchingWorkstation() {
             <table className={styles.table} style={{ minWidth: 700 }}>
               <thead>
                 <tr>
-                  <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>Release info</th>
+                  <SortableTh
+                    sortKey="release_date"
+                    sort={sort}
+                    onToggle={toggleSort}
+                    style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}
+                  >
+                    Release info
+                  </SortableTh>
                   <th>Requested</th>
                   <th>PIC</th>
                 </tr>

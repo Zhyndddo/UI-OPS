@@ -9,6 +9,8 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import StatusCounter from "../../../lib/StatusCounter";
 import { sortByReleaseDateDesc, isThisWeekOrNext, filterProfilesByTeam } from "../../../lib/workstationHelpers";
+import { useSortableRows } from "../../../lib/useSortableRows";
+import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import NotePopup from "../../../lib/ReleaseNotePopup";
 import { PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
@@ -119,10 +121,11 @@ export default function UploadWorkstation() {
     return { done, notDone, cancel };
   }, [releases]);
 
-  const visibleReleases = useMemo(() => {
-    const filtered = showDone ? releases : releases.filter((r) => !isDone(r));
-    return sortByReleaseDateDesc(filtered);
+  const filteredReleases = useMemo(() => {
+    return showDone ? releases : releases.filter((r) => !isDone(r));
   }, [releases, showDone]);
+
+  const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
 
   return (
     <AppShell>
@@ -140,6 +143,7 @@ export default function UploadWorkstation() {
           >
             {showDone ? "Hide done rows" : `Show done rows (${counts.done})`}
           </button>
+          <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
@@ -150,13 +154,20 @@ export default function UploadWorkstation() {
             <table className={styles.table} style={{ minWidth: 1100 }}>
               <thead>
                 <tr>
-                  <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>UPC / Link Drive / Release</th>
+                  <SortableTh
+                    sortKey="release_date"
+                    sort={sort}
+                    onToggle={toggleSort}
+                    style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}
+                  >
+                    UPC / Link Drive / Release
+                  </SortableTh>
                   <th>Link LBM</th>
                   <th>Link Share</th>
                   <th>Smartlink</th>
                   <th>Pre-order</th>
                   <th>Note</th>
-                  <th>Upload Status</th>
+                  <SortableTh label="Upload Status" sortKey="upload_status" sort={sort} onToggle={toggleSort} />
                   <th title={defaultPic ? `Default: ${profiles.find((p) => p.id === defaultPic)?.name}` : "No default set"}>PIC</th>
                 </tr>
               </thead>

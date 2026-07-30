@@ -424,7 +424,12 @@ export default function ReleaseDetailPage() {
   // before its data is complete, that's the whole point of it being
   // priority. metaDone still isn't required, but the basic name/date group
   // still is (the upload ticket needs those to mean anything).
-  const uploadReady = nameGroupFilled && (metaDone === META_ITEMS.length || pitchingTypesDraft.priority);
+  // Reads the SAVED priority flag (pitchingTicket.data), not the live
+  // pitchingTypesDraft — ticking the Priority checkbox alone must not
+  // unlock Send Upload; only hitting Save (saveTab persisting the draft
+  // into pitchingTicket) does.
+  const priorityConfirmed = !!pitchingTicket?.data?.priority;
+  const uploadReady = nameGroupFilled && (metaDone === META_ITEMS.length || priorityConfirmed);
 
   return (
     <AppShell>
@@ -701,7 +706,10 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           </select>
         </Field>
         <Field label="Category">
-          <input className={styles.input} value={form.release_category || ""} onChange={(e) => update("release_category", e.target.value)} placeholder="New Release / Re Marketing / ..." />
+          <select className={styles.select} value={form.release_category || "New Release"} onChange={(e) => update("release_category", e.target.value)}>
+            <option value="New Release">New Release</option>
+            <option value="Remarketing">Remarketing</option>
+          </select>
         </Field>
         <Field label="Thể Loại (Genre)">
           <select className={styles.select} value={form.genre || ""} onChange={(e) => update("genre", e.target.value)}>
@@ -715,7 +723,18 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
             {topics.map((opt) => <option key={opt.value} value={opt.value}>{opt.label || opt.value}</option>)}
           </select>
         </Field>
+        <Field label="Single/Album/EP">
+          <select className={styles.select} value={form.single_album_ep || "Single"} onChange={(e) => update("single_album_ep", e.target.value)}>
+            <option value="Single">Single</option>
+            <option value="EP">EP</option>
+            <option value="Album">Album</option>
+          </select>
+        </Field>
       </div>
+
+      {form.single_album_ep !== "Single" && (
+        <TracklistSection releaseId={form.id} />
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
         <Field label="UPC">
@@ -815,6 +834,26 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         ))}
       </div>
 
+      <div className={styles.subheading}>Other Checklist</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
+        <div className={styles.field} style={{ marginBottom: 0 }}>
+          <label className={styles.fieldLabel}>SONY PUBLISH</label>
+          <BoolToggle value={!!form.sony_publish} onChange={(v) => update("sony_publish", v)} />
+        </div>
+        <div className={styles.field} style={{ marginBottom: 0 }}>
+          <label className={styles.fieldLabel}>PUBLISHING</label>
+          <BoolToggle value={!!form.is_publish} onChange={(v) => update("is_publish", v)} />
+        </div>
+        <div className={styles.field} style={{ marginBottom: 0 }}>
+          <label className={styles.fieldLabel}>Splitshare</label>
+          <BoolToggle value={!!form.has_splitshare} onChange={(v) => update("has_splitshare", v)} />
+        </div>
+        <div className={styles.field} style={{ marginBottom: 0 }}>
+          <label className={styles.fieldLabel}>Request Phụ lục</label>
+          <BoolToggle value={!!form.phu_luc_requested} onChange={(v) => update("phu_luc_requested", v)} />
+        </div>
+      </div>
+
       <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 20 }}>
         <button
           className={styles.btnPrimary}
@@ -824,9 +863,14 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         >
           {form.requested ? "UPLOAD SENT" : "SEND UPLOAD"}
         </button>
-        {!form.requested && pitchingTypesDraft.priority && metaDone < META_ITEMS.length && (
+        {!form.requested && !!pitchingTicket?.data?.priority && metaDone < META_ITEMS.length && (
           <p style={{ color: "#e57373", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
-            Priority Pitching is ticked — Send Upload is unlocked even though the checklist above isn't 6/6 yet.
+            Priority Pitching is ticked — Send Upload is unlocked, please fill in Metadata Checklist.
+          </p>
+        )}
+        {!form.requested && pitchingTypesDraft.priority && !pitchingTicket?.data?.priority && metaDone < META_ITEMS.length && (
+          <p style={{ color: "#888", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
+            Priority Pitching is ticked but not saved yet — hit Save below to unlock Send Upload.
           </p>
         )}
       </div>
@@ -911,6 +955,86 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
 
         <SaveBar onSave={onSave} saving={saving} />
       </div>
+    </div>
+  );
+}
+
+// Tracklist — only shown when single_album_ep is EP/Album. Own supabase
+// CRUD (immediate-write, matching the app's default pattern elsewhere)
+// rather than going through the Overview tab's staged form/Save, since
+// these are separate rows in release_tracks, not columns on releases.
+function TracklistSection({ releaseId }) {
+  const [tracks, setTracks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [artistsList, setArtistsList] = useState([]);
+
+  useEffect(() => {
+    if (!supabase || !releaseId) return;
+    load();
+    supabase.from("artists").select("stage_name, labels(label_name)").order("stage_name").then(({ data }) => setArtistsList(data || []));
+  }, [releaseId]);
+
+  async function load() {
+    setLoading(true);
+    const { data } = await supabase.from("release_tracks").select("*").eq("release_id", releaseId).order("sort_order");
+    setTracks(data || []);
+    setLoading(false);
+  }
+
+  async function addTrack() {
+    const nextOrder = tracks.length ? Math.max(...tracks.map((t) => t.sort_order)) + 1 : 1;
+    const { data, error: err } = await supabase
+      .from("release_tracks")
+      .insert({ release_id: releaseId, sort_order: nextOrder, track_name: "" })
+      .select()
+      .single();
+    if (!err && data) setTracks((prev) => [...prev, data]);
+  }
+
+  async function updateTrack(track, field, value) {
+    setTracks((prev) => prev.map((t) => (t.id === track.id ? { ...t, [field]: value } : t)));
+    await supabase.from("release_tracks").update({ [field]: value }).eq("id", track.id);
+  }
+
+  async function removeTrack(track) {
+    if (!window.confirm(`Remove "${track.track_name || "this track"}"?`)) return;
+    setTracks((prev) => prev.filter((t) => t.id !== track.id));
+    await supabase.from("release_tracks").delete().eq("id", track.id);
+  }
+
+  if (loading) return null;
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div className={styles.subheading} style={{ marginTop: 0 }}>Tracklist</div>
+      {tracks.length === 0 && <p style={{ fontSize: 12, color: "#888", marginBottom: 10 }}>No tracks added yet.</p>}
+      {tracks.map((t) => (
+        <div key={t.id} style={{ display: "grid", gridTemplateColumns: "50px 2fr 1.5fr 1.5fr 32px", gap: 8, alignItems: "center", marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: "#888", textAlign: "center" }}>#{t.sort_order}</div>
+          <input
+            className={styles.input}
+            value={t.track_name || ""}
+            placeholder="Track name"
+            onChange={(e) => updateTrack(t, "track_name", e.target.value)}
+          />
+          <ArtistInput
+            styles={styles}
+            value={t.main_artist || ""}
+            onChange={(v) => updateTrack(t, "main_artist", v)}
+            artists={artistsList}
+            placeholder="Main artist"
+          />
+          <ArtistInput
+            styles={styles}
+            value={t.feature_artist || ""}
+            onChange={(v) => updateTrack(t, "feature_artist", v)}
+            artists={artistsList}
+            placeholder="Feature artist"
+          />
+          <button onClick={() => removeTrack(t)} className={styles.btnSmall} style={{ padding: "4px 8px" }} title="Remove track">✕</button>
+        </div>
+      ))}
+      <button onClick={addTrack} className={styles.btnSmall}>+ Add Track</button>
     </div>
   );
 }

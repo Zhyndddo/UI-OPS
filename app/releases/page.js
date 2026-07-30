@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import { fmtDate, metadataPercent, uploadPercent } from "../../lib/helpers";
+import { useSortableRows } from "../../lib/useSortableRows";
+import SortableTh, { ResetSortButton } from "../../lib/SortableTh";
 import styles from "../shared.module.css";
 
 const CHANNELS = ["VIEENT", "ENVI"];
@@ -131,6 +133,8 @@ export default function ReleasesDashboard() {
     });
   }, [releases, createdFilter, statusFilter, channelFilter, typeFilter, labelFilter, searchTest]);
 
+  const { sorted: sortedReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
+
   const anyStatClickFilter = statusFilter || channelFilter || createdFilter;
 
   return (
@@ -191,33 +195,34 @@ export default function ReleasesDashboard() {
               ✕ Clear all filters
             </button>
           )}
+          <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
         </div>
 
         {error && <div className={styles.errorBox}>{error}</div>}
 
         {loading ? (
           <div className={styles.emptyState}>Loading…</div>
-        ) : filteredReleases.length === 0 ? (
+        ) : sortedReleases.length === 0 ? (
           <div className={styles.emptyState}>No releases match these filters.</div>
         ) : (
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>DID</th>
-                <th>Channel</th>
-                <th>Package</th>
-                <th>Label</th>
-                <th>Name</th>
-                <th>Artist</th>
-                <th>Release Date</th>
-                <th>Status</th>
+                <SortableTh label="DID" sortKey="did" sort={sort} onToggle={toggleSort} />
+                <SortableTh label="Channel" sortKey="requester_segment" sort={sort} onToggle={toggleSort} />
+                <SortableTh label="Package" sortKey="release_category" sort={sort} onToggle={toggleSort} />
+                <SortableTh label="Label" sortKey="label" sort={sort} onToggle={toggleSort} />
+                <SortableTh label="Name" sortKey="title" sort={sort} onToggle={toggleSort} />
+                <SortableTh label="Artist" sortKey="main_artist" sort={sort} onToggle={toggleSort} />
+                <SortableTh label="Release Date" sortKey="release_date" sort={sort} onToggle={toggleSort} />
+                <SortableTh label="Status" sortKey="status" sort={sort} onToggle={toggleSort} />
                 <th>Metadata</th>
                 <th>Booking</th>
                 <th>Upload</th>
               </tr>
             </thead>
             <tbody>
-              {filteredReleases.map((r) => {
+              {sortedReleases.map((r) => {
                 const pct = metadataPercent(r);
                 const bpct = bookingPct[r.id] ?? 0;
                 const upct = uploadPercent(r);

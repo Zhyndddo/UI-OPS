@@ -124,3 +124,92 @@ SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/backfill-linkshare-t
 
 All four scripts need `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in the
 environment (same as everything in `BACKUP.md`).
+
+## Follow-up round — Priority Pitching retiming, Category, sortable tables, BRIEF import
+
+### 1. Send Upload now only unlocks after Save
+
+Ticking Priority Pitching under "Which pitching?" no longer unlocks Send
+Upload by itself — you have to hit Save first. Before, `uploadReady` and
+the warning text both read the live checkbox state; now they read the
+saved ticket (`pitchingTicket.data.priority`). While it's ticked-but-
+unsaved, a gray note says so ("Priority Pitching is ticked but not saved
+yet — hit Save below to unlock Send Upload"); once saved, the existing red
+note now reads "Priority Pitching is ticked — Send Upload is unlocked,
+please fill in Metadata Checklist."
+
+### 2. Category is now a fixed single choice
+
+Release detail page and the New Release create form both changed Category
+from free text / an admin-configurable lookup list to a hardcoded 2-option
+select: **New Release** / **Remarketing**. Removed `release_category` from
+the Config page's editable lookup categories, since it's no longer
+lookup-table-driven.
+
+### 3. Sortable columns
+
+Every workstation table (dashboard, Upload, Re-Check both phases,
+Pre-release, Pitching) now has clickable column headers — click once for
+ascending, again for descending, a third time (or the "Reset sort" button
+that appears once you've sorted) goes back to the default: Release Date,
+newest first. Milestone and Streaming are chart/report layouts, not really
+"row per release" tables, so they were left as-is.
+
+### 4. BRIEF sheet import (`scripts/import-brief.js`)
+
+Imports the BRIEF sheet from VIEENT PROJECT MANAGEMENT 2026.xlsx as new
+`releases` rows, per the column = field mapping from the brief. New
+fields this needed, all added via `add-brief-import-fields.sql`:
+
+- `single_album_ep` ('Single' | 'EP' | 'Album') + a new `release_tracks`
+  table — both the release detail page and the New Release form now show
+  a Tracklist section (order / track name / main artist / feature artist)
+  whenever it's EP or Album.
+- `sony_publish`, `is_publish`, `has_splitshare`, `phu_luc_requested` —
+  plain Yes/No ticks, shown on the release detail page under a new "Other
+  Checklist" row next to the Metadata Checklist.
+- `start_date`, `end_date`, `creation_on_tiktok`,
+  `legacy_booking_dot1_raw`, `legacy_booking_dot2_raw` — background-only
+  for now, not shown anywhere in the UI yet (per the brief — Booking Đợt
+  1/2 keep the sheet's raw text verbatim since there's no package
+  simulator to parse it into real booking entries, and Creation on Tiktok
+  is flagged as "can skip for now").
+
+Everything from OPS TRACKING's "NEW RELEASE" and "NR CONFIRM" sheets in
+the brief (CANVA/MV/Artist Pick/Musixmatch/NCT Lyric, DSP check/Tag
+Confirm/Product Type/Update Smartlink/Sound Instagram/Sound TikTok) was
+already built and wired into the Pre-release and Re-Check workstations in
+an earlier round — nothing new needed there.
+
+DID: the sheet's DID column only has the first 10 characters. Per the
+confirmed rule, the last 4 digits come from the row's position in the
+sheet, top-down starting at 1 (row 1 → `-0001`, row 2 → `-0002`, ...). The
+original 10-char value is kept in `legacy_id` so re-running the script
+skips rows already imported.
+
+Needs the `xlsx` npm package (the Data Fix Scripts workflow installs it
+automatically when you pick `import-brief`). Commit the actual .xlsx file
+to the repo first — e.g. `data/brief-import.xlsx` — since the Actions
+dropdown can only take text, not a file upload:
+
+```bash
+npm install xlsx --no-save
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-brief.js data/brief-import.xlsx
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-brief.js data/brief-import.xlsx --confirm
+```
+
+**Not done by this script, on purpose:**
+- Tracklist per EP/Album — the sheet has no per-track breakdown; add
+  tracks by hand afterwards.
+- Booking Đợt 1/Đợt 2 as real Media Booking entries — no package
+  simulator exists to turn the sheet's free text into one; it's preserved
+  verbatim in the two `legacy_booking_dot*_raw` columns instead.
+- Mã Phụ Lục, and the Phụ Lục/Pitching/Booking status+WIP columns —
+  skipped per the brief.
+- **Manual Booking data itself** (the messiest sheet) — explicitly
+  deferred, not started this round.
+
+Run `node scripts/backup.js` first, same as every other write script here.
+Run the SQL migration (`add-brief-import-fields.sql`) against your
+database before running this script — the new columns need to exist
+first.

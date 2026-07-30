@@ -6,7 +6,10 @@ import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
 import styles from "../shared.module.css";
 
-const CATEGORIES = ["contract_type", "genre", "topic", "channel", "release_category"];
+const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
+// release_category is a fixed 2-value single choice ("New Release" /
+// "Remarketing"), hardcoded directly in the New Release form and release
+// detail page — not admin-configurable via lookup_options anymore.
 const ROLES = ["exc", "admin", "dev"];
 const TEAMS = ["AR", "Marketing", "OPS", "Design"];
 

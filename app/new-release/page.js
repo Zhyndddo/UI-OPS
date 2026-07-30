@@ -38,6 +38,8 @@ const EMPTY_FORM = {
   genre: "",
   requester_segment: "",
   release_category: "New Release",
+  single_album_ep: "Single",
+  tracks: [], // client-only — stripped before the releases insert, written to release_tracks after
   release_date: "",
   release_time: "19:00",
   theme: "",
@@ -79,7 +81,6 @@ export default function NewReleasePage() {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [artists, setArtists] = useState([]);
   const [labels, setLabels] = useState([]);
   const [submitting, setSubmitting] = useState(false);
@@ -121,7 +122,7 @@ export default function NewReleasePage() {
       .from("lookup_options")
       .select("category, value, label")
       .eq("active", true)
-      .in("category", ["genre", "topic", "channel", "release_category"])
+      .in("category", ["genre", "topic", "channel"])
       .order("sort_order")
       .then(({ data, error: fetchError }) => {
         if (fetchError) {
@@ -131,7 +132,6 @@ export default function NewReleasePage() {
         setGenres((data || []).filter((r) => r.category === "genre"));
         setTopics((data || []).filter((r) => r.category === "topic"));
         setChannels((data || []).filter((r) => r.category === "channel"));
-        setCategories((data || []).filter((r) => r.category === "release_category"));
       });
 
     supabase
@@ -188,8 +188,9 @@ export default function NewReleasePage() {
     }
 
     setSubmitting(true);
+    const { tracks: trackRows, ...formForInsert } = form;
     const payload = {
-      ...form,
+      ...formForInsert,
       feature_artist: form.feature_artist || null,
       genre: form.genre || null,
       requester_segment: form.requester_segment || null,
@@ -269,6 +270,14 @@ export default function NewReleasePage() {
       }
     }
 
+    if (form.single_album_ep !== "Single" && trackRows && trackRows.length > 0) {
+      await supabase.from("release_tracks").insert(
+        trackRows
+          .filter((t) => (t.track_name || "").trim())
+          .map((t, i) => ({ release_id: data.id, sort_order: i + 1, track_name: t.track_name, main_artist: t.main_artist || null, feature_artist: t.feature_artist || null }))
+      );
+    }
+
     router.push("/releases");
   }
 
@@ -343,11 +352,21 @@ export default function NewReleasePage() {
                 value={form.release_category}
                 onChange={(e) => update("release_category", e.target.value)}
               >
-                {categories.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label || opt.value}
-                  </option>
-                ))}
+                <option value="New Release">New Release</option>
+                <option value="Remarketing">Remarketing</option>
+              </select>
+            </div>
+
+            <div className={styles.field}>
+              <label className={styles.fieldLabel}>Single/Album/EP</label>
+              <select
+                className={styles.select}
+                value={form.single_album_ep}
+                onChange={(e) => update("single_album_ep", e.target.value)}
+              >
+                <option value="Single">Single</option>
+                <option value="EP">EP</option>
+                <option value="Album">Album</option>
               </select>
             </div>
 
@@ -366,6 +385,64 @@ export default function NewReleasePage() {
                 ))}
               </select>
             </div>
+
+            {form.single_album_ep !== "Single" && (
+              <div className={`${styles.field} ${styles.fieldFull}`}>
+                <label className={styles.fieldLabel}>Tracklist</label>
+                {(form.tracks || []).map((t, i) => (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: "40px 2fr 1.5fr 1.5fr 32px", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, color: "#888", textAlign: "center" }}>#{i + 1}</div>
+                    <input
+                      className={styles.input}
+                      placeholder="Track name"
+                      value={t.track_name || ""}
+                      onChange={(e) => {
+                        const next = [...form.tracks];
+                        next[i] = { ...next[i], track_name: e.target.value };
+                        update("tracks", next);
+                      }}
+                    />
+                    <ArtistInput
+                      styles={styles}
+                      value={t.main_artist || ""}
+                      artists={artists}
+                      placeholder="Main artist"
+                      onChange={(v) => {
+                        const next = [...form.tracks];
+                        next[i] = { ...next[i], main_artist: v };
+                        update("tracks", next);
+                      }}
+                    />
+                    <ArtistInput
+                      styles={styles}
+                      value={t.feature_artist || ""}
+                      artists={artists}
+                      placeholder="Feature artist"
+                      onChange={(v) => {
+                        const next = [...form.tracks];
+                        next[i] = { ...next[i], feature_artist: v };
+                        update("tracks", next);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className={styles.btnSmall}
+                      style={{ padding: "4px 8px" }}
+                      onClick={() => update("tracks", form.tracks.filter((_, idx) => idx !== i))}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className={styles.btnSmall}
+                  onClick={() => update("tracks", [...(form.tracks || []), { track_name: "", main_artist: "", feature_artist: "" }])}
+                >
+                  + Add Track
+                </button>
+              </div>
+            )}
 
             <div className={`${styles.field} ${styles.fieldFull}`}>
               <label className={styles.fieldLabel}>

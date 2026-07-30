@@ -10,6 +10,8 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import StatusCounter from "../../../lib/StatusCounter";
 import { sortByReleaseDateDesc, filterProfilesByTeam } from "../../../lib/workstationHelpers";
+import { useSortableRows } from "../../../lib/useSortableRows";
+import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
 
@@ -92,10 +94,11 @@ export default function ConfirmWorkstation() {
     return { done, notDone, cancel: 0 };
   }, [releases, phase]);
 
-  const visibleReleases = useMemo(() => {
-    const filtered = showDone ? releases : releases.filter((r) => !isDone(r));
-    return sortByReleaseDateDesc(filtered);
+  const filteredReleases = useMemo(() => {
+    return showDone ? releases : releases.filter((r) => !isDone(r));
   }, [releases, showDone, phase]);
+
+  const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
 
   return (
     <AppShell>
@@ -122,6 +125,7 @@ export default function ConfirmWorkstation() {
           <button onClick={() => setShowDone((s) => !s)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
             {showDone ? "Hide done rows" : `Show done rows (${counts.done})`}
           </button>
+          <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
@@ -132,11 +136,18 @@ export default function ConfirmWorkstation() {
             <table className={styles.table} style={{ minWidth: 900 }}>
               <thead>
                 <tr>
-                  <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>Release info</th>
+                  <SortableTh
+                    sortKey="release_date"
+                    sort={sort}
+                    onToggle={toggleSort}
+                    style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}
+                  >
+                    Release info
+                  </SortableTh>
                   <th>DSP check</th>
                   <th>URL LBM</th>
                   <th>Tag Confirm</th>
-                  <th>Product Type</th>
+                  <SortableTh label="Product Type" sortKey="project_type" sort={sort} onToggle={toggleSort} />
                   <th>PIC</th>
                 </tr>
               </thead>
@@ -171,7 +182,14 @@ export default function ConfirmWorkstation() {
             <table className={styles.table} style={{ minWidth: 900 }}>
               <thead>
                 <tr>
-                  <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>Release info</th>
+                  <SortableTh
+                    sortKey="release_date"
+                    sort={sort}
+                    onToggle={toggleSort}
+                    style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}
+                  >
+                    Release info
+                  </SortableTh>
                   <th>Smartlink</th>
                   <th>URL LBM</th>
                   <th>Update Smartlink</th>
