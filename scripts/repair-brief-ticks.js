@@ -94,7 +94,16 @@ async function main() {
   const dataRows = rows.slice(FIRST_DATA_ROW - 1).filter((r) => r && r.some((c) => c !== null && c !== ""));
   console.log(`${confirm ? "REPAIRING" : "DRY RUN —"} checking ${dataRows.length} sheet rows against already-imported releases.\n`);
 
+  // Diagnostic, read-only, runs regardless of --confirm: how many releases
+  // actually have legacy_id set at all? If this is 0 (or far below the
+  // release count), every lookup below is guaranteed to miss — that's the
+  // thing to know before puzzling over individual DIDs.
+  const { count: totalCount } = await supabase.from("releases").select("id", { count: "exact", head: true });
+  const { count: withLegacyCount } = await supabase.from("releases").select("id", { count: "exact", head: true }).not("legacy_id", "is", null);
+  console.log(`Diagnostic: ${withLegacyCount ?? "?"} of ${totalCount ?? "?"} releases in the database have legacy_id set at all.\n`);
+
   let updated = 0, notFound = 0, failed = 0, skippedNoDid = 0;
+  const sampleMisses = [];
 
   for (const row of dataRows) {
     let did = null;
@@ -116,6 +125,7 @@ async function main() {
     }
     if (!existing) {
       notFound++;
+      if (sampleMisses.length < 15) sampleMisses.push(did);
       continue;
     }
 
@@ -132,6 +142,10 @@ async function main() {
   }
 
   console.log(`\n${confirm ? "Done." : "Dry run complete — nothing written."} Updated: ${updated}, No matching release: ${notFound}, No DID in row: ${skippedNoDid}, Failed: ${failed}.`);
+  if (sampleMisses.length > 0) {
+    console.log(`\nSample of DIDs from the sheet that found no matching release (first ${sampleMisses.length}):`);
+    sampleMisses.forEach((d) => console.log(`  "${d}" (length ${d.length})`));
+  }
   if (!confirm) console.log("Re-run with --confirm to actually write these updates.");
 }
 
