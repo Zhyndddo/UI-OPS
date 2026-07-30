@@ -213,3 +213,32 @@ Run `node scripts/backup.js` first, same as every other write script here.
 Run the SQL migration (`add-brief-import-fields.sql`) against your
 database before running this script — the new columns need to exist
 first.
+
+### 5. OPS_TRACKING backfill (`scripts/import-ops-tracking.js`)
+
+Fills in the OPS-side fields for releases already created by
+`import-brief.js` — CANVA/MV/Artist Pick/Musixmatch status+link/NCT Lyric
+from OPS_TRACKING's "NEW RELEASE" sheet, and DSP check (bulk-ticks all 6
+`confirm_*_correct` fields)/Tag Confirm/Product Type/Update
+Smartlink/Sound Instagram/Sound TikTok/Check Lyrics-Canva from its "NR
+CONFIRM" sheet. Every one of these fields already existed and was already
+wired into the Pre-release and Re-Check workstations from an earlier
+round — this only backfills historical values, nothing new to build.
+
+**Run `import-brief.js` first.** Matching works by the same 10-character
+DID both files share — `import-brief.js` stores it as `legacy_id` on the
+release it creates, and this script looks up `legacy_id = <this row's DID
+column>` to find which release to update. A DID this script can't find a
+match for is skipped (logged, not an error) — it just means that
+particular OPS_TRACKING row isn't one of the releases you imported from
+BRIEF.
+
+```bash
+npm install xlsx --no-save
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-ops-tracking.js data/ops-tracking-import.xlsx
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-ops-tracking.js data/ops-tracking-import.xlsx --confirm
+```
+
+Same dry-run-by-default rule as everything else here, and same "Data Fix
+Scripts" Actions workflow can run it (pick `import-ops-tracking` from the
+dropdown, set `file_path` to wherever you commit the OPS_TRACKING file).
