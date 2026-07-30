@@ -7,7 +7,7 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
-import LinkOrEditCell from "../../../lib/LinkOrEditCell";
+import MultiLinkCell from "../../../lib/MultiLinkCell";
 import styles from "../../shared.module.css";
 
 // Rebuilt bespoke to match v1's real Manual Claim table — simpler than
@@ -153,7 +153,7 @@ function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, 
       {textCell("label", d.label)}
       {textCell("tenBai", d.tenBai)}
       {textCell("artist", d.artist)}
-      <td style={{ minWidth: 180 }}><LinkOrEditCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v)} /></td>
+      <td style={{ minWidth: 220 }}><MultiLinkCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v)} /></td>
       <td style={{ minWidth: 200 }}>
         <textarea className={styles.textarea} style={{ fontSize: 12, minHeight: 40 }} defaultValue={d.note || ""} onBlur={(e) => onUpdateField(ticket, "note", e.target.value)} />
       </td>
