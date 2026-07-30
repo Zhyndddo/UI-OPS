@@ -10,6 +10,7 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import StatusCounter from "../../../lib/StatusCounter";
 import { sortByReleaseDateDesc, filterProfilesByTeam } from "../../../lib/workstationHelpers";
+import { PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
 
 // Same tool, visited twice — Phase 1 while waiting for release, Phase 2
@@ -19,7 +20,7 @@ import styles from "../../shared.module.css";
 // like the release detail popup, not a tri-state gate.
 const DSP_CHECK_FIELDS = ["confirm_spotify_correct", "confirm_apple_correct", "confirm_zing_correct", "confirm_nct_correct", "confirm_fb_correct", "confirm_ytb_correct"];
 
-const SELECT_FIELDS = "id, did, title, main_artist, release_date, release_time, link_lbm, release_category, project_type, smartlink, confirm_insta_sound, confirm_tiktok_sound_updated, confirm_smartlink_updated, confirm_tag, " + DSP_CHECK_FIELDS.join(", ");
+const SELECT_FIELDS = "id, did, title, main_artist, release_date, release_time, link_lbm, release_category, project_type, smartlink, confirm_insta_sound, confirm_tiktok_sound_updated, confirm_smartlink_updated, confirm_tag, needs_update, " + DSP_CHECK_FIELDS.join(", ");
 
 export default function ConfirmWorkstation() {
   const [phase, setPhase] = useState("confirm_phase1");
@@ -226,5 +227,14 @@ function LbmCell({ release, onUpdateField }) {
 
 function SmartlinkCell({ release, onUpdateField }) {
   const [draft, setDraft] = useState(release.smartlink || "");
-  return <UrlField styles={styles} value={draft} onChange={setDraft} onBlur={() => onUpdateField(release, "smartlink", draft)} />;
+  return (
+    <UrlField
+      styles={styles}
+      value={draft}
+      onChange={setDraft}
+      onBlur={() => onUpdateField(release, "smartlink", draft)}
+      disabled={release.needs_update}
+      disabledTitle={PRIORITY_MODE_WARNING}
+    />
+  );
 }

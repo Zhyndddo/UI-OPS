@@ -10,6 +10,7 @@ import UrlField from "../../../lib/UrlField";
 import StatusCounter from "../../../lib/StatusCounter";
 import { sortByReleaseDateDesc, isThisWeekOrNext, filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import NotePopup from "../../../lib/ReleaseNotePopup";
+import { PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
 
 const UPLOAD_STATUS_OPTS = ["Running", "Pending", "Cancel"];
@@ -39,7 +40,7 @@ export default function UploadWorkstation() {
       .from("releases")
       .select(
         "id, did, title, main_artist, release_date, release_time, upc, drive_link, link_lbm, link_share, smartlink, link_preorder, upload_status, " +
-        "link_ugc, link_media_report, requester_segment, linkshare_tiktok_timing, linkshare_facebook_timing"
+        "link_ugc, link_media_report, requester_segment, linkshare_tiktok_timing, linkshare_facebook_timing, needs_update"
       )
       .eq("requested", true);
     setReleases(rels || []);
@@ -234,7 +235,14 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateFiel
         <UrlField styles={styles} value={drafts.link_share} onChange={(v) => setDrafts((d) => ({ ...d, link_share: v }))} onBlur={() => onUpdateField(release, "link_share", drafts.link_share)} />
       </td>
       <td style={{ minWidth: 180 }}>
-        <UrlField styles={styles} value={drafts.smartlink} onChange={(v) => setDrafts((d) => ({ ...d, smartlink: v }))} onBlur={() => onUpdateField(release, "smartlink", drafts.smartlink)} />
+        <UrlField
+          styles={styles}
+          value={drafts.smartlink}
+          onChange={(v) => setDrafts((d) => ({ ...d, smartlink: v }))}
+          onBlur={() => onUpdateField(release, "smartlink", drafts.smartlink)}
+          disabled={release.needs_update}
+          disabledTitle={PRIORITY_MODE_WARNING}
+        />
       </td>
       <td style={{ minWidth: 180 }}>
         <UrlField styles={styles} value={drafts.link_preorder} onChange={(v) => setDrafts((d) => ({ ...d, link_preorder: v }))} onBlur={() => onUpdateField(release, "link_preorder", drafts.link_preorder)} />

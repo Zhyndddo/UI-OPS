@@ -12,7 +12,8 @@ import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import UrlField from "../../../lib/UrlField";
 import { useAuth } from "../../../lib/AuthContext";
 import { validateLabelNameEdit } from "../../../lib/labelHelpers";
-import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS } from "../../../lib/releaseNotes";
+import { TICKET_TYPE_LABELS } from "../../../lib/teamTypes";
+import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -265,11 +266,32 @@ export default function ReleaseDetailPage() {
     }
 
     const patch = { requested: true };
+    // Went out via the Priority Pitching shortcut (metaDone < 6, only
+    // allowed through because Priority is ticked — see uploadReady above).
+    // priority_pitching_used records that the shortcut was actually used;
+    // needs_update is the live "still incomplete" flag everything else
+    // (Smartlink lock, the warning banner) reads — cleared by
+    // unlockNeedsUpdate() once the checklist is genuinely filled in.
+    if (metaDone < META_ITEMS.length) {
+      patch.priority_pitching_used = true;
+      patch.needs_update = true;
+    }
     await supabase.from("releases").update(patch).eq("id", id);
     setForm((f) => ({ ...f, ...patch }));
     setRelease((r) => ({ ...r, ...patch }));
 
     await sendPackageTicket();
+  }
+
+  // The only way Smartlink unlocks again once the priority shortcut set
+  // needs_update — requires the checklist to actually be 6/6 first, so
+  // this can't be used to just wave the warning away.
+  async function unlockNeedsUpdate() {
+    if (metaDone < META_ITEMS.length) return;
+    const patch = { needs_update: false };
+    await supabase.from("releases").update(patch).eq("id", id);
+    setForm((f) => ({ ...f, ...patch }));
+    setRelease((r) => ({ ...r, ...patch }));
   }
 
   // Gated on hasMediaBookingTicket (a real existence check), not on
@@ -397,7 +419,12 @@ export default function ReleaseDetailPage() {
 
   const metaDone = META_ITEMS.filter((m) => form[m.key]).length;
   const nameGroupFilled = form.title && form.main_artist && form.release_date;
-  const uploadReady = metaDone === META_ITEMS.length && nameGroupFilled;
+  // Priority Pitching is the one exception to "must have the full 6/6
+  // checklist before Send Upload" — a priority release needs to reach OPS
+  // before its data is complete, that's the whole point of it being
+  // priority. metaDone still isn't required, but the basic name/date group
+  // still is (the upload ticket needs those to mean anything).
+  const uploadReady = nameGroupFilled && (metaDone === META_ITEMS.length || pitchingTypesDraft.priority);
 
   return (
     <AppShell>
@@ -467,6 +494,7 @@ export default function ReleaseDetailPage() {
             onSave={saveTab}
             saving={saving}
             onUpload={sendUpload}
+            onUnlockNeedsUpdate={unlockNeedsUpdate}
             packageItems={packageItems}
             magicLinkUrl={magicLinkUrl}
             onToggleLock={togglePackageLock}
@@ -481,7 +509,7 @@ export default function ReleaseDetailPage() {
             setTab={setTab}
           />
         )}
-        {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} />}
+        {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} did={form.did} releaseId={id} />}
         {tab === "media_booking" && (
           <MediaBookingTab form={form} entries={bookingEntries} categories={bookingCategories} packageItems={packageItems} />
         )}
@@ -621,7 +649,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, setTab }) {
+function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, setTab }) {
   const { profile } = useAuth();
   const isAdminOrAbove = profile?.role === "admin" || profile?.role === "dev";
   const [genres, setGenres] = useState([]);
@@ -764,6 +792,19 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         </Field>
       </div>
 
+      {form.needs_update && (
+        <div style={{ background: "rgba(229,115,115,0.1)", border: "1px solid #e57373", borderRadius: 8, padding: 12, marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ color: "#e57373", fontSize: 12, fontWeight: 700 }}>
+            ⚠ {PRIORITY_MODE_WARNING} Smartlink is locked (URL tab) until the checklist below is complete.
+          </div>
+          {metaDone === META_ITEMS.length && (
+            <button className={styles.btnSmall} onClick={onUnlockNeedsUpdate} style={{ borderColor: "#7ee6a8", color: "#7ee6a8", flexShrink: 0 }}>
+              Checklist complete — unlock Smartlink
+            </button>
+          )}
+        </div>
+      )}
+
       <div className={styles.subheading}>Metadata Checklist ({metaDone}/6)</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
         {META_ITEMS.map((m) => (
@@ -783,6 +824,11 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         >
           {form.requested ? "UPLOAD SENT" : "SEND UPLOAD"}
         </button>
+        {!form.requested && pitchingTypesDraft.priority && metaDone < META_ITEMS.length && (
+          <p style={{ color: "#e57373", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
+            Priority Pitching is ticked — Send Upload is unlocked even though the checklist above isn't 6/6 yet.
+          </p>
+        )}
       </div>
 
       <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 20 }}>
@@ -869,7 +915,7 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
   );
 }
 
-function UrlTab({ form, update, onSave, saving }) {
+function UrlTab({ form, update, onSave, saving, did, releaseId }) {
   const urlFields = [
     ["smartlink", "Smartlink"],
     ["link_lbm", "Link LBM"],
@@ -909,11 +955,17 @@ function UrlTab({ form, update, onSave, saving }) {
             </div>
           )}
         </Field>
-        {urlFields.map(([key, label]) => (
-          <Field key={key} label={label}>
-            <UrlField styles={styles} value={form[key]} onChange={(v) => update(key, v)} />
-          </Field>
-        ))}
+        {urlFields.map(([key, label]) =>
+          key === "smartlink" && form.needs_update ? (
+            <Field key={key} label={label}>
+              <UrlField styles={styles} value={form[key]} onChange={(v) => update(key, v)} disabled disabledTitle={PRIORITY_MODE_WARNING} />
+            </Field>
+          ) : (
+            <Field key={key} label={label}>
+              <UrlField styles={styles} value={form[key]} onChange={(v) => update(key, v)} />
+            </Field>
+          )
+        )}
       </div>
       <Field label="URL Phụ Lục">
         <UrlField styles={styles} value={form.link_phu_luc} onChange={(v) => update("link_phu_luc", v)} />
@@ -923,6 +975,100 @@ function UrlTab({ form, update, onSave, saving }) {
         {" — "}{phuLucNextStep(form)}
       </p>
       <SaveBar onSave={onSave} saving={saving} />
+
+      <AllUrlsSection did={did} releaseId={releaseId} />
+    </div>
+  );
+}
+
+// Pulls together every URL-shaped piece of data tied to this DID from
+// everywhere else in the system — Booking Board links, ticket URL fields
+// (Phái Sinh / Manual Claim / Report Conflict / any other type with a url
+// or refLink field), and Magic Links — so this tab is the one place to
+// see every link connected to the release, not just the columns on the
+// release row itself. Read-only: each source still gets edited at its own
+// canonical location (Booking Board, the ticket itself, etc.) — this is a
+// convenience index, not a second copy to keep in sync.
+function AllUrlsSection({ did, releaseId }) {
+  const [groups, setGroups] = useState(null); // null = loading
+
+  useEffect(() => {
+    if (!supabase || !did || !releaseId) return;
+    let cancelled = false;
+
+    (async () => {
+      const found = [];
+
+      const { data: bookingLinks } = await supabase
+        .from("media_booking_entries")
+        .select("channel_name, platform, link")
+        .eq("release_id", releaseId)
+        .not("link", "is", null);
+      (bookingLinks || []).forEach((b) => {
+        (b.link || "").split("\n").map((u) => u.trim()).filter(Boolean).forEach((u) => {
+          found.push({ source: "Booking Board", label: b.channel_name || b.platform || "Link", url: u });
+        });
+      });
+
+      const { data: magicLinks } = await supabase
+        .from("magic_links")
+        .select("token, sent_at, created_at")
+        .eq("release_id", releaseId)
+        .order("created_at", { ascending: false });
+      (magicLinks || []).forEach((m, i) => {
+        found.push({
+          source: "Magic Link",
+          label: m.sent_at ? "Sent" : `Generated${i > 0 ? " (older)" : ""}`,
+          url: `${window.location.origin}/pick-package/${m.token}`,
+        });
+      });
+
+      const { data: tix } = await supabase
+        .from("tickets")
+        .select("id, tab_id, data, ticket_tabs(key)")
+        .contains("data", { releaseId: did })
+        .is("deleted_at", null);
+      (tix || []).forEach((t) => {
+        const tabKey = t.ticket_tabs?.key || "ticket";
+        ["url", "refLink"].forEach((field) => {
+          const raw = t.data?.[field];
+          if (!raw) return;
+          raw.split("\n").map((u) => u.trim()).filter(Boolean).forEach((u) => {
+            found.push({ source: TICKET_TYPE_LABELS[tabKey] || tabKey, label: field === "refLink" ? "LBM url" : "URL", url: u });
+          });
+        });
+      });
+
+      if (!cancelled) setGroups(found);
+    })();
+
+    return () => { cancelled = true; };
+  }, [did, releaseId]);
+
+  const validLinks = (groups || []).filter((g) => /^https?:\/\/\S+$/i.test(g.url));
+
+  return (
+    <div style={{ marginTop: 28, borderTop: "1px solid #262626", paddingTop: 20 }}>
+      <div className={styles.subheading} style={{ marginTop: 0 }}>All URLs Related to This DID</div>
+      <p style={{ color: "#666", fontSize: 11, marginTop: -8, marginBottom: 12 }}>
+        Read-only — pulled from the Booking Board, every ticket referencing this release, and Magic Links. Edit each at its own source.
+      </p>
+      {groups === null ? (
+        <div style={{ color: "#666", fontSize: 12 }}>Loading…</div>
+      ) : validLinks.length === 0 ? (
+        <div style={{ color: "#666", fontSize: 12 }}>Nothing found elsewhere yet.</div>
+      ) : (
+        <div style={{ display: "grid", gap: 4 }}>
+          {validLinks.map((g, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+              <span style={{ color: "#666", minWidth: 110, flexShrink: 0 }}>{g.source} — {g.label}</span>
+              <a href={g.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {g.url}
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { supabase } from "../../lib/supabaseClient";
 import { GateFields, BoolToggle } from "../../lib/GateFields";
 import QuickCreate from "../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../lib/ReferenceInputs";
+import { buildLinkshareNote, defaultLinkshareFacebookTiming, defaultLinkshareTiktokTiming, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS } from "../../lib/releaseNotes";
 import styles from "./styles.module.css";
 
 // Mirrors _field_initials()/set_release_did() in schema.sql exactly, minus
@@ -42,6 +43,8 @@ const EMPTY_FORM = {
   theme: "",
   drive_link: "",
   brief: "",
+  linkshare_tiktok_timing: "",
+  linkshare_facebook_timing: "",
   meta_audio: false,
   meta_artwork: false,
   meta_working_files: false,
@@ -84,6 +87,32 @@ export default function NewReleasePage() {
   const [createdDid, setCreatedDid] = useState(null);
   const [labelTouched, setLabelTouched] = useState(false); // true once user manually edits Label — blocks autofill from overwriting it
   const [autofillNote, setAutofillNote] = useState(null);
+  const [tiktokTimingTouched, setTiktokTimingTouched] = useState(false);
+  const [facebookTimingTouched, setFacebookTimingTouched] = useState(false);
+
+  // Linkshare timing defaults — Facebook depends on how much lead time
+  // this release actually has (today vs. Release Date), so it recomputes
+  // live as Release Date changes; Tiktok has no date logic, it's always
+  // the same default. Neither ever overwrites a manual pick — same
+  // touched-until-cleared pattern as Label/Deadline elsewhere in this app.
+  useEffect(() => {
+    if (facebookTimingTouched) return;
+    setForm((f) => ({ ...f, linkshare_facebook_timing: defaultLinkshareFacebookTiming(new Date().toISOString(), f.release_date) }));
+  }, [form.release_date, facebookTimingTouched]);
+
+  useEffect(() => {
+    if (tiktokTimingTouched) return;
+    setForm((f) => ({ ...f, linkshare_tiktok_timing: defaultLinkshareTiktokTiming() }));
+  }, [tiktokTimingTouched]);
+
+  function handleTiktokTimingChange(v) {
+    update("linkshare_tiktok_timing", v);
+    setTiktokTimingTouched(v !== "");
+  }
+  function handleFacebookTimingChange(v) {
+    update("linkshare_facebook_timing", v);
+    setFacebookTimingTouched(v !== "");
+  }
 
   useEffect(() => {
     if (!supabase) return;
@@ -469,6 +498,34 @@ export default function NewReleasePage() {
                 value={form.brief}
                 onChange={(e) => update("brief", e.target.value)}
               />
+            </div>
+
+            <div className={styles.field}>
+              <label className={styles.fieldLabel}>Tiktok Release Timing</label>
+              <select className={styles.select} value={form.linkshare_tiktok_timing} onChange={(e) => handleTiktokTimingChange(e.target.value)}>
+                <option value="">—</option>
+                {LINKSHARE_TIKTOK_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+              </select>
+              <p style={{ color: "#666", fontSize: 11, marginTop: 4, marginBottom: 0 }}>
+                Defaults to "{LINKSHARE_TIKTOK_OPTIONS[2]}" if left blank.
+              </p>
+            </div>
+            <div className={styles.field}>
+              <label className={styles.fieldLabel}>Facebook Release Timing</label>
+              <select className={styles.select} value={form.linkshare_facebook_timing} onChange={(e) => handleFacebookTimingChange(e.target.value)}>
+                <option value="">—</option>
+                {LINKSHARE_FACEBOOK_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+              </select>
+              <p style={{ color: "#666", fontSize: 11, marginTop: 4, marginBottom: 0 }}>
+                Auto-picked from today vs. Release Date − 4 days — pick one yourself to override.
+              </p>
+            </div>
+
+            <div className={`${styles.field} ${styles.fieldFull}`}>
+              <label className={styles.fieldLabel}>Linkshare Note (auto-generated preview)</label>
+              <pre style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12, fontSize: 12, color: "#ccc", whiteSpace: "pre-wrap", margin: 0 }}>
+                {buildLinkshareNote(form)}
+              </pre>
             </div>
           </div>
 
