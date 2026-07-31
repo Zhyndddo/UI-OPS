@@ -438,7 +438,14 @@ export default function ReleaseDetailPage() {
   // Send Upload only actually requires 4 of the 6 checklist items (Audio,
   // Artwork, Lyric, Metadata) — Working Files and MV are still tracked in
   // the checklist above for visibility, they just don't gate the ticket.
-  const requiredMetaDone = REQUIRED_META_KEYS.filter((k) => form[k]).length;
+  // Gated on the SAVED release (release), not the live form draft — same
+  // "must hit Save first" rule already applied to Priority Pitching below.
+  // Ticking a checklist box is a draft edit like every other field on this
+  // page; it must not unlock Send Upload until Save actually persists it.
+  // requiredMetaDoneLive tracks the live/unsaved count purely to show a
+  // "you have unsaved checklist changes" hint near the button.
+  const requiredMetaDone = REQUIRED_META_KEYS.filter((k) => release?.[k]).length;
+  const requiredMetaDoneLive = REQUIRED_META_KEYS.filter((k) => form[k]).length;
   const nameGroupFilled = form.title && form.main_artist && form.release_date;
   // Priority Pitching is the one exception to "must have the required
   // checklist items before Send Upload" — a priority release needs to
@@ -518,6 +525,7 @@ export default function ReleaseDetailPage() {
             update={update}
             metaDone={metaDone}
             requiredMetaDone={requiredMetaDone}
+            requiredMetaDoneLive={requiredMetaDoneLive}
             uploadReady={uploadReady}
             onSave={saveTab}
             saving={saving}
@@ -677,7 +685,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, requiredMetaDone, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, setTab }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, setTab }) {
   const { profile } = useAuth();
   const isAdminOrAbove = profile?.role === "admin" || profile?.role === "dev";
   const [genres, setGenres] = useState([]);
@@ -897,6 +905,11 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, uploadReady, on
         {!form.requested && pitchingTypesDraft.priority && !pitchingTicket?.data?.priority && requiredMetaDone < REQUIRED_META_KEYS.length && (
           <p style={{ color: "#888", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
             Priority Pitching is ticked but not saved yet — hit Save below to unlock Send Upload.
+          </p>
+        )}
+        {!form.requested && !uploadReady && requiredMetaDoneLive !== requiredMetaDone && (
+          <p style={{ color: "#888", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
+            Metadata Checklist has unsaved changes — hit Save below before Send Upload picks them up.
           </p>
         )}
       </div>
