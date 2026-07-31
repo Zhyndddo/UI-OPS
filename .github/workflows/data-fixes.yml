@@ -36,6 +36,8 @@ on:
           - import-brief
           - import-ops-tracking
           - repair-brief-ticks
+          - repair-project-type-prefix
+          - cleanup-duplicate-media-booking
       confirm:
         description: "Actually write changes (unchecked = dry run only)"
         required: false
