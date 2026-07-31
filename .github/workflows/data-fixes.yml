@@ -32,6 +32,7 @@ on:
           - backfill-did-suffix
           - backfill-ar-to-ops
           - backfill-linkshare-timing
+          - backfill-legacy-id
           - import-brief
           - import-ops-tracking
           - repair-brief-ticks
