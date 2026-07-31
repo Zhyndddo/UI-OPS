@@ -407,3 +407,125 @@ Also runs from the "Data Fix Scripts" Actions workflow — pick
 interact. Run `add-media-booking-dedup.sql` against the database, then run
 the cleanup script (dry run, review, then `--confirm`) whenever's
 convenient.
+
+## Follow-up round — new Media Booking ticket cycle, legacy booking import
+
+### 1. New Media Booking ticket lifecycle
+
+The old flow was one-shot: AR sends the ticket once, Marketing builds it,
+and the only way to touch it again was the separate INT MEDIA follow-up
+button. It's now a real back-and-forth cycle:
+
+- **Magic link visibility is now gated on the ticket actually reaching
+  COMPLETE.** Before, a built `media_booking_packages` row showed up on
+  the magic link page the moment Marketing saved it in the Package
+  Builder, even mid-build. Now `app/pick-package/[token]/page.js` looks up
+  the release's Media Booking ticket and only shows built packages once
+  `status_log.COMPLETE` has been set at least once — the always-offered
+  "Chỉ Phát Hành" simple pick is unaffected. Once a package has been shown
+  once, a later rebook (ticket back to REQUESTED) doesn't hide it again —
+  it just keeps showing the last COMPLETE build until the new one
+  finishes and completes too.
+- **The AR notification on COMPLETE already existed** (`notify_on_ticket_complete`,
+  fires on `requester_segment`) — it just wasn't wired up for Media
+  Booking tickets, since they were created without a `requester_segment`.
+  `sendPackageTicket()` in `app/releases/[id]/page.js` now sets
+  `requester_segment: "AR"` on creation, so AR gets notified the instant
+  Marketing marks it COMPLETE — no new SQL needed, this is the same
+  trigger every other ticket type already uses.
+- **Confirming a pick on the magic link now locks it automatically** —
+  `confirmChoice()` sets `package_locked: true` in the same update as
+  `project_type`/`package_total_value`, so AR no longer needs to click
+  "Lock editing" separately after an artist confirms.
+- **New "Feed Back" button** on the magic link page, next to Confirm — an
+  alternative to picking a package outright. Opens a text box with a "+
+  Text in Zalo/Telegram" button that inserts that literal placeholder text
+  (for the team to swap in a real link before sending), and its own inline
+  Confirm button. Submitting writes the text onto the ticket
+  (`tickets.data.feedback = { text, submittedAt }`, no new column) and
+  fires a notification to the **AR** team via the existing
+  `fanout_notification()` SQL function (called straight from the client
+  via `supabase.rpc()` — already grants `execute` to `anon`/`authenticated`
+  by default, see `schema.sql`'s `alter default privileges` block) titled
+  literally "Artist request package changed", linking to
+  `/releases/<id>?focus=media_booking`.
+- **Clicking that notification** opens the release page, auto-switches to
+  the Media Booking tab, and smooth-scrolls to it (`?focus=media_booking`
+  query param, read via `useSearchParams`). The feedback text shows in a
+  small orange-bordered box at the top of the tab.
+- **"Send Package Ticket to Marketing" is no longer strictly one-shot.**
+  Once the ticket reaches COMPLETE, the same button becomes "Send Package
+  Ticket Again" — clicking it reopens the SAME ticket (never a second one;
+  `trg_prevent_duplicate_media_booking` still guards that either way) back
+  to REQUESTED. If there's unread feedback (`data.feedback` set), it also
+  tags the ticket with the hidden `data.proposedPackage = "Artist request
+  package changed"` and clears the feedback flag (consumed). If there's no
+  feedback, it's a plain **internal rebook** — same reopen mechanism, no
+  special tag, AR can use this any time they want Marketing to redo a
+  package with no artist involvement. Either way, since a status-only
+  UPDATE never fires `trg_notify_on_ticket_insert` (insert-only trigger),
+  the reopen calls `fanout_notification()` to Marketing by hand so it
+  still shows up as new work for them. The INT MEDIA follow-up button got
+  the same treatment (it already had its own reopen logic; it just now
+  also fires that Marketing notification).
+
+No SQL migration for any of this — every piece reuses existing columns
+(`tickets.data`, `tickets.status`, `tickets.status_log`,
+`tickets.requester_segment`, `releases.package_locked`) and the existing
+`fanout_notification()` function.
+
+### 2. Legacy Booking data import (`scripts/import-booking.js`)
+
+Imports both `BOOKING & REPORT 01` and `BOOKING - INT MEDIA SUPPORT`
+sheets from the booking workbook — confirmed to share an **identical**
+column layout (checked directly against the uploaded file; an earlier
+description of the ranges differing per sheet didn't hold up), so one
+script/column map covers both. Matches rows to releases by
+`legacy_id = <column B, the DID>` — same convention as `import-brief.js`/
+`import-ops-tracking.js`; unmatched DIDs are skipped and logged, not
+errored.
+
+Two independent things get imported per matched row:
+
+- **Requester quantities** (columns R, U, V, W, X, Y, Z, AC, AD, AE, AF,
+  AG, AH — S/T are a status/meta pair, not a brand, and are skipped; AA/AB
+  are blank spacer columns) → one `media_booking_packages` row per release
+  named `LEGACY BOOKING IMPORT`, with one `media_booking_package_lines`
+  row per non-empty quantity cell. Category/brand match the live Package
+  Builder's vocabulary (Social: VIEENT/ENVI, Community: PAGE BOLERO·VPOP·
+  INDIE, TikTok Channel: TIKTOK BOLERO·VPOP·INDIE/CAPCUT, Ads: FB POST
+  ADS/FB VIDEO ADS/YOUTUBE ADS) except `EXT TIKTOK`, which the sheet
+  mushes into one total with no matching single Partner sub-brand in the
+  live 4-way picker — imported as its own standalone brand label instead
+  of force-matched to one of the four.
+- **Result links** (columns AV–BE, 10 columns of "Label: https://url"
+  text, newline-separated per cell; BF–BH just past them are a WIP status
+  column for the 3 Ads brands, not URLs, so they're excluded) → one
+  `media_booking_entries` row per URL line. Platform is guessed from each
+  URL's own domain (tiktok.com/facebook.com/youtube.com/instagram.com),
+  not the column, since a few cells mix domains. Round is imported as
+  `INT` (the sheets don't distinguish Đợt 1/Đợt 2), status as `Done`
+  (these are all already-posted historical links).
+
+Both halves are safely re-runnable: a release that already has a `LEGACY
+BOOKING IMPORT` package is skipped for the quantity half (not
+re-diffed/merged), and a URL is only inserted if an identical (release,
+category, channel, link) row doesn't already exist.
+
+```bash
+npm install xlsx --no-save
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-booking.js data/booking-import.xlsx
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-booking.js data/booking-import.xlsx --confirm
+```
+
+Also runs from the "Data Fix Scripts" Actions workflow — pick
+`import-booking`, set `file_path` to wherever you commit the workbook
+(e.g. `data/booking-import.xlsx`). Run `import-brief.js` first, same as
+`import-ops-tracking.js` — matching depends on `legacy_id` already being
+set.
+
+**Not imported by this script:** the single per-release metadata columns
+(AK–AU: LOẠI DỰ ÁN, Project, Artist, ngày release, LINK SOUND TIKTOK, LINK
+DRIVE, LINK LBM, SOCIAL BOOKING, LINK MV/SOURCE, HASHTAG, BID) and the
+BF–BN WIP-status text columns — out of scope for this pass, flag if you
+want those pulled in too.

@@ -93,6 +93,15 @@ export default function PickPackagePage() {
   const [bookingEntries, setBookingEntries] = useState([]);
   const [round, setRound] = useState("INT");
   const [sharedTerms, setSharedTerms] = useState({ a: "", conditions: "", b: "" }); // global_settings' canned blocks, shown alongside any real package's own terms_text
+  // The Media Booking ticket behind this link — its status_log gates
+  // whether any real (built) package shows here at all (see load(): a
+  // package only ever appears once the ticket has reached COMPLETE at
+  // least once), and its id is where Feed Back submissions get written.
+  const [mediaBookingTicket, setMediaBookingTicket] = useState(null);
+  const [showFeedbackBox, setShowFeedbackBox] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState(false);
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -119,11 +128,35 @@ export default function PickPackagePage() {
     const { data: rel } = await supabase.from("releases").select("*").eq("id", link.release_id).single();
     setRelease(rel);
 
-    const { data: realPackages } = await supabase
+    // Media Booking ticket for this release — its status_log is the real
+    // gate for whether a built package should show here at all ("magic
+    // link goes live + notification fires simultaneously" only once
+    // Marketing sets it COMPLETE). Once it has EVER reached COMPLETE, keep
+    // showing whatever's in media_booking_packages even while a rebook is
+    // in progress (ticket back to REQUESTED) — a rebook is a purely
+    // internal do-over, this page only needs to update once the new build
+    // reaches COMPLETE again, not the moment a reopen starts.
+    const { data: mbTab } = await supabase.from("ticket_tabs").select("id").eq("key", "media_booking").single();
+    let ticketRow = null;
+    if (mbTab) {
+      const { data: mbTix } = await supabase
+        .from("tickets")
+        .select("id, status, status_log, data")
+        .eq("tab_id", mbTab.id)
+        .eq("data->>releaseId", rel?.did)
+        .is("deleted_at", null)
+        .limit(1);
+      ticketRow = mbTix?.[0] || null;
+      setMediaBookingTicket(ticketRow);
+    }
+    const packagesEverCompleted = !!ticketRow?.status_log?.COMPLETE;
+
+    const { data: realPackagesRaw } = await supabase
       .from("media_booking_packages")
       .select("*, media_booking_package_lines(*)")
       .eq("release_id", link.release_id)
       .order("sort_order");
+    const realPackages = packagesEverCompleted ? realPackagesRaw : [];
     const { data: pkgCategories } = await supabase.from("package_categories").select("id, name");
     const categoryNameById = {};
     (pkgCategories || []).forEach((c) => (categoryNameById[c.id] = c.name));
@@ -237,11 +270,16 @@ export default function PickPackagePage() {
       .update({
         project_type: selectedValue,
         package_total_value: option?.totalValue ?? null,
+        // The artist confirming their own pick now locks it in directly —
+        // no more separate manual "Lock editing" step for AR on this path
+        // (AR's toggle still exists for everything else, e.g. correcting
+        // a pick made on the artist's behalf).
+        package_locked: true,
       })
       .eq("id", release.id);
     setPicking(false);
     if (err) { setError(err.message); return; }
-    setRelease((r) => ({ ...r, project_type: selectedValue, package_total_value: option?.totalValue ?? null }));
+    setRelease((r) => ({ ...r, project_type: selectedValue, package_total_value: option?.totalValue ?? null, package_locked: true }));
     setConfirmed(true);
 
     if (wasPipelineStage) {
@@ -268,6 +306,37 @@ export default function PickPackagePage() {
         await supabase.from("release_package_items").insert(rows);
       }
     }
+  }
+
+  // Feed Back — the artist's alternative to confirming: leaves a note for
+  // AR instead of picking a package outright. Writes straight onto the
+  // Media Booking ticket (data.feedback) so AR sees it on the release page
+  // and can re-send to Marketing with that text carried along, and fires
+  // a notification to the AR team with the literal phrase the workflow
+  // asked for so it's easy to search/recognize in the notification list.
+  async function submitFeedback() {
+    if (!mediaBookingTicket || !feedbackText.trim() || submittingFeedback) return;
+    setSubmittingFeedback(true);
+    const newData = { ...(mediaBookingTicket.data || {}), feedback: { text: feedbackText.trim(), submittedAt: new Date().toISOString() } };
+    const { error: err } = await supabase.from("tickets").update({ data: newData }).eq("id", mediaBookingTicket.id);
+    if (err) {
+      setSubmittingFeedback(false);
+      setError(err.message);
+      return;
+    }
+    setMediaBookingTicket((t) => ({ ...t, data: newData }));
+    await supabase.rpc("fanout_notification", {
+      p_team: "AR",
+      p_type: "media_booking_feedback",
+      p_title: "Artist request package changed",
+      p_body: `${release?.main_artist || "An artist"} left feedback on ${release?.title || "their release"}'s media booking package.`,
+      p_link: `/releases/${release.id}?focus=media_booking`,
+      p_ticket_id: mediaBookingTicket.id,
+    });
+    setSubmittingFeedback(false);
+    setFeedbackSent(true);
+    setShowFeedbackBox(false);
+    setFeedbackText("");
   }
 
   if (loading) return <div className={styles.page}><div className={styles.container} style={{ maxWidth: 640 }}>Loading…</div></div>;
@@ -473,6 +542,57 @@ export default function PickPackagePage() {
           >
             {picking ? "Confirming…" : confirmed ? "✓ Package Confirmed" : "Xác Nhận Gói Đã Chọn"}
           </button>
+        )}
+
+        {/* Feed Back — the alternative to confirming a pick. Sends a note
+            to AR instead of/alongside picking, rather than committing to
+            a choice right now. */}
+        {!isLocked && mediaBookingTicket && (
+          <div style={{ marginTop: 12 }}>
+            {feedbackSent ? (
+              <div className={styles.successBox}>Feedback sent — your OPS/AR contact has been notified.</div>
+            ) : showFeedbackBox ? (
+              <div style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 14 }}>
+                <div style={{ fontSize: 12, color: "#ccc", marginBottom: 8, fontWeight: 700 }}>Gửi phản hồi về gói</div>
+                <textarea
+                  className={styles.input}
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  placeholder="Nhập phản hồi của bạn về gói…"
+                  rows={4}
+                  style={{ width: "100%", resize: "vertical", fontSize: 13, marginBottom: 8 }}
+                />
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className={styles.btnSmall}
+                    onClick={() => setFeedbackText((t) => (t ? t + "\n" : "") + "Text in Zalo/Telegram")}
+                  >
+                    + Text in Zalo/Telegram
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.btnPrimary}
+                    onClick={submitFeedback}
+                    disabled={!feedbackText.trim() || submittingFeedback}
+                  >
+                    {submittingFeedback ? "Đang gửi…" : "Confirm"}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.btnSmall}
+                    onClick={() => { setShowFeedbackBox(false); setFeedbackText(""); }}
+                  >
+                    Hủy
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className={styles.btnSmall} onClick={() => setShowFeedbackBox(true)}>
+                Feed Back
+              </button>
+            )}
+          </div>
         )}
 
         {/* Fixed partner-benefits block — same for every package, shown

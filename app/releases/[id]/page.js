@@ -1,9 +1,9 @@
 "use client";
 
 import AppShell from "../../../lib/AppShell";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, formatDetailText } from "../../../lib/helpers";
 import { GateFields, BoolToggle } from "../../../lib/GateFields";
@@ -61,7 +61,16 @@ export default function ReleaseDetailPage() {
   const [bookingCategories, setBookingCategories] = useState([]); // package_categories — for the Media Booking tab's per-Hạng-Mục summary
   const [magicLinkUrl, setMagicLinkUrl] = useState(null);
   const [hasMediaBookingTicket, setHasMediaBookingTicket] = useState(false);
+  // Full Media Booking ticket row (not just the existence boolean above) —
+  // needed for the reopen/rebook cycle: reading its live status (to know
+  // whether "Send Package" should be clickable again) and its data.feedback
+  // (the artist's Feed Back submission from the magic link page, shown here
+  // in a small box so AR can see what changed before resending).
+  const [mediaBookingTicket, setMediaBookingTicket] = useState(null);
   const [pitchingInfoTicket, setPitchingInfoTicket] = useState(null);
+  const searchParams = useSearchParams();
+  const mediaBookingSectionRef = useRef(null);
+  const [autoScrolled, setAutoScrolled] = useState(false);
 
   useEffect(() => {
     if (!supabase || !id) return;
@@ -127,12 +136,14 @@ export default function ReleaseDetailPage() {
         if (mbTab) {
           const { data: mbTix } = await supabase
             .from("tickets")
-            .select("id")
+            .select("id, status, status_log, data")
             .eq("tab_id", mbTab.id)
             .eq("data->>releaseId", data.did)
             .is("deleted_at", null)
             .limit(1);
-          setHasMediaBookingTicket((mbTix || []).length > 0);
+          const found = mbTix?.[0] || null;
+          setHasMediaBookingTicket(!!found);
+          setMediaBookingTicket(found);
         }
       });
     supabase
@@ -189,6 +200,20 @@ export default function ReleaseDetailPage() {
     setForm((f) => ({ ...f, [key]: value }));
     setSaved(false);
   }
+
+  // Clicking the "artist request package changed" notification links here
+  // with ?focus=media_booking — jump straight to the tab and scroll the
+  // package section into view instead of leaving AR to find it themselves.
+  useEffect(() => {
+    if (searchParams?.get("focus") === "media_booking") setTab("media_booking");
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (tab === "media_booking" && searchParams?.get("focus") === "media_booking" && mediaBookingSectionRef.current && !autoScrolled) {
+      mediaBookingSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      setAutoScrolled(true);
+    }
+  }, [tab, searchParams, autoScrolled]);
 
   // The one and only place Pitching/Artist Profile tickets get created or
   // updated from this page now — no more immediate-on-click side effects.
@@ -304,20 +329,70 @@ export default function ReleaseDetailPage() {
   // Gated on hasMediaBookingTicket (a real existence check), not on
   // release.package_ticket_sent — that flag isn't reliably set for
   // imported releases, which was letting duplicate tickets slip through.
-  // No extra ticket from here once one exists; the only supported way to
-  // get another Media Booking ticket moving for this release is the
-  // dedicated INT MEDIA follow-up, which reopens the SAME ticket instead
-  // of creating a new one.
+  //
+  // No longer a strict one-shot button: once the ticket reaches COMPLETE,
+  // this same button doubles as the "resend" action for both branches of
+  // the new booking cycle —
+  //   - artist sent feedback via the magic link's Feed Back box (ticket.
+  //     data.feedback is set) -> tags the reopened ticket with the hidden
+  //     proposedPackage "Artist request package changed" so Marketing can
+  //     tell it apart from a first-time request, and clears the feedback
+  //     flag (consumed once AR acts on it)
+  //   - AR just wants an internal rebook, no artist feedback involved ->
+  //     reopens with no special tag, proposedPackage left as-is
+  // Either way it's the SAME ticket flipped back to REQUESTED (never a
+  // second ticket — trg_prevent_duplicate_media_booking would reject that
+  // anyway), and it's a purely internal do-over: the magic link keeps
+  // showing whatever package last reached COMPLETE until Marketing
+  // finishes the rebuild and completes it again (see pick-package's
+  // packagesEverCompleted gating, which reads status_log.COMPLETE ever
+  // having been set, not the live status).
   async function sendPackageTicket() {
-    if (hasMediaBookingTicket) return;
+    if (mediaBookingTicket) {
+      if (mediaBookingTicket.status !== "COMPLETE") return; // already in progress — nothing to (re)send yet
+      const hasFeedback = !!mediaBookingTicket.data?.feedback;
+      const newData = { ...(mediaBookingTicket.data || {}) };
+      if (hasFeedback) {
+        newData.proposedPackage = "Artist request package changed";
+        newData.feedback = null;
+      }
+      const newLog = { ...(mediaBookingTicket.status_log || {}), REQUESTED: new Date().toISOString() };
+      const { error: updErr } = await supabase.from("tickets").update({ status: "REQUESTED", status_log: newLog, data: newData }).eq("id", mediaBookingTicket.id);
+      if (updErr) { setError(updErr.message); return; }
+      setMediaBookingTicket((t) => ({ ...t, status: "REQUESTED", status_log: newLog, data: newData }));
+      // Reopening is an UPDATE, not an INSERT, so trg_notify_on_ticket_insert
+      // never fires for it — fire the same "Marketing has new work" fanout
+      // by hand via the existing helper function.
+      await supabase.rpc("fanout_notification", {
+        p_team: "Marketing",
+        p_type: "new_ticket",
+        p_title: "Media Booking ticket reopened",
+        p_body: hasFeedback
+          ? `${form.title || "A release"}: artist requested a package change.`
+          : `${form.title || "A release"} needs a package rebuild.`,
+        p_link: "/tickets/media-booking",
+        p_ticket_id: mediaBookingTicket.id,
+      });
+      return;
+    }
+
     const { data: mbTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "media_booking").single();
     if (mbTab) {
-      const { error: insertErr } = await supabase.from("tickets").insert({
-        tab_id: mbTab.id,
-        data: { releaseId: form.did, proposedPackage: null },
-        status: mbTab.default_status,
-        status_log: { [mbTab.default_status]: new Date().toISOString() },
-      });
+      const { data: created, error: insertErr } = await supabase
+        .from("tickets")
+        .insert({
+          tab_id: mbTab.id,
+          data: { releaseId: form.did, proposedPackage: null },
+          status: mbTab.default_status,
+          status_log: { [mbTab.default_status]: new Date().toISOString() },
+          // AR is always the requester of a Media Booking ticket — sets
+          // trg_notify_on_ticket_complete up to notify AR the moment
+          // Marketing marks it COMPLETE (the "magic link goes live +
+          // notification fires simultaneously" step of the new cycle).
+          requester_segment: "AR",
+        })
+        .select()
+        .single();
       // trg_prevent_duplicate_media_booking (add-media-booking-dedup.sql)
       // rejects this if one already exists for this release — that should
       // only happen if hasMediaBookingTicket's own lookup was stale, but
@@ -328,6 +403,7 @@ export default function ReleaseDetailPage() {
         setHasMediaBookingTicket(true);
         return;
       }
+      setMediaBookingTicket(created);
     }
     setHasMediaBookingTicket(true);
 
@@ -398,14 +474,23 @@ export default function ReleaseDetailPage() {
         .maybeSingle();
 
       if (existing) {
+        const newLog = { ...(existing.status_log || {}), REQUESTED: new Date().toISOString() };
+        const newData = { ...(existing.data || {}), proposedPackage: "INT MEDIA" };
         await supabase
           .from("tickets")
-          .update({
-            status: "REQUESTED",
-            status_log: { ...(existing.status_log || {}), REQUESTED: new Date().toISOString() },
-            data: { ...(existing.data || {}), proposedPackage: "INT MEDIA" },
-          })
+          .update({ status: "REQUESTED", status_log: newLog, data: newData })
           .eq("id", existing.id);
+        setMediaBookingTicket((t) => (t && t.id === existing.id ? { ...t, status: "REQUESTED", status_log: newLog, data: newData } : t));
+        // Same as sendPackageTicket's reopen path — an UPDATE never fires
+        // trg_notify_on_ticket_insert, so tell Marketing by hand.
+        await supabase.rpc("fanout_notification", {
+          p_team: "Marketing",
+          p_type: "new_ticket",
+          p_title: "Media Booking ticket reopened",
+          p_body: `${form.title || "A release"} needs an INT MEDIA add-on package.`,
+          p_link: "/tickets/media-booking",
+          p_ticket_id: existing.id,
+        });
       } else {
         // No prior ticket somehow — fall back to creating one fresh
         // rather than silently doing nothing.
@@ -536,6 +621,7 @@ export default function ReleaseDetailPage() {
             onToggleLock={togglePackageLock}
             onSendPackageTicket={sendPackageTicket}
             hasMediaBookingTicket={hasMediaBookingTicket}
+            mediaBookingTicket={mediaBookingTicket}
             onSendIntMediaTicket={sendIntMediaTicket}
             pitchingTicket={pitchingTicket}
             pitchingTypesDraft={pitchingTypesDraft}
@@ -547,7 +633,14 @@ export default function ReleaseDetailPage() {
         )}
         {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} did={form.did} releaseId={id} />}
         {tab === "media_booking" && (
-          <MediaBookingTab form={form} entries={bookingEntries} categories={bookingCategories} packageItems={packageItems} />
+          <MediaBookingTab
+            form={form}
+            entries={bookingEntries}
+            categories={bookingCategories}
+            packageItems={packageItems}
+            mediaBookingTicket={mediaBookingTicket}
+            sectionRef={mediaBookingSectionRef}
+          />
         )}
         {tab === "pitching" && <PitchingTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "pre_release" && <PreReleaseTab form={form} update={update} onSave={saveTab} saving={saving} />}
@@ -685,7 +778,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, setTab }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, setTab }) {
   const { profile } = useAuth();
   const isAdminOrAbove = profile?.role === "admin" || profile?.role === "dev";
   const [genres, setGenres] = useState([]);
@@ -949,11 +1042,21 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           <button
             className={styles.btnSmall}
             onClick={onSendPackageTicket}
-            disabled={hasMediaBookingTicket}
-            style={hasMediaBookingTicket ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
-            title={hasMediaBookingTicket ? "A Media Booking ticket already exists for this release." : undefined}
+            disabled={hasMediaBookingTicket && mediaBookingTicket?.status !== "COMPLETE"}
+            style={hasMediaBookingTicket && mediaBookingTicket?.status !== "COMPLETE" ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+            title={
+              !hasMediaBookingTicket
+                ? undefined
+                : mediaBookingTicket?.status === "COMPLETE"
+                ? "Reopens the same ticket for Marketing — use this after artist feedback, or for an internal rebook."
+                : "A Media Booking ticket already exists for this release and is still in progress."
+            }
           >
-            {hasMediaBookingTicket ? "Package Ticket Already Sent" : "Send Package Ticket to Marketing"}
+            {!hasMediaBookingTicket
+              ? "Send Package Ticket to Marketing"
+              : mediaBookingTicket?.status === "COMPLETE"
+              ? "Send Package Ticket Again"
+              : "Package Ticket Already Sent"}
           </button>
           {form.project_type === "Chỉ Phát Hành" && (
             <button
@@ -1265,9 +1368,10 @@ function phuLucStatusClient(form) {
 // Direct/Partner "Channel Type" switch here is gone for the same reason —
 // that split only ever applied to TikTok Channel (see Booking Board), not
 // every category the way this page treated it.
-function MediaBookingTab({ form, entries, categories, packageItems }) {
+function MediaBookingTab({ form, entries, categories, packageItems, mediaBookingTicket, sectionRef }) {
   const [round, setRound] = useState("INT");
   const roundEntries = entries.filter((e) => e.booking_round === round);
+  const feedbackText = mediaBookingTicket?.data?.feedback?.text;
 
   // "Booked" per Hạng Mục, read off the confirmed package (release_package_items
   // — set once the magic link is picked). Its `category` field is either
@@ -1285,7 +1389,19 @@ function MediaBookingTab({ form, entries, categories, packageItems }) {
   }
 
   return (
-    <div>
+    <div ref={sectionRef}>
+      {feedbackText && (
+        <div style={{ background: "rgba(255,107,26,0.08)", border: "1px solid var(--accent)", borderRadius: 8, padding: 12, marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent-soft)", marginBottom: 4 }}>
+            Artist feedback — package change requested
+          </div>
+          <div style={{ fontSize: 12, color: "#ddd", whiteSpace: "pre-line" }}>{feedbackText}</div>
+          <div style={{ fontSize: 11, color: "#888", marginTop: 6 }}>
+            Use "Send Package Ticket Again" above to send this back to Marketing.
+          </div>
+        </div>
+      )}
+
       {entries.length > 0 && (
         <>
           <div className={styles.subheading} style={{ marginTop: 0 }}>All Booking Links</div>
