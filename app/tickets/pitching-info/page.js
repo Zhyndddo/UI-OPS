@@ -6,6 +6,8 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate } from "../../../lib/helpers";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
+import { usePagination } from "../../../lib/usePagination";
+import Pagination from "../../../lib/Pagination";
 import styles from "../../shared.module.css";
 
 const GENRE_CATEGORIES = [
@@ -183,6 +185,7 @@ function PitchingInfoTickets() {
   }
 
   const visibleRows = useMemo(() => rows.filter((row) => row.ticket.status === statusFilter), [rows, statusFilter]);
+  const { pageRows: pagedRows, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleRows);
   const openRow = rows.find((row) => row.ticket.id === openTicketId) || null;
 
   if (loading || !tab) return <div className={styles.page}><div className={styles.container}>Loading…</div></div>;
@@ -217,6 +220,7 @@ function PitchingInfoTickets() {
         {visibleRows.length === 0 ? (
           <div className={styles.emptyState}>No tickets at this status.</div>
         ) : (
+          <>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -235,7 +239,7 @@ function PitchingInfoTickets() {
               </tr>
             </thead>
             <tbody>
-              {visibleRows.map(({ ticket, release }) => {
+              {pagedRows.map(({ ticket, release }) => {
                 const done = fieldsDone(ticket.data);
                 return (
                   <tr key={ticket.id} onClick={() => setOpenTicketId(ticket.id)} style={{ cursor: "pointer" }}>
@@ -266,6 +270,8 @@ function PitchingInfoTickets() {
               })}
             </tbody>
           </table>
+          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+          </>
         )}
       </div>
 

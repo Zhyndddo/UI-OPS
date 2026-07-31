@@ -21,10 +21,62 @@ function fmtVnd(n) {
 const SIMPLE_OPTIONS = ["Chỉ Phát Hành"];
 const BOOKING_ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
 
+// Hardcoded, identical for every package (not per-package terms_text, not
+// DB-driven like the Shared Terms blocks above) — this is VIEENT's fixed
+// partner-benefits sheet, shown once regardless of which package is
+// selected. Transcribed from the reference sheet; ping if any wording here
+// needs correcting and it'll get fixed in this same constant.
+const PARTNER_BENEFITS = [
+  { label: "RECORDING STUDIO", detail: "Thu âm miễn phí tại VIEENT Studio" },
+  { label: "19 CREATIVE SPACE", detail: "Không gian miễn phí để thực hiện quay phỏng vấn, live session, MV ..." },
+  { label: "PITCHING PLAYLIST/BANNER", detail: "Nền Tảng : Zingmp3, NCT, Spotify, Apple Music\nKết quả Pitching sẽ được cập nhật sau khi nền tảng trả kết quả về" },
+  {
+    label: "TRỢ GIÁ BOOKING",
+    detail: "HỖ TRỢ 10% - 70% CHI PHÍ TRUYỀN THÔNG\n(KHÔNG GIỚI HẠN SỐ LẦN HỖ TRỢ)",
+    link: { text: "LINK", href: "https://docs.google.com/spreadsheets/d/1Jyuy_QjrDAk3ToG70Ql4O-6w2WMwVPi5lFRJJjWh9JQ/edit?gid=388080288#gid=388080288" },
+    detailAfterLink: "Hỗ trợ 10% đối với kênh youtube nghệ sĩ thuộc MCN, MV thời lượng dưới 5 phút, tối thiểu 20k views\n\nHỗ trợ 5% đối với kênh youtube nghệ sĩ không thuộc MCN, MV thời lượng dưới 5 phút, tối thiểu 200k views",
+  },
+  {
+    label: "TRỢ GIÁ BOOKING ADS YOUTUBE NGOÀI GÓI HTTT",
+    detail: "* TRỢ GIÁ KHÔNG ÁP DỤNG CHO CÁC TRƯỜNG HỢP SAU:\n1. Không thoả các điều kiện trên\n2. Chạy trong 24h - 48h\n3. Các chi phí phát sinh do thay đổi so với kế hoạch ban đầu (bao gồm nhưng không giới hạn ở): Đẩy nhanh tiến độ/Fast-push, thay đổi nội dung video, thay đổi đối tượng mục tiêu hoặc tạm dừng chiến dịch) sẽ làm gián đoạn quá trình tối ưu hóa tự động của Ads. Việc này có thể dẫn đến hệ quả chi phí thực tế tăng cao hơn so với báo giá dự kiến ban đầu.",
+  },
+  { label: "HỆ THỐNG QUẢN LÝ PHÁT HÀNH VÀ DOANH THU", detail: "Cung cấp tài khoản truy cập để kiểm tra\n- Catalog : VIEENT Music Dashboard\n- Xem Báo cáo Doanh thu : Royalties Analytics" },
+  { label: "BẢO VỆ BẢN QUYỀN & ĐỊNH DANH NGHỆ SĨ:", detail: "- Tối ưu hóa Hồ sơ nghệ sĩ (Mapping/Verification) trên mọi nền tảng.\n- Giám sát, xử lý vi phạm bản quyền (Claim/Report) trên các nền tảng.\n- Tư vấn pháp lý các vấn đề liên quan đến quyền tác giả, quyền bản ghi." },
+  { label: "THEO DÕI & BÁO CÁO ĐỊNH KỲ", detail: "- Báo cáo định kỳ về chỉ số lượt nghe của dự án và profile của nghệ sĩ.\n- Đánh giá dữ liệu để tư vấn điều chỉnh kế hoạch truyền thông kịp thời, đảm bảo hiệu quả tối đa." },
+];
+const MEDIA_PARTNER_NOTE = {
+  intro: "***Logo VIEENT sẽ xuất hiện trên các tài liệu truyền thông chính thức như:\n– Bài đăng Facebook\n– Thumbnail YouTube\n*** Chia sẻ các bài đăng về artist post /congrats post hoặc tag tên VIEENT trong bài đăng Congrats/Thank You Post",
+  logoLink: "https://drive.google.com/drive/folders/1Pqx0wQAssoWe2aZcilI-N9bGzZXuDjIF",
+  hashtag: "Hashtag chính thức #vieentmusic sẽ được sử dụng trên các nền tảng TikTok, Facebook và các nội dung liên quan đến bài hát.",
+};
+
 // Shared Terms Block B ("Chỉ áp dụng cho gói 5 năm và 2 năm…") is only
 // ever relevant to these 2 tiers — Vĩnh Viễn (or anything else) never
 // shows it, even though Block A still shows for every real package.
 const SHARED_B_TIERS = ["độc quyền 5 năm", "độc quyền 2 năm"];
+
+// Any terms line containing this phrase gets highlighted in the accent
+// color instead of the default muted grey — Marketing wants "HỖ TRỢ 100%
+// CHI PHÍ KHÔNG CẤN TRỪ DOANH THU" (wherever it appears across the Intro /
+// Conditions / per-package terms text, all admin-edited in Config → Shared
+// Terms) to stand out. var(--accent-soft) is already bright orange in dark
+// mode and a darker, still-readable-on-white orange in light mode — no
+// separate light/dark branching needed here.
+const HIGHLIGHT_PHRASE = "hỗ trợ 100%";
+
+// Renders a terms blob line-by-line so the one line containing
+// HIGHLIGHT_PHRASE (if any) can be colored differently — everything else
+// renders exactly as before (same font size/color/line-height), just
+// broken into per-line divs instead of one whiteSpace:"pre-line" block so
+// each line can carry its own style.
+function TermsText({ text, baseStyle }) {
+  if (!text) return null;
+  return text.split("\n").map((line, i) => (
+    <div key={i} style={line.toLowerCase().includes(HIGHLIGHT_PHRASE) ? { ...baseStyle, color: "var(--accent-soft)", fontWeight: 700 } : baseStyle}>
+      {line || " "}
+    </div>
+  ));
+}
 
 export default function PickPackagePage() {
   const { token } = useParams();
@@ -277,7 +329,12 @@ export default function PickPackagePage() {
                 key={c.value}
                 style={{
                   background: selected ? "rgba(255,107,26,0.1)" : "#121212",
-                  border: selected ? "1px solid #ff6b1a" : "1px solid #262626",
+                  // Every package card gets an orange stroke now (not just
+                  // the selected one) so they read as a set of options to
+                  // compare, not a plain grey list — selected still stands
+                  // out via a thicker/brighter border plus the tinted
+                  // background above.
+                  border: selected ? "2px solid #ff6b1a" : "1px solid rgba(255,107,26,0.5)",
                   borderRadius: 10,
                   overflow: "hidden",
                 }}
@@ -307,17 +364,16 @@ export default function PickPackagePage() {
                 </button>
                 {(c.termsText || sharedTerms.a || sharedTerms.conditions) && (
                   // Fixed order: intro (a) -> conditions -> this package's
-                  // own terms (c, e.g. VĨNH VIỄN/03 năm) -> the 5/2-năm
-                  // note, only for the tiers it applies to.
+                  // own terms (c, e.g. VĨNH VIỄN/03 năm). The 5/2-năm note
+                  // (Shared B) used to render here too, but that broke the
+                  // Hạng Mục rows lining up horizontally across cards when
+                  // one package had the note and its neighbor didn't (or
+                  // had a different-length one) — it now renders AFTER the
+                  // items table below instead, still inside this same card.
                   <div style={{ borderTop: "1px solid #262626", padding: "10px 16px", background: "rgba(255,107,26,0.04)", display: "grid", gap: 8 }}>
-                    {sharedTerms.a && <div style={{ fontSize: 11, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.a}</div>}
-                    {sharedTerms.conditions && <div style={{ fontSize: 11, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.conditions}</div>}
-                    {c.termsText && <div style={{ fontSize: 11, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>{c.termsText}</div>}
-                    {c.showSharedB && sharedTerms.b && (
-                      <div style={{ paddingTop: 8, borderTop: "1px dashed #333" }}>
-                        <div style={{ fontSize: 10, color: "#888", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.b}</div>
-                      </div>
-                    )}
+                    {sharedTerms.a && <TermsText text={sharedTerms.a} baseStyle={{ fontSize: 11, color: "#ccc", lineHeight: 1.5 }} />}
+                    {sharedTerms.conditions && <TermsText text={sharedTerms.conditions} baseStyle={{ fontSize: 11, color: "#ccc", lineHeight: 1.5 }} />}
+                    {c.termsText && <TermsText text={c.termsText} baseStyle={{ fontSize: 11, color: "#ccc", lineHeight: 1.5 }} />}
                   </div>
                 )}
                 {c.kind === "intMedia" ? (
@@ -352,6 +408,11 @@ export default function PickPackagePage() {
                     </table>
                   </div>
                 ) : null}
+                {c.showSharedB && sharedTerms.b && (
+                  <div style={{ borderTop: "1px dashed #333", padding: "8px 16px" }}>
+                    <TermsText text={sharedTerms.b} baseStyle={{ fontSize: 10, color: "#888", lineHeight: 1.5 }} />
+                  </div>
+                )}
               </div>
             );
           })}
@@ -414,6 +475,12 @@ export default function PickPackagePage() {
           </button>
         )}
 
+        {/* Fixed partner-benefits block — same for every package, shown
+            once (not duplicated per card) right under the package
+            cards/confirm button, above the Booking Progress numbers when
+            that section is showing. */}
+        <PartnerBenefits />
+
         {confirmed && (
           <div style={{ marginTop: 32 }}>
             <div className={styles.subheading} style={{ marginTop: 0 }}>Booking Progress</div>
@@ -452,6 +519,55 @@ export default function PickPackagePage() {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function PartnerBenefits() {
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase" }}>
+        Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT
+      </div>
+      <div style={{ border: "1px solid #262626", borderTop: "none" }}>
+        {PARTNER_BENEFITS.map((row, i) => (
+          <div
+            key={row.label}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "220px 1fr",
+              gap: 16,
+              padding: "10px 14px",
+              background: i % 2 === 0 ? "rgba(255,107,26,0.05)" : "transparent",
+              borderTop: i === 0 ? "none" : "1px solid #1c1c1c",
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#ff9d5c" }}>{row.label}</div>
+            <div style={{ fontSize: 12, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>
+              {row.detail}
+              {row.link && (
+                <div style={{ marginTop: 4 }}>
+                  <span style={{ fontWeight: 700 }}>{row.link.text}</span>
+                  {" : "}
+                  <a href={row.link.href} target="_blank" rel="noopener noreferrer" style={{ color: "#5b9dff", wordBreak: "break-all" }}>{row.link.href}</a>
+                </div>
+              )}
+              {row.detailAfterLink && <div style={{ marginTop: 8 }}>{row.detailAfterLink}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase", marginTop: 20 }}>
+        Quyền Lợi Dành Cho Đơn Vị Truyền Thông
+      </div>
+      <div style={{ border: "1px solid #262626", borderTop: "none", padding: "12px 14px", fontSize: 12, color: "#ccc", lineHeight: 1.6 }}>
+        <div style={{ whiteSpace: "pre-line" }}>{MEDIA_PARTNER_NOTE.intro}</div>
+        <div style={{ marginTop: 8 }}>
+          🔗 Logo: <a href={MEDIA_PARTNER_NOTE.logoLink} target="_blank" rel="noopener noreferrer" style={{ color: "#5b9dff", wordBreak: "break-all" }}>{MEDIA_PARTNER_NOTE.logoLink}</a>
+        </div>
+        <div style={{ marginTop: 8 }}>{MEDIA_PARTNER_NOTE.hashtag}</div>
       </div>
     </div>
   );

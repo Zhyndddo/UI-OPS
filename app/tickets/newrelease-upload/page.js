@@ -7,6 +7,8 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import NotePopup from "../../../lib/ReleaseNotePopup";
+import { usePagination } from "../../../lib/usePagination";
+import Pagination from "../../../lib/Pagination";
 import styles from "../../shared.module.css";
 
 export default function NewreleaseUploadList() {
@@ -73,6 +75,8 @@ export default function NewreleaseUploadList() {
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
+  const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(tickets);
+
   return (
     <AppShell>
     <div className={styles.page}>
@@ -91,6 +95,7 @@ export default function NewreleaseUploadList() {
         ) : tickets.length === 0 ? (
           <div className={styles.emptyState}>No tickets yet.</div>
         ) : (
+          <>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -98,12 +103,12 @@ export default function NewreleaseUploadList() {
               </tr>
             </thead>
             <tbody>
-              {tickets.map((t, i) => {
+              {pagedTickets.map((t, i) => {
                 const status = t.status;
                 const color = statusColor(status);
                 return (
                   <tr key={t.id}>
-                    <td>{i + 1}</td>
+                    <td>{(page - 1) * pageSize + i + 1}</td>
                     <td>{fmtDate(t.created_at)}</td>
                     <td>{t.data?.project || t.data?.releaseId || "—"} — {t.data?.artist || ""}</td>
                     <td>
@@ -151,6 +156,8 @@ export default function NewreleaseUploadList() {
               })}
             </tbody>
           </table>
+          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+          </>
         )}
       </div>
     </div>

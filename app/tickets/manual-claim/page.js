@@ -8,6 +8,8 @@ import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import MultiLinkCell from "../../../lib/MultiLinkCell";
+import { usePagination } from "../../../lib/usePagination";
+import Pagination from "../../../lib/Pagination";
 import styles from "../../shared.module.css";
 
 // Rebuilt bespoke to match v1's real Manual Claim table — simpler than
@@ -70,6 +72,8 @@ export default function ManualClaimList() {
     ? tickets.filter((t) => t.status === statusFilter)
     : [...tickets].sort((a, b) => (REFUND_LIKE.includes(a.status) ? 0 : 1) - (REFUND_LIKE.includes(b.status) ? 0 : 1));
 
+  const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
+
   return (
     <AppShell>
       <div className={styles.page}>
@@ -107,7 +111,7 @@ export default function ManualClaimList() {
                 </tr>
               </thead>
               <tbody>
-                {visibleTickets.map((t) => (
+                {pagedTickets.map((t) => (
                   <ManualClaimRow
                     key={t.id}
                     ticket={t}
@@ -121,6 +125,7 @@ export default function ManualClaimList() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </div>
           )}
         </div>
