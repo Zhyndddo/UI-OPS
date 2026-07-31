@@ -64,6 +64,26 @@ const SHARED_B_TIERS = ["độc quyền 5 năm", "độc quyền 2 năm"];
 // separate light/dark branching needed here.
 const HIGHLIGHT_PHRASE = "hỗ trợ 100%";
 
+// Streaming & Milestone section, below Booking Progress — read-only
+// display of release_stream_metrics (the real, actively-maintained
+// numbers table behind the Streaming workstation's Today/Monthly/Bổ Sung
+// tabs; NOT dsp_metrics_snapshots, which the release detail page's own
+// "Stream Numbers" section reads from but is still an unused/future
+// automated-fetch path per schema.sql — always empty in practice today).
+// Field label list mirrors STREAM workstation's METRIC_GROUPS values, just
+// flattened and only rendering whichever fields actually have something in
+// them rather than a fixed grid, since most releases only ever fill in a
+// handful of these.
+const STREAM_FIELD_LABELS = {
+  current_spotify: "Spotify — Current", playlist_spotify: "Spotify — Playlist",
+  views_tiktok: "TikTok — Views", creations_tiktok: "TikTok — Creations",
+  current_zing: "Zing — Current", homepage_banner_zing: "Zing — Homepage Banner", bxh_nhac_moi: "Zing — BXH Nhạc Mới", album_hot_zing: "Zing — Album Hot", cover_playlist_zing: "Zing — Cover Playlist", playlist_zing: "Zing — Playlist",
+  current_nct: "NCT — Current", banner_homepage_nct: "NCT — Homepage Banner", cover_playlist_nct: "NCT — Cover Playlist", playlist_nct: "NCT — Playlist",
+  current_ytb: "YouTube — Current", youtube_trending: "YouTube — Trending",
+  current_ytb_music: "YTB Music — Current",
+  views_fb: "Facebook — Views", creations_fb: "Facebook — Creations",
+};
+
 // Renders a terms blob line-by-line so the one line containing
 // HIGHLIGHT_PHRASE (if any) can be colored differently — everything else
 // renders exactly as before (same font size/color/line-height), just
@@ -102,6 +122,8 @@ export default function PickPackagePage() {
   const [feedbackText, setFeedbackText] = useState("");
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
+  const [streamMetrics, setStreamMetrics] = useState(null); // release_stream_metrics row, or null
+  const [milestones, setMilestones] = useState([]); // milestone_chart_entries, matched by DID
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -225,6 +247,13 @@ export default function PickPackagePage() {
     setPackageItems(items || []);
     const { data: entries } = await supabase.from("media_booking_entries").select("*").eq("release_id", link.release_id);
     setBookingEntries(entries || []);
+
+    const { data: streamRow } = await supabase.from("release_stream_metrics").select("*").eq("release_id", link.release_id).maybeSingle();
+    setStreamMetrics(streamRow || null);
+    if (rel?.did) {
+      const { data: chart } = await supabase.from("milestone_chart_entries").select("*").eq("did", rel.did).order("entry_date", { ascending: false });
+      setMilestones(chart || []);
+    }
 
     supabase.from("magic_links").update({ last_used_at: new Date().toISOString() }).eq("id", link.id);
     setLoading(false);
@@ -637,6 +666,47 @@ export default function PickPackagePage() {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* Streaming & Milestone — read-only, same data the internal
+            Streaming workstation and the release detail page's Milestone
+            section track, just surfaced here too so the artist/label can
+            see it without a separate report being sent. */}
+        {confirmed && (streamMetrics || milestones.length > 0) && (
+          <div style={{ marginTop: 32 }}>
+            <div className={styles.subheading} style={{ marginTop: 0 }}>Streaming & Milestone</div>
+
+            {streamMetrics && Object.keys(STREAM_FIELD_LABELS).some((k) => streamMetrics[k]) ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginBottom: milestones.length > 0 ? 20 : 0 }}>
+                {Object.entries(STREAM_FIELD_LABELS)
+                  .filter(([key]) => streamMetrics[key])
+                  .map(([key, label]) => (
+                    <div key={key} style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12 }}>
+                      <div style={{ fontSize: 10, color: "#888", marginBottom: 4, textTransform: "uppercase" }}>{label}</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#f4f4f4" }}>{streamMetrics[key]}</div>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              milestones.length === 0 && <p style={{ color: "#666", fontSize: 12 }}>No streaming or milestone data yet.</p>
+            )}
+
+            {milestones.length > 0 && (
+              <table className={styles.table}>
+                <thead><tr><th>Chart</th><th>Date</th><th>Rank</th><th>Platform</th></tr></thead>
+                <tbody>
+                  {milestones.map((m) => (
+                    <tr key={m.id}>
+                      <td>{m.chart}</td>
+                      <td>{m.entry_date}</td>
+                      <td>{m.rank}</td>
+                      <td>{m.platform || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
       </div>

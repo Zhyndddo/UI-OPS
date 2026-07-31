@@ -576,3 +576,51 @@ want those pulled in too.
   out of Đợt 1.
 
 No SQL, no backfill — both are live-logic-only changes in `app/booking/page.js`.
+
+## Follow-up round — Bổ Sung DID field, Streaming & Milestone on the magic link
+
+### 1. Streaming workstation's "Bổ Sung" tab — DID field is a real search + link, not just text
+
+A Bổ Sung row (`release_stream_metrics` with `release_id = null`) is for a
+product that has no matching row in the New Release dashboard at all. New
+`manual_did` column (`add-stream-supplement-did.sql`) plus a new field
+under the existing title/artist/date inputs on that tab — but per
+follow-up feedback, this isn't just a label: typing 3+ characters searches
+`releases` by `did`/`legacy_id` (debounced, live) and shows matches in a
+dropdown. Picking one **merges this Bổ Sung row's numbers into that
+release's real `release_stream_metrics` row** (every release already has
+one — see the auto-create step in `load()`) and removes the Bổ Sung entry,
+so the song's numbers land on its actual dashboard row instead of staying
+parked separately. Only fills fields that are still blank on the target —
+never overwrites a real number someone already entered directly on that
+release. If nothing matches, whatever's typed is still saved as plain text
+on blur, so a DID for a release that doesn't exist yet is at least on
+record for later.
+
+```sql
+-- see add-stream-supplement-did.sql
+alter table release_stream_metrics add column if not exists manual_did text;
+```
+
+### 2. Streaming & Milestone now shows on the magic link page
+
+New section on `app/pick-package/[token]/page.js`, below Booking Progress,
+shown once a package is confirmed — mirrors the release detail page's own
+"Stream Numbers" + "Milestone (Chart Rank)" sections in spirit, but pulls
+from **`release_stream_metrics`**, not `dsp_metrics_snapshots`: the
+release detail page's version reads `dsp_metrics_snapshots` /
+`release_dsp_links`, which per `schema.sql`'s own comment is "a separate,
+still-unused, future path" — there's no automated fetch wired up yet, so
+that section is always empty in practice. `release_stream_metrics` is the
+real, actively-maintained table behind the Streaming workstation's Today
+Check / Monthly tabs (and now Bổ Sung's DID field above), so that's what
+actually has numbers in it to show an artist.
+
+Renders as a grid of small cards, one per non-empty metric field (Spotify
+Current, TikTok Views/Creations, Zing/NCT/YouTube/YTB Music/Facebook
+fields, etc. — whichever ones are actually filled in, not a fixed empty
+grid), plus a Milestone (Chart Rank) table matched by DID, same matching
+rule as the release detail page. Read-only — nothing here is editable from
+the magic link, same as Booking Progress.
+
+No SQL for this half — it only reads two tables that already exist.
