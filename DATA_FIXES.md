@@ -272,10 +272,32 @@ each row's checklist values (`checklist: meta_audio=true meta_artwork=true
 ...`), so future imports can be checked against the sheet before writing,
 not just after.
 
-**Still unclear:** whether this was a one-off (stale file committed vs.
-the one actually reviewed) or something in how the Node `xlsx` library
-read those specific columns in your Actions run. If `repair-brief-ticks`'s
-dry-run log shows the SAME wrong values (not just the DB) — i.e. it
-prints `meta_audio=false` for a release where the sheet clearly has "Đã
-có" — that would point to a real parsing issue and needs a closer look at
-the actual file being read, not just a re-apply.
+**Root cause found — a different bug than the checklist one.** Confirmed
+via the database directly: `legacy_id` was null on all 702 imported
+releases, even though `did` (built from the exact same value, in the same
+insert) came out correct. Couldn't identify the exact mechanism (nothing
+in the insert code explains one field landing and a sibling from the same
+object not), but it doesn't matter — `legacy_id` is fully recoverable
+from `did` itself, since `did` is just `<legacy_id>-<suffix>`.
+
+### 7. `scripts/backfill-legacy-id.js`
+
+Run this **before** `repair-brief-ticks` or `import-ops-tracking` — both
+of those match releases by `legacy_id`, so with it null on every row,
+every lookup was guaranteed to miss (hence "No matching release: 456"
+with 0 actually updated). This script sets `legacy_id` on every release
+whose `did` matches the BRIEF-import shape (10-character base + `-NNNN`
+suffix, one dash) straight from `did` itself — no Excel file needed.
+Organically-created releases have a different DID shape (two dashes,
+longer base) and won't match, so this is safe to run without touching
+anything that didn't come from the BRIEF import. Only ever fills in a
+null `legacy_id`, never overwrites one that's already set.
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/backfill-legacy-id.js
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/backfill-legacy-id.js --confirm
+```
+
+Also runs from the "Data Fix Scripts" Actions workflow (`backfill-legacy-id`
+— no `file_path` needed, it's DB-only). **Correct order now:**
+`backfill-legacy-id` → `repair-brief-ticks` → `import-ops-tracking`.
