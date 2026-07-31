@@ -373,6 +373,7 @@ export default function PickPackagePage() {
 
   const isLocked = magicLink?.locked || release?.package_locked;
   const isPipelineStage = ["BRIEF & DATA", "DEALING"].includes(release?.project_type);
+  const hasOtherRounds = bookingEntries.some((e) => e.booking_round === "Đợt 1" || e.booking_round === "Đợt 2");
 
   // "Rich" cards (real built packages, incl. INT MEDIA) get the wide
   // itemized-table treatment; "compact" ones (the always-offered simple
@@ -419,6 +420,7 @@ export default function PickPackagePage() {
             offered simple picks stack narrowly on the right so they don't
             burn a whole card's width on one line of text. */}
         <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+        {richOptions.length > 0 && (
         <div style={{ flex: "3 1 640px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 12, alignItems: "start" }}>
           {richOptions.map((c) => {
             const selected = selectedValue === c.value;
@@ -514,13 +516,16 @@ export default function PickPackagePage() {
               </div>
             );
           })}
-          {richOptions.length === 0 && (
-            <div className={styles.emptyState}>No packages built yet.</div>
-          )}
         </div>
+        )}
 
         {compactOptions.length > 0 && (
-          <div style={{ flex: "0 0 200px", display: "grid", gap: 10 }}>
+          // No rich (built) packages at all — the only pickable option
+          // shouldn't be stranded off in the narrow right-hand rail with
+          // nothing else on the page; give it the wide left-aligned
+          // treatment instead so it just reads as "the option", not an
+          // afterthought next to empty space.
+          <div style={richOptions.length === 0 ? { flex: "1 1 320px", display: "grid", gap: 10, maxWidth: 360 } : { flex: "0 0 200px", display: "grid", gap: 10 }}>
             {compactOptions.map((c) => {
               const selected = selectedValue === c.value;
               return (
@@ -633,18 +638,24 @@ export default function PickPackagePage() {
         {confirmed && (
           <div style={{ marginTop: 32 }}>
             <div className={styles.subheading} style={{ marginTop: 0 }}>Booking Progress</div>
-            <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
-              {BOOKING_ROUNDS.map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setRound(r)}
-                  className={`${styles.tabBtn} ${round === r ? styles.tabBtnActive : ""}`}
-                  style={{ border: "1px solid #262626", borderRadius: 6 }}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
+            {/* Only show the round switcher when there's actually
+                something to switch to — a release that never got a Đợt 1
+                or Đợt 2 booking entry has nothing behind those tabs, so
+                showing them just invites clicking into an empty view. */}
+            {hasOtherRounds && (
+              <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+                {BOOKING_ROUNDS.map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setRound(r)}
+                    className={`${styles.tabBtn} ${round === r ? styles.tabBtnActive : ""}`}
+                    style={{ border: "1px solid #262626", borderRadius: 6 }}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
               {categories.map((c) => {
                 const booked = bookedFor(c.name);

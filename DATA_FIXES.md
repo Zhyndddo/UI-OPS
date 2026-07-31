@@ -623,4 +623,44 @@ grid), plus a Milestone (Chart Rank) table matched by DID, same matching
 rule as the release detail page. Read-only — nothing here is editable from
 the magic link, same as Booking Progress.
 
+## Follow-up round — magic link layout, Streaming Monthly tab navigation
+
+### 1. Booking Progress round tabs only show when there's another round to show
+
+The INT/Đợt 1/Đợt 2 switcher above Booking Progress used to always render
+all three, even for a release that only ever had INT bookings — nothing
+behind the other two tabs, just an empty view if clicked. Now it only
+renders when `media_booking_entries` actually has a Đợt 1 or Đợt 2 row for
+this release; otherwise Booking Progress shows straight away with no
+switcher at all (there's only one thing to show).
+
+### 2. The only pickable option now sits on the left, not stranded on the right
+
+When no real package has been built yet (`richOptions` empty — just the
+one always-offered simple pick, e.g. "Chỉ Phát Hành"), that option used to
+render in its narrow 200px right-hand rail next to a wide, empty "No
+packages built yet." placeholder on the left — reads oddly, like the real
+option is an afterthought. Now: when there are no rich options, that left
+placeholder box doesn't render at all, and the simple option gets a wider
+left-aligned card instead of the narrow rail. As soon as a real package
+does get built, layout goes back to the normal two-column comparison.
+
+### 3. Streaming workstation — Monthly tab search + month index, frozen header row
+
+- **Search box** (title/artist/DID) above the Monthly list — filters every
+  month's rows live; a month with zero matches drops out of the list
+  entirely instead of showing an empty table.
+- **Month index bar** — one button per month (hidden while searching,
+  since search already narrows it down) that jumps straight to that
+  month's table via an anchor link, for browsing to an old entry by
+  roughly-remembered release date instead of title.
+- **Column header row is now sticky on scroll**, not just the Release
+  column (which was already frozen horizontally) — the Spotify/TikTok/
+  Zing/etc. column labels now stay visible scrolling down through a long
+  month's worth of rows, so you're never guessing which column you're
+  editing.
+
+No SQL for any of this — purely `app/pick-package/[token]/page.js` and
+`app/workstation/stream/page.js` layout/logic changes.
+
 No SQL for this half — it only reads two tables that already exist.

@@ -32,6 +32,7 @@ export default function StreamWorkstation() {
   const [metrics, setMetrics] = useState({}); // release_id -> metrics row
   const [supplements, setSupplements] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [monthlySearch, setMonthlySearch] = useState(""); // Monthly tab only — title/artist/DID, so an old entry can be found without scrolling every month
 
   useEffect(() => {
     if (!supabase) return;
@@ -153,6 +154,21 @@ export default function StreamWorkstation() {
     return Object.entries(groups); // already in descending order since input was sorted
   }, [releases]);
 
+  // Monthly can run to a LOT of months once real data piles up — finding
+  // one old release to fix a number on shouldn't mean scrolling through
+  // all of them. Search filters every month's rows by title/artist/DID; a
+  // month with zero matches (or, with no search, zero releases) drops out
+  // of the list entirely rather than showing an empty table. The index bar
+  // below jumps straight to a month's anchor for when you know roughly
+  // when it released but not the exact title.
+  const filteredMonthlyGroups = useMemo(() => {
+    const q = monthlySearch.trim().toLowerCase();
+    if (!q) return monthlyGroups;
+    return monthlyGroups
+      .map(([month, rels]) => [month, rels.filter((r) => `${r.title} ${r.main_artist} ${r.did}`.toLowerCase().includes(q))])
+      .filter(([, rels]) => rels.length > 0);
+  }, [monthlyGroups, monthlySearch]);
+
   return (
     <AppShell>
       <div className={styles.page}>
@@ -189,15 +205,45 @@ export default function StreamWorkstation() {
             monthlyGroups.length === 0 ? (
               <div className={styles.emptyState}>No releases with a release date yet.</div>
             ) : (
-              monthlyGroups.map(([month, rels]) => (
-                <div key={month} style={{ marginBottom: 28 }}>
-                  <div className={styles.subheading} style={{ marginTop: 0 }}>{month}</div>
-                  <StreamTable
-                    rows={rels.map((r) => ({ release: r, metrics: metrics[r.id] || {} }))}
-                    onUpdate={(row, field, value) => updateMetric(row.metrics, field, value, false)}
-                  />
-                </div>
-              ))
+              <>
+                <input
+                  className={styles.input}
+                  style={{ maxWidth: 360, marginBottom: 12 }}
+                  value={monthlySearch}
+                  onChange={(e) => setMonthlySearch(e.target.value)}
+                  placeholder="Search title / artist / DID…"
+                />
+                {/* Month index — jumps straight to that month's anchor.
+                    Hidden while searching, since search already narrows
+                    things down to a handful of months at most. */}
+                {!monthlySearch && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 20 }}>
+                    {monthlyGroups.map(([month]) => (
+                      <a
+                        key={month}
+                        href={`#stream-month-${month}`}
+                        className={styles.tabBtn}
+                        style={{ border: "1px solid var(--border)", borderRadius: 6, textDecoration: "none" }}
+                      >
+                        {month}
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {filteredMonthlyGroups.length === 0 ? (
+                  <div className={styles.emptyState}>No matches for "{monthlySearch}".</div>
+                ) : (
+                  filteredMonthlyGroups.map(([month, rels]) => (
+                    <div key={month} id={`stream-month-${month}`} style={{ marginBottom: 28, scrollMarginTop: 16 }}>
+                      <div className={styles.subheading} style={{ marginTop: 0 }}>{month}</div>
+                      <StreamTable
+                        rows={rels.map((r) => ({ release: r, metrics: metrics[r.id] || {} }))}
+                        onUpdate={(row, field, value) => updateMetric(row.metrics, field, value, false)}
+                      />
+                    </div>
+                  ))
+                )}
+              </>
             )
           ) : (
             <>
@@ -226,21 +272,27 @@ function StreamTable({ rows, onUpdate, onRemove, onLink, manual }) {
     <div style={{ overflowX: "auto" }}>
       <table className={styles.table} style={{ minWidth: 1400 }}>
         <thead>
+          {/* Sticky on BOTH axes now — top:0 so the column labels stay
+              visible scrolling down a long Monthly list (was only ever
+              sticky left/right before), left:0 kept on the Release column
+              so it also stays put scrolling sideways. The Release th needs
+              a higher z-index than the rest since it's sticky on both axes
+              at once and has to stay above them at the corner. */}
           <tr>
-            <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 300, minWidth: 300, maxWidth: 300 }}>Release</th>
+            <th style={{ position: "sticky", top: 0, left: 0, zIndex: 4, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 300, minWidth: 300, maxWidth: 300 }}>Release</th>
             {METRIC_GROUPS.map(([group, fields]) => (
-              <th key={group} colSpan={fields.length} style={{ textAlign: "center", borderLeft: "1px solid var(--border)" }}>{group}</th>
+              <th key={group} colSpan={fields.length} style={{ position: "sticky", top: 0, zIndex: 3, background: "var(--bg)", textAlign: "center", borderLeft: "1px solid var(--border)" }}>{group}</th>
             ))}
-            <th>Note</th>
-            {manual && <th></th>}
+            <th style={{ position: "sticky", top: 0, zIndex: 3, background: "var(--bg)" }}>Note</th>
+            {manual && <th style={{ position: "sticky", top: 0, zIndex: 3, background: "var(--bg)" }}></th>}
           </tr>
           <tr>
-            <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}></th>
+            <th style={{ position: "sticky", top: 27, left: 0, zIndex: 4, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}></th>
             {METRIC_GROUPS.flatMap(([group, fields]) => fields.map(([key, label]) => (
-              <th key={key} style={{ fontSize: 10, fontWeight: 400, borderLeft: GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>{label}</th>
+              <th key={key} style={{ position: "sticky", top: 27, zIndex: 3, background: "var(--bg)", fontSize: 10, fontWeight: 400, borderLeft: GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>{label}</th>
             )))}
-            <th></th>
-            {manual && <th></th>}
+            <th style={{ position: "sticky", top: 27, zIndex: 3, background: "var(--bg)" }}></th>
+            {manual && <th style={{ position: "sticky", top: 27, zIndex: 3, background: "var(--bg)" }}></th>}
           </tr>
         </thead>
         <tbody>
