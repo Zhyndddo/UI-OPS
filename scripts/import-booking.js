@@ -212,7 +212,7 @@ async function main() {
     }
     if (qtyLines.length === 0 && urlLines.length === 0) { releasesSkippedNoData++; continue; }
 
-    const { data: existing, error: lookupErr } = await supabase.from("releases").select("id, did").eq("legacy_id", did).maybeSingle();
+    const { data: existing, error: lookupErr } = await supabase.from("releases").select("id, did, project_type").eq("legacy_id", did).maybeSingle();
     if (lookupErr) {
       console.error(`[${source}] ${did}: lookup FAILED — ${lookupErr.message}`);
       failed++;
@@ -224,42 +224,77 @@ async function main() {
       continue;
     }
 
+    // Booking Board's per-brand columns (app/booking/page.js: bookedFor())
+    // don't read release_package_items — they match a release to a
+    // media_booking_packages row by NAME === releases.project_type. A
+    // package named "LEGACY BOOKING IMPORT" would silently never show up
+    // as a booking target there no matter how much data it holds. So:
+    // once a release has a real resolved project_type (not the BRIEF &
+    // DATA / DEALING pipeline placeholders — those aren't a package name,
+    // there's nothing to match), name the imported package to match it,
+    // merging into an existing same-named package if Marketing already
+    // built one live rather than creating a second package with the same
+    // name (packageByRelease only ever picks the first match, so a
+    // duplicate name would silently hide either the live or the imported
+    // lines depending on insert order).
+    const PIPELINE_STAGES = ["BRIEF & DATA", "DEALING"];
+    const hasResolvedPackageName = existing.project_type && !PIPELINE_STAGES.includes(existing.project_type);
+    const packageName = hasResolvedPackageName ? existing.project_type : IMPORT_PACKAGE_NAME;
+    if (!hasResolvedPackageName && qtyLines.length > 0) {
+      console.log(`  [${did}] project_type is still "${existing.project_type || "(none)"}" — quantities go into a "${IMPORT_PACKAGE_NAME}" package, which won't show as a Booking Board target until this release has a real package name.`);
+    }
+
     console.log(`[${source}] ${did} -> ${existing.did}: ${qtyLines.length} quantity line(s), ${urlLines.length} URL(s).`);
     releasesTouched++;
     if (!confirm) continue;
 
-    // Half 1 — request quantities into one "LEGACY BOOKING IMPORT" package
-    // per release. Skip entirely if that package already exists (re-run
-    // safety) rather than trying to diff/merge line-by-line.
+    // Half 1 — request quantities into a package matching packageName
+    // (see above). Merges into an existing package of that name if one
+    // exists (only adding lines for category/brand/platform combos not
+    // already present, so re-running never doubles counts); creates a new
+    // one otherwise.
     if (qtyLines.length > 0) {
       const { data: existingPkg, error: pkgLookupErr } = await supabase
         .from("media_booking_packages")
-        .select("id")
+        .select("id, media_booking_package_lines(category_id, brand, platform)")
         .eq("release_id", existing.id)
-        .eq("name", IMPORT_PACKAGE_NAME)
+        .eq("name", packageName)
         .maybeSingle();
       if (pkgLookupErr) {
         console.error(`  -> package lookup FAILED: ${pkgLookupErr.message}`);
         failed++;
-      } else if (existingPkg) {
-        releasesSkippedAlreadyImported++;
       } else {
-        const { data: pkg, error: pkgErr } = await supabase
-          .from("media_booking_packages")
-          .insert({ release_id: existing.id, name: IMPORT_PACKAGE_NAME, status: "sent", sort_order: 0 })
-          .select()
-          .single();
-        if (pkgErr) {
-          console.error(`  -> package insert FAILED: ${pkgErr.message}`);
-          failed++;
+        let packageId = existingPkg?.id;
+        let alreadyHave = existingPkg?.media_booking_package_lines || [];
+        if (!packageId) {
+          const { data: pkg, error: pkgErr } = await supabase
+            .from("media_booking_packages")
+            .insert({ release_id: existing.id, name: packageName, status: "sent", sort_order: 0 })
+            .select()
+            .single();
+          if (pkgErr) {
+            console.error(`  -> package insert FAILED: ${pkgErr.message}`);
+            failed++;
+            packageId = null;
+          } else {
+            packageId = pkg.id;
+          }
         } else {
-          const rows = qtyLines.map((l, i) => ({
-            package_id: pkg.id,
+          releasesSkippedAlreadyImported++;
+        }
+
+        const newLines = qtyLines.filter(
+          (l) => !alreadyHave.some((existingLine) => existingLine.category_id === l.categoryId && (existingLine.brand || "") === (l.brand || "") && (existingLine.platform || "") === (l.platform || ""))
+        );
+
+        if (packageId && newLines.length > 0) {
+          const rows = newLines.map((l, i) => ({
+            package_id: packageId,
             category_id: l.categoryId,
             brand: l.brand,
             platform: l.platform,
             quantity: l.quantity,
-            sort_order: i,
+            sort_order: alreadyHave.length + i,
           }));
           const { error: linesErr } = await supabase.from("media_booking_package_lines").insert(rows);
           if (linesErr) {
@@ -268,6 +303,36 @@ async function main() {
           } else {
             linesInserted += rows.length;
           }
+        }
+      }
+
+      // The release detail page's Media Booking tab and the magic link
+      // page's "Booking Progress" both read release_package_items instead
+      // (a separate, flat snapshot table — see confirmChoice() in
+      // app/pick-package/[token]/page.js), not media_booking_packages.
+      // Backfill it too so this data shows up there as well, not just on
+      // the Booking Board. Only when the release doesn't already have any
+      // — same idempotency rule confirmChoice() itself uses, so this never
+      // overwrites real data from an actual artist pick.
+      const { data: existingItems, error: itemsLookupErr } = await supabase.from("release_package_items").select("id").eq("release_id", existing.id).limit(1);
+      if (itemsLookupErr) {
+        console.error(`  -> release_package_items lookup FAILED: ${itemsLookupErr.message}`);
+        failed++;
+      } else if (!existingItems || existingItems.length === 0) {
+        const categoryNameById = {};
+        Object.values(REQUEST_COLUMNS).forEach(([, categoryName]) => {
+          categoryNameById[categoryIdByName[categoryName]] = categoryName;
+        });
+        const itemRows = qtyLines.map((l, i) => ({
+          release_id: existing.id,
+          category: l.brand ? `${categoryNameById[l.categoryId]} — ${l.brand}` : (l.platform ? `${categoryNameById[l.categoryId]} — ${l.platform}` : categoryNameById[l.categoryId]),
+          quantity: l.quantity,
+          sort_order: i,
+        }));
+        const { error: itemsErr } = await supabase.from("release_package_items").insert(itemRows);
+        if (itemsErr) {
+          console.error(`  -> release_package_items insert FAILED: ${itemsErr.message}`);
+          failed++;
         }
       }
     }

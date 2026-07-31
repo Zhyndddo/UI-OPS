@@ -170,10 +170,17 @@ export default function BookingBoard() {
   // any real chosen package that isn't INT MEDIA or the Chỉ Phát Hành-only
   // pick; Đợt 2 = releases that actually have Đợt 2 targets set (TikTok
   // Channel's Skip/summarize flow — see media-booking's Đợt 2 popup).
+  //
+  // isIntType matches loosely (contains "int media", case-insensitive)
+  // rather than an exact "INT MEDIA" string — legacy/imported releases can
+  // carry a slightly different label for the same thing (seen in practice:
+  // "INT Media Support"), and those were slipping into the Đợt 1 view
+  // instead of being excluded from it and only showing under INT.
   const roundFilteredReleases = useMemo(() => {
     return releases.filter((r) => {
-      if (round === "INT") return r.project_type === "INT MEDIA";
-      if (round === "Đợt 1") return !!r.project_type && r.project_type !== "Chỉ Phát Hành" && r.project_type !== "INT MEDIA";
+      const isIntType = !!r.project_type && /int\s*media/i.test(r.project_type);
+      if (round === "INT") return isIntType;
+      if (round === "Đợt 1") return !!r.project_type && r.project_type !== "Chỉ Phát Hành" && !isIntType;
       if (round === "Đợt 2") return dot2ReleaseIds.has(r.id);
       return true;
     });
@@ -709,7 +716,7 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
     >
       <div
         onClick={onToggle}
-        style={{ cursor: "pointer", fontSize: 12, textAlign: "center", fontWeight: isDone ? 800 : 400 }}
+        style={{ cursor: "pointer", fontSize: 17, textAlign: "center", fontWeight: isDone ? 800 : 600 }}
         title={cellEntries.map((e) => `${e.platform ? e.platform + ": " : ""}${e.status}: ${e.link}`).join("\n")}
       >
         {isDone ? (

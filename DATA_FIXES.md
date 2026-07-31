@@ -489,9 +489,10 @@ Two independent things get imported per matched row:
 
 - **Requester quantities** (columns R, U, V, W, X, Y, Z, AC, AD, AE, AF,
   AG, AH — S/T are a status/meta pair, not a brand, and are skipped; AA/AB
-  are blank spacer columns) → one `media_booking_packages` row per release
-  named `LEGACY BOOKING IMPORT`, with one `media_booking_package_lines`
-  row per non-empty quantity cell. Category/brand match the live Package
+  are blank spacer columns) → one `media_booking_packages` row per release,
+  with one `media_booking_package_lines` row per non-empty quantity cell —
+  **and** the same quantities into `release_package_items` (see "package
+  naming" below for why both). Category/brand match the live Package
   Builder's vocabulary (Social: VIEENT/ENVI, Community: PAGE BOLERO·VPOP·
   INDIE, TikTok Channel: TIKTOK BOLERO·VPOP·INDIE/CAPCUT, Ads: FB POST
   ADS/FB VIDEO ADS/YOUTUBE ADS) except `EXT TIKTOK`, which the sheet
@@ -507,10 +508,39 @@ Two independent things get imported per matched row:
   `INT` (the sheets don't distinguish Đợt 1/Đợt 2), status as `Done`
   (these are all already-posted historical links).
 
-Both halves are safely re-runnable: a release that already has a `LEGACY
-BOOKING IMPORT` package is skipped for the quantity half (not
-re-diffed/merged), and a URL is only inserted if an identical (release,
-category, channel, link) row doesn't already exist.
+**Package naming (fixed after the first version of this script — the
+Booking Board showed "0/—" everywhere, numbers nowhere in the data):** the
+Booking Board's per-brand columns (`app/booking/page.js`'s `bookedFor()`)
+don't read `release_package_items` — they match a release to a
+`media_booking_packages` row **by name**, where name === `releases.
+project_type`. The first version of this script named every imported
+package `LEGACY BOOKING IMPORT`, which could never match any
+`project_type` and so never showed up as a booking target on the Board at
+all, no matter how much data it held — the itemized quantities existed in
+the database but nothing on screen pointed at them. Fixed: when a release
+already has a real resolved `project_type` (not the `BRIEF & DATA` /
+`DEALING` pipeline placeholders — those aren't a package name, there's
+nothing to match), the imported package is named to match it exactly, so
+it becomes the Board's live target. If Marketing already has a real
+same-named package for that release, the imported lines merge into it
+(skipping any category/brand/platform combo already present, so re-running
+never doubles a count) rather than creating a second package with the same
+name — `packageByRelease` only ever picks the first match, so a duplicate
+name would have silently hidden one or the other. A release still sitting
+at `BRIEF & DATA`/`DEALING` has no real package name to match yet, so its
+quantities go into a `LEGACY BOOKING IMPORT` package as a fallback (the
+script logs this per-release in the dry run) — that data is preserved but
+won't show as a Board target until the release gets a real package name.
+The same quantities are also written straight into `release_package_items`
+(only if that release has no rows there yet, same idempotency rule
+`confirmChoice()` itself uses) — that's what the release detail page's
+Media Booking tab and the magic link's Booking Progress read, so this
+import shows up in both places, not just the Board.
+
+Both halves are safely re-runnable: the quantity half only inserts lines
+that aren't already present in the matched package (never a second
+same-named package, never a doubled count), and a URL is only inserted if
+an identical (release, category, channel, link) row doesn't already exist.
 
 ```bash
 npm install xlsx --no-save
@@ -529,3 +559,20 @@ set.
 DRIVE, LINK LBM, SOCIAL BOOKING, LINK MV/SOURCE, HASHTAG, BID) and the
 BF–BN WIP-status text columns — out of scope for this pass, flag if you
 want those pulled in too.
+
+### 3. Booking Board — bigger numbers, INT filter fix
+
+- The `added / booked` count in each brand cell (and the "DONE" label) is
+  now `fontSize: 17` instead of `12` — same cells, just easier to read at
+  a glance across a full row of columns.
+- **INT-type releases were leaking into the Đợt 1 view.** The round filter
+  used to check `project_type === "INT MEDIA"` exactly to decide what
+  counts as INT and what to exclude from Đợt 1 — a release whose
+  `project_type` is a close-but-not-identical label (seen live: `"INT
+  Media Support"`) matched neither branch, so it fell into Đợt 1 instead
+  of being excluded from it. The check is now a loose, case-insensitive
+  `/int\s*media/i` match on `project_type` instead of an exact string
+  comparison, so any INT-flavored label lands in the INT round and stays
+  out of Đợt 1.
+
+No SQL, no backfill — both are live-logic-only changes in `app/booking/page.js`.
