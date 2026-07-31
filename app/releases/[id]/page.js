@@ -37,6 +37,12 @@ const META_ITEMS = [
   { key: "meta_doc", label: "Metadata" },
 ];
 
+// Send Upload only actually needs these 4 — Working Files and MV are
+// tracked here for completeness but no longer gate the ticket. Keeping
+// this as a subset of META_ITEMS (by key) instead of a separate list so
+// the two can never drift out of sync on labels.
+const REQUIRED_META_KEYS = ["meta_audio", "meta_artwork", "meta_lyric", "meta_doc"];
+
 const BOOKING_ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
 
 export default function ReleaseDetailPage() {
@@ -266,13 +272,14 @@ export default function ReleaseDetailPage() {
     }
 
     const patch = { requested: true };
-    // Went out via the Priority Pitching shortcut (metaDone < 6, only
-    // allowed through because Priority is ticked — see uploadReady above).
-    // priority_pitching_used records that the shortcut was actually used;
-    // needs_update is the live "still incomplete" flag everything else
-    // (Smartlink lock, the warning banner) reads — cleared by
-    // unlockNeedsUpdate() once the checklist is genuinely filled in.
-    if (metaDone < META_ITEMS.length) {
+    // Went out via the Priority Pitching shortcut (required checklist items
+    // not yet all filled in, only allowed through because Priority is
+    // ticked — see uploadReady above). priority_pitching_used records that
+    // the shortcut was actually used; needs_update is the live "still
+    // incomplete" flag everything else (Smartlink lock, the warning banner)
+    // reads — cleared by unlockNeedsUpdate() once the required items are
+    // genuinely filled in.
+    if (requiredMetaDone < REQUIRED_META_KEYS.length) {
       patch.priority_pitching_used = true;
       patch.needs_update = true;
     }
@@ -287,7 +294,7 @@ export default function ReleaseDetailPage() {
   // needs_update — requires the checklist to actually be 6/6 first, so
   // this can't be used to just wave the warning away.
   async function unlockNeedsUpdate() {
-    if (metaDone < META_ITEMS.length) return;
+    if (requiredMetaDone < REQUIRED_META_KEYS.length) return;
     const patch = { needs_update: false };
     await supabase.from("releases").update(patch).eq("id", id);
     setForm((f) => ({ ...f, ...patch }));
@@ -305,12 +312,22 @@ export default function ReleaseDetailPage() {
     if (hasMediaBookingTicket) return;
     const { data: mbTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "media_booking").single();
     if (mbTab) {
-      await supabase.from("tickets").insert({
+      const { error: insertErr } = await supabase.from("tickets").insert({
         tab_id: mbTab.id,
         data: { releaseId: form.did, proposedPackage: null },
         status: mbTab.default_status,
         status_log: { [mbTab.default_status]: new Date().toISOString() },
       });
+      // trg_prevent_duplicate_media_booking (add-media-booking-dedup.sql)
+      // rejects this if one already exists for this release — that should
+      // only happen if hasMediaBookingTicket's own lookup was stale, but
+      // don't mark the state/project stage as advanced if the insert
+      // itself didn't actually go through.
+      if (insertErr) {
+        setError(insertErr.message.includes("only one is allowed per release") ? "A Media Booking ticket for this release already exists." : insertErr.message);
+        setHasMediaBookingTicket(true);
+        return;
+      }
     }
     setHasMediaBookingTicket(true);
 
@@ -418,18 +435,23 @@ export default function ReleaseDetailPage() {
   if (!form) return <div className={styles.page}><div className={styles.container}>Loading…</div></div>;
 
   const metaDone = META_ITEMS.filter((m) => form[m.key]).length;
+  // Send Upload only actually requires 4 of the 6 checklist items (Audio,
+  // Artwork, Lyric, Metadata) — Working Files and MV are still tracked in
+  // the checklist above for visibility, they just don't gate the ticket.
+  const requiredMetaDone = REQUIRED_META_KEYS.filter((k) => form[k]).length;
   const nameGroupFilled = form.title && form.main_artist && form.release_date;
-  // Priority Pitching is the one exception to "must have the full 6/6
-  // checklist before Send Upload" — a priority release needs to reach OPS
-  // before its data is complete, that's the whole point of it being
-  // priority. metaDone still isn't required, but the basic name/date group
-  // still is (the upload ticket needs those to mean anything).
+  // Priority Pitching is the one exception to "must have the required
+  // checklist items before Send Upload" — a priority release needs to
+  // reach OPS before its data is complete, that's the whole point of it
+  // being priority. requiredMetaDone still isn't required, but the basic
+  // name/date group still is (the upload ticket needs those to mean
+  // anything).
   // Reads the SAVED priority flag (pitchingTicket.data), not the live
   // pitchingTypesDraft — ticking the Priority checkbox alone must not
   // unlock Send Upload; only hitting Save (saveTab persisting the draft
   // into pitchingTicket) does.
   const priorityConfirmed = !!pitchingTicket?.data?.priority;
-  const uploadReady = nameGroupFilled && (metaDone === META_ITEMS.length || priorityConfirmed);
+  const uploadReady = nameGroupFilled && (requiredMetaDone === REQUIRED_META_KEYS.length || priorityConfirmed);
 
   return (
     <AppShell>
@@ -495,6 +517,7 @@ export default function ReleaseDetailPage() {
             form={form}
             update={update}
             metaDone={metaDone}
+            requiredMetaDone={requiredMetaDone}
             uploadReady={uploadReady}
             onSave={saveTab}
             saving={saving}
@@ -654,7 +677,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, setTab }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, setTab }) {
   const { profile } = useAuth();
   const isAdminOrAbove = profile?.role === "admin" || profile?.role === "dev";
   const [genres, setGenres] = useState([]);
@@ -816,7 +839,7 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
           <div style={{ color: "#e57373", fontSize: 12, fontWeight: 700 }}>
             ⚠ {PRIORITY_MODE_WARNING} Smartlink is locked (URL tab) until the checklist below is complete.
           </div>
-          {metaDone === META_ITEMS.length && (
+          {requiredMetaDone === REQUIRED_META_KEYS.length && (
             <button className={styles.btnSmall} onClick={onUnlockNeedsUpdate} style={{ borderColor: "#7ee6a8", color: "#7ee6a8", flexShrink: 0 }}>
               Checklist complete — unlock Smartlink
             </button>
@@ -824,15 +847,18 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         </div>
       )}
 
-      <div className={styles.subheading}>Metadata Checklist ({metaDone}/6)</div>
+      <div className={styles.subheading}>Metadata Checklist ({metaDone}/6 — {requiredMetaDone}/{REQUIRED_META_KEYS.length} required)</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
         {META_ITEMS.map((m) => (
           <div key={m.key} className={styles.field} style={{ marginBottom: 0 }}>
-            <label className={styles.fieldLabel}>{m.label}</label>
+            <label className={styles.fieldLabel}>{m.label}{REQUIRED_META_KEYS.includes(m.key) ? " *" : ""}</label>
             <BoolToggle value={!!form[m.key]} onChange={(v) => update(m.key, v)} />
           </div>
         ))}
       </div>
+      <p style={{ fontSize: 11, color: "#888", marginTop: -12, marginBottom: 20 }}>
+        * Required for Send Upload (Audio, Artwork, Lyric, Metadata). Working Files and MV are tracked here but don't block the ticket.
+      </p>
 
       <div className={styles.subheading}>Other Checklist</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
@@ -863,12 +889,12 @@ function OverviewTab({ form, update, metaDone, uploadReady, onSave, saving, onUp
         >
           {form.requested ? "UPLOAD SENT" : "SEND UPLOAD"}
         </button>
-        {!form.requested && !!pitchingTicket?.data?.priority && metaDone < META_ITEMS.length && (
+        {!form.requested && !!pitchingTicket?.data?.priority && requiredMetaDone < REQUIRED_META_KEYS.length && (
           <p style={{ color: "#e57373", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
             Priority Pitching is ticked — Send Upload is unlocked, please fill in Metadata Checklist.
           </p>
         )}
-        {!form.requested && pitchingTypesDraft.priority && !pitchingTicket?.data?.priority && metaDone < META_ITEMS.length && (
+        {!form.requested && pitchingTypesDraft.priority && !pitchingTicket?.data?.priority && requiredMetaDone < REQUIRED_META_KEYS.length && (
           <p style={{ color: "#888", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
             Priority Pitching is ticked but not saved yet — hit Save below to unlock Send Upload.
           </p>

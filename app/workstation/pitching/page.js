@@ -11,6 +11,8 @@ import UrlField from "../../../lib/UrlField";
 import { sortByReleaseDateDesc, filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
+import { usePagination } from "../../../lib/usePagination";
+import Pagination from "../../../lib/Pagination";
 import styles from "../../shared.module.css";
 
 const STATUS_OPTS = ["", "Chưa thực hiện", "Đang thực hiện", "Đã pitching", "Không thực hiện"];
@@ -130,6 +132,7 @@ export default function PitchingWorkstation() {
   }, [rows, showDone]);
 
   const { sorted: visibleRows, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredRows);
+  const { pageRows: pagedRows, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleRows);
 
   const openRow = rows.find((row) => row.ticket.id === openTicketId);
 
@@ -169,7 +172,7 @@ export default function PitchingWorkstation() {
                 </tr>
               </thead>
               <tbody>
-                {visibleRows.map((row) => {
+                {pagedRows.map((row) => {
                   const types = requestedTypes(row.ticket);
                   const rid = row.release?.id;
                   return (
@@ -209,6 +212,7 @@ export default function PitchingWorkstation() {
                 })}
               </tbody>
             </table>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </div>
           )}
         </div>

@@ -12,6 +12,8 @@ import StatusCounter from "../../../lib/StatusCounter";
 import { sortByReleaseDateDesc, filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
+import { usePagination } from "../../../lib/usePagination";
+import Pagination from "../../../lib/Pagination";
 import { PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
 
@@ -99,6 +101,7 @@ export default function ConfirmWorkstation() {
   }, [releases, showDone, phase]);
 
   const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
+  const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleReleases);
 
   return (
     <AppShell>
@@ -152,7 +155,7 @@ export default function ConfirmWorkstation() {
                 </tr>
               </thead>
               <tbody>
-                {visibleReleases.map((r) => (
+                {pagedReleases.map((r) => (
                   <tr key={r.id}>
                     <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>
                       <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
@@ -176,6 +179,7 @@ export default function ConfirmWorkstation() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </div>
           ) : (
             <div style={{ overflowX: "auto" }}>
@@ -199,7 +203,7 @@ export default function ConfirmWorkstation() {
                 </tr>
               </thead>
               <tbody>
-                {visibleReleases.map((r) => (
+                {pagedReleases.map((r) => (
                   <tr key={r.id}>
                     <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>
                       <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
@@ -230,6 +234,7 @@ export default function ConfirmWorkstation() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </div>
           )}
         </div>

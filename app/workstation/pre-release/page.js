@@ -11,6 +11,8 @@ import StatusCounter from "../../../lib/StatusCounter";
 import { sortByReleaseDateDesc, filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
+import { usePagination } from "../../../lib/usePagination";
+import Pagination from "../../../lib/Pagination";
 import styles from "../../shared.module.css";
 
 // Field labels swapped per the redesign: the column that used to show as
@@ -90,6 +92,7 @@ export default function PreReleaseWorkstation() {
   }, [releases, showDone]);
 
   const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
+  const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleReleases);
 
   return (
     <AppShell>
@@ -133,7 +136,7 @@ export default function PreReleaseWorkstation() {
                 </tr>
               </thead>
               <tbody>
-                {visibleReleases.map((r) => (
+                {pagedReleases.map((r) => (
                   <PreReleaseRow
                     key={r.id}
                     release={r}
@@ -146,6 +149,7 @@ export default function PreReleaseWorkstation() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </div>
           )}
         </div>

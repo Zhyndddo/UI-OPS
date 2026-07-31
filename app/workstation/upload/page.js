@@ -11,6 +11,8 @@ import StatusCounter from "../../../lib/StatusCounter";
 import { sortByReleaseDateDesc, isThisWeekOrNext, filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
+import { usePagination } from "../../../lib/usePagination";
+import Pagination from "../../../lib/Pagination";
 import NotePopup from "../../../lib/ReleaseNotePopup";
 import { PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
@@ -126,6 +128,7 @@ export default function UploadWorkstation() {
   }, [releases, showDone]);
 
   const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
+  const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleReleases);
 
   return (
     <AppShell>
@@ -172,7 +175,7 @@ export default function UploadWorkstation() {
                 </tr>
               </thead>
               <tbody>
-                {visibleReleases.map((r) => (
+                {pagedReleases.map((r) => (
                   <UploadRow
                     key={r.id}
                     release={r}
@@ -187,6 +190,7 @@ export default function UploadWorkstation() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </div>
           )}
         </div>

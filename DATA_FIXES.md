@@ -301,3 +301,109 @@ SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/backfill-legacy-id.j
 Also runs from the "Data Fix Scripts" Actions workflow (`backfill-legacy-id`
 — no `file_path` needed, it's DB-only). **Correct order now:**
 `backfill-legacy-id` → `repair-brief-ticks` → `import-ops-tracking`.
+
+## Follow-up round — doubled "New Release -" prefix on Package
+
+**Bug:** the dashboard's Package column shows `release_category + " - " +
+project_type` (e.g. "New Release - Chỉ Phát Hành"). Both BRIEF's "GÓI
+HTTT" and OPS_TRACKING's "GÓI TRUYỀN THÔNG" columns carry the old sheet's
+own "New Release - " (sometimes "SONY - New Release - ") prefix baked
+into the value itself — so an imported release ends up with `project_type
+= "New Release - Chỉ Phát Hành"`, and the dashboard prepends
+`release_category` ("New Release" by default) on top of that, showing
+"New Release - New Release - Chỉ Phát Hành". A bare leftover value of
+just "NEW RELEASE" (the old sheet's placeholder for "not resolved yet")
+showed up as "New Release - NEW RELEASE".
+
+**Fix, future imports:** both `import-brief.js` and `import-ops-tracking.js`
+now run a `normalizeProjectType()` step on the value from their respective
+columns before writing it — strips the "New Release - " / "SONY - New
+Release - " prefix, and maps a bare "NEW RELEASE" to v2's actual default
+pipeline stage, `BRIEF & DATA`. Every value from `contract_type_packages`
+in `schema.sql` (`Chỉ Phát Hành`, `Độc Quyền 2 năm`, `Độc Quyền 5 năm`,
+`Độc Quyền Vĩnh Viễn`) already comes through the prefix strip unchanged,
+so this only ever touches the old-shaped values.
+
+**Fix, already-imported releases (`scripts/repair-project-type-prefix.js`):**
+one-time repair — re-reads every release's current `project_type` from the
+database (no Excel file needed) and re-applies the same normalization.
+Only touches rows where normalization actually changes the value; a
+release whose `project_type` is already a bare v2-style value is left
+alone.
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/repair-project-type-prefix.js
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/repair-project-type-prefix.js --confirm
+```
+
+Also runs from the "Data Fix Scripts" Actions workflow — pick
+`repair-project-type-prefix` (no `file_path` needed, it's DB-only, same as
+`backfill-legacy-id`). Safe to run any time, including more than once —
+after the first `--confirm` run, a second dry run should report 0 releases
+need changing.
+
+## Follow-up round — Send Upload only needs 4/6, Media Booking dedup
+
+### Send Upload now only requires 4 of the 6 checklist items
+
+Audio, Artwork, Lyric, Metadata are required — Working Files and MV are
+still shown and trackable on the checklist (marked with `*` next to the
+other four to show which ones actually gate the button), they just don't
+block Send Upload anymore. The heading now reads "Metadata Checklist (X/6
+— Y/4 required)" so both counts are visible at once.
+
+This also changes what counts as "went out via the Priority Pitching
+shortcut" — previously any release under 6/6 that used Priority to unlock
+Send Upload got flagged (`priority_pitching_used`/`needs_update`); now
+that only happens if it's under 4/4 on the *required* items. Same for the
+"Checklist complete — unlock Smartlink" button on the warning banner — it
+appears once the 4 required items are done, not all 6.
+
+No SQL, no backfill needed — this only changes the live gating logic, not
+any stored data. Releases that were already `requested = true` are
+unaffected either way.
+
+### Media Booking: 1 ticket per release, enforced at the DB level
+
+**Bug:** a tester left 3 identical Media Booking tickets for the same
+release. The picker already filtered out releases with an existing
+ticket, but that's a client-side, load-time-only check — it doesn't stop
+a second insert from a different creation path (the release popup's Send
+Package Ticket / priority pitching auto-create) or a race between two
+people.
+
+**Fix — DB trigger (`add-media-booking-dedup.sql`):** a new trigger,
+`trg_prevent_duplicate_media_booking`, rejects any insert or update that
+would leave two non-deleted Media Booking tickets pointing at the same
+`data.releaseId`. This is the actual guarantee now — every code path that
+creates one of these tickets goes through it. Run this against your live
+database:
+
+```sql
+-- see add-media-booking-dedup.sql
+```
+
+The manual create form (`app/tickets/media-booking/new/page.js`) also got
+a friendlier pre-insert check so a real race shows "A Media Booking ticket
+for this release already exists" instead of a raw Postgres error — the
+trigger is still what actually blocks it either way.
+
+**Cleanup for the 3 existing duplicates (`scripts/cleanup-duplicate-media-booking.js`):**
+one-time script — for every release with more than one non-deleted Media
+Booking ticket, keeps the oldest (by `created_at`) and soft-deletes
+(`deleted_at`/`deleted_by`, same as the app's own delete) every other one
+in that group. Nothing is hard-deleted, so it's reversible.
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/cleanup-duplicate-media-booking.js
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/cleanup-duplicate-media-booking.js --confirm
+```
+
+Also runs from the "Data Fix Scripts" Actions workflow — pick
+`cleanup-duplicate-media-booking` (no `file_path` needed, DB-only).
+
+**Run order:** either order works for these two — the trigger only stops
+*new* duplicates, the script only clears *existing* ones, they don't
+interact. Run `add-media-booking-dedup.sql` against the database, then run
+the cleanup script (dry run, review, then `--confirm`) whenever's
+convenient.
