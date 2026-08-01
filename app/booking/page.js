@@ -6,6 +6,8 @@ import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import { fmtDate, formatDetailText } from "../../lib/helpers";
 import TypeSwitcher from "../../lib/TypeSwitcher";
+import { usePagination } from "../../lib/usePagination";
+import Pagination from "../../lib/Pagination";
 import styles from "../shared.module.css";
 
 // Every Hạng Mục here uses the same 2-layer pattern: pick a sub-filter
@@ -73,10 +75,12 @@ export default function BookingBoard() {
   const [labelFilter, setLabelFilter] = useState("");
   const [expandedCell, setExpandedCell] = useState(null); // `${releaseId}:${categoryName}:${brand}` or null
   const [packagePreview, setPackagePreview] = useState(null); // release being previewed, or null
+  const [unrequestedOnly, setUnrequestedOnly] = useState(false); // only relevant once a specific Hạng Mục is picked (not "All") — see below
 
   useEffect(() => {
     const options = CATEGORY_SUBFILTERS[hangMucFilter];
     setSubFilter(options ? options[0] : null);
+    setUnrequestedOnly(false);
   }, [hangMucFilter]);
 
   useEffect(() => {
@@ -166,29 +170,21 @@ export default function BookingBoard() {
   // any real chosen package that isn't INT MEDIA or the Chỉ Phát Hành-only
   // pick; Đợt 2 = releases that actually have Đợt 2 targets set (TikTok
   // Channel's Skip/summarize flow — see media-booking's Đợt 2 popup).
+  //
+  // isIntType matches loosely (contains "int media", case-insensitive)
+  // rather than an exact "INT MEDIA" string — legacy/imported releases can
+  // carry a slightly different label for the same thing (seen in practice:
+  // "INT Media Support"), and those were slipping into the Đợt 1 view
+  // instead of being excluded from it and only showing under INT.
   const roundFilteredReleases = useMemo(() => {
     return releases.filter((r) => {
-      if (round === "INT") return r.project_type === "INT MEDIA";
-      if (round === "Đợt 1") return !!r.project_type && r.project_type !== "Chỉ Phát Hành" && r.project_type !== "INT MEDIA";
+      const isIntType = !!r.project_type && /int\s*media/i.test(r.project_type);
+      if (round === "INT") return isIntType;
+      if (round === "Đợt 1") return !!r.project_type && r.project_type !== "Chỉ Phát Hành" && !isIntType;
       if (round === "Đợt 2") return dot2ReleaseIds.has(r.id);
       return true;
     });
   }, [releases, round, dot2ReleaseIds]);
-
-  const filteredReleases = useMemo(() => {
-    return roundFilteredReleases.filter((r) => {
-      if (search.trim()) {
-        const q = search.trim().toLowerCase();
-        if (![r.title, r.main_artist, r.did].some((f) => (f || "").toLowerCase().includes(q))) return false;
-      }
-      if (month && r.release_date) {
-        if (!r.release_date.startsWith(month)) return false;
-      }
-      if (typeFilter && r.project_type !== typeFilter) return false;
-      if (labelFilter && r.label !== labelFilter) return false;
-      return true;
-    });
-  }, [roundFilteredReleases, search, month, typeFilter, labelFilter]);
 
   // Columns: one per Hạng Mục when "All" is picked (aggregate ratio across
   // every brand in that category). Otherwise every Hạng Mục is a 2-layer
@@ -200,6 +196,8 @@ export default function BookingBoard() {
   //    to the one brand picked in subFilter.
   //  - Ads: columns = that ad brand's own fixed metric list (the metric
   //    name doubles as the "platform" value on media_booking_entries).
+  // Declared before filteredReleases below since the "Chưa có yêu cầu"
+  // filter needs to know the current columns to check.
   const columns = useMemo(() => {
     if (hangMucFilter === "All") {
       return categories.map((c) => ({ key: c.name, label: c.name, categoryName: c.name, brand: null, platform: null }));
@@ -233,6 +231,33 @@ export default function BookingBoard() {
     }
     return [];
   }, [hangMucFilter, categories, subFilter]);
+
+  const filteredReleases = useMemo(() => {
+    return roundFilteredReleases.filter((r) => {
+      if (search.trim()) {
+        const q = search.trim().toLowerCase();
+        if (![r.title, r.main_artist, r.did].some((f) => (f || "").toLowerCase().includes(q))) return false;
+      }
+      if (month && r.release_date) {
+        if (!r.release_date.startsWith(month)) return false;
+      }
+      if (typeFilter && r.project_type !== typeFilter) return false;
+      if (labelFilter && r.label !== labelFilter) return false;
+      // "Chưa có yêu cầu" — only meaningful once a specific Hạng Mục is
+      // picked (columns is empty for "All", so this can't apply there).
+      // A release only counts as "no request" if EVERY currently-shown
+      // brand/column under this Hạng Mục has no booked target at all
+      // (bookedFor returns null when there's no package line for that
+      // brand) — not just some of them.
+      if (unrequestedOnly && hangMucFilter !== "All" && columns.length > 0) {
+        const allNull = columns.every((c) => bookedFor(r, c.categoryName, c.brand) == null);
+        if (!allNull) return false;
+      }
+      return true;
+    });
+  }, [roundFilteredReleases, search, month, typeFilter, labelFilter, unrequestedOnly, hangMucFilter, columns, packageByRelease]);
+
+  const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(filteredReleases);
 
   const stats = useMemo(() => {
     const total = releases.length;
@@ -332,22 +357,26 @@ export default function BookingBoard() {
           <button className={styles.btnSecondary} onClick={exportCsv}>⇩ Export CSV</button>
         </div>
 
+        {/* Scoped to this page only (inline override, not a shared.module.css
+            change) — bumped from the default 22px so the 4 headline numbers
+            read at a glance, without affecting stat cards on other pages
+            that reuse the same .statValue class. */}
         <div className={styles.statRow} style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
           <div className={styles.statCard}>
             <div className={styles.statLabel}>Tổng Releases</div>
-            <div className={styles.statValue}>{stats.total}</div>
+            <div className={styles.statValue} style={{ fontSize: 34 }}>{stats.total}</div>
           </div>
           <div className={styles.statCard}>
             <div className={styles.statLabel}>Done ({round})</div>
-            <div className={styles.statValue} style={{ color: "#7ee6a8" }}>{stats.done}</div>
+            <div className={styles.statValue} style={{ fontSize: 34, color: "#7ee6a8" }}>{stats.done}</div>
           </div>
           <div className={styles.statCard}>
             <div className={styles.statLabel}>Đang Booking</div>
-            <div className={styles.statValue} style={{ color: "#ffca4d" }}>{stats.inProgress}</div>
+            <div className={styles.statValue} style={{ fontSize: 34, color: "#ffca4d" }}>{stats.inProgress}</div>
           </div>
           <div className={styles.statCard}>
             <div className={styles.statLabel}>Chưa Booking</div>
-            <div className={styles.statValue} style={{ color: "#888" }}>{stats.notBooked}</div>
+            <div className={styles.statValue} style={{ fontSize: 34, color: "#888" }}>{stats.notBooked}</div>
           </div>
         </div>
 
@@ -410,6 +439,16 @@ export default function BookingBoard() {
               ))}
             </div>
           )}
+          {hangMucFilter !== "All" && (
+            <button
+              onClick={() => setUnrequestedOnly((v) => !v)}
+              className={styles.btnSmall}
+              style={unrequestedOnly ? { borderColor: "#ff6b1a", color: "#ff6b1a", background: "rgba(255,107,26,0.1)" } : undefined}
+              title="Only show releases with no requested number at all for this Hạng Mục — every brand/column shown is empty (—), nothing booked."
+            >
+              Chưa có yêu cầu
+            </button>
+          )}
           <select className={styles.select} style={{ maxWidth: 170 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
             <option value="">Type — all</option>
             {[...new Set(releases.map((r) => r.project_type).filter(Boolean))].map((t) => <option key={t} value={t}>{t}</option>)}
@@ -418,11 +457,11 @@ export default function BookingBoard() {
             <option value="">Label — all</option>
             {[...new Set(releases.map((r) => r.label).filter(Boolean))].map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
-          {(search || month || typeFilter || labelFilter) && (
+          {(search || month || typeFilter || labelFilter || unrequestedOnly) && (
             <button
               className={styles.btnSmall}
               style={{ borderColor: "#c0392b", color: "#e57373" }}
-              onClick={() => { setSearch(""); setMonth(""); setTypeFilter(""); setLabelFilter(""); }}
+              onClick={() => { setSearch(""); setMonth(""); setTypeFilter(""); setLabelFilter(""); setUnrequestedOnly(false); }}
             >
               ✕ Clear
             </button>
@@ -469,7 +508,7 @@ export default function BookingBoard() {
               </tr>
             </thead>
             <tbody>
-              {filteredReleases.map((r) => (
+              {pagedReleases.map((r) => (
                 <tr key={r.id}>
                   <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288, overflow: "hidden", textOverflow: "ellipsis" }}>
                     <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
@@ -528,6 +567,7 @@ export default function BookingBoard() {
               ))}
             </tbody>
           </table>
+          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
           </div>
         )}
       </div>
@@ -657,10 +697,26 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
   }
 
   return (
-    <td style={{ verticalAlign: "top", minWidth: 130, position: "relative", borderLeft: cellBorderLeft || "1px solid var(--border)" }}>
+    <td
+      style={{
+        verticalAlign: "top",
+        minWidth: 130,
+        position: "relative",
+        borderLeft: cellBorderLeft || "1px solid var(--border)",
+        // The Add Link popup below always opens to the RIGHT of this cell
+        // (left: "100%"), which visually lands it on top of the NEXT
+        // column over — easy to mistake for belonging to that column
+        // instead of this one (reported: a popup titled "FACEBOOK" looked
+        // like it came from the TikTok column next to it). Highlighting
+        // the actual origin cell while its popup is open makes it
+        // unambiguous which column the box belongs to, regardless of
+        // where it visually overlaps.
+        boxShadow: showAddPopup ? "inset 0 0 0 2px var(--accent)" : "none",
+      }}
+    >
       <div
         onClick={onToggle}
-        style={{ cursor: "pointer", fontSize: 12, textAlign: "center", fontWeight: isDone ? 800 : 400 }}
+        style={{ cursor: "pointer", fontSize: 17, textAlign: "center", fontWeight: isDone ? 800 : 600 }}
         title={cellEntries.map((e) => `${e.platform ? e.platform + ": " : ""}${e.status}: ${e.link}`).join("\n")}
       >
         {isDone ? (

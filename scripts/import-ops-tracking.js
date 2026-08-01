@@ -67,6 +67,25 @@ function toBool(v) {
   return s === "true" || s === "yes" || s === "1" || s === "đã có" || s === "x";
 }
 
+// OPS_TRACKING's "GÓI TRUYỀN THÔNG" values carry legacy prefixes v2
+// doesn't use ("New Release - ", sometimes "SONY - New Release - ") —
+// v2's project_type is just the bare contract type ("Chỉ Phát Hành",
+// "Độc Quyền 5 năm", ...), matching contract_type_packages in
+// schema.sql. Importing the raw value verbatim double-prefixes it when
+// the dashboard displays release_category + " - " + project_type (since
+// release_category is ALSO "New Release" by default). Strip it here so
+// it doesn't need a separate repair pass on every future import. A bare
+// leftover "NEW RELEASE" (the sheet's placeholder for "not really
+// resolved yet") maps to v2's actual default pipeline stage.
+function normalizeProjectType(raw) {
+  if (raw == null) return raw;
+  let s = String(raw).trim();
+  s = s.replace(/^(SONY\s*-\s*)?New Release\s*-\s*/i, "");
+  s = s.trim();
+  if (!s || s.toUpperCase() === "NEW RELEASE") return "BRIEF & DATA";
+  return s;
+}
+
 function checkHeaders(headerRow, columns) {
   const problems = [];
   for (const [idx, [expect, , kind]] of Object.entries(columns)) {
@@ -107,6 +126,7 @@ function buildPatch(row, columns) {
     }
   }
   if (dspCheck) DSP_CHECK_FIELDS.forEach((f) => (patch[f] = true));
+  if (patch.project_type != null) patch.project_type = normalizeProjectType(patch.project_type);
   return { did, patch };
 }
 

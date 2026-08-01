@@ -7,6 +7,8 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
+import { usePagination } from "../../../lib/usePagination";
+import Pagination from "../../../lib/Pagination";
 import styles from "../../shared.module.css";
 
 function fmtVnd(n) {
@@ -82,6 +84,8 @@ export default function MediaBookingList() {
     return [...tickets].sort((a, b) => (a.status === "REFUND" ? 0 : 1) - (b.status === "REFUND" ? 0 : 1));
   }, [tickets, tab, isExecutorView, statusFilter]);
 
+  const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
+
   return (
     <AppShell>
       <div className={styles.page}>
@@ -110,12 +114,13 @@ export default function MediaBookingList() {
           ) : visibleTickets.length === 0 ? (
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (
+            <>
             <table className={styles.table}>
               <thead>
                 <tr><th>Release (DID)</th><th>Release</th><th>Propose Package</th><th>PIC</th><th>Deadline</th><th>Status</th></tr>
               </thead>
               <tbody>
-                {visibleTickets.map((t) => {
+                {pagedTickets.map((t) => {
                   const color = statusColor(t.status);
                   const rel = releasesByDid[t.data?.releaseId];
                   return (
@@ -156,6 +161,8 @@ export default function MediaBookingList() {
                 })}
               </tbody>
             </table>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+            </>
           )}
         </div>
       </div>

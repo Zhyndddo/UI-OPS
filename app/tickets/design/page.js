@@ -7,6 +7,8 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
+import { usePagination } from "../../../lib/usePagination";
+import Pagination from "../../../lib/Pagination";
 import styles from "../../shared.module.css";
 
 const REFUND_LIKE = ["REFUND"];
@@ -102,6 +104,8 @@ export default function DesignList() {
     return [...tickets].sort((a, b) => (REFUND_LIKE.includes(a.status) ? 0 : 1) - (REFUND_LIKE.includes(b.status) ? 0 : 1));
   }, [tickets, isExecutorView, statusFilter]);
 
+  const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
+
   return (
     <AppShell>
       <div className={styles.page}>
@@ -155,6 +159,7 @@ export default function DesignList() {
           ) : visibleTickets.length === 0 ? (
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (
+            <>
             <table className={styles.table}>
               <thead>
                 <tr>
@@ -163,7 +168,7 @@ export default function DesignList() {
                 </tr>
               </thead>
               <tbody>
-                {visibleTickets.map((t) => (
+                {pagedTickets.map((t) => (
                   <DesignRow
                     key={t.id}
                     ticket={t}
@@ -180,6 +185,8 @@ export default function DesignList() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+            </>
           )}
         </div>
       </div>

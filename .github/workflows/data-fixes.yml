@@ -2,7 +2,8 @@ name: Data Fix Scripts
 
 # Manual-only, on-demand runner for the one-time backfill/import scripts in
 # scripts/ (backfill-did-suffix.js, backfill-ar-to-ops.js,
-# backfill-linkshare-timing.js, import-brief.js, import-ops-tracking.js) —
+# backfill-linkshare-timing.js, import-brief.js, import-ops-tracking.js,
+# import-booking.js) —
 # lets you run them from the Actions tab without needing Node.js installed
 # on your own machine. Defaults to a dry run (no `confirm` input) so you
 # can read the planned changes in the job log before actually writing
@@ -32,16 +33,20 @@ on:
           - backfill-did-suffix
           - backfill-ar-to-ops
           - backfill-linkshare-timing
+          - backfill-legacy-id
           - import-brief
           - import-ops-tracking
           - repair-brief-ticks
+          - repair-project-type-prefix
+          - cleanup-duplicate-media-booking
+          - import-booking
       confirm:
         description: "Actually write changes (unchecked = dry run only)"
         required: false
         type: boolean
         default: false
       file_path:
-        description: "import-brief / import-ops-tracking only — path (in this repo) to the .xlsx"
+        description: "import-brief / import-ops-tracking / import-booking only — path (in this repo) to the .xlsx"
         required: false
         default: "data/brief-import.xlsx"
 
@@ -59,7 +64,7 @@ jobs:
       - name: Install dependencies
         run: |
           npm install @supabase/supabase-js --no-save
-          if [ "${{ inputs.script }}" = "import-brief" ] || [ "${{ inputs.script }}" = "import-ops-tracking" ] || [ "${{ inputs.script }}" = "repair-brief-ticks" ]; then
+          if [ "${{ inputs.script }}" = "import-brief" ] || [ "${{ inputs.script }}" = "import-ops-tracking" ] || [ "${{ inputs.script }}" = "repair-brief-ticks" ] || [ "${{ inputs.script }}" = "import-booking" ]; then
             npm install xlsx --no-save
           fi
 
@@ -68,7 +73,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          if [ "${{ inputs.script }}" = "import-brief" ] || [ "${{ inputs.script }}" = "import-ops-tracking" ] || [ "${{ inputs.script }}" = "repair-brief-ticks" ]; then
+          if [ "${{ inputs.script }}" = "import-brief" ] || [ "${{ inputs.script }}" = "import-ops-tracking" ] || [ "${{ inputs.script }}" = "repair-brief-ticks" ] || [ "${{ inputs.script }}" = "import-booking" ]; then
             if [ "${{ inputs.confirm }}" = "true" ]; then
               node scripts/${{ inputs.script }}.js "${{ inputs.file_path }}" --confirm
             else

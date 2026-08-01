@@ -6,6 +6,8 @@ import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
+import { usePagination } from "../../../lib/usePagination";
+import Pagination from "../../../lib/Pagination";
 import styles from "../../shared.module.css";
 
 const PHU_LUC_COLOR = {
@@ -88,6 +90,8 @@ export default function PhuLucList() {
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
+  const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(tickets);
+
   return (
     <AppShell>
     <div className={styles.page}>
@@ -112,6 +116,7 @@ export default function PhuLucList() {
         ) : tickets.length === 0 ? (
           <div className={styles.emptyState}>No tickets yet.</div>
         ) : (
+          <>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -120,7 +125,7 @@ export default function PhuLucList() {
               </tr>
             </thead>
             <tbody>
-              {tickets.map((t, i) => {
+              {pagedTickets.map((t, i) => {
                 const status = t.status;
                 const color = statusColor(status);
                 const rel = releases[t.data?.releaseId];
@@ -128,7 +133,7 @@ export default function PhuLucList() {
                 const plColor = PHU_LUC_COLOR[plStatus];
                 return (
                   <tr key={t.id}>
-                    <td>{i + 1}</td>
+                    <td>{(page - 1) * pageSize + i + 1}</td>
                     <td>{fmtDate(t.created_at)}</td>
                     <td>
                       {rel ? (
@@ -190,6 +195,8 @@ export default function PhuLucList() {
               })}
             </tbody>
           </table>
+          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+          </>
         )}
       </div>
     </div>

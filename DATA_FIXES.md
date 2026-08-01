@@ -272,10 +272,440 @@ each row's checklist values (`checklist: meta_audio=true meta_artwork=true
 ...`), so future imports can be checked against the sheet before writing,
 not just after.
 
-**Still unclear:** whether this was a one-off (stale file committed vs.
-the one actually reviewed) or something in how the Node `xlsx` library
-read those specific columns in your Actions run. If `repair-brief-ticks`'s
-dry-run log shows the SAME wrong values (not just the DB) — i.e. it
-prints `meta_audio=false` for a release where the sheet clearly has "Đã
-có" — that would point to a real parsing issue and needs a closer look at
-the actual file being read, not just a re-apply.
+**Root cause found — a different bug than the checklist one.** Confirmed
+via the database directly: `legacy_id` was null on all 702 imported
+releases, even though `did` (built from the exact same value, in the same
+insert) came out correct. Couldn't identify the exact mechanism (nothing
+in the insert code explains one field landing and a sibling from the same
+object not), but it doesn't matter — `legacy_id` is fully recoverable
+from `did` itself, since `did` is just `<legacy_id>-<suffix>`.
+
+### 7. `scripts/backfill-legacy-id.js`
+
+Run this **before** `repair-brief-ticks` or `import-ops-tracking` — both
+of those match releases by `legacy_id`, so with it null on every row,
+every lookup was guaranteed to miss (hence "No matching release: 456"
+with 0 actually updated). This script sets `legacy_id` on every release
+whose `did` matches the BRIEF-import shape (10-character base + `-NNNN`
+suffix, one dash) straight from `did` itself — no Excel file needed.
+Organically-created releases have a different DID shape (two dashes,
+longer base) and won't match, so this is safe to run without touching
+anything that didn't come from the BRIEF import. Only ever fills in a
+null `legacy_id`, never overwrites one that's already set.
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/backfill-legacy-id.js
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/backfill-legacy-id.js --confirm
+```
+
+Also runs from the "Data Fix Scripts" Actions workflow (`backfill-legacy-id`
+— no `file_path` needed, it's DB-only). **Correct order now:**
+`backfill-legacy-id` → `repair-brief-ticks` → `import-ops-tracking`.
+
+## Follow-up round — doubled "New Release -" prefix on Package
+
+**Bug:** the dashboard's Package column shows `release_category + " - " +
+project_type` (e.g. "New Release - Chỉ Phát Hành"). Both BRIEF's "GÓI
+HTTT" and OPS_TRACKING's "GÓI TRUYỀN THÔNG" columns carry the old sheet's
+own "New Release - " (sometimes "SONY - New Release - ") prefix baked
+into the value itself — so an imported release ends up with `project_type
+= "New Release - Chỉ Phát Hành"`, and the dashboard prepends
+`release_category` ("New Release" by default) on top of that, showing
+"New Release - New Release - Chỉ Phát Hành". A bare leftover value of
+just "NEW RELEASE" (the old sheet's placeholder for "not resolved yet")
+showed up as "New Release - NEW RELEASE".
+
+**Fix, future imports:** both `import-brief.js` and `import-ops-tracking.js`
+now run a `normalizeProjectType()` step on the value from their respective
+columns before writing it — strips the "New Release - " / "SONY - New
+Release - " prefix, and maps a bare "NEW RELEASE" to v2's actual default
+pipeline stage, `BRIEF & DATA`. Every value from `contract_type_packages`
+in `schema.sql` (`Chỉ Phát Hành`, `Độc Quyền 2 năm`, `Độc Quyền 5 năm`,
+`Độc Quyền Vĩnh Viễn`) already comes through the prefix strip unchanged,
+so this only ever touches the old-shaped values.
+
+**Fix, already-imported releases (`scripts/repair-project-type-prefix.js`):**
+one-time repair — re-reads every release's current `project_type` from the
+database (no Excel file needed) and re-applies the same normalization.
+Only touches rows where normalization actually changes the value; a
+release whose `project_type` is already a bare v2-style value is left
+alone.
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/repair-project-type-prefix.js
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/repair-project-type-prefix.js --confirm
+```
+
+Also runs from the "Data Fix Scripts" Actions workflow — pick
+`repair-project-type-prefix` (no `file_path` needed, it's DB-only, same as
+`backfill-legacy-id`). Safe to run any time, including more than once —
+after the first `--confirm` run, a second dry run should report 0 releases
+need changing.
+
+## Follow-up round — Send Upload only needs 4/6, Media Booking dedup
+
+### Send Upload now only requires 4 of the 6 checklist items
+
+Audio, Artwork, Lyric, Metadata are required — Working Files and MV are
+still shown and trackable on the checklist (marked with `*` next to the
+other four to show which ones actually gate the button), they just don't
+block Send Upload anymore. The heading now reads "Metadata Checklist (X/6
+— Y/4 required)" so both counts are visible at once.
+
+This also changes what counts as "went out via the Priority Pitching
+shortcut" — previously any release under 6/6 that used Priority to unlock
+Send Upload got flagged (`priority_pitching_used`/`needs_update`); now
+that only happens if it's under 4/4 on the *required* items. Same for the
+"Checklist complete — unlock Smartlink" button on the warning banner — it
+appears once the 4 required items are done, not all 6.
+
+No SQL, no backfill needed — this only changes the live gating logic, not
+any stored data. Releases that were already `requested = true` are
+unaffected either way.
+
+### Media Booking: 1 ticket per release, enforced at the DB level
+
+**Bug:** a tester left 3 identical Media Booking tickets for the same
+release. The picker already filtered out releases with an existing
+ticket, but that's a client-side, load-time-only check — it doesn't stop
+a second insert from a different creation path (the release popup's Send
+Package Ticket / priority pitching auto-create) or a race between two
+people.
+
+**Fix — DB trigger (`add-media-booking-dedup.sql`):** a new trigger,
+`trg_prevent_duplicate_media_booking`, rejects any insert or update that
+would leave two non-deleted Media Booking tickets pointing at the same
+`data.releaseId`. This is the actual guarantee now — every code path that
+creates one of these tickets goes through it. Run this against your live
+database:
+
+```sql
+-- see add-media-booking-dedup.sql
+```
+
+The manual create form (`app/tickets/media-booking/new/page.js`) also got
+a friendlier pre-insert check so a real race shows "A Media Booking ticket
+for this release already exists" instead of a raw Postgres error — the
+trigger is still what actually blocks it either way.
+
+**Cleanup for the 3 existing duplicates (`scripts/cleanup-duplicate-media-booking.js`):**
+one-time script — for every release with more than one non-deleted Media
+Booking ticket, keeps the oldest (by `created_at`) and soft-deletes
+(`deleted_at`/`deleted_by`, same as the app's own delete) every other one
+in that group. Nothing is hard-deleted, so it's reversible.
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/cleanup-duplicate-media-booking.js
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/cleanup-duplicate-media-booking.js --confirm
+```
+
+Also runs from the "Data Fix Scripts" Actions workflow — pick
+`cleanup-duplicate-media-booking` (no `file_path` needed, DB-only).
+
+**Run order:** either order works for these two — the trigger only stops
+*new* duplicates, the script only clears *existing* ones, they don't
+interact. Run `add-media-booking-dedup.sql` against the database, then run
+the cleanup script (dry run, review, then `--confirm`) whenever's
+convenient.
+
+## Follow-up round — new Media Booking ticket cycle, legacy booking import
+
+### 1. New Media Booking ticket lifecycle
+
+The old flow was one-shot: AR sends the ticket once, Marketing builds it,
+and the only way to touch it again was the separate INT MEDIA follow-up
+button. It's now a real back-and-forth cycle:
+
+- **Magic link visibility is now gated on the ticket actually reaching
+  COMPLETE.** Before, a built `media_booking_packages` row showed up on
+  the magic link page the moment Marketing saved it in the Package
+  Builder, even mid-build. Now `app/pick-package/[token]/page.js` looks up
+  the release's Media Booking ticket and only shows built packages once
+  `status_log.COMPLETE` has been set at least once — the always-offered
+  "Chỉ Phát Hành" simple pick is unaffected. Once a package has been shown
+  once, a later rebook (ticket back to REQUESTED) doesn't hide it again —
+  it just keeps showing the last COMPLETE build until the new one
+  finishes and completes too.
+- **The AR notification on COMPLETE already existed** (`notify_on_ticket_complete`,
+  fires on `requester_segment`) — it just wasn't wired up for Media
+  Booking tickets, since they were created without a `requester_segment`.
+  `sendPackageTicket()` in `app/releases/[id]/page.js` now sets
+  `requester_segment: "AR"` on creation, so AR gets notified the instant
+  Marketing marks it COMPLETE — no new SQL needed, this is the same
+  trigger every other ticket type already uses.
+- **Confirming a pick on the magic link now locks it automatically** —
+  `confirmChoice()` sets `package_locked: true` in the same update as
+  `project_type`/`package_total_value`, so AR no longer needs to click
+  "Lock editing" separately after an artist confirms.
+- **New "Feed Back" button** on the magic link page, next to Confirm — an
+  alternative to picking a package outright. Opens a text box with a "+
+  Text in Zalo/Telegram" button that inserts that literal placeholder text
+  (for the team to swap in a real link before sending), and its own inline
+  Confirm button. Submitting writes the text onto the ticket
+  (`tickets.data.feedback = { text, submittedAt }`, no new column) and
+  fires a notification to the **AR** team via the existing
+  `fanout_notification()` SQL function (called straight from the client
+  via `supabase.rpc()` — already grants `execute` to `anon`/`authenticated`
+  by default, see `schema.sql`'s `alter default privileges` block) titled
+  literally "Artist request package changed", linking to
+  `/releases/<id>?focus=media_booking`.
+- **Clicking that notification** opens the release page, auto-switches to
+  the Media Booking tab, and smooth-scrolls to it (`?focus=media_booking`
+  query param, read via `useSearchParams`). The feedback text shows in a
+  small orange-bordered box at the top of the tab.
+- **"Send Package Ticket to Marketing" is no longer strictly one-shot.**
+  Once the ticket reaches COMPLETE, the same button becomes "Send Package
+  Ticket Again" — clicking it reopens the SAME ticket (never a second one;
+  `trg_prevent_duplicate_media_booking` still guards that either way) back
+  to REQUESTED. If there's unread feedback (`data.feedback` set), it also
+  tags the ticket with the hidden `data.proposedPackage = "Artist request
+  package changed"` and clears the feedback flag (consumed). If there's no
+  feedback, it's a plain **internal rebook** — same reopen mechanism, no
+  special tag, AR can use this any time they want Marketing to redo a
+  package with no artist involvement. Either way, since a status-only
+  UPDATE never fires `trg_notify_on_ticket_insert` (insert-only trigger),
+  the reopen calls `fanout_notification()` to Marketing by hand so it
+  still shows up as new work for them. The INT MEDIA follow-up button got
+  the same treatment (it already had its own reopen logic; it just now
+  also fires that Marketing notification).
+
+No SQL migration for any of this — every piece reuses existing columns
+(`tickets.data`, `tickets.status`, `tickets.status_log`,
+`tickets.requester_segment`, `releases.package_locked`) and the existing
+`fanout_notification()` function.
+
+### 2. Legacy Booking data import (`scripts/import-booking.js`)
+
+Imports both `BOOKING & REPORT 01` and `BOOKING - INT MEDIA SUPPORT`
+sheets from the booking workbook — confirmed to share an **identical**
+column layout (checked directly against the uploaded file; an earlier
+description of the ranges differing per sheet didn't hold up), so one
+script/column map covers both. Matches rows to releases by
+`legacy_id = <column B, the DID>` — same convention as `import-brief.js`/
+`import-ops-tracking.js`; unmatched DIDs are skipped and logged, not
+errored.
+
+Two independent things get imported per matched row:
+
+- **Requester quantities** (columns R, U, V, W, X, Y, Z, AC, AD, AE, AF,
+  AG, AH — S/T are a status/meta pair, not a brand, and are skipped; AA/AB
+  are blank spacer columns) → one `media_booking_packages` row per release,
+  with one `media_booking_package_lines` row per non-empty quantity cell —
+  **and** the same quantities into `release_package_items` (see "package
+  naming" below for why both). Category/brand match the live Package
+  Builder's vocabulary (Social: VIEENT/ENVI, Community: PAGE BOLERO·VPOP·
+  INDIE, TikTok Channel: TIKTOK BOLERO·VPOP·INDIE/CAPCUT, Ads: FB POST
+  ADS/FB VIDEO ADS/YOUTUBE ADS) except `EXT TIKTOK`, which the sheet
+  mushes into one total with no matching single Partner sub-brand in the
+  live 4-way picker — imported as its own standalone brand label instead
+  of force-matched to one of the four.
+- **Result links** (columns AV–BE, 10 columns of "Label: https://url"
+  text, newline-separated per cell; BF–BH just past them are a WIP status
+  column for the 3 Ads brands, not URLs, so they're excluded) → one
+  `media_booking_entries` row per URL line. Platform is guessed from each
+  URL's own domain (tiktok.com/facebook.com/youtube.com/instagram.com),
+  not the column, since a few cells mix domains. Round is imported as
+  `INT` (the sheets don't distinguish Đợt 1/Đợt 2), status as `Done`
+  (these are all already-posted historical links).
+
+**Package naming (fixed after the first version of this script — the
+Booking Board showed "0/—" everywhere, numbers nowhere in the data):** the
+Booking Board's per-brand columns (`app/booking/page.js`'s `bookedFor()`)
+don't read `release_package_items` — they match a release to a
+`media_booking_packages` row **by name**, where name === `releases.
+project_type`. The first version of this script named every imported
+package `LEGACY BOOKING IMPORT`, which could never match any
+`project_type` and so never showed up as a booking target on the Board at
+all, no matter how much data it held — the itemized quantities existed in
+the database but nothing on screen pointed at them. Fixed: when a release
+already has a real resolved `project_type` (not the `BRIEF & DATA` /
+`DEALING` pipeline placeholders — those aren't a package name, there's
+nothing to match), the imported package is named to match it exactly, so
+it becomes the Board's live target. If Marketing already has a real
+same-named package for that release, the imported lines merge into it
+(skipping any category/brand/platform combo already present, so re-running
+never doubles a count) rather than creating a second package with the same
+name — `packageByRelease` only ever picks the first match, so a duplicate
+name would have silently hidden one or the other. A release still sitting
+at `BRIEF & DATA`/`DEALING` has no real package name to match yet, so its
+quantities go into a `LEGACY BOOKING IMPORT` package as a fallback (the
+script logs this per-release in the dry run) — that data is preserved but
+won't show as a Board target until the release gets a real package name.
+The same quantities are also written straight into `release_package_items`
+(only if that release has no rows there yet, same idempotency rule
+`confirmChoice()` itself uses) — that's what the release detail page's
+Media Booking tab and the magic link's Booking Progress read, so this
+import shows up in both places, not just the Board.
+
+Both halves are safely re-runnable: the quantity half only inserts lines
+that aren't already present in the matched package (never a second
+same-named package, never a doubled count), and a URL is only inserted if
+an identical (release, category, channel, link) row doesn't already exist.
+
+```bash
+npm install xlsx --no-save
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-booking.js data/booking-import.xlsx
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-booking.js data/booking-import.xlsx --confirm
+```
+
+Also runs from the "Data Fix Scripts" Actions workflow — pick
+`import-booking`, set `file_path` to wherever you commit the workbook
+(e.g. `data/booking-import.xlsx`). Run `import-brief.js` first, same as
+`import-ops-tracking.js` — matching depends on `legacy_id` already being
+set.
+
+**Not imported by this script:** the single per-release metadata columns
+(AK–AU: LOẠI DỰ ÁN, Project, Artist, ngày release, LINK SOUND TIKTOK, LINK
+DRIVE, LINK LBM, SOCIAL BOOKING, LINK MV/SOURCE, HASHTAG, BID) and the
+BF–BN WIP-status text columns — out of scope for this pass, flag if you
+want those pulled in too.
+
+### 3. Booking Board — bigger numbers, INT filter fix
+
+- The `added / booked` count in each brand cell (and the "DONE" label) is
+  now `fontSize: 17` instead of `12` — same cells, just easier to read at
+  a glance across a full row of columns.
+- **INT-type releases were leaking into the Đợt 1 view.** The round filter
+  used to check `project_type === "INT MEDIA"` exactly to decide what
+  counts as INT and what to exclude from Đợt 1 — a release whose
+  `project_type` is a close-but-not-identical label (seen live: `"INT
+  Media Support"`) matched neither branch, so it fell into Đợt 1 instead
+  of being excluded from it. The check is now a loose, case-insensitive
+  `/int\s*media/i` match on `project_type` instead of an exact string
+  comparison, so any INT-flavored label lands in the INT round and stays
+  out of Đợt 1.
+
+No SQL, no backfill — both are live-logic-only changes in `app/booking/page.js`.
+
+## Follow-up round — Bổ Sung DID field, Streaming & Milestone on the magic link
+
+### 1. Streaming workstation's "Bổ Sung" tab — DID field is a real search + link, not just text
+
+A Bổ Sung row (`release_stream_metrics` with `release_id = null`) is for a
+product that has no matching row in the New Release dashboard at all. New
+`manual_did` column (`add-stream-supplement-did.sql`) plus a new field
+under the existing title/artist/date inputs on that tab — but per
+follow-up feedback, this isn't just a label: typing 3+ characters searches
+`releases` by `did`/`legacy_id` (debounced, live) and shows matches in a
+dropdown. Picking one **merges this Bổ Sung row's numbers into that
+release's real `release_stream_metrics` row** (every release already has
+one — see the auto-create step in `load()`) and removes the Bổ Sung entry,
+so the song's numbers land on its actual dashboard row instead of staying
+parked separately. Only fills fields that are still blank on the target —
+never overwrites a real number someone already entered directly on that
+release. If nothing matches, whatever's typed is still saved as plain text
+on blur, so a DID for a release that doesn't exist yet is at least on
+record for later.
+
+```sql
+-- see add-stream-supplement-did.sql
+alter table release_stream_metrics add column if not exists manual_did text;
+```
+
+### 2. Streaming & Milestone now shows on the magic link page
+
+New section on `app/pick-package/[token]/page.js`, below Booking Progress,
+shown once a package is confirmed — mirrors the release detail page's own
+"Stream Numbers" + "Milestone (Chart Rank)" sections in spirit, but pulls
+from **`release_stream_metrics`**, not `dsp_metrics_snapshots`: the
+release detail page's version reads `dsp_metrics_snapshots` /
+`release_dsp_links`, which per `schema.sql`'s own comment is "a separate,
+still-unused, future path" — there's no automated fetch wired up yet, so
+that section is always empty in practice. `release_stream_metrics` is the
+real, actively-maintained table behind the Streaming workstation's Today
+Check / Monthly tabs (and now Bổ Sung's DID field above), so that's what
+actually has numbers in it to show an artist.
+
+Renders as a grid of small cards, one per non-empty metric field (Spotify
+Current, TikTok Views/Creations, Zing/NCT/YouTube/YTB Music/Facebook
+fields, etc. — whichever ones are actually filled in, not a fixed empty
+grid), plus a Milestone (Chart Rank) table matched by DID, same matching
+rule as the release detail page. Read-only — nothing here is editable from
+the magic link, same as Booking Progress.
+
+## Follow-up round — magic link layout, Streaming Monthly tab navigation
+
+### 1. Booking Progress round tabs only show when there's another round to show
+
+The INT/Đợt 1/Đợt 2 switcher above Booking Progress used to always render
+all three, even for a release that only ever had INT bookings — nothing
+behind the other two tabs, just an empty view if clicked. Now it only
+renders when `media_booking_entries` actually has a Đợt 1 or Đợt 2 row for
+this release; otherwise Booking Progress shows straight away with no
+switcher at all (there's only one thing to show).
+
+### 2. The only pickable option now sits on the left, not stranded on the right
+
+When no real package has been built yet (`richOptions` empty — just the
+one always-offered simple pick, e.g. "Chỉ Phát Hành"), that option used to
+render in its narrow 200px right-hand rail next to a wide, empty "No
+packages built yet." placeholder on the left — reads oddly, like the real
+option is an afterthought. Now: when there are no rich options, that left
+placeholder box doesn't render at all, and the simple option gets a wider
+left-aligned card instead of the narrow rail. As soon as a real package
+does get built, layout goes back to the normal two-column comparison.
+
+### 3. Streaming workstation — Monthly tab search + month index, frozen header row
+
+- **Search box** (title/artist/DID) above the Monthly list — filters every
+  month's rows live; a month with zero matches drops out of the list
+  entirely instead of showing an empty table.
+- **Month index bar** — one button per month (hidden while searching,
+  since search already narrows it down) that jumps straight to that
+  month's table via an anchor link, for browsing to an old entry by
+  roughly-remembered release date instead of title.
+- **Column header row is now sticky on scroll**, not just the Release
+  column (which was already frozen horizontally) — the Spotify/TikTok/
+  Zing/etc. column labels now stay visible scrolling down through a long
+  month's worth of rows, so you're never guessing which column you're
+  editing.
+
+No SQL for any of this — purely `app/pick-package/[token]/page.js` and
+`app/workstation/stream/page.js` layout/logic changes.
+
+No SQL for this half — it only reads two tables that already exist.
+
+## Follow-up round — booking import: URLs invisible because of a round mismatch (bug)
+
+**Reported:** after running `import-booking.js --confirm`, the requested
+quantities and links were confirmed to be in the database, but the
+Booking Board still showed no "added" count and no links when a cell was
+expanded.
+
+**Root cause:** the Booking Board's round tabs (INT/Đợt 1/Đợt 2) do double
+duty — they filter which releases show as ROWS (by `project_type`) AND
+which `media_booking_entries` rows count as "added" (by `booking_round`).
+The import script hardcoded every imported URL to `booking_round: "INT"`.
+But the INT tab's row filter only shows a release whose `project_type` is
+itself INT-MEDIA-flavored — and the vast majority of imported releases
+have a normal resolved package (`Độc Quyền 5 năm`, etc.), which is a
+**Đợt 1** row, not an INT row. So the entries were tagged for a tab their
+release never appears under, and the tab where the release DOES appear
+(Đợt 1) was filtering those entries out by round. The data was correctly
+in the database the whole time — just tagged for a view nothing could
+ever land on.
+
+**Fix:** `booking_round` is now set per-sheet instead of hardcoded — rows
+from `BOOKING - INT MEDIA SUPPORT` get `"INT"` (matches releases whose
+package really is INT MEDIA), rows from `BOOKING & REPORT 01` get
+`"Đợt 1"` (the general sheet, matches a normal resolved package). The
+script is also now self-healing: re-running it with `--confirm` checks
+every already-imported URL's `booking_round` against what it should be
+and corrects it in place (new "round corrected: N" count in the summary
+line), on top of its existing skip-if-already-imported behavior for the
+package/quantity half.
+
+**What to do:** just re-run the `import-booking` Actions workflow with
+confirm checked again, same file, same path — it will not create any
+duplicates, it will only fix the round tag on entries already there and
+insert anything genuinely new. After that, check the Booking Board again
+under the **Đợt 1** tab (not INT) for most of the imported releases.
+
+One thing this doesn't fully solve on its own: a release matched from the
+`BOOKING - INT MEDIA SUPPORT` sheet whose `project_type` **isn't** actually
+INT MEDIA-flavored yet in the live database — its URLs are now correctly
+tagged `round="INT"`, but they still won't be visible until that release's
+package type is updated to match (a data-correctness question about that
+specific release, not something the import script can resolve on its
+own). The script now logs this case by name in the confirm run's output
+if it comes up, so it won't be a silent gap.

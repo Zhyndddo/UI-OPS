@@ -21,10 +21,82 @@ function fmtVnd(n) {
 const SIMPLE_OPTIONS = ["Chỉ Phát Hành"];
 const BOOKING_ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
 
+// Hardcoded, identical for every package (not per-package terms_text, not
+// DB-driven like the Shared Terms blocks above) — this is VIEENT's fixed
+// partner-benefits sheet, shown once regardless of which package is
+// selected. Transcribed from the reference sheet; ping if any wording here
+// needs correcting and it'll get fixed in this same constant.
+const PARTNER_BENEFITS = [
+  { label: "RECORDING STUDIO", detail: "Thu âm miễn phí tại VIEENT Studio" },
+  { label: "19 CREATIVE SPACE", detail: "Không gian miễn phí để thực hiện quay phỏng vấn, live session, MV ..." },
+  { label: "PITCHING PLAYLIST/BANNER", detail: "Nền Tảng : Zingmp3, NCT, Spotify, Apple Music\nKết quả Pitching sẽ được cập nhật sau khi nền tảng trả kết quả về" },
+  {
+    label: "TRỢ GIÁ BOOKING",
+    detail: "HỖ TRỢ 10% - 70% CHI PHÍ TRUYỀN THÔNG\n(KHÔNG GIỚI HẠN SỐ LẦN HỖ TRỢ)",
+    link: { text: "LINK", href: "https://docs.google.com/spreadsheets/d/1Jyuy_QjrDAk3ToG70Ql4O-6w2WMwVPi5lFRJJjWh9JQ/edit?gid=388080288#gid=388080288" },
+    detailAfterLink: "Hỗ trợ 10% đối với kênh youtube nghệ sĩ thuộc MCN, MV thời lượng dưới 5 phút, tối thiểu 20k views\n\nHỗ trợ 5% đối với kênh youtube nghệ sĩ không thuộc MCN, MV thời lượng dưới 5 phút, tối thiểu 200k views",
+  },
+  {
+    label: "TRỢ GIÁ BOOKING ADS YOUTUBE NGOÀI GÓI HTTT",
+    detail: "* TRỢ GIÁ KHÔNG ÁP DỤNG CHO CÁC TRƯỜNG HỢP SAU:\n1. Không thoả các điều kiện trên\n2. Chạy trong 24h - 48h\n3. Các chi phí phát sinh do thay đổi so với kế hoạch ban đầu (bao gồm nhưng không giới hạn ở): Đẩy nhanh tiến độ/Fast-push, thay đổi nội dung video, thay đổi đối tượng mục tiêu hoặc tạm dừng chiến dịch) sẽ làm gián đoạn quá trình tối ưu hóa tự động của Ads. Việc này có thể dẫn đến hệ quả chi phí thực tế tăng cao hơn so với báo giá dự kiến ban đầu.",
+  },
+  { label: "HỆ THỐNG QUẢN LÝ PHÁT HÀNH VÀ DOANH THU", detail: "Cung cấp tài khoản truy cập để kiểm tra\n- Catalog : VIEENT Music Dashboard\n- Xem Báo cáo Doanh thu : Royalties Analytics" },
+  { label: "BẢO VỆ BẢN QUYỀN & ĐỊNH DANH NGHỆ SĨ:", detail: "- Tối ưu hóa Hồ sơ nghệ sĩ (Mapping/Verification) trên mọi nền tảng.\n- Giám sát, xử lý vi phạm bản quyền (Claim/Report) trên các nền tảng.\n- Tư vấn pháp lý các vấn đề liên quan đến quyền tác giả, quyền bản ghi." },
+  { label: "THEO DÕI & BÁO CÁO ĐỊNH KỲ", detail: "- Báo cáo định kỳ về chỉ số lượt nghe của dự án và profile của nghệ sĩ.\n- Đánh giá dữ liệu để tư vấn điều chỉnh kế hoạch truyền thông kịp thời, đảm bảo hiệu quả tối đa." },
+];
+const MEDIA_PARTNER_NOTE = {
+  intro: "***Logo VIEENT sẽ xuất hiện trên các tài liệu truyền thông chính thức như:\n– Bài đăng Facebook\n– Thumbnail YouTube\n*** Chia sẻ các bài đăng về artist post /congrats post hoặc tag tên VIEENT trong bài đăng Congrats/Thank You Post",
+  logoLink: "https://drive.google.com/drive/folders/1Pqx0wQAssoWe2aZcilI-N9bGzZXuDjIF",
+  hashtag: "Hashtag chính thức #vieentmusic sẽ được sử dụng trên các nền tảng TikTok, Facebook và các nội dung liên quan đến bài hát.",
+};
+
 // Shared Terms Block B ("Chỉ áp dụng cho gói 5 năm và 2 năm…") is only
 // ever relevant to these 2 tiers — Vĩnh Viễn (or anything else) never
 // shows it, even though Block A still shows for every real package.
 const SHARED_B_TIERS = ["độc quyền 5 năm", "độc quyền 2 năm"];
+
+// Any terms line containing this phrase gets highlighted in the accent
+// color instead of the default muted grey — Marketing wants "HỖ TRỢ 100%
+// CHI PHÍ KHÔNG CẤN TRỪ DOANH THU" (wherever it appears across the Intro /
+// Conditions / per-package terms text, all admin-edited in Config → Shared
+// Terms) to stand out. var(--accent-soft) is already bright orange in dark
+// mode and a darker, still-readable-on-white orange in light mode — no
+// separate light/dark branching needed here.
+const HIGHLIGHT_PHRASE = "hỗ trợ 100%";
+
+// Streaming & Milestone section, below Booking Progress — read-only
+// display of release_stream_metrics (the real, actively-maintained
+// numbers table behind the Streaming workstation's Today/Monthly/Bổ Sung
+// tabs; NOT dsp_metrics_snapshots, which the release detail page's own
+// "Stream Numbers" section reads from but is still an unused/future
+// automated-fetch path per schema.sql — always empty in practice today).
+// Field label list mirrors STREAM workstation's METRIC_GROUPS values, just
+// flattened and only rendering whichever fields actually have something in
+// them rather than a fixed grid, since most releases only ever fill in a
+// handful of these.
+const STREAM_FIELD_LABELS = {
+  current_spotify: "Spotify — Current", playlist_spotify: "Spotify — Playlist",
+  views_tiktok: "TikTok — Views", creations_tiktok: "TikTok — Creations",
+  current_zing: "Zing — Current", homepage_banner_zing: "Zing — Homepage Banner", bxh_nhac_moi: "Zing — BXH Nhạc Mới", album_hot_zing: "Zing — Album Hot", cover_playlist_zing: "Zing — Cover Playlist", playlist_zing: "Zing — Playlist",
+  current_nct: "NCT — Current", banner_homepage_nct: "NCT — Homepage Banner", cover_playlist_nct: "NCT — Cover Playlist", playlist_nct: "NCT — Playlist",
+  current_ytb: "YouTube — Current", youtube_trending: "YouTube — Trending",
+  current_ytb_music: "YTB Music — Current",
+  views_fb: "Facebook — Views", creations_fb: "Facebook — Creations",
+};
+
+// Renders a terms blob line-by-line so the one line containing
+// HIGHLIGHT_PHRASE (if any) can be colored differently — everything else
+// renders exactly as before (same font size/color/line-height), just
+// broken into per-line divs instead of one whiteSpace:"pre-line" block so
+// each line can carry its own style.
+function TermsText({ text, baseStyle }) {
+  if (!text) return null;
+  return text.split("\n").map((line, i) => (
+    <div key={i} style={line.toLowerCase().includes(HIGHLIGHT_PHRASE) ? { ...baseStyle, color: "var(--accent-soft)", fontWeight: 700 } : baseStyle}>
+      {line || " "}
+    </div>
+  ));
+}
 
 export default function PickPackagePage() {
   const { token } = useParams();
@@ -41,6 +113,17 @@ export default function PickPackagePage() {
   const [bookingEntries, setBookingEntries] = useState([]);
   const [round, setRound] = useState("INT");
   const [sharedTerms, setSharedTerms] = useState({ a: "", conditions: "", b: "" }); // global_settings' canned blocks, shown alongside any real package's own terms_text
+  // The Media Booking ticket behind this link — its status_log gates
+  // whether any real (built) package shows here at all (see load(): a
+  // package only ever appears once the ticket has reached COMPLETE at
+  // least once), and its id is where Feed Back submissions get written.
+  const [mediaBookingTicket, setMediaBookingTicket] = useState(null);
+  const [showFeedbackBox, setShowFeedbackBox] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [streamMetrics, setStreamMetrics] = useState(null); // release_stream_metrics row, or null
+  const [milestones, setMilestones] = useState([]); // milestone_chart_entries, matched by DID
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -67,11 +150,35 @@ export default function PickPackagePage() {
     const { data: rel } = await supabase.from("releases").select("*").eq("id", link.release_id).single();
     setRelease(rel);
 
-    const { data: realPackages } = await supabase
+    // Media Booking ticket for this release — its status_log is the real
+    // gate for whether a built package should show here at all ("magic
+    // link goes live + notification fires simultaneously" only once
+    // Marketing sets it COMPLETE). Once it has EVER reached COMPLETE, keep
+    // showing whatever's in media_booking_packages even while a rebook is
+    // in progress (ticket back to REQUESTED) — a rebook is a purely
+    // internal do-over, this page only needs to update once the new build
+    // reaches COMPLETE again, not the moment a reopen starts.
+    const { data: mbTab } = await supabase.from("ticket_tabs").select("id").eq("key", "media_booking").single();
+    let ticketRow = null;
+    if (mbTab) {
+      const { data: mbTix } = await supabase
+        .from("tickets")
+        .select("id, status, status_log, data")
+        .eq("tab_id", mbTab.id)
+        .eq("data->>releaseId", rel?.did)
+        .is("deleted_at", null)
+        .limit(1);
+      ticketRow = mbTix?.[0] || null;
+      setMediaBookingTicket(ticketRow);
+    }
+    const packagesEverCompleted = !!ticketRow?.status_log?.COMPLETE;
+
+    const { data: realPackagesRaw } = await supabase
       .from("media_booking_packages")
       .select("*, media_booking_package_lines(*)")
       .eq("release_id", link.release_id)
       .order("sort_order");
+    const realPackages = packagesEverCompleted ? realPackagesRaw : [];
     const { data: pkgCategories } = await supabase.from("package_categories").select("id, name");
     const categoryNameById = {};
     (pkgCategories || []).forEach((c) => (categoryNameById[c.id] = c.name));
@@ -141,6 +248,13 @@ export default function PickPackagePage() {
     const { data: entries } = await supabase.from("media_booking_entries").select("*").eq("release_id", link.release_id);
     setBookingEntries(entries || []);
 
+    const { data: streamRow } = await supabase.from("release_stream_metrics").select("*").eq("release_id", link.release_id).maybeSingle();
+    setStreamMetrics(streamRow || null);
+    if (rel?.did) {
+      const { data: chart } = await supabase.from("milestone_chart_entries").select("*").eq("did", rel.did).order("entry_date", { ascending: false });
+      setMilestones(chart || []);
+    }
+
     supabase.from("magic_links").update({ last_used_at: new Date().toISOString() }).eq("id", link.id);
     setLoading(false);
   }
@@ -185,11 +299,16 @@ export default function PickPackagePage() {
       .update({
         project_type: selectedValue,
         package_total_value: option?.totalValue ?? null,
+        // The artist confirming their own pick now locks it in directly —
+        // no more separate manual "Lock editing" step for AR on this path
+        // (AR's toggle still exists for everything else, e.g. correcting
+        // a pick made on the artist's behalf).
+        package_locked: true,
       })
       .eq("id", release.id);
     setPicking(false);
     if (err) { setError(err.message); return; }
-    setRelease((r) => ({ ...r, project_type: selectedValue, package_total_value: option?.totalValue ?? null }));
+    setRelease((r) => ({ ...r, project_type: selectedValue, package_total_value: option?.totalValue ?? null, package_locked: true }));
     setConfirmed(true);
 
     if (wasPipelineStage) {
@@ -218,11 +337,43 @@ export default function PickPackagePage() {
     }
   }
 
+  // Feed Back — the artist's alternative to confirming: leaves a note for
+  // AR instead of picking a package outright. Writes straight onto the
+  // Media Booking ticket (data.feedback) so AR sees it on the release page
+  // and can re-send to Marketing with that text carried along, and fires
+  // a notification to the AR team with the literal phrase the workflow
+  // asked for so it's easy to search/recognize in the notification list.
+  async function submitFeedback() {
+    if (!mediaBookingTicket || !feedbackText.trim() || submittingFeedback) return;
+    setSubmittingFeedback(true);
+    const newData = { ...(mediaBookingTicket.data || {}), feedback: { text: feedbackText.trim(), submittedAt: new Date().toISOString() } };
+    const { error: err } = await supabase.from("tickets").update({ data: newData }).eq("id", mediaBookingTicket.id);
+    if (err) {
+      setSubmittingFeedback(false);
+      setError(err.message);
+      return;
+    }
+    setMediaBookingTicket((t) => ({ ...t, data: newData }));
+    await supabase.rpc("fanout_notification", {
+      p_team: "AR",
+      p_type: "media_booking_feedback",
+      p_title: "Artist request package changed",
+      p_body: `${release?.main_artist || "An artist"} left feedback on ${release?.title || "their release"}'s media booking package.`,
+      p_link: `/releases/${release.id}?focus=media_booking`,
+      p_ticket_id: mediaBookingTicket.id,
+    });
+    setSubmittingFeedback(false);
+    setFeedbackSent(true);
+    setShowFeedbackBox(false);
+    setFeedbackText("");
+  }
+
   if (loading) return <div className={styles.page}><div className={styles.container} style={{ maxWidth: 640 }}>Loading…</div></div>;
   if (error) return <div className={styles.page}><div className={styles.container} style={{ maxWidth: 640 }}><div className={styles.errorBox}>{error}</div></div></div>;
 
   const isLocked = magicLink?.locked || release?.package_locked;
   const isPipelineStage = ["BRIEF & DATA", "DEALING"].includes(release?.project_type);
+  const hasOtherRounds = bookingEntries.some((e) => e.booking_round === "Đợt 1" || e.booking_round === "Đợt 2");
 
   // "Rich" cards (real built packages, incl. INT MEDIA) get the wide
   // itemized-table treatment; "compact" ones (the always-offered simple
@@ -269,6 +420,7 @@ export default function PickPackagePage() {
             offered simple picks stack narrowly on the right so they don't
             burn a whole card's width on one line of text. */}
         <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+        {richOptions.length > 0 && (
         <div style={{ flex: "3 1 640px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 12, alignItems: "start" }}>
           {richOptions.map((c) => {
             const selected = selectedValue === c.value;
@@ -277,7 +429,12 @@ export default function PickPackagePage() {
                 key={c.value}
                 style={{
                   background: selected ? "rgba(255,107,26,0.1)" : "#121212",
-                  border: selected ? "1px solid #ff6b1a" : "1px solid #262626",
+                  // Every package card gets an orange stroke now (not just
+                  // the selected one) so they read as a set of options to
+                  // compare, not a plain grey list — selected still stands
+                  // out via a thicker/brighter border plus the tinted
+                  // background above.
+                  border: selected ? "2px solid #ff6b1a" : "1px solid rgba(255,107,26,0.5)",
                   borderRadius: 10,
                   overflow: "hidden",
                 }}
@@ -307,17 +464,16 @@ export default function PickPackagePage() {
                 </button>
                 {(c.termsText || sharedTerms.a || sharedTerms.conditions) && (
                   // Fixed order: intro (a) -> conditions -> this package's
-                  // own terms (c, e.g. VĨNH VIỄN/03 năm) -> the 5/2-năm
-                  // note, only for the tiers it applies to.
+                  // own terms (c, e.g. VĨNH VIỄN/03 năm). The 5/2-năm note
+                  // (Shared B) used to render here too, but that broke the
+                  // Hạng Mục rows lining up horizontally across cards when
+                  // one package had the note and its neighbor didn't (or
+                  // had a different-length one) — it now renders AFTER the
+                  // items table below instead, still inside this same card.
                   <div style={{ borderTop: "1px solid #262626", padding: "10px 16px", background: "rgba(255,107,26,0.04)", display: "grid", gap: 8 }}>
-                    {sharedTerms.a && <div style={{ fontSize: 11, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.a}</div>}
-                    {sharedTerms.conditions && <div style={{ fontSize: 11, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.conditions}</div>}
-                    {c.termsText && <div style={{ fontSize: 11, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>{c.termsText}</div>}
-                    {c.showSharedB && sharedTerms.b && (
-                      <div style={{ paddingTop: 8, borderTop: "1px dashed #333" }}>
-                        <div style={{ fontSize: 10, color: "#888", whiteSpace: "pre-line", lineHeight: 1.5 }}>{sharedTerms.b}</div>
-                      </div>
-                    )}
+                    {sharedTerms.a && <TermsText text={sharedTerms.a} baseStyle={{ fontSize: 11, color: "#ccc", lineHeight: 1.5 }} />}
+                    {sharedTerms.conditions && <TermsText text={sharedTerms.conditions} baseStyle={{ fontSize: 11, color: "#ccc", lineHeight: 1.5 }} />}
+                    {c.termsText && <TermsText text={c.termsText} baseStyle={{ fontSize: 11, color: "#ccc", lineHeight: 1.5 }} />}
                   </div>
                 )}
                 {c.kind === "intMedia" ? (
@@ -352,16 +508,24 @@ export default function PickPackagePage() {
                     </table>
                   </div>
                 ) : null}
+                {c.showSharedB && sharedTerms.b && (
+                  <div style={{ borderTop: "1px dashed #333", padding: "8px 16px" }}>
+                    <TermsText text={sharedTerms.b} baseStyle={{ fontSize: 10, color: "#888", lineHeight: 1.5 }} />
+                  </div>
+                )}
               </div>
             );
           })}
-          {richOptions.length === 0 && (
-            <div className={styles.emptyState}>No packages built yet.</div>
-          )}
         </div>
+        )}
 
         {compactOptions.length > 0 && (
-          <div style={{ flex: "0 0 200px", display: "grid", gap: 10 }}>
+          // No rich (built) packages at all — the only pickable option
+          // shouldn't be stranded off in the narrow right-hand rail with
+          // nothing else on the page; give it the wide left-aligned
+          // treatment instead so it just reads as "the option", not an
+          // afterthought next to empty space.
+          <div style={richOptions.length === 0 ? { flex: "1 1 320px", display: "grid", gap: 10, maxWidth: 360 } : { flex: "0 0 200px", display: "grid", gap: 10 }}>
             {compactOptions.map((c) => {
               const selected = selectedValue === c.value;
               return (
@@ -414,21 +578,84 @@ export default function PickPackagePage() {
           </button>
         )}
 
+        {/* Feed Back — the alternative to confirming a pick. Sends a note
+            to AR instead of/alongside picking, rather than committing to
+            a choice right now. */}
+        {!isLocked && mediaBookingTicket && (
+          <div style={{ marginTop: 12 }}>
+            {feedbackSent ? (
+              <div className={styles.successBox}>Feedback sent — your OPS/AR contact has been notified.</div>
+            ) : showFeedbackBox ? (
+              <div style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 14 }}>
+                <div style={{ fontSize: 12, color: "#ccc", marginBottom: 8, fontWeight: 700 }}>Gửi phản hồi về gói</div>
+                <textarea
+                  className={styles.input}
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  placeholder="Nhập phản hồi của bạn về gói…"
+                  rows={4}
+                  style={{ width: "100%", resize: "vertical", fontSize: 13, marginBottom: 8 }}
+                />
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className={styles.btnSmall}
+                    onClick={() => setFeedbackText((t) => (t ? t + "\n" : "") + "Text in Zalo/Telegram")}
+                  >
+                    + Text in Zalo/Telegram
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.btnPrimary}
+                    onClick={submitFeedback}
+                    disabled={!feedbackText.trim() || submittingFeedback}
+                  >
+                    {submittingFeedback ? "Đang gửi…" : "Confirm"}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.btnSmall}
+                    onClick={() => { setShowFeedbackBox(false); setFeedbackText(""); }}
+                  >
+                    Hủy
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className={styles.btnSmall} onClick={() => setShowFeedbackBox(true)}>
+                Feed Back
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Fixed partner-benefits block — same for every package, shown
+            once (not duplicated per card) right under the package
+            cards/confirm button, above the Booking Progress numbers when
+            that section is showing. */}
+        <PartnerBenefits />
+
         {confirmed && (
           <div style={{ marginTop: 32 }}>
             <div className={styles.subheading} style={{ marginTop: 0 }}>Booking Progress</div>
-            <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
-              {BOOKING_ROUNDS.map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setRound(r)}
-                  className={`${styles.tabBtn} ${round === r ? styles.tabBtnActive : ""}`}
-                  style={{ border: "1px solid #262626", borderRadius: 6 }}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
+            {/* Only show the round switcher when there's actually
+                something to switch to — a release that never got a Đợt 1
+                or Đợt 2 booking entry has nothing behind those tabs, so
+                showing them just invites clicking into an empty view. */}
+            {hasOtherRounds && (
+              <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+                {BOOKING_ROUNDS.map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setRound(r)}
+                    className={`${styles.tabBtn} ${round === r ? styles.tabBtnActive : ""}`}
+                    style={{ border: "1px solid #262626", borderRadius: 6 }}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
               {categories.map((c) => {
                 const booked = bookedFor(c.name);
@@ -452,6 +679,96 @@ export default function PickPackagePage() {
             </div>
           </div>
         )}
+
+        {/* Streaming & Milestone — read-only, same data the internal
+            Streaming workstation and the release detail page's Milestone
+            section track, just surfaced here too so the artist/label can
+            see it without a separate report being sent. */}
+        {confirmed && (streamMetrics || milestones.length > 0) && (
+          <div style={{ marginTop: 32 }}>
+            <div className={styles.subheading} style={{ marginTop: 0 }}>Streaming & Milestone</div>
+
+            {streamMetrics && Object.keys(STREAM_FIELD_LABELS).some((k) => streamMetrics[k]) ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginBottom: milestones.length > 0 ? 20 : 0 }}>
+                {Object.entries(STREAM_FIELD_LABELS)
+                  .filter(([key]) => streamMetrics[key])
+                  .map(([key, label]) => (
+                    <div key={key} style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12 }}>
+                      <div style={{ fontSize: 10, color: "#888", marginBottom: 4, textTransform: "uppercase" }}>{label}</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#f4f4f4" }}>{streamMetrics[key]}</div>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              milestones.length === 0 && <p style={{ color: "#666", fontSize: 12 }}>No streaming or milestone data yet.</p>
+            )}
+
+            {milestones.length > 0 && (
+              <table className={styles.table}>
+                <thead><tr><th>Chart</th><th>Date</th><th>Rank</th><th>Platform</th></tr></thead>
+                <tbody>
+                  {milestones.map((m) => (
+                    <tr key={m.id}>
+                      <td>{m.chart}</td>
+                      <td>{m.entry_date}</td>
+                      <td>{m.rank}</td>
+                      <td>{m.platform || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PartnerBenefits() {
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase" }}>
+        Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT
+      </div>
+      <div style={{ border: "1px solid #262626", borderTop: "none" }}>
+        {PARTNER_BENEFITS.map((row, i) => (
+          <div
+            key={row.label}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "220px 1fr",
+              gap: 16,
+              padding: "10px 14px",
+              background: i % 2 === 0 ? "rgba(255,107,26,0.05)" : "transparent",
+              borderTop: i === 0 ? "none" : "1px solid #1c1c1c",
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#ff9d5c" }}>{row.label}</div>
+            <div style={{ fontSize: 12, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>
+              {row.detail}
+              {row.link && (
+                <div style={{ marginTop: 4 }}>
+                  <span style={{ fontWeight: 700 }}>{row.link.text}</span>
+                  {" : "}
+                  <a href={row.link.href} target="_blank" rel="noopener noreferrer" style={{ color: "#5b9dff", wordBreak: "break-all" }}>{row.link.href}</a>
+                </div>
+              )}
+              {row.detailAfterLink && <div style={{ marginTop: 8 }}>{row.detailAfterLink}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase", marginTop: 20 }}>
+        Quyền Lợi Dành Cho Đơn Vị Truyền Thông
+      </div>
+      <div style={{ border: "1px solid #262626", borderTop: "none", padding: "12px 14px", fontSize: 12, color: "#ccc", lineHeight: 1.6 }}>
+        <div style={{ whiteSpace: "pre-line" }}>{MEDIA_PARTNER_NOTE.intro}</div>
+        <div style={{ marginTop: 8 }}>
+          🔗 Logo: <a href={MEDIA_PARTNER_NOTE.logoLink} target="_blank" rel="noopener noreferrer" style={{ color: "#5b9dff", wordBreak: "break-all" }}>{MEDIA_PARTNER_NOTE.logoLink}</a>
+        </div>
+        <div style={{ marginTop: 8 }}>{MEDIA_PARTNER_NOTE.hashtag}</div>
       </div>
     </div>
   );

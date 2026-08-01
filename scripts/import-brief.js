@@ -100,6 +100,20 @@ function isDaCo(v) {
   return String(v || "").trim() === "Đã có";
 }
 
+// Same fix as import-ops-tracking.js's normalizeProjectType — BRIEF's
+// "GÓI HTTT" carries the same legacy "New Release - " prefix v2 doesn't
+// use for project_type (see contract_type_packages in schema.sql), which
+// double-prefixes once release_category ALSO defaults to "New Release"
+// at display time.
+function normalizeProjectType(raw) {
+  if (raw == null) return raw;
+  let s = String(raw).trim();
+  s = s.replace(/^(SONY\s*-\s*)?New Release\s*-\s*/i, "");
+  s = s.trim();
+  if (!s || s.toUpperCase() === "NEW RELEASE") return "BRIEF & DATA";
+  return s;
+}
+
 function toDateStr(v) {
   if (!v) return null;
   if (v instanceof Date) return v.toISOString().slice(0, 10);
@@ -197,6 +211,7 @@ async function main() {
       skipped++;
       continue;
     }
+    if (payload.project_type != null) payload.project_type = normalizeProjectType(payload.project_type);
 
     const legacyId = didBase;
     const did = `${didBase}-${String(rowNum).padStart(4, "0")}`;

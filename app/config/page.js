@@ -562,8 +562,11 @@ function PackageTermsSection() {
         Shared Terms
       </div>
       <p style={{ fontSize: 10, color: "var(--text-dim)", marginTop: -6, marginBottom: 12 }}>
-        Fixed render order on the magic-link page: Intro → Conditions → this package's own terms (above) → the
-        5/2-năm note (only shown for those 2 tiers).
+        Fixed render order on the magic-link page: Intro → Conditions → this package's own terms (above the item
+        table) → itemized breakdown table → 5/2-năm note (below the table, only shown for those 2 tiers — moved
+        here so it doesn't throw off the Hạng Mục rows lining up horizontally across package cards). Any line
+        containing "hỗ trợ 100%" (case-insensitive) in any of these 3 fields renders in the accent color instead
+        of the default grey.
       </p>
       <div style={{ display: "grid", gap: 16, maxWidth: 640 }}>
         <div>

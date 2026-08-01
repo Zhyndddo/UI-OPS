@@ -7,6 +7,8 @@ import { supabase } from "../../lib/supabaseClient";
 import { fmtDate, metadataPercent, uploadPercent } from "../../lib/helpers";
 import { useSortableRows } from "../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../lib/SortableTh";
+import { usePagination } from "../../lib/usePagination";
+import Pagination from "../../lib/Pagination";
 import styles from "../shared.module.css";
 
 const CHANNELS = ["VIEENT", "ENVI"];
@@ -134,6 +136,7 @@ export default function ReleasesDashboard() {
   }, [releases, createdFilter, statusFilter, channelFilter, typeFilter, labelFilter, searchTest]);
 
   const { sorted: sortedReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
+  const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(sortedReleases);
 
   const anyStatClickFilter = statusFilter || channelFilter || createdFilter;
 
@@ -205,6 +208,7 @@ export default function ReleasesDashboard() {
         ) : sortedReleases.length === 0 ? (
           <div className={styles.emptyState}>No releases match these filters.</div>
         ) : (
+          <>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -222,7 +226,7 @@ export default function ReleasesDashboard() {
               </tr>
             </thead>
             <tbody>
-              {sortedReleases.map((r) => {
+              {pagedReleases.map((r) => {
                 const pct = metadataPercent(r);
                 const bpct = bookingPct[r.id] ?? 0;
                 const upct = uploadPercent(r);
@@ -264,6 +268,8 @@ export default function ReleasesDashboard() {
               })}
             </tbody>
           </table>
+          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+          </>
         )}
       </div>
     </div>

@@ -57,6 +57,22 @@ export default function NewMediaBookingTicket() {
       setError("Couldn't find the Media Booking ticket type — did schema.sql get redeployed?");
       return;
     }
+
+    // Belt-and-suspenders re-check right before insert — the excludeDids
+    // filter above only reflects the picker list as of page load, so a
+    // ticket for this exact release could've been created by someone else
+    // (or from the release popup's Send Package Ticket button) in the
+    // meantime. The DB also rejects this via
+    // trg_prevent_duplicate_media_booking (see add-media-booking-dedup.sql)
+    // — this check just gives a clean message instead of a raw Postgres
+    // error if that race actually happens.
+    const { data: dupe } = await supabase.from("tickets").select("id").eq("tab_id", tab.id).is("deleted_at", null).contains("data", { releaseId }).maybeSingle();
+    if (dupe) {
+      setSubmitting(false);
+      setError("A Media Booking ticket for this release already exists — only one is allowed per release.");
+      return;
+    }
+
     const { error: insertErr } = await supabase.from("tickets").insert({
       tab_id: tab.id,
       data: { releaseId, proposedPackage: proposedPackage || null },
@@ -64,8 +80,12 @@ export default function NewMediaBookingTicket() {
       status_log: { [tab.default_status]: new Date().toISOString() },
     });
     setSubmitting(false);
-    if (insertErr) setError(insertErr.message);
-    else router.push("/tickets/media-booking");
+    if (insertErr) {
+      // Most likely the DB trigger catching a race the check above missed.
+      setError(insertErr.message.includes("only one is allowed per release") ? "A Media Booking ticket for this release already exists — only one is allowed per release." : insertErr.message);
+    } else {
+      router.push("/tickets/media-booking");
+    }
   }
 
   return (
