@@ -44,8 +44,35 @@ export default function ManualClaimList() {
     setLoading(false);
   }
 
-  async function updateField(t, key, value) {
+  // label/tenBai/artist used to be locked read-only text on the requester
+  // side — now editable there too, flagged + pinged to OPS instead of
+  // blocked outright (url/note were already both-editable and stay that
+  // way, untouched by the flag).
+  async function updateField(t, key, value, editedByRequester) {
     const newData = { ...t.data, [key]: value };
+    if (editedByRequester) {
+      newData.__requesterEdited = true;
+      newData.__requesterEditedAt = new Date().toISOString();
+      newData.__requesterEditedField = key;
+      newData.__requesterEditedBy = profile?.name || null;
+    }
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, data: newData } : x)));
+    await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
+    if (editedByRequester) {
+      const fieldLabel = { label: "Label", tenBai: "Tên Bài", artist: "Artist", url: "URL", note: "Note" }[key] || key;
+      await supabase.rpc("fanout_notification", {
+        p_team: "OPS",
+        p_type: "ticket_edited",
+        p_title: "Manual Claim ticket edited by requester",
+        p_body: `${profile?.name || "The requester"} changed "${fieldLabel}".`,
+        p_link: "/tickets/manual-claim",
+        p_ticket_id: t.id,
+      });
+    }
+  }
+
+  async function acknowledgeEdit(t) {
+    const newData = { ...t.data, __requesterEdited: false };
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, data: newData } : x)));
     await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
   }
@@ -121,6 +148,7 @@ export default function ManualClaimList() {
                     onUpdateField={updateField}
                     onUpdateStatus={updateStatus}
                     onUpdatePic={updatePic}
+                    onAcknowledgeEdit={acknowledgeEdit}
                   />
                 ))}
               </tbody>
@@ -134,7 +162,7 @@ export default function ManualClaimList() {
   );
 }
 
-function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePic }) {
+function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePic, onAcknowledgeEdit }) {
   const d = ticket.data || {};
   const color = statusColor(ticket.status);
   const isRefundLike = REFUND_LIKE.includes(ticket.status);
@@ -142,25 +170,41 @@ function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, 
   const statusOptions = isExecutorView
     ? tab?.status_options || []
     : [ticket.status, tab?.default_status, "REFUND", "CANCELED"].filter((v, i, a) => v && a.indexOf(v) === i);
+  const showEditedHighlight = isExecutorView && !!d.__requesterEdited;
 
   function textCell(key, value) {
-    if (!isExecutorView) return <td style={{ fontSize: 12 }}>{value || "—"}</td>;
     return (
       <td>
-        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={value || ""} onBlur={(e) => onUpdateField(ticket, key, e.target.value)} />
+        <input
+          className={styles.input}
+          style={{ padding: "4px 8px", fontSize: 12 }}
+          defaultValue={value || ""}
+          onBlur={(e) => onUpdateField(ticket, key, e.target.value, !isExecutorView)}
+        />
       </td>
     );
   }
 
   return (
-    <tr>
-      <td style={{ fontSize: 12 }}>{fmtDate(ticket.created_at)}</td>
+    <tr style={showEditedHighlight ? { boxShadow: "inset 3px 0 0 var(--accent)", background: "rgba(255,107,26,0.06)" } : undefined}>
+      <td style={{ fontSize: 12 }}>
+        {fmtDate(ticket.created_at)}
+        {showEditedHighlight && (
+          <div
+            title={`Edited by ${d.__requesterEditedBy || "requester"} — click to clear`}
+            onClick={() => onAcknowledgeEdit(ticket)}
+            style={{ cursor: "pointer", fontSize: 9, fontWeight: 700, color: "var(--accent)", marginTop: 2, whiteSpace: "nowrap" }}
+          >
+            ✎ edited
+          </div>
+        )}
+      </td>
       {textCell("label", d.label)}
       {textCell("tenBai", d.tenBai)}
       {textCell("artist", d.artist)}
-      <td style={{ minWidth: 220 }}><MultiLinkCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v)} /></td>
+      <td style={{ minWidth: 220 }}><MultiLinkCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v, !isExecutorView)} /></td>
       <td style={{ minWidth: 200 }}>
-        <textarea className={styles.textarea} style={{ fontSize: 12, minHeight: 40 }} defaultValue={d.note || ""} onBlur={(e) => onUpdateField(ticket, "note", e.target.value)} />
+        <textarea className={styles.textarea} style={{ fontSize: 12, minHeight: 40 }} defaultValue={d.note || ""} onBlur={(e) => onUpdateField(ticket, "note", e.target.value, !isExecutorView)} />
       </td>
       <td>
         {isExecutorView ? (

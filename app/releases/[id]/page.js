@@ -24,7 +24,6 @@ const TABS = [
   { key: "pre_release", label: "Pre-release & Note" },
   { key: "streaming_milestone", label: "Streaming/Milestone" },
   { key: "tasklist", label: "Tasklist" },
-  { key: "preview", label: "Preview" },
 ];
 
 const PIPELINE_STAGES = ["BRIEF & DATA", "DEALING"];
@@ -666,7 +665,6 @@ export default function ReleaseDetailPage() {
         {tab === "pre_release" && <PreReleaseTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "streaming_milestone" && <StreamingMilestoneTab form={form} />}
         {tab === "tasklist" && <TasklistTab form={form} bookingEntries={bookingEntries} />}
-        {tab === "preview" && <PreviewTab form={form} />}
       </div>
     </div>
     </AppShell>
@@ -1423,18 +1421,6 @@ function MediaBookingTab({ form, entries, categories, packageItems, mediaBooking
         </div>
       )}
 
-      {entries.length > 0 && (
-        <>
-          <div className={styles.subheading} style={{ marginTop: 0 }}>All Booking Links</div>
-          <div style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12, marginBottom: 24, fontFamily: "monospace", fontSize: 12, whiteSpace: "pre-line", color: "#ccc" }}>
-            {entries
-              .filter((e) => e.link)
-              .flatMap((e) => e.link.split("\n").map((u) => u.trim()).filter(Boolean).map((u) => `${e.channel_name ? e.channel_name : e.platform}: ${u}`))
-              .join("\n")}
-          </div>
-        </>
-      )}
-
       {packageItems.length > 0 && (
         <>
           <div className={styles.subheading} style={{ marginTop: 0 }}>Chosen Package — Itemized</div>
@@ -1451,9 +1437,18 @@ function MediaBookingTab({ form, entries, categories, packageItems, mediaBooking
               ))}
             </tbody>
           </table>
+          <p style={{ color: "#666", fontSize: 11, marginTop: -16, marginBottom: 24 }}>
+            The confirmed package itself isn't round-scoped — it's one package, picked once. Only the booking links and Added/Booked counts below change per round.
+          </p>
         </>
       )}
 
+      {/* Round buttons now actually gate what's below them — previously
+          they only affected the small Added/Booked grid, while "All
+          Booking Links" (the most visible content on this tab) always
+          showed every round's links mixed together regardless of which
+          button was selected, which read as "the buttons don't do
+          anything." Both sections are now scoped to `round`. */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
         {BOOKING_ROUNDS.map((r) => (
           <button
@@ -1466,6 +1461,18 @@ function MediaBookingTab({ form, entries, categories, packageItems, mediaBooking
           </button>
         ))}
       </div>
+
+      <div className={styles.subheading} style={{ marginTop: 0 }}>Booking Links — {round}</div>
+      {roundEntries.filter((e) => e.link).length > 0 ? (
+        <div style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12, marginBottom: 24, fontFamily: "monospace", fontSize: 12, whiteSpace: "pre-line", color: "#ccc" }}>
+          {roundEntries
+            .filter((e) => e.link)
+            .flatMap((e) => e.link.split("\n").map((u) => u.trim()).filter(Boolean).map((u) => `${e.channel_name ? e.channel_name : e.platform}: ${u}`))
+            .join("\n")}
+        </div>
+      ) : (
+        <p style={{ color: "#666", fontSize: 12, marginBottom: 24 }}>No links added for {round} yet.</p>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
         {categories.map((c) => {
@@ -1555,28 +1562,40 @@ function PitchingTab({ form, update, onSave, saving }) {
   );
 }
 
+// View-only display for a field OPS updates from its own workstation, not
+// from here — reads straight off `form` (the same release row the
+// workstation writes to), so it always reflects whatever OPS's workstation
+// has live, no separate copy to fall out of sync. A URL renders as an
+// openable link like everywhere else url-shaped values show up.
+function ReadOnlyField({ label, value, isUrl }) {
+  return (
+    <Field label={label}>
+      {value && isUrl ? (
+        <a href={value} target="_blank" rel="noopener noreferrer" className={styles.input} style={{ display: "block", color: "var(--accent)", textDecoration: "none", wordBreak: "break-all", lineHeight: "1.4" }}>
+          {value}
+        </a>
+      ) : (
+        <div className={styles.input} style={{ color: value ? "#ccc" : "#555", display: "flex", alignItems: "center" }}>
+          {value || "—"}
+        </div>
+      )}
+    </Field>
+  );
+}
+
 function PreReleaseTab({ form, update, onSave, saving }) {
   return (
     <div>
+      <p style={{ color: "#888", fontSize: 12, marginTop: -4, marginBottom: 12 }}>
+        The 6 fields below are set on the Pre-release Workstation, not here — view only. Whatever OPS updates there shows up here the next time this page loads.
+      </p>
       <div className={styles.grid2}>
-        <Field label="CANVAS MV Status">
-          <input className={styles.input} value={form.canva_mv_status || ""} onChange={(e) => update("canva_mv_status", e.target.value)} />
-        </Field>
-        <Field label="CANVAS Status">
-          <input className={styles.input} value={form.canva_status || ""} onChange={(e) => update("canva_status", e.target.value)} />
-        </Field>
-        <Field label="Artist Pick Status">
-          <input className={styles.input} value={form.artist_pick_status || ""} onChange={(e) => update("artist_pick_status", e.target.value)} />
-        </Field>
-        <Field label="Musixmatch Link">
-          <input className={styles.input} value={form.musixmatch_link || ""} onChange={(e) => update("musixmatch_link", e.target.value)} />
-        </Field>
-        <Field label="Musixmatch Status">
-          <input className={styles.input} value={form.musixmatch_status || ""} onChange={(e) => update("musixmatch_status", e.target.value)} />
-        </Field>
-        <Field label="NCT Lyric">
-          <input className={styles.input} value={form.nct_lyric || ""} onChange={(e) => update("nct_lyric", e.target.value)} />
-        </Field>
+        <ReadOnlyField label="CANVAS MV Status" value={form.canva_mv_status} />
+        <ReadOnlyField label="CANVAS Status" value={form.canva_status} />
+        <ReadOnlyField label="Artist Pick Status" value={form.artist_pick_status} />
+        <ReadOnlyField label="Musixmatch Link" value={form.musixmatch_link} isUrl />
+        <ReadOnlyField label="Musixmatch Status" value={form.musixmatch_status} />
+        <ReadOnlyField label="NCT Lyric" value={form.nct_lyric} />
       </div>
 
       <div className={styles.subheading}>Phụ Lục (Booking)</div>
@@ -1776,107 +1795,6 @@ function TasklistTab({ form, bookingEntries }) {
         ))}
       </tbody>
     </table>
-  );
-}
-
-// Read-only rollup of exactly what OPS actually looks at for this release
-// across its three OPS workstations (Upload, Confirm, Pre-release) — so
-// AR/Marketing/anyone else can see OPS's live status without leaving this
-// page. Every value here is edited at its canonical location (the
-// workstation itself, or the other tabs on this same page that already
-// write these columns) — this tab never writes anything, it's a snapshot.
-const PREVIEW_UPLOAD_FIELDS = [
-  ["UPC", "upc"],
-  ["Link Drive", "drive_link"],
-  ["Link LBM", "link_lbm"],
-  ["Link Share", "link_share"],
-  ["Smartlink", "smartlink"],
-  ["Link Pre-order", "link_preorder"],
-  ["Link UGC", "link_ugc"],
-  ["Link Media Report", "link_media_report"],
-  ["Upload Status", "upload_status"],
-  ["Tiktok Release Timing", "linkshare_tiktok_timing"],
-  ["Facebook Release Timing", "linkshare_facebook_timing"],
-];
-
-const PREVIEW_CONFIRM_FIELDS = [
-  ["Spotify Correct", "confirm_spotify_correct", true],
-  ["Apple Correct", "confirm_apple_correct", true],
-  ["Zing Correct", "confirm_zing_correct", true],
-  ["NCT Correct", "confirm_nct_correct", true],
-  ["Facebook Correct", "confirm_fb_correct", true],
-  ["YouTube Correct", "confirm_ytb_correct", true],
-  ["Insta Sound", "confirm_insta_sound", true],
-  ["Tiktok Sound Updated", "confirm_tiktok_sound_updated", true],
-  ["Smartlink Updated", "confirm_smartlink_updated", true],
-  ["Confirm Tag", "confirm_tag", false],
-];
-
-const PREVIEW_PRE_RELEASE_FIELDS = [
-  ["CANVAS MV Status", "canva_mv_status"],
-  ["CANVAS Status", "canva_status"],
-  ["Artist Pick Status", "artist_pick_status"],
-  ["Musixmatch Link", "musixmatch_link"],
-  ["Musixmatch Status", "musixmatch_status"],
-  ["NCT Lyric", "nct_lyric"],
-];
-
-function PreviewRow({ label, value, isBool }) {
-  return (
-    <tr>
-      <td>{label}</td>
-      <td>
-        {isBool ? (
-          value ? <span style={{ color: "#7ee6a8" }}>✓ Yes</span> : <span style={{ color: "#555" }}>— No</span>
-        ) : value ? (
-          <span style={{ color: "#ccc" }}>{value}</span>
-        ) : (
-          <span style={{ color: "#555" }}>—</span>
-        )}
-      </td>
-    </tr>
-  );
-}
-
-function PreviewTab({ form }) {
-  return (
-    <div>
-      <p style={{ color: "#888", fontSize: 12, marginTop: -4, marginBottom: 20 }}>
-        Read-only — exactly what OPS's Upload, Confirm, and Pre-release workstations show for this release right now.
-        Edit these on the workstation itself (or the tabs above where they're also writable), not here.
-      </p>
-
-      <div className={styles.subheading} style={{ marginTop: 0 }}>Upload Workstation</div>
-      <table className={styles.table} style={{ marginBottom: 24 }}>
-        <thead><tr><th>Field</th><th>Value</th></tr></thead>
-        <tbody>
-          {PREVIEW_UPLOAD_FIELDS.map(([label, key]) => (
-            <PreviewRow key={key} label={label} value={form[key]} />
-          ))}
-          <PreviewRow label="Needs Update (priority-pitching)" value={!!form.needs_update} isBool />
-        </tbody>
-      </table>
-
-      <div className={styles.subheading}>Confirm Workstation</div>
-      <table className={styles.table} style={{ marginBottom: 24 }}>
-        <thead><tr><th>Field</th><th>Value</th></tr></thead>
-        <tbody>
-          {PREVIEW_CONFIRM_FIELDS.map(([label, key, isBool]) => (
-            <PreviewRow key={key} label={label} value={form[key]} isBool={isBool} />
-          ))}
-        </tbody>
-      </table>
-
-      <div className={styles.subheading}>Pre-release Workstation</div>
-      <table className={styles.table}>
-        <thead><tr><th>Field</th><th>Value</th></tr></thead>
-        <tbody>
-          {PREVIEW_PRE_RELEASE_FIELDS.map(([label, key]) => (
-            <PreviewRow key={key} label={label} value={form[key]} />
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }
 

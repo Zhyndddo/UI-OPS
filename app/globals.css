@@ -5,6 +5,12 @@
    actually responds to the toggle rather than just isolated pieces of it. */
 
 :root {
+  /* Height of the sticky TopBar — table header rows (see .table th in
+     shared.module.css) pin themselves at this offset once they scroll to
+     the top of the viewport, so they float directly under the topbar
+     instead of under it or with a gap above it. Keep in sync with
+     TopBar.js's own minHeight if that bar's padding/font ever changes. */
+  --topbar-height: 44px;
   --bg: #0a0a0a;
   --bg-body: #0b0b0b;
   --bg-card: #121212;

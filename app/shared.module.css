@@ -79,6 +79,16 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
+  /* Floats the header row under the sticky TopBar once scrolling carries
+     it to the top of the viewport — long workstation tables no longer
+     lose their column labels partway down a scroll. z-index sits below
+     the TopBar's (300) and the notification/dropdown panels, but above
+     ordinary row content. Background is opaque so scrolled-under rows
+     don't show through the floating header. */
+  position: sticky;
+  top: var(--topbar-height);
+  z-index: 20;
+  background: var(--bg);
 }
 
 .table td {

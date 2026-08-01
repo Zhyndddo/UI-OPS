@@ -46,8 +46,34 @@ export default function PhaiSinhList() {
     setLoading(false);
   }
 
-  async function updateField(t, key, value) {
+  // typeRequest/label/tenBai/relatedDid used to be locked read-only text
+  // on the requester side — now editable there too, flagged + pinged to
+  // OPS instead of blocked outright.
+  async function updateField(t, key, value, editedByRequester) {
     const newData = { ...t.data, [key]: value };
+    if (editedByRequester) {
+      newData.__requesterEdited = true;
+      newData.__requesterEditedAt = new Date().toISOString();
+      newData.__requesterEditedField = key;
+      newData.__requesterEditedBy = profile?.name || null;
+    }
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, data: newData } : x)));
+    await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
+    if (editedByRequester) {
+      const labels = { typeRequest: "Type", label: "Label", tenBai: "Tên Bài", relatedDid: "Related DID", description: "Description", tacQuyen: "Tác Quyền", url: "URL", note: "Note", refLink: "LBM url" };
+      await supabase.rpc("fanout_notification", {
+        p_team: "OPS",
+        p_type: "ticket_edited",
+        p_title: "Phái Sinh ticket edited by requester",
+        p_body: `${profile?.name || "The requester"} changed "${labels[key] || key}".`,
+        p_link: "/tickets/phai-sinh",
+        p_ticket_id: t.id,
+      });
+    }
+  }
+
+  async function acknowledgeEdit(t) {
+    const newData = { ...t.data, __requesterEdited: false };
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, data: newData } : x)));
     await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
   }
@@ -124,6 +150,7 @@ export default function PhaiSinhList() {
                     onUpdateField={updateField}
                     onUpdateStatus={updateStatus}
                     onUpdatePic={updatePic}
+                    onAcknowledgeEdit={acknowledgeEdit}
                   />
                 ))}
               </tbody>
@@ -137,7 +164,7 @@ export default function PhaiSinhList() {
   );
 }
 
-function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePic }) {
+function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePic, onAcknowledgeEdit }) {
   const d = ticket.data || {};
   const color = statusColor(ticket.status);
   const isRefundLike = REFUND_LIKE.includes(ticket.status);
@@ -145,20 +172,22 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onU
   const statusOptions = isExecutorView
     ? tab?.status_options || []
     : [ticket.status, tab?.default_status, "REFUND", "CANCELED"].filter((v, i, a) => v && a.indexOf(v) === i);
+  const showEditedHighlight = isExecutorView && !!d.__requesterEdited;
 
-  function textCell(key, value, editable) {
-    if (!editable) return <td style={{ fontSize: 12, maxWidth: 160, whiteSpace: "pre-line" }}>{value || "—"}</td>;
+  // Every field here is now editable from both sides — a requester's edit
+  // just gets flagged (see showEditedHighlight) instead of the field
+  // being locked read-only text.
+  function textCell(key, value) {
     return (
       <td>
-        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={value || ""} onBlur={(e) => onUpdateField(ticket, key, e.target.value)} />
+        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={value || ""} onBlur={(e) => onUpdateField(ticket, key, e.target.value, !isExecutorView)} />
       </td>
     );
   }
   function textareaCell(key, value) {
-    // description/tacQuyen/note — both sides can always edit, matches v1
     return (
       <td style={{ minWidth: 160 }}>
-        <textarea className={styles.textarea} style={{ fontSize: 12, minHeight: 40 }} defaultValue={value || ""} onBlur={(e) => onUpdateField(ticket, key, e.target.value)} />
+        <textarea className={styles.textarea} style={{ fontSize: 12, minHeight: 40 }} defaultValue={value || ""} onBlur={(e) => onUpdateField(ticket, key, e.target.value, !isExecutorView)} />
       </td>
     );
   }
@@ -175,19 +204,30 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onU
   const contributorGroup = [d.producer ? `Producer: ${d.producer}` : "", mixerDisplay ? `Mixer: ${mixerDisplay}` : ""].filter(Boolean).join("\n");
 
   return (
-    <tr>
-      {textCell("typeRequest", d.typeRequest, isExecutorView)}
-      {textCell("label", d.label, isExecutorView)}
-      {textCell("tenBai", d.tenBai, isExecutorView)}
-      {textCell("relatedDid", d.relatedDid, isExecutorView)}
+    <tr style={showEditedHighlight ? { boxShadow: "inset 3px 0 0 var(--accent)", background: "rgba(255,107,26,0.06)" } : undefined}>
+      <td style={{ verticalAlign: "top" }}>
+        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={d.typeRequest || ""} onBlur={(e) => onUpdateField(ticket, "typeRequest", e.target.value, !isExecutorView)} />
+        {showEditedHighlight && (
+          <div
+            title={`Edited by ${d.__requesterEditedBy || "requester"} — click to clear`}
+            onClick={() => onAcknowledgeEdit(ticket)}
+            style={{ cursor: "pointer", fontSize: 9, fontWeight: 700, color: "var(--accent)", marginTop: 2, whiteSpace: "nowrap" }}
+          >
+            ✎ edited
+          </div>
+        )}
+      </td>
+      {textCell("label", d.label)}
+      {textCell("tenBai", d.tenBai)}
+      {textCell("relatedDid", d.relatedDid)}
       <td style={{ fontSize: 12, whiteSpace: "pre-line" }}>{artistGroup || "—"}</td>
       <td style={{ fontSize: 12, whiteSpace: "pre-line" }}>{contributorGroup || "—"}</td>
       <td style={{ fontSize: 12 }}>{releaseGroup}</td>
       {textareaCell("description", d.description)}
       {textareaCell("tacQuyen", d.tacQuyen)}
-      <td style={{ minWidth: 160 }}><LinkOrEditCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v)} /></td>
+      <td style={{ minWidth: 160 }}><LinkOrEditCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v, !isExecutorView)} /></td>
       {textareaCell("note", d.note)}
-      <td style={{ minWidth: 160 }}><LinkOrEditCell styles={styles} value={d.refLink} onSave={(v) => onUpdateField(ticket, "refLink", v)} /></td>
+      <td style={{ minWidth: 160 }}><LinkOrEditCell styles={styles} value={d.refLink} onSave={(v) => onUpdateField(ticket, "refLink", v, !isExecutorView)} /></td>
       <td>
         {isExecutorView ? (
           <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>

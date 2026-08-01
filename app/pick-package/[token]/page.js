@@ -677,24 +677,25 @@ export default function PickPackagePage() {
                 );
               })}
             </div>
-          </div>
-        )}
 
-        {/* Promotion Package link — same field/link shown on the release
-            detail page's Streaming & Milestone tab, surfaced here too so
-            the artist/label doesn't need internal access to reach it. */}
-        {confirmed && release?.promotion_package_url && (
-          <div style={{ marginTop: 32, display: "flex", alignItems: "center", gap: 10 }}>
-            <span className={styles.subheading} style={{ marginTop: 0, marginBottom: 0 }}>Promotion Package</span>
-            <a
-              href={release.promotion_package_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Open Promotion Package link"
-              style={{ fontSize: 18 }}
-            >
-              🔗
-            </a>
+            {/* Promotion Package link — right under the booking numbers,
+                same field/link shown on the release detail page's
+                Streaming & Milestone tab, surfaced here too so the
+                artist/label doesn't need internal access to reach it. */}
+            {release?.promotion_package_url && (
+              <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", textTransform: "uppercase" }}>Promotion Package</span>
+                <a
+                  href={release.promotion_package_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open Promotion Package link"
+                  style={{ fontSize: 18 }}
+                >
+                  🔗
+                </a>
+              </div>
+            )}
           </div>
         )}
 

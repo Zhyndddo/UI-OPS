@@ -772,16 +772,29 @@ prefix living as live, editable text inside the input. `value`/`onChange`
 still carry the full label name (prefix included) to both call sites, so
 nothing downstream changed. No SQL — display-only.
 
-### 4. Preview tab — read-only OPS workstation snapshot
+### 4. Pre-release Workstation fields — view only, not a new tab
 
-New "Preview" tab on the release detail page — read-only rollup of
-exactly what OPS's three workstations (Upload, Confirm, Pre-release) show
-for this release right now, so anyone can check OPS's status without
-leaving this page or bugging OPS for an update. Every value shown is
-still edited at its real location (the workstation itself, or this same
-page's other tabs where several of these columns are also writable) —
-this tab never writes anything. No SQL — reads columns that already
-exist.
+First pass added a separate "Preview" tab (reverted — see below); what
+was actually wanted: the CANVAS MV Status / CANVAS Status / Artist Pick
+Status / Musixmatch Link / Musixmatch Status / NCT Lyric fields on the
+existing **Pre-release & Note** tab are now view-only display instead of
+editable inputs. These 6 fields are set on the Pre-release OPS
+Workstation (`app/workstation/pre-release/page.js`) — they were also
+independently editable right here, which meant two places could write
+the same column and there was no signal that this page wasn't the source
+of truth. Now this tab just reads `form.canva_mv_status` etc. straight
+off the same release row the workstation writes to, so whatever OPS
+updates there shows up here automatically on next load — no separate
+copy, no sync logic needed. Musixmatch Link renders as an openable
+link, matching how URLs display everywhere else. Everything else on that
+tab (Phụ Lục dates, Next Step Note, Linkshare Note, Generated Notes) is
+unchanged — still editable here, since those aren't Pre-release
+Workstation fields.
+
+The earlier separate "Preview" tab (read-only rollup across Upload/
+Confirm/Pre-release) was reverted — not what was meant, and its removal
+left no trace in the tab bar or code. No SQL for either — reads/writes
+columns that already existed.
 
 ### 5. Notification panel — bigger, categorized by workstation + team
 
@@ -833,9 +846,90 @@ class this fix covers.
 
 `app/pick-package/[token]/page.js` now shows the same 🔗 "Promotion
 Package" link (when `promotion_package_url` is set) that already existed
-on the release detail page's Streaming/Milestone tab — placed just above
-the Streaming & Milestone section, same `confirmed`-gated visibility. No
-SQL — the column already existed, this just surfaces it on one more page.
+on the release detail page's Streaming/Milestone tab — placed right under
+the Booking Progress numbers (moved there after the first pass put it
+near Streaming & Milestone instead, which wasn't the intended spot), same
+`confirmed`-gated visibility. No SQL — the column already existed, this
+just surfaces it on one more page.
 
 **SQL to run for this round:** `add-meta-checklist-tbu.sql` only (item 2)
 — everything else is app-code-only.
+
+## Follow-up round — booking round filter (bug), requester-side editing + notify, notification bulk-select, sticky table headers
+
+### 1. Media Booking tab's INT/Đợt 1/Đợt 2 buttons — bug fix
+
+**Reported:** on the release detail page's Media Booking tab, clicking
+INT / Đợt 1 / Đợt 2 looked like it did nothing — same content showed for
+all three.
+
+**Root cause:** the round buttons only ever fed into the small
+Added/Booked count grid at the bottom of the tab. The much more visible
+"All Booking Links" block above it (the raw list of every booked URL)
+read straight off the unfiltered `entries` prop — every round's links
+mixed together, always, regardless of which button was selected. So the
+buttons technically worked, but the one thing most people were looking
+at when they clicked never changed.
+
+**Fix:** "All Booking Links" is now "Booking Links — {round}", scoped to
+`roundEntries` (the already-existing per-round filter, it just wasn't
+being used there) — moved to sit right below the round buttons so the
+connection is obvious. Shows "No links added for {round} yet." when a
+round has none. The "Chosen Package — Itemized" table above it
+deliberately still doesn't change per round — that's the one confirmed
+package for the release (picked once, not per round), with a note added
+explaining that so it doesn't read as another instance of the same bug.
+No SQL — reads columns that already existed.
+
+### 2. Requester-side ticket editing — open it up, flag instead of block
+
+**Ask:** several ticket types locked most fields to read-only text once
+a requester (AR/whoever) submitted them — only the executor team (or a
+short explicit `bothEditable` list, e.g. url/note on some types) could
+fix a typo or change a value afterward. Wanted: let the requester edit
+too, but make sure the executor doesn't miss that it happened.
+
+**Changed** (`lib/TicketListPage.js` — shared by Artist Profile, Khác,
+Report Conflict, Stream Update — plus the bespoke `app/tickets/design`,
+`app/tickets/manual-claim`, `app/tickets/phai-sinh` pages, which don't go
+through the shared component): every previously-locked field is now
+editable from both sides. A requester's edit:
+- tags the ticket (`data.__requesterEdited = true`, plus who/when/which
+  field),
+- fires a `fanout_notification` to the ticket's executor team,
+- shows the executor a small orange left-border highlight + "✎ edited"
+  badge on that row (executor-side only — the requester obviously
+  already knows they just edited it).
+
+Executor clears the highlight by clicking the "✎ edited" badge itself
+(sets the flag back to false) — doesn't touch the actual field values,
+just acknowledges having seen the change. Fields that were already
+both-editable (e.g. url/note on Phái Sinh/Manual Claim) get the same
+flag+notify treatment now too, for consistency — one behavior for every
+field on a ticket type rather than two different rules depending on
+which field got touched. Status is unchanged — still gated the same way
+it always was (requester can only move it out of a refund-like state).
+No SQL — `notifications.type` is a plain text column, no enum constraint
+to extend for the new `"ticket_edited"` type.
+
+### 3. Notification panel — bulk mark-as-read
+
+Each notification row now has a checkbox. Click one to select it,
+shift-click another to select the whole range between them (same
+convention as a file manager) — a "N selected · Mark selected read"
+control appears in the header the moment anything's selected, so
+clearing a big backlog doesn't mean opening every notification one at a
+time. "Mark all read" (the original, unscoped) is unchanged and still
+sits next to it. Selection resets when switching category, since the
+row indices a range-select depends on stop lining up otherwise.
+
+### 4. Sticky table headers under a sticky topbar
+
+`lib/TopBar.js` is now `position: sticky` at the top of the viewport, and
+`.table th` in `app/shared.module.css` is sticky too, pinned right under
+it (`top: var(--topbar-height)`, a new CSS variable in
+`app/globals.css`) — scrolling down a long workstation table now floats
+the column header row directly under the orange bar instead of losing it
+off the top of the screen, and the topbar itself no longer scrolls away
+either. Applies everywhere `styles.table` is used (every workstation and
+ticket list table), not just one page. No SQL — pure CSS/layout.

@@ -75,8 +75,35 @@ export default function DesignList() {
     setLoading(false);
   }
 
-  async function updateData(t, patch) {
+  // Task/Description/Platform/Design Type/Size used to be locked read-only
+  // text on the requester side (AR) — now editable there too, flagged +
+  // pinged to Design instead of blocked outright.
+  async function updateData(t, patch, editedByRequester) {
     const newData = { ...t.data, ...patch };
+    if (editedByRequester) {
+      newData.__requesterEdited = true;
+      newData.__requesterEditedAt = new Date().toISOString();
+      newData.__requesterEditedField = Object.keys(patch)[0];
+      newData.__requesterEditedBy = profile?.name || null;
+    }
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, data: newData } : x)));
+    await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
+    if (editedByRequester) {
+      const labels = { task: "Task", description: "Description", platform: "Platform", designType: "Design Type", size: "Size" };
+      const changedKey = Object.keys(patch)[0];
+      await supabase.rpc("fanout_notification", {
+        p_team: "Design",
+        p_type: "ticket_edited",
+        p_title: "Design ticket edited by requester",
+        p_body: `${profile?.name || "The requester"} changed "${labels[changedKey] || changedKey}".`,
+        p_link: "/tickets/design",
+        p_ticket_id: t.id,
+      });
+    }
+  }
+
+  async function acknowledgeEdit(t) {
+    const newData = { ...t.data, __requesterEdited: false };
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, data: newData } : x)));
     await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
   }
@@ -181,6 +208,7 @@ export default function DesignList() {
                     onUpdateData={updateData}
                     onUpdateStatus={updateStatus}
                     onUpdatePic={updatePic}
+                    onAcknowledgeEdit={acknowledgeEdit}
                   />
                 ))}
               </tbody>
@@ -194,7 +222,7 @@ export default function DesignList() {
   );
 }
 
-function DesignRow({ ticket, tab, platforms, types, sizes, profiles, isExecutorView, onUpdateData, onUpdateStatus, onUpdatePic }) {
+function DesignRow({ ticket, tab, platforms, types, sizes, profiles, isExecutorView, onUpdateData, onUpdateStatus, onUpdatePic, onAcknowledgeEdit }) {
   const status = ticket.status;
   const color = statusColor(status);
   const isRefundLike = REFUND_LIKE.includes(status);
@@ -202,6 +230,7 @@ function DesignRow({ ticket, tab, platforms, types, sizes, profiles, isExecutorV
   const statusOptions = isExecutorView
     ? tab?.status_options || []
     : [status, tab?.default_status, tab?.status_options?.[tab.status_options.length - 1]].filter((v, i, a) => v && a.indexOf(v) === i);
+  const showEditedHighlight = isExecutorView && !!ticket.data?.__requesterEdited;
 
   const currentPlatform = platforms.find((p) => p.name === ticket.data?.platform);
   const typesForPlatform = currentPlatform ? types.filter((t) => t.platform_id === currentPlatform.id) : [];
@@ -209,64 +238,64 @@ function DesignRow({ ticket, tab, platforms, types, sizes, profiles, isExecutorV
   const sizesForType = currentType ? sizes.filter((s) => s.design_type_id === currentType.id) : [];
 
   // Changing Platform clears Design Type + Size; changing Design Type
-  // clears Size — matches v1's inline table behavior exactly.
+  // clears Size — matches v1's inline table behavior exactly. Now
+  // reachable from either side (Task/Description/Platform/Type/Size used
+  // to be locked read-only text for the requester) — the requester flag
+  // just flows through to the flag/notify logic in updateData.
   function onPlatformChange(name) {
-    onUpdateData(ticket, { platform: name, designType: "", size: "" });
+    onUpdateData(ticket, { platform: name, designType: "", size: "" }, !isExecutorView);
   }
   function onTypeChange(name) {
-    onUpdateData(ticket, { designType: name, size: "" });
+    onUpdateData(ticket, { designType: name, size: "" }, !isExecutorView);
   }
 
   return (
-    <tr>
-      <td>{ticket.data?.priority || "NORMAL"}</td>
-      <td style={{ minWidth: 160 }}>
-        {isExecutorView ? (
-          <textarea
-            className={styles.textarea}
-            style={{ minHeight: 44, fontSize: 12, padding: "4px 8px" }}
-            defaultValue={ticket.data?.task || ""}
-            onBlur={(e) => onUpdateData(ticket, { task: e.target.value })}
-          />
-        ) : (
-          <span style={{ whiteSpace: "pre-line", fontSize: 12 }}>{ticket.data?.task || "—"}</span>
+    <tr style={showEditedHighlight ? { boxShadow: "inset 3px 0 0 var(--accent)", background: "rgba(255,107,26,0.06)" } : undefined}>
+      <td>
+        {ticket.data?.priority || "NORMAL"}
+        {showEditedHighlight && (
+          <div
+            title={`Edited by ${ticket.data?.__requesterEditedBy || "requester"} — click to clear`}
+            onClick={() => onAcknowledgeEdit(ticket)}
+            style={{ cursor: "pointer", fontSize: 9, fontWeight: 700, color: "var(--accent)", marginTop: 2, whiteSpace: "nowrap" }}
+          >
+            ✎ edited
+          </div>
         )}
       </td>
       <td style={{ minWidth: 160 }}>
-        {isExecutorView ? (
-          <textarea
-            className={styles.textarea}
-            style={{ minHeight: 44, fontSize: 12, padding: "4px 8px" }}
-            defaultValue={ticket.data?.description || ""}
-            onBlur={(e) => onUpdateData(ticket, { description: e.target.value })}
-          />
-        ) : (
-          <span style={{ whiteSpace: "pre-line", fontSize: 12 }}>{ticket.data?.description || "—"}</span>
-        )}
+        <textarea
+          className={styles.textarea}
+          style={{ minHeight: 44, fontSize: 12, padding: "4px 8px" }}
+          defaultValue={ticket.data?.task || ""}
+          onBlur={(e) => onUpdateData(ticket, { task: e.target.value }, !isExecutorView)}
+        />
+      </td>
+      <td style={{ minWidth: 160 }}>
+        <textarea
+          className={styles.textarea}
+          style={{ minHeight: 44, fontSize: 12, padding: "4px 8px" }}
+          defaultValue={ticket.data?.description || ""}
+          onBlur={(e) => onUpdateData(ticket, { description: e.target.value }, !isExecutorView)}
+        />
       </td>
       <td>
-        {isExecutorView ? (
-          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.data?.platform || ""} onChange={(e) => onPlatformChange(e.target.value)}>
-            <option value="">—</option>
-            {platforms.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
-          </select>
-        ) : (ticket.data?.platform || "—")}
+        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.data?.platform || ""} onChange={(e) => onPlatformChange(e.target.value)}>
+          <option value="">—</option>
+          {platforms.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+        </select>
       </td>
       <td>
-        {isExecutorView ? (
-          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.data?.designType || ""} onChange={(e) => onTypeChange(e.target.value)} disabled={!currentPlatform}>
-            <option value="">—</option>
-            {typesForPlatform.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
-          </select>
-        ) : (ticket.data?.designType || "—")}
+        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.data?.designType || ""} onChange={(e) => onTypeChange(e.target.value)} disabled={!currentPlatform}>
+          <option value="">—</option>
+          {typesForPlatform.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+        </select>
       </td>
       <td>
-        {isExecutorView ? (
-          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.data?.size || ""} onChange={(e) => onUpdateData(ticket, { size: e.target.value })} disabled={!currentType}>
-            <option value="">—</option>
-            {sizesForType.map((s) => <option key={s.id} value={s.label}>{s.label}</option>)}
-          </select>
-        ) : (ticket.data?.size || "—")}
+        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.data?.size || ""} onChange={(e) => onUpdateData(ticket, { size: e.target.value }, !isExecutorView)} disabled={!currentType}>
+          <option value="">—</option>
+          {sizesForType.map((s) => <option key={s.id} value={s.label}>{s.label}</option>)}
+        </select>
       </td>
       <td>
         {isExecutorView ? (
