@@ -187,7 +187,7 @@ async function main() {
   console.log(`${confirm ? "IMPORTING" : "DRY RUN —"} ${allRows.length} rows found across both sheets.\n`);
 
   let releasesTouched = 0, releasesSkippedNoMatch = 0, releasesSkippedNoData = 0, releasesSkippedAlreadyImported = 0, failed = 0;
-  let linesInserted = 0, entriesInserted = 0, entriesSkippedExisting = 0, entriesRoundFixed = 0;
+  let linesInserted = 0, entriesInserted = 0, entriesSkippedExisting = 0;
 
   for (const { row, source } of allRows) {
     const did = row[DID_COL] ? String(row[DID_COL]).trim() : null;
@@ -203,15 +203,11 @@ async function main() {
       if (qty == null || Number.isNaN(qty) || qty === 0) continue;
       qtyLines.push({ categoryId: categoryIdByName[categoryName], brand, platform: adsPlatform, quantity: qty });
     }
-    // Which round tab an imported link needs to be tagged with so it's
-    // actually visible on the Booking Board — see BOOKING_ROUND note below.
-    const bookingRound = source === "BOOKING - INT MEDIA SUPPORT" ? "INT" : "Đợt 1";
-
     const urlLines = [];
     for (const [idxStr, [, categoryName, channelName, channelType]] of Object.entries(RESULT_COLUMNS)) {
       const raw = row[Number(idxStr)];
       for (const { label, url } of parseLinkLines(raw)) {
-        urlLines.push({ categoryId: categoryIdByName[categoryName], channelName, channelType, platform: guessPlatform(url), url, label, round: bookingRound });
+        urlLines.push({ categoryId: categoryIdByName[categoryName], channelName, channelType, platform: guessPlatform(url), url, label });
       }
     }
     if (qtyLines.length === 0 && urlLines.length === 0) { releasesSkippedNoData++; continue; }
@@ -246,18 +242,6 @@ async function main() {
     const packageName = hasResolvedPackageName ? existing.project_type : IMPORT_PACKAGE_NAME;
     if (!hasResolvedPackageName && qtyLines.length > 0) {
       console.log(`  [${did}] project_type is still "${existing.project_type || "(none)"}" — quantities go into a "${IMPORT_PACKAGE_NAME}" package, which won't show as a Booking Board target until this release has a real package name.`);
-    }
-    // Same "will it actually show up" concern as above, but for the round
-    // filter instead of the package-name one: URLs from the INT MEDIA
-    // SUPPORT sheet are tagged booking_round="INT" so they line up with
-    // the Board's INT tab, but that tab's ROW filter only shows a release
-    // whose project_type is itself INT-MEDIA-flavored — if this release's
-    // project_type isn't, these URLs are correctly tagged and safely in
-    // the database, but the release won't appear as a row under the INT
-    // tab (or any tab) for them to be seen against until project_type
-    // catches up.
-    if (bookingRound === "INT" && urlLines.length > 0 && !/int\s*media/i.test(existing.project_type || "")) {
-      console.log(`  [${did}] from INT MEDIA SUPPORT but project_type is "${existing.project_type || "(none)"}" — these ${urlLines.length} URL(s) are tagged round=INT correctly, but won't be visible on the Booking Board until this release's project_type is also INT MEDIA-flavored.`);
     }
 
     console.log(`[${source}] ${did} -> ${existing.did}: ${qtyLines.length} quantity line(s), ${urlLines.length} URL(s).`);
@@ -355,20 +339,11 @@ async function main() {
 
     // Half 2 — result URLs into media_booking_entries, one row per URL,
     // deduped against anything already there for the same (release,
-    // category, channel, link). booking_round matters here beyond being
-    // metadata: the Booking Board's round tabs (INT/Đợt 1/Đợt 2) filter
-    // BOTH which releases show as rows (by project_type) AND which
-    // entries count as "added" for the ratio/URL list (by booking_round)
-    // — so a link tagged with the wrong round is invisible on the board
-    // even though it's sitting right there in the database. Each URL's
-    // round is set above from which sheet it came from (INT MEDIA SUPPORT
-    // -> "INT", the general sheet -> "Đợt 1"), not hardcoded, so it lines
-    // up with the round a release with that kind of package actually
-    // shows under.
+    // category, channel, link).
     for (const l of urlLines) {
       const { data: dupe, error: dupeErr } = await supabase
         .from("media_booking_entries")
-        .select("id, booking_round")
+        .select("id")
         .eq("release_id", existing.id)
         .eq("category_id", l.categoryId)
         .eq("channel_name", l.channelName)
@@ -379,28 +354,11 @@ async function main() {
         failed++;
         continue;
       }
-      if (dupe) {
-        // Self-healing: an earlier run of this script (before this fix)
-        // could have written the wrong booking_round — correct it in
-        // place instead of just skipping, so re-running with --confirm
-        // repairs already-imported data too, not just new rows.
-        if (dupe.booking_round !== l.round) {
-          const { error: fixErr } = await supabase.from("media_booking_entries").update({ booking_round: l.round }).eq("id", dupe.id);
-          if (fixErr) {
-            console.error(`  -> entry round-fix FAILED: ${fixErr.message}`);
-            failed++;
-          } else {
-            entriesRoundFixed++;
-          }
-        } else {
-          entriesSkippedExisting++;
-        }
-        continue;
-      }
+      if (dupe) { entriesSkippedExisting++; continue; }
 
       const { error: entryErr } = await supabase.from("media_booking_entries").insert({
         release_id: existing.id,
-        booking_round: l.round,
+        booking_round: "INT",
         platform: l.platform,
         channel_type: l.channelType,
         status: "Done",
@@ -422,7 +380,7 @@ async function main() {
     `\n${confirm ? "Done." : "Dry run complete — nothing written."} ` +
       `Releases touched: ${releasesTouched}, no match: ${releasesSkippedNoMatch}, empty rows: ${releasesSkippedNoData}, ` +
       `already imported (package): ${releasesSkippedAlreadyImported}, failed: ${failed}.\n` +
-      `Package lines inserted: ${linesInserted}. Entries inserted: ${entriesInserted}, already existed (correct round): ${entriesSkippedExisting}, round corrected: ${entriesRoundFixed}.`
+      `Package lines inserted: ${linesInserted}. Entries inserted: ${entriesInserted}, already existed: ${entriesSkippedExisting}.`
   );
   if (!confirm) console.log("Re-run with --confirm to actually write these updates.");
 }
