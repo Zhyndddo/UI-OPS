@@ -60,7 +60,9 @@ async function main() {
     if (!confirm) { fixed++; continue; }
 
     const patch = { requested: true };
-    META_FIELDS.forEach((f) => (patch[f] = true));
+    // meta_* columns are tri-state text ("false"/"true"/"update") now, not
+    // real booleans — ticking "all done" means writing the string "true".
+    META_FIELDS.forEach((f) => (patch[f] = "true"));
     if (!r.package_ticket_sent) {
       patch.package_ticket_sent = true;
       if (r.project_type === "BRIEF & DATA") patch.project_type = "DEALING";

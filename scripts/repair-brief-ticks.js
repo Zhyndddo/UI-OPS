@@ -48,6 +48,13 @@ function isDaCo(v) {
   return String(v || "").trim() === "Đã có";
 }
 
+// The 6 Metadata Checklist fields moved from boolean to tri-state text
+// ("false"/"true"/"update") columns — this repair pass only ever has a
+// definite Yes/No from the sheet, so it writes "true"/"false" strings for
+// those, while the remaining tick fields here (SONY PUBLISH, Is_publish,
+// Split Share, REQUESTED PL) keep writing real JS booleans.
+const META_TICK_FIELDS = new Set(["meta_audio", "meta_artwork", "meta_working_files", "meta_lyric", "meta_mv", "meta_doc"]);
+
 function checkHeaders(headerRow) {
   const problems = [];
   for (const [idx, [expect, , kind]] of Object.entries(COLUMNS)) {
@@ -112,7 +119,7 @@ async function main() {
       const idx = Number(idxStr);
       const raw = row[idx];
       if (kind === "did") did = raw ? String(raw).trim() : null;
-      else if (kind === "tick") patch[field] = isDaCo(raw);
+      else if (kind === "tick") patch[field] = META_TICK_FIELDS.has(field) ? (isDaCo(raw) ? "true" : "false") : isDaCo(raw);
       else if (kind === "single_album_ep") patch[field] = ["Single", "EP", "Album"].includes(raw) ? raw : "Single";
     }
     if (!did) { skippedNoDid++; continue; }

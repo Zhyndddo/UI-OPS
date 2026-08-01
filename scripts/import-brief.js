@@ -54,6 +54,13 @@ const XLSX = require("xlsx");
 const HEADER_ROW = 4; // 1-indexed row in the sheet holding column names
 const FIRST_DATA_ROW = 5;
 
+// The 6 Metadata Checklist fields moved from boolean to tri-state text
+// ("false"/"true"/"update") columns — imports can only ever produce a
+// definite Yes/No from the sheet (no "update"/TBU source data), so they
+// write "true"/"false" strings while every other "tick" field keeps
+// writing real JS booleans.
+const META_TICK_FIELDS = new Set(["meta_audio", "meta_artwork", "meta_working_files", "meta_lyric", "meta_mv", "meta_doc"]);
+
 // index (0-based) -> [expected header substring, releases field, kind]
 // kind: "text" | "date" | "time" | "tick" (Đã có -> boolean) | "did" | "skip"
 const COLUMNS = {
@@ -195,7 +202,11 @@ async function main() {
       if (kind === "text") payload[field] = raw != null && String(raw).trim() !== "" ? String(raw).trim() : null;
       else if (kind === "date") payload[field] = toDateStr(raw);
       else if (kind === "time") payload[field] = toTimeStr(raw);
-      else if (kind === "tick") payload[field] = isDaCo(raw);
+      // The 6 Metadata Checklist fields are tri-state text columns
+      // ("false"/"true"/"update") now, not real booleans — every other
+      // "tick" field (SONY PUBLISH, Is_publish, Split Share, REQUESTED PL,
+      // priority pitching) is still a genuine boolean.
+      else if (kind === "tick") payload[field] = META_TICK_FIELDS.has(field) ? (isDaCo(raw) ? "true" : "false") : isDaCo(raw);
       else if (kind === "single_album_ep") payload[field] = ["Single", "EP", "Album"].includes(raw) ? raw : "Single";
       else if (kind === "did") didBase = raw ? String(raw).trim() : null;
       else if (field === "__priority_pitching__") priorityPitching = isDaCo(raw);

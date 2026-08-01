@@ -680,6 +680,24 @@ export default function PickPackagePage() {
           </div>
         )}
 
+        {/* Promotion Package link — same field/link shown on the release
+            detail page's Streaming & Milestone tab, surfaced here too so
+            the artist/label doesn't need internal access to reach it. */}
+        {confirmed && release?.promotion_package_url && (
+          <div style={{ marginTop: 32, display: "flex", alignItems: "center", gap: 10 }}>
+            <span className={styles.subheading} style={{ marginTop: 0, marginBottom: 0 }}>Promotion Package</span>
+            <a
+              href={release.promotion_package_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open Promotion Package link"
+              style={{ fontSize: 18 }}
+            >
+              🔗
+            </a>
+          </div>
+        )}
+
         {/* Streaming & Milestone — read-only, same data the internal
             Streaming workstation and the release detail page's Milestone
             section track, just surfaced here too so the artist/label can

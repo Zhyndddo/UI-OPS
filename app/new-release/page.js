@@ -4,7 +4,7 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
-import { GateFields, BoolToggle } from "../../lib/GateFields";
+import { GateFields, BoolToggle, GateToggle } from "../../lib/GateFields";
 import QuickCreate from "../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../lib/ReferenceInputs";
 import { buildLinkshareNote, defaultLinkshareFacebookTiming, defaultLinkshareTiktokTiming, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS } from "../../lib/releaseNotes";
@@ -47,12 +47,12 @@ const EMPTY_FORM = {
   brief: "",
   linkshare_tiktok_timing: "",
   linkshare_facebook_timing: "",
-  meta_audio: false,
-  meta_artwork: false,
-  meta_working_files: false,
-  meta_lyric: false,
-  meta_mv: false,
-  meta_doc: false,
+  meta_audio: "false",
+  meta_artwork: "false",
+  meta_working_files: "false",
+  meta_lyric: "false",
+  meta_mv: "false",
+  meta_doc: "false",
   gate_pitching: "false",
   gate_publishing: "false",
   gate_goi_ho_tro_truyen_thong: "false",
@@ -611,7 +611,7 @@ export default function NewReleasePage() {
             {META_ITEMS.map((m) => (
               <div key={m.key} className={styles.field} style={{ marginBottom: 0 }}>
                 <label className={styles.fieldLabel}>{m.label}</label>
-                <BoolToggle value={!!form[m.key]} onChange={(v) => update(m.key, v)} />
+                <GateToggle value={form[m.key] || "false"} onChange={(v) => update(m.key, v)} />
               </div>
             ))}
           </div>

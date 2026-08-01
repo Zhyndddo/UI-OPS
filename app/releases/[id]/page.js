@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, formatDetailText } from "../../../lib/helpers";
-import { GateFields, BoolToggle } from "../../../lib/GateFields";
+import { GateFields, BoolToggle, GateToggle } from "../../../lib/GateFields";
 import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import UrlField from "../../../lib/UrlField";
@@ -24,6 +24,7 @@ const TABS = [
   { key: "pre_release", label: "Pre-release & Note" },
   { key: "streaming_milestone", label: "Streaming/Milestone" },
   { key: "tasklist", label: "Tasklist" },
+  { key: "preview", label: "Preview" },
 ];
 
 const PIPELINE_STAGES = ["BRIEF & DATA", "DEALING"];
@@ -349,15 +350,34 @@ export default function ReleaseDetailPage() {
   // having been set, not the live status).
   async function sendPackageTicket() {
     if (mediaBookingTicket) {
-      if (mediaBookingTicket.status !== "COMPLETE") return; // already in progress — nothing to (re)send yet
-      const hasFeedback = !!mediaBookingTicket.data?.feedback;
-      const newData = { ...(mediaBookingTicket.data || {}) };
+      // Re-fetch the ticket row fresh right before acting on it instead of
+      // trusting the component's `mediaBookingTicket` state — the artist's
+      // Feed Back submission on the magic link page writes data.feedback
+      // straight to the DB from a completely separate page/session, so if
+      // this page was already open (loaded before that write happened),
+      // the in-memory state here is stale and would silently reopen the
+      // ticket without the feedback tag, or bail out entirely if the
+      // stale status wasn't "COMPLETE" yet.
+      const { data: freshTicket, error: fetchErr } = await supabase
+        .from("tickets")
+        .select("id, status, status_log, data")
+        .eq("id", mediaBookingTicket.id)
+        .single();
+      if (fetchErr) { setError(fetchErr.message); return; }
+      if (freshTicket.status !== "COMPLETE") {
+        // Reflect whatever's actually in the DB now, so the button/label
+        // above stop showing a stale "ready to resend" state.
+        setMediaBookingTicket(freshTicket);
+        return; // already in progress — nothing to (re)send yet
+      }
+      const hasFeedback = !!freshTicket.data?.feedback;
+      const newData = { ...(freshTicket.data || {}) };
       if (hasFeedback) {
         newData.proposedPackage = "Artist request package changed";
         newData.feedback = null;
       }
-      const newLog = { ...(mediaBookingTicket.status_log || {}), REQUESTED: new Date().toISOString() };
-      const { error: updErr } = await supabase.from("tickets").update({ status: "REQUESTED", status_log: newLog, data: newData }).eq("id", mediaBookingTicket.id);
+      const newLog = { ...(freshTicket.status_log || {}), REQUESTED: new Date().toISOString() };
+      const { error: updErr } = await supabase.from("tickets").update({ status: "REQUESTED", status_log: newLog, data: newData }).eq("id", freshTicket.id);
       if (updErr) { setError(updErr.message); return; }
       setMediaBookingTicket((t) => ({ ...t, status: "REQUESTED", status_log: newLog, data: newData }));
       // Reopening is an UPDATE, not an INSERT, so trg_notify_on_ticket_insert
@@ -371,7 +391,7 @@ export default function ReleaseDetailPage() {
           ? `${form.title || "A release"}: artist requested a package change.`
           : `${form.title || "A release"} needs a package rebuild.`,
         p_link: "/tickets/media-booking",
-        p_ticket_id: mediaBookingTicket.id,
+        p_ticket_id: freshTicket.id,
       });
       return;
     }
@@ -519,7 +539,7 @@ export default function ReleaseDetailPage() {
   if (error && !release) return <div className={styles.page}><div className={styles.container}><div className={styles.errorBox}>{error}</div></div></div>;
   if (!form) return <div className={styles.page}><div className={styles.container}>Loading…</div></div>;
 
-  const metaDone = META_ITEMS.filter((m) => form[m.key]).length;
+  const metaDone = META_ITEMS.filter((m) => form[m.key] === "true").length;
   // Send Upload only actually requires 4 of the 6 checklist items (Audio,
   // Artwork, Lyric, Metadata) — Working Files and MV are still tracked in
   // the checklist above for visibility, they just don't gate the ticket.
@@ -529,8 +549,8 @@ export default function ReleaseDetailPage() {
   // page; it must not unlock Send Upload until Save actually persists it.
   // requiredMetaDoneLive tracks the live/unsaved count purely to show a
   // "you have unsaved checklist changes" hint near the button.
-  const requiredMetaDone = REQUIRED_META_KEYS.filter((k) => release?.[k]).length;
-  const requiredMetaDoneLive = REQUIRED_META_KEYS.filter((k) => form[k]).length;
+  const requiredMetaDone = REQUIRED_META_KEYS.filter((k) => release?.[k] === "true").length;
+  const requiredMetaDoneLive = REQUIRED_META_KEYS.filter((k) => form[k] === "true").length;
   const nameGroupFilled = form.title && form.main_artist && form.release_date;
   // Priority Pitching is the one exception to "must have the required
   // checklist items before Send Upload" — a priority release needs to
@@ -646,6 +666,7 @@ export default function ReleaseDetailPage() {
         {tab === "pre_release" && <PreReleaseTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "streaming_milestone" && <StreamingMilestoneTab form={form} />}
         {tab === "tasklist" && <TasklistTab form={form} bookingEntries={bookingEntries} />}
+        {tab === "preview" && <PreviewTab form={form} />}
       </div>
     </div>
     </AppShell>
@@ -953,12 +974,12 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         {META_ITEMS.map((m) => (
           <div key={m.key} className={styles.field} style={{ marginBottom: 0 }}>
             <label className={styles.fieldLabel}>{m.label}{REQUIRED_META_KEYS.includes(m.key) ? " *" : ""}</label>
-            <BoolToggle value={!!form[m.key]} onChange={(v) => update(m.key, v)} />
+            <GateToggle value={form[m.key] || "false"} onChange={(v) => update(m.key, v)} />
           </div>
         ))}
       </div>
       <p style={{ fontSize: 11, color: "#888", marginTop: -12, marginBottom: 20 }}>
-        * Required for Send Upload (Audio, Artwork, Lyric, Metadata). Working Files and MV are tracked here but don't block the ticket.
+        * Required for Send Upload (Audio, Artwork, Lyric, Metadata). Working Files and MV are tracked here but don't block the ticket. TBU counts the same as No for gating — it's not done yet.
       </p>
 
       <div className={styles.subheading}>Other Checklist</div>
@@ -1703,14 +1724,18 @@ function StreamingMilestoneTab({ form }) {
 }
 
 function TasklistTab({ form, bookingEntries }) {
+  // Metadata Checklist fields are tri-state strings ("false"/"true"/"update"),
+  // not real booleans — flagged with "gate: true" so the row below renders a
+  // TBU state instead of just falling through the plain truthy check (which
+  // would otherwise show "✓ Filled" for the string "false").
   const items = [
     ["Link Drive", form.drive_link],
-    ["Metadata: Audio", form.meta_audio],
-    ["Metadata: Artwork", form.meta_artwork],
-    ["Metadata: Working Files", form.meta_working_files],
-    ["Metadata: Lyric", form.meta_lyric],
-    ["Metadata: MV", form.meta_mv],
-    ["Metadata: Doc", form.meta_doc],
+    ["Metadata: Audio", form.meta_audio, true],
+    ["Metadata: Artwork", form.meta_artwork, true],
+    ["Metadata: Working Files", form.meta_working_files, true],
+    ["Metadata: Lyric", form.meta_lyric, true],
+    ["Metadata: MV", form.meta_mv, true],
+    ["Metadata: Doc", form.meta_doc, true],
     ["Smartlink", form.smartlink],
     ["UPC", form.upc],
     ["Link LBM", form.link_lbm],
@@ -1729,14 +1754,129 @@ function TasklistTab({ form, bookingEntries }) {
         <tr><th>Field</th><th>Status</th></tr>
       </thead>
       <tbody>
-        {items.map(([label, val]) => (
+        {items.map(([label, val, isGate]) => (
           <tr key={label}>
             <td>{label}</td>
-            <td>{val ? <span style={{ color: "#7ee6a8" }}>✓ Filled</span> : <span style={{ color: "#555" }}>— Empty</span>}</td>
+            <td>
+              {isGate ? (
+                val === "true" ? (
+                  <span style={{ color: "#7ee6a8" }}>✓ Filled</span>
+                ) : val === "update" ? (
+                  <span style={{ color: "#ffca4d" }}>◐ TBU</span>
+                ) : (
+                  <span style={{ color: "#555" }}>— Empty</span>
+                )
+              ) : val ? (
+                <span style={{ color: "#7ee6a8" }}>✓ Filled</span>
+              ) : (
+                <span style={{ color: "#555" }}>— Empty</span>
+              )}
+            </td>
           </tr>
         ))}
       </tbody>
     </table>
+  );
+}
+
+// Read-only rollup of exactly what OPS actually looks at for this release
+// across its three OPS workstations (Upload, Confirm, Pre-release) — so
+// AR/Marketing/anyone else can see OPS's live status without leaving this
+// page. Every value here is edited at its canonical location (the
+// workstation itself, or the other tabs on this same page that already
+// write these columns) — this tab never writes anything, it's a snapshot.
+const PREVIEW_UPLOAD_FIELDS = [
+  ["UPC", "upc"],
+  ["Link Drive", "drive_link"],
+  ["Link LBM", "link_lbm"],
+  ["Link Share", "link_share"],
+  ["Smartlink", "smartlink"],
+  ["Link Pre-order", "link_preorder"],
+  ["Link UGC", "link_ugc"],
+  ["Link Media Report", "link_media_report"],
+  ["Upload Status", "upload_status"],
+  ["Tiktok Release Timing", "linkshare_tiktok_timing"],
+  ["Facebook Release Timing", "linkshare_facebook_timing"],
+];
+
+const PREVIEW_CONFIRM_FIELDS = [
+  ["Spotify Correct", "confirm_spotify_correct", true],
+  ["Apple Correct", "confirm_apple_correct", true],
+  ["Zing Correct", "confirm_zing_correct", true],
+  ["NCT Correct", "confirm_nct_correct", true],
+  ["Facebook Correct", "confirm_fb_correct", true],
+  ["YouTube Correct", "confirm_ytb_correct", true],
+  ["Insta Sound", "confirm_insta_sound", true],
+  ["Tiktok Sound Updated", "confirm_tiktok_sound_updated", true],
+  ["Smartlink Updated", "confirm_smartlink_updated", true],
+  ["Confirm Tag", "confirm_tag", false],
+];
+
+const PREVIEW_PRE_RELEASE_FIELDS = [
+  ["CANVAS MV Status", "canva_mv_status"],
+  ["CANVAS Status", "canva_status"],
+  ["Artist Pick Status", "artist_pick_status"],
+  ["Musixmatch Link", "musixmatch_link"],
+  ["Musixmatch Status", "musixmatch_status"],
+  ["NCT Lyric", "nct_lyric"],
+];
+
+function PreviewRow({ label, value, isBool }) {
+  return (
+    <tr>
+      <td>{label}</td>
+      <td>
+        {isBool ? (
+          value ? <span style={{ color: "#7ee6a8" }}>✓ Yes</span> : <span style={{ color: "#555" }}>— No</span>
+        ) : value ? (
+          <span style={{ color: "#ccc" }}>{value}</span>
+        ) : (
+          <span style={{ color: "#555" }}>—</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function PreviewTab({ form }) {
+  return (
+    <div>
+      <p style={{ color: "#888", fontSize: 12, marginTop: -4, marginBottom: 20 }}>
+        Read-only — exactly what OPS's Upload, Confirm, and Pre-release workstations show for this release right now.
+        Edit these on the workstation itself (or the tabs above where they're also writable), not here.
+      </p>
+
+      <div className={styles.subheading} style={{ marginTop: 0 }}>Upload Workstation</div>
+      <table className={styles.table} style={{ marginBottom: 24 }}>
+        <thead><tr><th>Field</th><th>Value</th></tr></thead>
+        <tbody>
+          {PREVIEW_UPLOAD_FIELDS.map(([label, key]) => (
+            <PreviewRow key={key} label={label} value={form[key]} />
+          ))}
+          <PreviewRow label="Needs Update (priority-pitching)" value={!!form.needs_update} isBool />
+        </tbody>
+      </table>
+
+      <div className={styles.subheading}>Confirm Workstation</div>
+      <table className={styles.table} style={{ marginBottom: 24 }}>
+        <thead><tr><th>Field</th><th>Value</th></tr></thead>
+        <tbody>
+          {PREVIEW_CONFIRM_FIELDS.map(([label, key, isBool]) => (
+            <PreviewRow key={key} label={label} value={form[key]} isBool={isBool} />
+          ))}
+        </tbody>
+      </table>
+
+      <div className={styles.subheading}>Pre-release Workstation</div>
+      <table className={styles.table}>
+        <thead><tr><th>Field</th><th>Value</th></tr></thead>
+        <tbody>
+          {PREVIEW_PRE_RELEASE_FIELDS.map(([label, key]) => (
+            <PreviewRow key={key} label={label} value={form[key]} />
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

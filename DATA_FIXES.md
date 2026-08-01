@@ -709,3 +709,133 @@ package type is updated to match (a data-correctness question about that
 specific release, not something the import script can resolve on its
 own). The script now logs this case by name in the confirm run's output
 if it comes up, so it won't be a silent gap.
+
+## Follow-up round — 7-item request: TBU checklist, label prefix, Preview tab, notification redesign, artist feedback hardening, promotion package link
+
+### 1. Artist Photo — allow multiple links
+
+**Checked, no change needed.** `artist_photo_url` is wired through the
+shared `UrlField` component everywhere it appears — the Additional Flags
+grid (both the New Release create form and the release detail page,
+`gate_artist_photo` → `artist_photo_url` via `URL_GATE_FIELDS`) and the
+release detail page's URL tab. `UrlField` already auto-expands into a
+multi-line list with individually-openable link chips the moment 2+ URLs
+are entered — that's true for every field on `UrlField`, not something
+that needed field-specific work. Checked `lib/ticketConfigs.js`'s
+`artist_profile` ticket type too, in case a separate legacy photo field
+existed there — it only has social links (Spotify/Apple/Facebook URLs),
+no photo field of its own.
+
+### 2. Metadata Checklist — TBU (to-be-updated) tri-state
+
+The 6 Metadata Checklist fields (`meta_audio`, `meta_artwork`,
+`meta_working_files`, `meta_lyric`, `meta_mv`, `meta_doc`) now use the
+same tri-state pattern as the Additional Flags gate_* fields — a text
+column holding `'false'` / `'true'` / `'update'` (TBU), rendered with the
+same 3-button `GateToggle` instead of the old plain Yes/No `BoolToggle`.
+
+**SQL:** `add-meta-checklist-tbu.sql` — converts the 6 columns from
+`boolean` to `text`, preserving every existing true/false value
+(`boolean::text` gives exactly `'true'`/`'false'`), default `'false'`.
+Safe to re-run. **Run this before deploying the updated app code** — the
+app now writes/reads these columns as strings.
+
+**App code updated** (every place that read these 6 fields as booleans —
+`"false"` is JS-truthy, so a plain truthy check would have silently
+treated every unfilled TBU field as done):
+- `app/releases/[id]/page.js` — `GateToggle` on the checklist, `metaDone`/
+  `requiredMetaDone`/`requiredMetaDoneLive` now compare `=== "true"`
+  (TBU counts the same as No for gating Send Upload — it's not done
+  yet), Tasklist tab shows a distinct "◐ TBU" state instead of folding it
+  into ✓/—.
+- `app/new-release/page.js` — same `GateToggle` swap, default form state
+  now `"false"` strings instead of JS `false`.
+- `app/summary/page.js` — `isReleaseDone()`'s meta checks now compare
+  `=== "true"` instead of falling into the generic `Boolean()` check.
+- `lib/helpers.js` — `metadataPercent()` now compares `=== "true"`.
+- `scripts/import-brief.js`, `scripts/repair-brief-ticks.js` — the "tick"
+  column handling now writes `"true"`/`"false"` strings for these 6
+  fields specifically (no TBU source data in the sheet, so imports can
+  only ever produce a definite Yes/No); every other "tick" field (SONY
+  PUBLISH, Is_publish, Split Share, REQUESTED PL) is unaffected, still
+  real booleans.
+- `scripts/backfill-ar-to-ops.js` — ticks all 6 as the string `"true"`
+  instead of JS `true`.
+
+### 3. Label field — same "HĐ - " prefix badge UI as the Label List admin page
+
+`LabelInput` (`lib/ReferenceInputs.js`, shared by the New Release create
+form and the release detail page's Label field) now renders the same
+fixed, non-editable `HĐ - ` badge + suffix-only input that the standalone
+Label List admin page (`app/labels/page.js`) already had — instead of the
+prefix living as live, editable text inside the input. `value`/`onChange`
+still carry the full label name (prefix included) to both call sites, so
+nothing downstream changed. No SQL — display-only.
+
+### 4. Preview tab — read-only OPS workstation snapshot
+
+New "Preview" tab on the release detail page — read-only rollup of
+exactly what OPS's three workstations (Upload, Confirm, Pre-release) show
+for this release right now, so anyone can check OPS's status without
+leaving this page or bugging OPS for an update. Every value shown is
+still edited at its real location (the workstation itself, or this same
+page's other tabs where several of these columns are also writable) —
+this tab never writes anything. No SQL — reads columns that already
+exist.
+
+### 5. Notification panel — bigger, categorized by workstation + team
+
+`lib/NotificationBell.js` redesigned from a single 320px flat list into a
+640px two-column panel: a left sidebar lists every workstation/team
+combination present in your notifications (read off the linked ticket's
+tab — `executor_team` + tab label, e.g. "Marketing · Media Booking"),
+each with a count and unread badge, click to filter the right-hand list
+down to just that category ("All" shows everything, the default).
+Notifications with no linked ticket fall into "General". No SQL — one
+extra nested `tickets(tab_id, ticket_tabs(...))` join on the existing
+read query, category grouping happens client-side.
+
+### 6. Artist Feedback → "Send Package Ticket Again" — hardened against stale state
+
+**Reported:** the button that's supposed to take a COMPLETE Media Booking
+ticket back to REQUESTED and tag it with the hidden "Artist request
+package changed" `proposedPackage` (after the artist leaves feedback on
+the magic link) wasn't behaving correctly.
+
+Static review of the logic itself (`sendPackageTicket()` in
+`app/releases/[id]/page.js`) didn't turn up a defect in the actual
+status-flip/tagging code — it correctly flips the ticket to REQUESTED,
+tags `proposedPackage`, clears `feedback`, and fires the Marketing
+fanout notification. What it found instead: the function was acting on
+`mediaBookingTicket` **component state**, loaded once when the release
+page first mounted. The artist's Feed Back submission on the magic link
+page writes `data.feedback` straight to the ticket row from a completely
+separate page/session — if the release detail page was already open
+before that write happened (a very plausible ordering: AR has the page
+open, artist submits feedback elsewhere, AR clicks the button without
+refreshing), the in-memory `mediaBookingTicket` here is stale. Two ways
+that goes wrong: if the stale copy's status wasn't "COMPLETE" yet, the
+click silently no-ops; if it was COMPLETE but missing the freshly-written
+feedback, it reopens the ticket without the `proposedPackage` tag.
+
+**Fix:** `sendPackageTicket()` now re-fetches the ticket row fresh from
+the database immediately before acting on it, instead of trusting
+whatever was loaded at page-mount time — every check and write in the
+reopen path (status, `data.feedback`, the update itself) now uses that
+fresh row. If the click turns out to still misbehave after this, the
+next thing to check is the exact repro (does the button appear
+disabled/wrong-labeled, or does it look clickable but nothing happens
+after clicking, or does it error?) — that'll point at a different layer
+(RLS, the trigger, or the magic link's own write) than the staleness
+class this fix covers.
+
+### 7. Promotion Package link on the magic link page
+
+`app/pick-package/[token]/page.js` now shows the same 🔗 "Promotion
+Package" link (when `promotion_package_url` is set) that already existed
+on the release detail page's Streaming/Milestone tab — placed just above
+the Streaming & Milestone section, same `confirmed`-gated visibility. No
+SQL — the column already existed, this just surfaces it on one more page.
+
+**SQL to run for this round:** `add-meta-checklist-tbu.sql` only (item 2)
+— everything else is app-code-only.

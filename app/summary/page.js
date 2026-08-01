@@ -17,13 +17,17 @@ function isReleaseDone(r) {
   if (r.project_type === "Chỉ Phát Hành") {
     return !!(r.smartlink && r.upc && r.link_lbm);
   }
+  // meta_* fields are tri-state strings ("false"/"true"/"update") — only
+  // "true" counts as done, so these need their own comparison instead of
+  // falling into the plain Boolean() check below (which the string "false"
+  // would incorrectly pass).
+  const metaChecks = [r.meta_audio, r.meta_artwork, r.meta_working_files, r.meta_lyric, r.meta_mv, r.meta_doc];
   const checks = [
-    r.meta_audio, r.meta_artwork, r.meta_working_files, r.meta_lyric, r.meta_mv, r.meta_doc,
     r.smartlink, r.upc, r.link_lbm, r.link_share,
     r.pitching_status_spotify || r.pitching_status_nct || r.pitching_status_zing,
     r.canva_status, r.artist_pick_status, r.musixmatch_link,
   ];
-  return checks.every(Boolean);
+  return metaChecks.every((v) => v === "true") && checks.every(Boolean);
 }
 
 export default function SummaryPage() {
