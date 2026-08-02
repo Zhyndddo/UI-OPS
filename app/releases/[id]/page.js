@@ -214,11 +214,24 @@ export default function ReleaseDetailPage() {
   // untouched default. Never overwrites an explicit "No"/"TBU" someone
   // already set — only fires from the true default, once.
   useEffect(() => {
-    if (!form.id) return;
+    // `form` starts out as `null` (useState(null) above) and only becomes
+    // an object once the Supabase fetch in the load effect resolves. This
+    // effect runs on EVERY render including the very first one, and a bare
+    // `form.id` / `form.project_type` in the dependency array is evaluated
+    // during render itself — reading `.id` off `null` throws
+    // "TypeError: Cannot read properties of null (reading 'id')" and
+    // crashes the whole page before the "if (!form) return Loading…" guard
+    // further down ever gets a chance to help (that guard runs after hooks,
+    // but hooks — including this dependency array — always run first, on
+    // every mount, per React's rules). This was crashing literally every
+    // release detail page on first load. Optional-chaining both the guard
+    // and the dependency array fixes it: on that first null render the
+    // effect just does nothing and re-fires once `form` is actually set.
+    if (!form) return;
     if (!PIPELINE_STAGES.includes(form.project_type) && form.gate_phu_luc_truyen_thong === "false") {
       update("gate_phu_luc_truyen_thong", "true");
     }
-  }, [form.id, form.project_type]);
+  }, [form?.id, form?.project_type]);
 
   useEffect(() => {
     if (tab === "media_booking" && searchParams?.get("focus") === "media_booking" && mediaBookingSectionRef.current && !autoScrolled) {

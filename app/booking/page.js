@@ -406,7 +406,7 @@ export default function BookingBoard() {
                 onClick={() => setRound(r)}
                 style={{
                   padding: "9px 16px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer",
-                  background: round === r ? "#ff6b1a" : "transparent", color: round === r ? "#0a0a0a" : "#ccc",
+                  background: round === r ? "#ff6b1a" : "transparent", color: round === r ? "#0a0a0a" : "var(--text-muted)",
                 }}
               >
                 {r}
@@ -416,7 +416,7 @@ export default function BookingBoard() {
           <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden", flexWrap: "wrap" }}>
             <button
               onClick={() => setHangMucFilter("All")}
-              style={{ padding: "9px 14px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: hangMucFilter === "All" ? "#ff6b1a" : "transparent", color: hangMucFilter === "All" ? "#0a0a0a" : "#ccc" }}
+              style={{ padding: "9px 14px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: hangMucFilter === "All" ? "#ff6b1a" : "transparent", color: hangMucFilter === "All" ? "#0a0a0a" : "var(--text-muted)" }}
             >
               All
             </button>
@@ -424,7 +424,7 @@ export default function BookingBoard() {
               <button
                 key={c.id}
                 onClick={() => setHangMucFilter(c.name)}
-                style={{ padding: "9px 14px", fontSize: 12, fontWeight: 700, border: "none", borderLeft: "1px solid #333", cursor: "pointer", background: hangMucFilter === c.name ? "#ff6b1a" : "transparent", color: hangMucFilter === c.name ? "#0a0a0a" : "#ccc" }}
+                style={{ padding: "9px 14px", fontSize: 12, fontWeight: 700, border: "none", borderLeft: "1px solid #333", cursor: "pointer", background: hangMucFilter === c.name ? "#ff6b1a" : "transparent", color: hangMucFilter === c.name ? "#0a0a0a" : "var(--text-muted)" }}
               >
                 {c.name}
               </button>
@@ -436,7 +436,7 @@ export default function BookingBoard() {
                 <button
                   key={v}
                   onClick={() => setSubFilter(v)}
-                  style={{ padding: "9px 16px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: subFilter === v ? "#ff6b1a" : "transparent", color: subFilter === v ? "#0a0a0a" : "#ccc" }}
+                  style={{ padding: "9px 16px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: subFilter === v ? "#ff6b1a" : "transparent", color: subFilter === v ? "#0a0a0a" : "var(--text-muted)" }}
                 >
                   {subfilterLabel(hangMucFilter, v)}
                 </button>
@@ -487,12 +487,25 @@ export default function BookingBoard() {
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
-          <table className={styles.table} style={{ minWidth: 900 }}>
+          {/* Booking Board only: border-collapse switched to "separate" (with
+              borderSpacing 0, so cell borders still look continuous) so the
+              sticky header can carry a real box-shadow for a soft cutoff
+              instead of the hard peek-through the shared .table class still
+              has elsewhere. box-shadow directly on a <th> inside a
+              border-collapse:collapse table is a known trap (see the long
+              comment in shared.module.css) — that's exactly what caused the
+              earlier "blank first row" regression. Switching this table off
+              collapse first is the fix path that comment says to take
+              before ever re-adding the shadow; kept scoped to this page's
+              inline styles only, shared.module.css's .table is untouched so
+              every other workstation keeps its current (imperfect but safe)
+              behavior. */}
+          <table className={styles.table} style={{ minWidth: 900, borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
               <tr>
-                <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288 }}>Release</th>
-                <th style={{ borderRight: "2px solid var(--accent)", width: 154, minWidth: 154, maxWidth: 154 }}>Package</th>
-                <th style={{ borderRight: "2px solid var(--accent)" }}>Result</th>
+                <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288, boxShadow: "0 4px 6px -4px rgba(0, 0, 0, 0.35)" }}>Release</th>
+                <th style={{ borderRight: "2px solid var(--accent)", width: 154, minWidth: 154, maxWidth: 154, boxShadow: "0 4px 6px -4px rgba(0, 0, 0, 0.35)" }}>Package</th>
+                <th style={{ borderRight: "2px solid var(--accent)", boxShadow: "0 4px 6px -4px rgba(0, 0, 0, 0.35)" }}>Result</th>
                 {columns.map((c, i) => {
                   const prev = columns[i - 1];
                   const isGroupStart = prev && prev.categoryName !== c.categoryName;
@@ -502,6 +515,7 @@ export default function BookingBoard() {
                       style={{
                         textAlign: "center",
                         borderLeft: isGroupStart ? "2px solid #555" : "1px solid var(--border)",
+                        boxShadow: "0 4px 6px -4px rgba(0, 0, 0, 0.35)",
                       }}
                     >
                       {c.label}

@@ -1309,3 +1309,72 @@ the session itself authenticates against auth.users' email, not
 profiles.email.
 
 No SQL this round.
+
+## 2026-08-02 — Critical release-detail crash, further theme darkening, booking sticky-header shadow
+
+### Fixed: EVERY release detail page was crashing ("Application error")
+
+Root cause, found in `app/releases/[id]/page.js`:
+
+```js
+const [form, setForm] = useState(null); // starts null, only set once the fetch resolves
+...
+useEffect(() => {
+  if (!form.id) return;
+  ...
+}, [form.id, form.project_type]);
+```
+
+`form` starts out `null`. This effect runs on every render, including the
+very first one, before the Supabase fetch has come back — and a bare
+`form.id` in the dependency array is evaluated **during render itself**,
+not inside the guarded callback body. Reading `.id` off `null` throws
+`TypeError: Cannot read properties of null (reading 'id')` — matching the
+console error reported earlier — and crashed the page before the
+`if (!form) return <div>Loading…</div>` guard further down ever got a
+chance to help (hooks — including dependency arrays — always run first,
+on every mount, regardless of where a conditional return sits later in
+the component).
+
+This wasn't a stale-JS-chunk fluke (the earlier, unverified theory) — it's
+a real bug that fires on literally every mount, which lines up exactly
+with the report that ALL release detail pages had started crashing.
+
+Fix: guard with `if (!form) return;` and use `form?.id` / `form?.project_type`
+in the dependency array, so the first (null) render is a no-op and the
+effect re-fires once `form` is actually set.
+
+### Fixed: inactive filter buttons still too light on the light theme
+
+`app/booking/page.js`'s round/Hạng-Mục/sub-filter buttons (round, All,
+category, and brand buttons — e.g. "PAGE VPOP", "PAGE INDIE") had their
+inactive-state text hardcoded to `#ccc`, left over from the dark theme.
+That's a light grey that's fine against a near-black background but
+nearly invisible against the light theme's eggshell background — the
+CSS-variable darkening pass from the previous round never reached it,
+since it was a hardcoded hex, not a variable reference. Swapped to
+`var(--text-muted)`, which resolves to a near-black `#211f16` in the
+light theme (and stays the original `#999` in dark) — same known-limitation
+class noted in `theme-template.json` (~25 files use hardcoded colors).
+
+### Fixed (Booking Board only): sticky-header box-shadow, done correctly this time
+
+Re-added a soft box-shadow under the sticky table header on the Booking
+Board — but this time following the fix path the earlier revert's comment
+called for: `app/booking/page.js`'s table now sets
+`borderCollapse: "separate", borderSpacing: 0` inline, overriding the
+shared `.table` class's `border-collapse: collapse` for this table only.
+box-shadow on a sticky `<th>` inside a `border-collapse: collapse` table
+is what caused the earlier "blank first row" regression; switching to
+`separate` first avoids that rendering trap. This change is scoped
+entirely to Booking Board's own inline styles — `shared.module.css`'s
+`.table` class (used by every other workstation table, including
+Pitching) is untouched.
+
+You confirmed the underlying "rows can get visually cut off by the sticky
+header" issue happens elsewhere too (e.g. Pitching workstation showing a
+header with a blank body despite "Showing 1–1 of 1"), but asked to scope
+the fix to Booking Board only for now — Pitching workstation and other
+tables were deliberately left alone this round.
+
+No SQL this round.
