@@ -1107,3 +1107,54 @@ risk levels:
 
 Delivered as `starter_v2_round_z.zip`. No new SQL this round — both
 completed items reuse existing columns/tables.
+
+## Follow-up round — v1 (Firebase) → v2 migration: Phái Sinh + Manual Claim
+
+The only two v1 collections that actually had data. Both map onto the
+generic `tickets` table here (same shape every other ticket type uses),
+so no schema change was needed — field names in v1's Firestore documents
+already match what schema.sql's `entity_fields` define for `phai_sinh`/
+`manual_claim` almost exactly.
+
+**Source:** exported from the Firebase console via a browser-console
+script against `window._db` (the v1 app already exposes its Firestore
+connection there) — service-account key creation was blocked by an org
+policy on the Firebase project, so this was the workaround. Two plain
+JSON arrays: `data/phai-sinh-export.json` (109 documents, Firestore
+collection `segmentOrders` filtered to `type="phai_sinh"`) and
+`data/manual-claim-export.json` (39 documents, collection `manualClaim`).
+
+**New script: `scripts/import-legacy-orders.js`.** For each row: looks up
+the matching `ticket_tabs` row (`phai_sinh` or `manual_claim`, read from
+each row's own `type` field, not the filename), builds `tickets.data`
+from the known field list per type, converts Firestore's
+`{seconds, nanoseconds}` timestamps in `statusLog`/`createdAt`/`updatedAt`
+to real ISO strings, and inserts with `legacy_id = <Firestore doc id>` so
+re-running never double-imports. Dropped on purpose: `artistDisplay`,
+`contributorDisplay`, `releaseDisplay` (phai_sinh only) — computed
+display strings from the old renderer, not real stored data.
+
+**Flagged, not guessed at:** `requesterSegment` values in the export are
+`AR`, `OPS`, and `GUEST_REQUESTER`. AR/OPS pass through as-is (v2's
+`requester_segment` is free text, not an enum). `GUEST_REQUESTER` doesn't
+have an obvious v2 equivalent — v1's guest-vs-real-account split isn't a
+thing in v2's auth model — so it's imported verbatim rather than mapped
+to a guess. If you want it changed to something specific, that's a single
+`update tickets set requester_segment = '...' where requester_segment =
+'GUEST_REQUESTER'` after the fact, not a script rewrite.
+
+**Not linked to any release** — neither collection's source data ties a
+row to a release DID, and the v2 forms already treat "Related DID" as
+optional, so these import as standalone tickets.
+
+Same dry-run-by-default / `--confirm` pattern as every other import here,
+runnable from the "Data Fix Scripts" Actions workflow (`import-legacy-orders`
+in the dropdown, `file_path`/`file_path_2` set to the two files above — a
+second `file_path_2` input was added to the workflow just for this, since
+it's the only import script here that needs two source files). Run
+`scripts/backup.js` first, same as always.
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-legacy-orders.js data/phai-sinh-export.json data/manual-claim-export.json
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-legacy-orders.js data/phai-sinh-export.json data/manual-claim-export.json --confirm
+```

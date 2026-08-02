@@ -21,6 +21,12 @@ name: Data Fix Scripts
 #
 # Run import-brief BEFORE import-ops-tracking — the OPS import matches
 # rows to releases by legacy_id, which import-brief is what sets.
+#
+# import-legacy-orders (v1 Firebase -> v2 migration for Phái Sinh / Manual
+# Claim, the only two v1 collections that had data) takes two JSON files —
+# commit them to the repo too (e.g. data/phai-sinh-export.json,
+# data/manual-claim-export.json) and set file_path / file_path_2. Either
+# can be left blank if you're only importing one of the two.
 
 on:
   workflow_dispatch:
@@ -40,15 +46,20 @@ on:
           - repair-project-type-prefix
           - cleanup-duplicate-media-booking
           - import-booking
+          - import-legacy-orders
       confirm:
         description: "Actually write changes (unchecked = dry run only)"
         required: false
         type: boolean
         default: false
       file_path:
-        description: "import-brief / import-ops-tracking / import-booking only — path (in this repo) to the .xlsx"
+        description: "import-brief / import-ops-tracking / import-booking / import-legacy-orders — path (in this repo) to the .xlsx or .json"
         required: false
         default: "data/brief-import.xlsx"
+      file_path_2:
+        description: "import-legacy-orders only — path to the second .json file (leave blank to import just one)"
+        required: false
+        default: ""
 
 jobs:
   run-script:
@@ -73,7 +84,13 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          if [ "${{ inputs.script }}" = "import-brief" ] || [ "${{ inputs.script }}" = "import-ops-tracking" ] || [ "${{ inputs.script }}" = "repair-brief-ticks" ] || [ "${{ inputs.script }}" = "import-booking" ]; then
+          if [ "${{ inputs.script }}" = "import-legacy-orders" ]; then
+            if [ "${{ inputs.confirm }}" = "true" ]; then
+              node scripts/${{ inputs.script }}.js "${{ inputs.file_path }}" "${{ inputs.file_path_2 }}" --confirm
+            else
+              node scripts/${{ inputs.script }}.js "${{ inputs.file_path }}" "${{ inputs.file_path_2 }}"
+            fi
+          elif [ "${{ inputs.script }}" = "import-brief" ] || [ "${{ inputs.script }}" = "import-ops-tracking" ] || [ "${{ inputs.script }}" = "repair-brief-ticks" ] || [ "${{ inputs.script }}" = "import-booking" ]; then
             if [ "${{ inputs.confirm }}" = "true" ]; then
               node scripts/${{ inputs.script }}.js "${{ inputs.file_path }}" --confirm
             else
