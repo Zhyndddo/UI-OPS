@@ -1567,3 +1567,29 @@ under Marketing Request instead), plus `gate_design`,
 `gate_co_trong_net_youtube`, `gate_pre_order` (same as before — flagged as
 an assumption previously, still unflagged where they should really live).
 Say where any of these four should actually go.
+
+## 2026-08-02 (5) — Media Booking tab: round auto-detected, picker removed
+
+`app/releases/[id]/page.js`'s Media Booking tab (the "SOCIAL / COMMUNITY /
+ADS / TIKTOK CHANNEL" summary + "Booking Links — ___" panel) had a manual
+INT/Đợt 1/Đợt 2 button picker defaulting to INT. Replaced with automatic
+detection (`resolveBookingRound`) — no more picker, just a label showing
+whichever round actually applies:
+
+- project_type is an INT MEDIA package, OR the release is Chỉ Phát Hành
+  and already had an INT MEDIA follow-up sent (`int_media_requested`) →
+  **INT**
+- any other real resolved package (not still BRIEF & DATA/DEALING, and
+  not bare Chỉ Phát Hành with no follow-up yet) → **Đợt 1**
+- still BRIEF & DATA/DEALING, or Chỉ Phát Hành with no follow-up sent yet
+  → nothing shown, just a note that it'll appear once a package is picked
+- **Đợt 2 is never auto-selected** — not wired here yet, per your note
+  it should stay hidden for now
+
+This tab was already read-only (editing/adding links happens on the
+Booking Board) so removing the picker doesn't lose any capability — it
+was only ever choosing which round's data to *display*.
+
+The Booking Board's own INT/Đợt 1/Đợt 2 picker (used for actually adding
+links) and the Magic Link page's round picker are both untouched — you
+only asked about this one square.

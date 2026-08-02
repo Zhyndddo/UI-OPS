@@ -43,8 +43,6 @@ const META_ITEMS = [
 // the two can never drift out of sync on labels.
 const REQUIRED_META_KEYS = ["meta_audio", "meta_artwork", "meta_lyric", "meta_doc"];
 
-const BOOKING_ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
-
 export default function ReleaseDetailPage() {
   const { id } = useParams();
   const [release, setRelease] = useState(null);
@@ -1396,9 +1394,28 @@ function phuLucStatusClient(form) {
 // Direct/Partner "Channel Type" switch here is gone for the same reason —
 // that split only ever applied to TikTok Channel (see Booking Board), not
 // every category the way this page treated it.
+// Which booking round applies to this release, decided automatically —
+// no more manual INT/Đợt 1/Đợt 2 picker here (that's still on the Booking
+// Board itself, unaffected — this tab is read-only, see the hint text
+// below). Đợt 2 is never auto-picked yet ("hidden always for now" per the
+// request that added this — nothing wired for it here yet). Rules:
+//   - INT MEDIA package (project_type matches /int media/i), OR the
+//     Chỉ Phát Hành + "Send INT MEDIA Follow-up" combo (int_media_requested)
+//     -> "INT"
+//   - any OTHER real resolved package (not BRIEF & DATA/DEALING, and not
+//     bare Chỉ Phát Hành with no INT MEDIA follow-up yet) -> "Đợt 1"
+//   - still BRIEF & DATA/DEALING, or Chỉ Phát Hành with no INT MEDIA
+//     follow-up sent yet -> null, nothing to show
+function resolveBookingRound(form) {
+  const isIntType = !!form.project_type && /int\s*media/i.test(form.project_type);
+  if (isIntType || form.int_media_requested) return "INT";
+  if (!PIPELINE_STAGES.includes(form.project_type) && form.project_type && form.project_type !== "Chỉ Phát Hành") return "Đợt 1";
+  return null;
+}
+
 function MediaBookingTab({ form, entries, categories, packageItems, mediaBookingTicket, sectionRef }) {
-  const [round, setRound] = useState("INT");
-  const roundEntries = entries.filter((e) => e.booking_round === round);
+  const round = resolveBookingRound(form);
+  const roundEntries = round ? entries.filter((e) => e.booking_round === round) : [];
   const feedbackText = mediaBookingTicket?.data?.feedback?.text;
 
   // "Booked" per Hạng Mục, read off the confirmed package (release_package_items
@@ -1452,61 +1469,56 @@ function MediaBookingTab({ form, entries, categories, packageItems, mediaBooking
         </>
       )}
 
-      {/* Round buttons now actually gate what's below them — previously
-          they only affected the small Added/Booked grid, while "All
-          Booking Links" (the most visible content on this tab) always
-          showed every round's links mixed together regardless of which
-          button was selected, which read as "the buttons don't do
-          anything." Both sections are now scoped to `round`. */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
-        {BOOKING_ROUNDS.map((r) => (
-          <button
-            key={r}
-            onClick={() => setRound(r)}
-            className={`${styles.tabBtn} ${round === r ? styles.tabBtnActive : ""}`}
-            style={{ border: "1px solid var(--border)", borderRadius: 6 }}
-          >
-            {r}
-          </button>
-        ))}
-      </div>
-
-      <div className={styles.subheading} style={{ marginTop: 0 }}>Booking Links — {round}</div>
-      {roundEntries.filter((e) => e.link).length > 0 ? (
-        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, marginBottom: 24, fontFamily: "monospace", fontSize: 12, whiteSpace: "pre-line", color: "var(--text-muted)" }}>
-          {roundEntries
-            .filter((e) => e.link)
-            .flatMap((e) => e.link.split("\n").map((u) => u.trim()).filter(Boolean).map((u) => `${e.channel_name ? e.channel_name : e.platform}: ${u}`))
-            .join("\n")}
-        </div>
-      ) : (
-        <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 24 }}>No links added for {round} yet.</p>
-      )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
-        {categories.map((c) => {
-          const booked = bookedFor(c.name);
-          const added = addedFor(c.id);
-          const isDone = booked != null && booked > 0 && added >= booked;
-          return (
-            <div key={c.id} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
-                {c.name}
-              </div>
-              {isDone ? (
-                <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: 13 }}>DONE</span>
-              ) : booked != null ? (
-                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{added} / {booked}</span>
-              ) : (
-                <span style={{ color: "var(--text-faint)", fontSize: 13 }}>{added} / —</span>
-              )}
+      {/* No more manual INT/Đợt 1/Đợt 2 picker — round is decided
+          automatically from the release's package state (see
+          resolveBookingRound above) and just shown as a label, not a
+          choice. Editing which round a link belongs to still happens on
+          the Booking Board itself; this tab has only ever been a
+          read-only summary (see the hint text at the bottom). */}
+      {round ? (
+        <>
+          <div className={styles.subheading} style={{ marginTop: 0 }}>Booking Links — {round}</div>
+          {roundEntries.filter((e) => e.link).length > 0 ? (
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, marginBottom: 24, fontFamily: "monospace", fontSize: 12, whiteSpace: "pre-line", color: "var(--text-muted)" }}>
+              {roundEntries
+                .filter((e) => e.link)
+                .flatMap((e) => e.link.split("\n").map((u) => u.trim()).filter(Boolean).map((u) => `${e.channel_name ? e.channel_name : e.platform}: ${u}`))
+                .join("\n")}
             </div>
-          );
-        })}
-      </div>
-      <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 12 }}>
-        Add/manage individual booking links on the Booking Board — this is a read-only summary per Hạng Mục, same as its "All" filter.
-      </p>
+          ) : (
+            <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 24 }}>No links added for {round} yet.</p>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+            {categories.map((c) => {
+              const booked = bookedFor(c.name);
+              const added = addedFor(c.id);
+              const isDone = booked != null && booked > 0 && added >= booked;
+              return (
+                <div key={c.id} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
+                    {c.name}
+                  </div>
+                  {isDone ? (
+                    <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: 13 }}>DONE</span>
+                  ) : booked != null ? (
+                    <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{added} / {booked}</span>
+                  ) : (
+                    <span style={{ color: "var(--text-faint)", fontSize: 13 }}>{added} / —</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 12 }}>
+            Add/manage individual booking links on the Booking Board — this is a read-only summary per Hạng Mục, same as its "All" filter.
+          </p>
+        </>
+      ) : (
+        <p style={{ color: "var(--text-faint)", fontSize: 12 }}>
+          Booking links will show here once a package is picked (or, for Chỉ Phát Hành, once an INT MEDIA follow-up is sent).
+        </p>
+      )}
     </div>
   );
 }
