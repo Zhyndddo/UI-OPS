@@ -411,7 +411,7 @@ export default function BookingBoard() {
           </div>
           <div className={styles.statCard}>
             <div className={styles.statLabel}>Chưa Booking</div>
-            <div className={styles.statValue} style={{ fontSize: 34, color: "#888" }}>{stats.notBooked}</div>
+            <div className={styles.statValue} style={{ fontSize: 34, color: "var(--text-faint)" }}>{stats.notBooked}</div>
           </div>
         </div>
 
@@ -504,7 +504,7 @@ export default function BookingBoard() {
         </div>
 
         {hangMucFilter === "TikTok Channel" && subFilter === "Partner" && (
-          <div className={styles.errorBox} style={{ background: "#1a1a1a", borderColor: "#5a4a1a", color: "#ffca4d", marginBottom: 16 }}>
+          <div className={styles.errorBox} style={{ background: "var(--bg-hover)", borderColor: "#5a4a1a", color: "#ffca4d", marginBottom: 16 }}>
             ⚠ Partner booking should wait for releases whose Phụ Lục isn't signed yet — check the badge next to each release below. Not a hard block yet, just a heads up.
           </div>
         )}
@@ -514,7 +514,7 @@ export default function BookingBoard() {
         ) : filteredReleases.length === 0 ? (
           <div style={{ textAlign: "center", padding: "80px 0" }}>
             <div style={{ fontSize: 48, fontWeight: 900, color: "#1c1c1c", letterSpacing: 4 }}>EMPTY</div>
-            <div style={{ color: "#555", marginTop: -12 }}>Không tìm thấy</div>
+            <div style={{ color: "var(--text-dim)", marginTop: -12 }}>Không tìm thấy</div>
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
@@ -541,7 +541,7 @@ export default function BookingBoard() {
                       }}
                     >
                       {c.label}
-                      <div style={{ fontWeight: 400, color: "#666", fontSize: 10 }}>{round}{subFilter ? ` · ${subfilterLabel(hangMucFilter, subFilter)}` : ""}</div>
+                      <div style={{ fontWeight: 400, color: "var(--text-faint)", fontSize: 10 }}>{round}{subFilter ? ` · ${subfilterLabel(hangMucFilter, subFilter)}` : ""}</div>
                     </th>
                   );
                 })}
@@ -552,7 +552,7 @@ export default function BookingBoard() {
                 <tr key={r.id}>
                   <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288, overflow: "hidden", textOverflow: "ellipsis" }}>
                     <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
-                    <div style={{ fontSize: 11, color: "#666" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)}</div>
                     {hangMucFilter === "TikTok Channel" && subFilter === "Partner" && (
                       <span
                         className={styles.statusBadge}
@@ -572,7 +572,7 @@ export default function BookingBoard() {
                         {r.project_type}
                       </button>
                     ) : (
-                      <span style={{ color: "#666", fontSize: 12 }}>—</span>
+                      <span style={{ color: "var(--text-faint)", fontSize: 12 }}>—</span>
                     )}
                   </td>
                   <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)" }}>
@@ -647,7 +647,7 @@ function ResultCell({ release, categories, bookedFor, entries, categoryIdByName 
         return (
           <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10 }}>
             <span style={{ width: 10, height: 10, borderRadius: 3, background: color, flexShrink: 0 }} />
-            <span style={{ color: "#999" }}>{c.name}</span>
+            <span style={{ color: "var(--text-faint)" }}>{c.name}</span>
           </div>
         );
       })}
@@ -806,23 +806,23 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
         {isDone ? (
           <span style={{ color: "#7ee6a8" }}>DONE</span>
         ) : booked != null ? (
-          <span style={{ color: "#ccc" }}>{added} / {booked}</span>
+          <span style={{ color: "var(--text-muted)" }}>{added} / {booked}</span>
         ) : (
-          <span style={{ color: "#666" }}>{added} / —</span>
+          <span style={{ color: "var(--text-faint)" }}>{added} / —</span>
         )}
       </div>
       {expanded && (
-        <div style={{ marginTop: 6, background: "#141414", border: "1px solid #262626", borderRadius: 6, padding: 8 }}>
-          {cellEntries.length === 0 && <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>No links yet.</div>}
+        <div style={{ marginTop: 6, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: 8 }}>
+          {cellEntries.length === 0 && <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 4 }}>No links yet.</div>}
           {cellEntries.map((e) => (
             <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, marginBottom: 4, gap: 6 }}>
               <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 100 }}>
                 {e.platform && <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{e.platform}: </span>}
-                <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "#ccc" }}>{e.link}</a>
+                <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-muted)" }}>{e.link}</a>
               </div>
               <button
                 onClick={() => onCycleStatus(e)}
-                style={{ background: "none", border: "none", cursor: "pointer", color: e.status === "Done" ? "#7ee6a8" : e.status === "Đã Gửi" ? "#ffca4d" : "#666", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}
+                style={{ background: "none", border: "none", cursor: "pointer", color: e.status === "Done" ? "#7ee6a8" : e.status === "Đã Gửi" ? "#ffca4d" : "var(--text-faint)", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}
               >
                 {e.status}
               </button>
@@ -1005,7 +1005,7 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
                   <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, gap: 6 }}>
                     <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {e.platform && <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{e.platform}: </span>}
-                      <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "#ccc" }}>{e.link}</a>
+                      <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-muted)" }}>{e.link}</a>
                     </div>
                   </div>
                 ))}

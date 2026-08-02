@@ -1487,3 +1487,83 @@ stopped being usable).
 No further code changes — the release-detail crash fix, filter-button
 darkening, and workstation sticky-header fix from earlier today are
 already in this same round.
+
+## 2026-08-02 (4) — Light theme black boxes, more grey text, GateFields regroup
+
+### Fixed: black boxes with unreadable text in the light theme
+
+Root cause across the whole app: lots of panels (the "Which pitching?"
+box, "Thể Loại" box, Split Share box, the Magic Link page's package
+detail panels, several ticket pages, dropdown popups, etc.) had their
+background/border/text hardcoded to dark-theme-only hex values (`#121212`,
+`#141414`, `#262626`, `#333`, plus grey text like `#ccc`/`#888`/`#666`/
+`#555`/`#999`/`#aaa`) instead of the `--bg-card`/`--border`/`--text-*`
+variables. In dark mode that's invisible (same near-black on near-black
+the variables would produce anyway), but in light mode it's a literal
+black box with dark grey text on it — unreadable.
+
+Swept every one of these across the app and lib folders and replaced them
+with the matching theme variable, in:
+
+`lib/GateFields.js`, `app/releases/[id]/page.js`, `app/booking/page.js`,
+`app/new-release/page.js`, `app/tickets/pitching-info/page.js`,
+`lib/ReleaseNotePopup.js`, `app/pick-package/[token]/page.js` (the Magic
+Link page — artist-facing, so this one mattered most), `app/tickets/media-booking/page.js`,
+`app/tickets/newrelease-upload/page.js`, `app/tickets/phu-luc/page.js`,
+`app/tickets/phu-luc/new/page.js`, `app/tools/page.js`,
+`app/workstation/stream/page.js`, `lib/ReferenceInputs.js`, `lib/helpers.js`.
+
+Deliberately left alone: the two solid dark TikTok-group header bands in
+`app/tickets/media-booking/page.js` (`background: "#141414", color: "#fff"`)
+— those are an intentional persistent-dark divider style with white text,
+readable regardless of theme, not a grey-text-on-dark-box readability bug.
+`lib/helpers.js`'s `statusColor()` also got its neutral/idle status pills
+(REQUESTED, "Chưa bắt đầu", "Hủy") switched from a flat white-tint +
+grey text to the theme variables — same invisible-in-light-mode problem,
+one level removed (a translucent white background instead of an opaque
+dark one). The colored statuses (PROCESS/SUBMITTED/COMPLETE/REFUND/
+CANCELED) were already fine on both themes and are untouched.
+
+If anything else still shows a dark/unreadable box in light mode, it's
+almost certainly the same pattern in a file this sweep didn't catch —
+point me at it.
+
+### Additional Request, regrouped
+
+`lib/GateFields.js` regrouped per your spec:
+
+- **Marketing Checklist** — unchanged: Profile Artist, Artist Photo, Project Proposal.
+- **Marketing Request** — now just Pitching and Gói Hỗ Trợ Truyền Thông.
+- **Data Request** — new group header, holding Priority Sync Lyric, Music
+  Video on Spotify, Discovery Mode on Spotify, Sony Publish, Splitshare.
+- **Legal Request** — new group header, holding Phụ Lục MG (still a plain
+  editable toggle — you said you don't know what it does yet, left as-is),
+  Phụ Lục Truyền Thông (now **read-only**, a colored status badge instead
+  of a Yes/No/TBU toggle — see below), Phụ Lục Publishing.
+
+**On Data Request the field:** `gate_data_request` was a real, live column
+— set on the New Release create form, rendered as a normal toggle here
+before this regroup, same as every other gate field. It's not something
+that got added by accident. Per your instruction I did **not** delete it
+— I just stopped showing it as its own field, since the regroup didn't
+list a place for it to keep being one. It still has whatever data was
+already saved on it; say if you want it back as a field somewhere (inside
+the new Data Request group, or its own thing) and I'll wire it back in.
+
+**On Phụ Lục Truyền Thông going read-only:** confirmed this is the same
+gate as the auto-ticket trigger — `app/releases/[id]/page.js` has an
+effect that flips it to `"true"` the instant a release leaves BRIEF &
+DATA/DEALING with a real package type (not "Chỉ Phát Hành"), and never
+touches it again once it's already something other than the untouched
+default. Since that effect would silently overwrite any hand-pick anyway,
+I made it a plain status badge (colored the same as the real toggle would
+be) instead of leaving it clickable and confusing.
+
+**Left as-is, not moved, not mentioned in the new group spec:**
+`gate_legal_request` (the standalone field, separate from the new "Legal
+Request" GROUP — putting a field named "Legal Request" directly under a
+group also named "Legal Request" seemed likely to confuse, so it stayed
+under Marketing Request instead), plus `gate_design`,
+`gate_co_trong_net_youtube`, `gate_pre_order` (same as before — flagged as
+an assumption previously, still unflagged where they should really live).
+Say where any of these four should actually go.

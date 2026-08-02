@@ -395,7 +395,7 @@ function PitchingInfoPopup({ ticket, release, statusOptions, onClose, onUpdateDa
         </div>
 
         {/* Read-only ordering info */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 20, background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 20, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
           <InfoField label="Release Date" value={release?.release_date ? fmtDate(release.release_date) : "—"} />
           <InfoField label="Upload Status" value={uploadStatus(release) || "—"} />
           <InfoField label="Published Date" value={release?.published_at ? fmtDate(release.published_at) : "—"} />
@@ -514,7 +514,7 @@ function InfoField({ label, value }) {
 
 function FieldCard({ title, done, children }) {
   return (
-    <div style={{ marginBottom: 16, background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 14 }}>
+    <div style={{ marginBottom: 16, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: done ? "#7ee6a8" : "#ffca4d" }} />
         <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>{title}</div>
@@ -574,7 +574,7 @@ function FlatField({ title, done, options, selected, onToggle, appleValue, sync,
             <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{NA} (marked not applicable)</span>
           ) : (
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: "#666" }}>No Apple Music data for this field.</span>
+              <span style={{ fontSize: 11, color: "var(--text-faint)" }}>No Apple Music data for this field.</span>
               {!sync && (
                 <button className={styles.btnSmall} onClick={onMarkNA} style={{ fontSize: 10 }}>Mark {NA}</button>
               )}

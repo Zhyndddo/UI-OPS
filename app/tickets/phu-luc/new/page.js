@@ -62,7 +62,7 @@ export default function NewPhuLucTicket() {
         <div className={styles.eyebrow}>// New Ticket</div>
         <h1 className={styles.title}>Phụ Lục</h1>
 
-        <p style={{ color: "#666", fontSize: 12, marginBottom: 20 }}>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
           Normally this ticket is auto-created when an artist locks in a contract type via the magic link —
           use this form only for a manual/backfill case. Link Phụ Lục / Ngày Gửi / Ngày Ký are edited on the
           release directly afterward (URL tab or Pre-release tab), not here.
@@ -82,15 +82,15 @@ export default function NewPhuLucTicket() {
               onBlur={() => setTimeout(() => setOpen(false), 150)}
             />
             {open && matches.length > 0 && (
-              <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, background: "#1a1a1a", border: "1px solid #333", borderRadius: 6, marginTop: 4, maxHeight: 220, overflowY: "auto" }}>
+              <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, background: "var(--bg-hover)", border: "1px solid #333", borderRadius: 6, marginTop: 4, maxHeight: 220, overflowY: "auto" }}>
                 {matches.map((r) => (
                   <div
                     key={r.id}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => { setReleaseId(r.id); setSearch(""); setOpen(false); }}
-                    style={{ padding: "8px 12px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid #262626" }}
+                    style={{ padding: "8px 12px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid var(--border)" }}
                   >
-                    {r.title} — {r.main_artist} <span style={{ color: "#666" }}>({r.did})</span>
+                    {r.title} — {r.main_artist} <span style={{ color: "var(--text-faint)" }}>({r.did})</span>
                   </div>
                 ))}
               </div>

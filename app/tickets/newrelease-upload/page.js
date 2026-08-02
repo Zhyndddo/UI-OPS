@@ -121,7 +121,7 @@ export default function NewreleaseUploadList() {
                     <td style={{ whiteSpace: "nowrap" }}>
                       {(() => {
                         const rel = releasesByDid[t.data?.releaseId];
-                        if (!rel) return <span style={{ color: "#555" }}>—</span>;
+                        if (!rel) return <span style={{ color: "var(--text-dim)" }}>—</span>;
                         return (
                           <div style={{ display: "flex", gap: 8 }}>
                             <button

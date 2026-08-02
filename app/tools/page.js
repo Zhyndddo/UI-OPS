@@ -28,7 +28,7 @@ export default async function Home() {
     <AppShell>
     <main style={{ maxWidth: 640, margin: "60px auto", padding: "0 20px" }}>
       <h1 style={{ fontSize: 28, marginBottom: 4 }}>Pipeline check</h1>
-      <p style={{ color: "#999", marginBottom: 32 }}>
+      <p style={{ color: "var(--text-faint)", marginBottom: 32 }}>
         Vercel → Supabase connectivity test
       </p>
 
@@ -82,7 +82,7 @@ export default async function Home() {
       )}
 
       {rows && rows.length === 0 && (
-        <p style={{ marginTop: 32, color: "#888", fontSize: 14 }}>
+        <p style={{ marginTop: 32, color: "var(--text-faint)", fontSize: 14 }}>
           Connected fine, but lookup_options came back empty — did schema.sql's seed
           rows actually run? Check the Table Editor.
         </p>
@@ -101,8 +101,8 @@ export default async function Home() {
         → Go to New Release form
       </a>
 
-      <div style={{ marginTop: 24, paddingTop: 24, borderTop: "1px solid #262626" }}>
-        <p style={{ color: "#666", fontSize: 12, marginBottom: 12 }}>Demo pages</p>
+      <div style={{ marginTop: 24, paddingTop: 24, borderTop: "1px solid var(--border)" }}>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 12 }}>Demo pages</p>
         <div style={{ display: "grid", gap: 8 }}>
           <a href="/releases" style={demoLinkStyle}>→ New Release dashboard</a>
           <a href="/booking" style={demoLinkStyle}>→ Booking Board</a>
@@ -128,7 +128,7 @@ export default async function Home() {
 
 const demoLinkStyle = {
   display: "inline-block",
-  color: "#ccc",
+  color: "var(--text-muted)",
   fontSize: 14,
   textDecoration: "none",
 };
@@ -143,16 +143,16 @@ function StatusRow({ label, ok, detail }) {
         padding: "10px 14px",
         background: "#161616",
         borderRadius: 8,
-        border: "1px solid #262626",
+        border: "1px solid var(--border)",
       }}
     >
       <span style={{ fontSize: 18 }}>{ok ? "✅" : "❌"}</span>
       <div>
         <div style={{ fontWeight: 600 }}>{label}</div>
-        <div style={{ color: "#888", fontSize: 13 }}>{detail}</div>
+        <div style={{ color: "var(--text-faint)", fontSize: 13 }}>{detail}</div>
       </div>
     </div>
   );
 }
 
-const cellStyle = { textAlign: "left", padding: "6px 10px", borderBottom: "1px solid #262626" };
+const cellStyle = { textAlign: "left", padding: "6px 10px", borderBottom: "1px solid var(--border)" };

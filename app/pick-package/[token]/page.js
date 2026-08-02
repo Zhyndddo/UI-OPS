@@ -393,23 +393,23 @@ export default function PickPackagePage() {
         <h1 className={styles.title} style={{ marginBottom: 4 }}>
           {release?.title}
         </h1>
-        <div style={{ color: "#888", fontSize: 13, marginBottom: 20 }}>
+        <div style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: 20 }}>
           {release?.main_artist} · {release?.release_date} {release?.release_time}
         </div>
 
         {isLocked && (
-          <div className={styles.errorBox} style={{ background: "#1a1a1a", borderColor: "#333", color: "#aaa" }}>
+          <div className={styles.errorBox} style={{ background: "var(--bg-hover)", borderColor: "var(--border-strong)", color: "var(--text-muted)" }}>
             Selection is locked for this release — contact your OPS/AR contact if you need to change it.
           </div>
         )}
 
         {!isLocked && isPipelineStage && (
-          <p style={{ color: "#666", fontSize: 12, marginBottom: 16 }}>
+          <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
             Current stage: <span style={{ color: "#ff9d5c" }}>{release?.project_type}</span>
           </p>
         )}
 
-        <p style={{ color: "#888", fontSize: 12, marginBottom: 20 }}>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
           Each contract type comes with its own package — compare them side by side below, then confirm
           your choice.
         </p>
@@ -428,7 +428,7 @@ export default function PickPackagePage() {
               <div
                 key={c.value}
                 style={{
-                  background: selected ? "rgba(255,107,26,0.1)" : "#121212",
+                  background: selected ? "rgba(255,107,26,0.1)" : "var(--bg-card)",
                   // Every package card gets an orange stroke now (not just
                   // the selected one) so they read as a set of options to
                   // compare, not a plain grey list — selected still stands
@@ -458,7 +458,7 @@ export default function PickPackagePage() {
                     </span>
                     {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
                     {c.totalValue != null && (
-                      <span style={{ fontSize: 13, color: "#999" }}>{fmtVnd(c.totalValue)}</span>
+                      <span style={{ fontSize: 13, color: "var(--text-faint)" }}>{fmtVnd(c.totalValue)}</span>
                     )}
                   </div>
                 </button>
@@ -470,21 +470,21 @@ export default function PickPackagePage() {
                   // one package had the note and its neighbor didn't (or
                   // had a different-length one) — it now renders AFTER the
                   // items table below instead, still inside this same card.
-                  <div style={{ borderTop: "1px solid #262626", padding: "10px 16px", background: "rgba(255,107,26,0.04)", display: "grid", gap: 8 }}>
-                    {sharedTerms.a && <TermsText text={sharedTerms.a} baseStyle={{ fontSize: 11, color: "#ccc", lineHeight: 1.5 }} />}
-                    {sharedTerms.conditions && <TermsText text={sharedTerms.conditions} baseStyle={{ fontSize: 11, color: "#ccc", lineHeight: 1.5 }} />}
-                    {c.termsText && <TermsText text={c.termsText} baseStyle={{ fontSize: 11, color: "#ccc", lineHeight: 1.5 }} />}
+                  <div style={{ borderTop: "1px solid var(--border)", padding: "10px 16px", background: "rgba(255,107,26,0.04)", display: "grid", gap: 8 }}>
+                    {sharedTerms.a && <TermsText text={sharedTerms.a} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
+                    {sharedTerms.conditions && <TermsText text={sharedTerms.conditions} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
+                    {c.termsText && <TermsText text={c.termsText} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
                   </div>
                 )}
                 {c.kind === "intMedia" ? (
                   // INT MEDIA — Hạng Mục names only, no numbers or pricing.
-                  <div style={{ borderTop: "1px solid #262626", padding: "10px 16px", display: "grid", gap: 6 }}>
+                  <div style={{ borderTop: "1px solid var(--border)", padding: "10px 16px", display: "grid", gap: 6 }}>
                     {c.items.map((item, i) => (
-                      <div key={i} style={{ fontSize: 12, color: "#ccc" }}>{item.category}</div>
+                      <div key={i} style={{ fontSize: 12, color: "var(--text-muted)" }}>{item.category}</div>
                     ))}
                   </div>
                 ) : c.items?.length > 0 ? (
-                  <div style={{ borderTop: "1px solid #262626", padding: "8px 16px" }}>
+                  <div style={{ borderTop: "1px solid var(--border)", padding: "8px 16px" }}>
                     <table className={styles.table} style={{ marginTop: 8, tableLayout: "fixed", width: "100%" }}>
                       <colgroup>
                         <col style={{ width: "22%" }} />
@@ -500,7 +500,7 @@ export default function PickPackagePage() {
                           <tr key={i}>
                             <td style={{ wordBreak: "break-word" }}>{item.category}</td>
                             <td>{item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
-                            <td style={{ fontSize: 11, color: "#999", whiteSpace: "pre-line", lineHeight: 1.4 }}>{formatDetailText(item.detail) || "—"}</td>
+                            <td style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "pre-line", lineHeight: 1.4 }}>{formatDetailText(item.detail) || "—"}</td>
                             <td>{fmtVnd(item.amount)}</td>
                           </tr>
                         ))}
@@ -509,8 +509,8 @@ export default function PickPackagePage() {
                   </div>
                 ) : null}
                 {c.showSharedB && sharedTerms.b && (
-                  <div style={{ borderTop: "1px dashed #333", padding: "8px 16px" }}>
-                    <TermsText text={sharedTerms.b} baseStyle={{ fontSize: 10, color: "#888", lineHeight: 1.5 }} />
+                  <div style={{ borderTop: "1px dashed var(--border-strong)", padding: "8px 16px" }}>
+                    <TermsText text={sharedTerms.b} baseStyle={{ fontSize: 10, color: "var(--text-faint)", lineHeight: 1.5 }} />
                   </div>
                 )}
               </div>
@@ -535,8 +535,8 @@ export default function PickPackagePage() {
                   disabled={isLocked || picking}
                   style={{
                     textAlign: "left",
-                    background: selected ? "rgba(255,107,26,0.1)" : "#121212",
-                    border: selected ? "1px solid #ff6b1a" : "1px solid #262626",
+                    background: selected ? "rgba(255,107,26,0.1)" : "var(--bg-card)",
+                    border: selected ? "1px solid #ff6b1a" : "1px solid var(--border)",
                     borderRadius: 10,
                     padding: "14px 16px",
                     cursor: isLocked ? "not-allowed" : "pointer",
@@ -563,7 +563,7 @@ export default function PickPackagePage() {
             style={{
               marginTop: 20,
               width: "100%",
-              background: confirmed ? "#1a1a1a" : "#ff6b1a",
+              background: confirmed ? "var(--bg-hover)" : "#ff6b1a",
               color: confirmed ? "#7ee6a8" : "#0a0a0a",
               border: confirmed ? "1px solid #2e7d32" : "none",
               borderRadius: 8,
@@ -586,8 +586,8 @@ export default function PickPackagePage() {
             {feedbackSent ? (
               <div className={styles.successBox}>Feedback sent — your OPS/AR contact has been notified.</div>
             ) : showFeedbackBox ? (
-              <div style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 14 }}>
-                <div style={{ fontSize: 12, color: "#ccc", marginBottom: 8, fontWeight: 700 }}>Gửi phản hồi về gói</div>
+              <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8, fontWeight: 700 }}>Gửi phản hồi về gói</div>
                 <textarea
                   className={styles.input}
                   value={feedbackText}
@@ -649,7 +649,7 @@ export default function PickPackagePage() {
                     key={r}
                     onClick={() => setRound(r)}
                     className={`${styles.tabBtn} ${round === r ? styles.tabBtnActive : ""}`}
-                    style={{ border: "1px solid #262626", borderRadius: 6 }}
+                    style={{ border: "1px solid var(--border)", borderRadius: 6 }}
                   >
                     {r}
                   </button>
@@ -662,16 +662,16 @@ export default function PickPackagePage() {
                 const added = addedFor(c.id);
                 const isDone = booked != null && booked > 0 && added >= booked;
                 return (
-                  <div key={c.id} style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12 }}>
+                  <div key={c.id} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
                       {c.name}
                     </div>
                     {isDone ? (
                       <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: 13 }}>DONE</span>
                     ) : booked != null ? (
-                      <span style={{ color: "#ccc", fontSize: 13 }}>{added} / {booked}</span>
+                      <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{added} / {booked}</span>
                     ) : (
-                      <span style={{ color: "#666", fontSize: 13 }}>{added} / —</span>
+                      <span style={{ color: "var(--text-faint)", fontSize: 13 }}>{added} / —</span>
                     )}
                   </div>
                 );
@@ -712,14 +712,14 @@ export default function PickPackagePage() {
                 {Object.entries(STREAM_FIELD_LABELS)
                   .filter(([key]) => streamMetrics[key])
                   .map(([key, label]) => (
-                    <div key={key} style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12 }}>
-                      <div style={{ fontSize: 10, color: "#888", marginBottom: 4, textTransform: "uppercase" }}>{label}</div>
+                    <div key={key} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
+                      <div style={{ fontSize: 10, color: "var(--text-faint)", marginBottom: 4, textTransform: "uppercase" }}>{label}</div>
                       <div style={{ fontSize: 15, fontWeight: 700, color: "#f4f4f4" }}>{streamMetrics[key]}</div>
                     </div>
                   ))}
               </div>
             ) : (
-              milestones.length === 0 && <p style={{ color: "#666", fontSize: 12 }}>No streaming or milestone data yet.</p>
+              milestones.length === 0 && <p style={{ color: "var(--text-faint)", fontSize: 12 }}>No streaming or milestone data yet.</p>
             )}
 
             {milestones.length > 0 && (
@@ -750,7 +750,7 @@ function PartnerBenefits() {
       <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase" }}>
         Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT
       </div>
-      <div style={{ border: "1px solid #262626", borderTop: "none" }}>
+      <div style={{ border: "1px solid var(--border)", borderTop: "none" }}>
         {PARTNER_BENEFITS.map((row, i) => (
           <div
             key={row.label}
@@ -764,7 +764,7 @@ function PartnerBenefits() {
             }}
           >
             <div style={{ fontSize: 12, fontWeight: 800, color: "#ff9d5c" }}>{row.label}</div>
-            <div style={{ fontSize: 12, color: "#ccc", whiteSpace: "pre-line", lineHeight: 1.5 }}>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-line", lineHeight: 1.5 }}>
               {row.detail}
               {row.link && (
                 <div style={{ marginTop: 4 }}>
@@ -782,7 +782,7 @@ function PartnerBenefits() {
       <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase", marginTop: 20 }}>
         Quyền Lợi Dành Cho Đơn Vị Truyền Thông
       </div>
-      <div style={{ border: "1px solid #262626", borderTop: "none", padding: "12px 14px", fontSize: 12, color: "#ccc", lineHeight: 1.6 }}>
+      <div style={{ border: "1px solid var(--border)", borderTop: "none", padding: "12px 14px", fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
         <div style={{ whiteSpace: "pre-line" }}>{MEDIA_PARTNER_NOTE.intro}</div>
         <div style={{ marginTop: 8 }}>
           🔗 Logo: <a href={MEDIA_PARTNER_NOTE.logoLink} target="_blank" rel="noopener noreferrer" style={{ color: "#5b9dff", wordBreak: "break-all" }}>{MEDIA_PARTNER_NOTE.logoLink}</a>

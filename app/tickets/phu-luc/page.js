@@ -11,7 +11,7 @@ import Pagination from "../../../lib/Pagination";
 import styles from "../../shared.module.css";
 
 const PHU_LUC_COLOR = {
-  "Chưa Soạn": { bg: "rgba(255,255,255,0.06)", fg: "#999" },
+  "Chưa Soạn": { bg: "rgba(255,255,255,0.06)", fg: "var(--text-faint)" },
   "Đã Soạn": { bg: "rgba(33,150,243,0.15)", fg: "#5cb3ff" },
   "Chờ Ký": { bg: "rgba(255,193,7,0.15)", fg: "#ffca4d" },
   "Đã Ký": { bg: "rgba(76,175,80,0.15)", fg: "#7ee6a8" },
@@ -105,7 +105,7 @@ export default function PhuLucList() {
           <Link href="/tickets/phu-luc/new" className={styles.btnPrimary}>+ New Ticket</Link>
         </div>
 
-        <p style={{ color: "#888", fontSize: 12, marginBottom: 20 }}>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
           Auto-created when an artist locks in a contract type via the magic link. Link/Ngày Gửi/Ngày Ký
           here edit the release directly (single source of truth) — Status is the generic ticket lifecycle,
           PL Status is the Phụ Lục-specific document status, computed separately.
@@ -138,7 +138,7 @@ export default function PhuLucList() {
                     <td>
                       {rel ? (
                         <Link href={`/releases/${rel.id}`} className={styles.rowLink}>
-                          {rel.title} <span style={{ color: "#666" }}>({rel.did})</span>
+                          {rel.title} <span style={{ color: "var(--text-faint)" }}>({rel.did})</span>
                         </Link>
                       ) : "—"}
                     </td>

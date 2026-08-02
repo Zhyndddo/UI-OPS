@@ -303,7 +303,7 @@ export default function NewReleasePage() {
           ) : form.title.trim() || form.main_artist.trim() ? (
             <>
               <div className={styles.didValue}>{didPreview(form.title, form.main_artist, form.release_date)}</div>
-              <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>
+              <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 4 }}>
                 Preview — the final 4 digits are assigned by the database on creation, to guarantee no collisions
               </div>
             </>
@@ -314,7 +314,7 @@ export default function NewReleasePage() {
 
         {error && <div className={styles.errorBox}>{error}</div>}
         {autofillNote && (
-          <div style={{ color: "#888", fontSize: 12, marginBottom: 16 }}>{autofillNote}</div>
+          <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>{autofillNote}</div>
         )}
         {createdDid && (
           <div className={styles.successBox}>
@@ -326,7 +326,7 @@ export default function NewReleasePage() {
           <div className={styles.grid}>
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Trạng Thái Gói (Loại Dự Án)</label>
-              <div style={{ padding: "9px 12px", background: "#141414", border: "1px solid #2a2a2a", borderRadius: 6, color: "#888", fontSize: 13 }}>
+              <div style={{ padding: "9px 12px", background: "var(--bg-card)", border: "1px solid #2a2a2a", borderRadius: 6, color: "var(--text-faint)", fontSize: 13 }}>
                 BRIEF & DATA — sẽ tiến triển qua quy trình gói sau khi tạo
               </div>
             </div>
@@ -399,7 +399,7 @@ export default function NewReleasePage() {
                 <label className={styles.fieldLabel}>Tracklist</label>
                 {(form.tracks || []).map((t, i) => (
                   <div key={i} style={{ display: "grid", gridTemplateColumns: "40px 2fr 1.5fr 1.5fr 32px", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                    <div style={{ fontSize: 12, color: "#888", textAlign: "center" }}>#{i + 1}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-faint)", textAlign: "center" }}>#{i + 1}</div>
                     <input
                       className={styles.input}
                       placeholder="Track name"
@@ -591,7 +591,7 @@ export default function NewReleasePage() {
                 <option value="">—</option>
                 {LINKSHARE_TIKTOK_OPTIONS.map((o) => <option key={o}>{o}</option>)}
               </select>
-              <p style={{ color: "#666", fontSize: 11, marginTop: 4, marginBottom: 0 }}>
+              <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4, marginBottom: 0 }}>
                 Defaults to "{LINKSHARE_TIKTOK_OPTIONS[2]}" if left blank.
               </p>
             </div>
@@ -601,14 +601,14 @@ export default function NewReleasePage() {
                 <option value="">—</option>
                 {LINKSHARE_FACEBOOK_OPTIONS.map((o) => <option key={o}>{o}</option>)}
               </select>
-              <p style={{ color: "#666", fontSize: 11, marginTop: 4, marginBottom: 0 }}>
+              <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4, marginBottom: 0 }}>
                 Auto-picked from today vs. Release Date − 4 days — pick one yourself to override.
               </p>
             </div>
 
             <div className={`${styles.field} ${styles.fieldFull}`}>
               <label className={styles.fieldLabel}>Linkshare Note (auto-generated preview)</label>
-              <pre style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12, fontSize: 12, color: "#ccc", whiteSpace: "pre-wrap", margin: 0 }}>
+              <pre style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-wrap", margin: 0 }}>
                 {buildLinkshareNote(form)}
               </pre>
             </div>

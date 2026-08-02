@@ -616,12 +616,12 @@ export default function ReleaseDetailPage() {
               {form.title} — {form.main_artist}
             </h1>
           )}
-          <div style={{ color: "#888", fontSize: 13, marginBottom: form.upc ? 4 : 14 }}>
+          <div style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: form.upc ? 4 : 14 }}>
             {form.release_date} {form.release_time}
           </div>
           {form.upc && (
-            <div style={{ color: "#666", fontSize: 12, marginBottom: 14 }}>
-              UPC: <span style={{ color: "#999" }}>{form.upc}</span>
+            <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 14 }}>
+              UPC: <span style={{ color: "var(--text-faint)" }}>{form.upc}</span>
             </div>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -729,7 +729,7 @@ function LinkPill({ label, href }) {
   );
   if (!href) {
     return (
-      <span style={{ fontSize: 12, fontWeight: 700, color: "#555" }}>
+      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-dim)" }}>
         {dot}
         {label}
       </span>
@@ -780,7 +780,7 @@ function PipelineControl({ form, update, setTab }) {
   const isPipelineStage = PIPELINE_STAGES.includes(stage);
 
   return (
-    <div style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 14, marginBottom: 20 }}>
+    <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14, marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.15)", color: "#ff9d5c" }}>
           {stage}
@@ -795,22 +795,22 @@ function PipelineControl({ form, update, setTab }) {
           </button>
         )}
         {stage === "BRIEF & DATA" && (
-          <span style={{ color: "#666", fontSize: 11 }}>
+          <span style={{ color: "var(--text-faint)", fontSize: 11 }}>
             Moves to DEALING automatically once a Package Ticket is sent (see Package section below)
           </span>
         )}
         {stage === "DEALING" && (
-          <span style={{ color: "#666", fontSize: 11 }}>
+          <span style={{ color: "var(--text-faint)", fontSize: 11 }}>
             Waiting on artist to pick a package via the magic link (see Package section below)
           </span>
         )}
       </div>
       {!isPipelineStage && (
-        <div style={{ marginTop: 8, fontSize: 12, color: "#888" }}>
+        <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-faint)" }}>
           Resolved package — <span style={{ color: "#ffca4d" }}>Phụ Lục required, see URL tab.</span>
         </div>
       )}
-      <p style={{ color: "#555", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
+      <p style={{ color: "var(--text-dim)", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
         Click Save below to persist a stage change.
       </p>
     </div>
@@ -995,7 +995,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           </div>
         ))}
       </div>
-      <p style={{ fontSize: 11, color: "#888", marginTop: -12, marginBottom: 20 }}>
+      <p style={{ fontSize: 11, color: "var(--text-faint)", marginTop: -12, marginBottom: 20 }}>
         * Required for Send Upload (Audio, Artwork, Lyric, Metadata). Working Files and MV are tracked here but don't block the ticket. TBU counts the same as No for gating — it's not done yet.
       </p>
 
@@ -1009,7 +1009,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           publishing") — both are gone now, folded into the Phụ Lục
           Publishing field instead. */}
 
-      <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 20 }}>
+      <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
         <button
           className={styles.btnPrimary}
           disabled={!uploadReady || form.requested}
@@ -1024,36 +1024,36 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           </p>
         )}
         {!form.requested && pitchingTypesDraft.priority && !pitchingTicket?.data?.priority && requiredMetaDone < REQUIRED_META_KEYS.length && (
-          <p style={{ color: "#888", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
+          <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
             Priority Pitching is ticked but not saved yet — hit Save below to unlock Send Upload.
           </p>
         )}
         {!form.requested && !uploadReady && requiredMetaDoneLive !== requiredMetaDone && (
-          <p style={{ color: "#888", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
+          <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
             Metadata Checklist has unsaved changes — hit Save below before Send Upload picks them up.
           </p>
         )}
       </div>
 
-      <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 20 }}>
+      <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
         <div className={styles.subheading} style={{ marginTop: 0 }}>Package (Gói Hỗ Trợ Truyền Thông)</div>
 
         {["BRIEF & DATA", "DEALING"].includes(form.project_type) ? (
-          <p style={{ fontSize: 13, color: "#888", marginBottom: 12 }}>
+          <p style={{ fontSize: 13, color: "var(--text-faint)", marginBottom: 12 }}>
             No contract type resolved yet — package details will show once the artist locks one in.
           </p>
         ) : (
-          <p style={{ fontSize: 13, color: "#ccc", marginBottom: 4 }}>
+          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 4 }}>
             Contract type: <strong style={{ color: "#ff9d5c" }}>{form.project_type}</strong>
-            {form.package_locked && <span style={{ color: "#888" }}> (locked)</span>}
+            {form.package_locked && <span style={{ color: "var(--text-faint)" }}> (locked)</span>}
           </p>
         )}
 
         {form.package_total_value != null && (
-          <p style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>
-            Tổng Giá Trị Gói: <strong style={{ color: "#ccc" }}>{fmtVnd(form.package_total_value)}</strong>
-            {" · "}Thanh Toán: <strong style={{ color: "#ccc" }}>{form.package_payment_status}</strong>
-            {" · "}<span style={{ color: "#666" }}>Full item breakdown is on the Media Booking tab.</span>
+          <p style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 12 }}>
+            Tổng Giá Trị Gói: <strong style={{ color: "var(--text-muted)" }}>{fmtVnd(form.package_total_value)}</strong>
+            {" · "}Thanh Toán: <strong style={{ color: "var(--text-muted)" }}>{form.package_payment_status}</strong>
+            {" · "}<span style={{ color: "var(--text-faint)" }}>Full item breakdown is on the Media Booking tab.</span>
           </p>
         )}
 
@@ -1100,8 +1100,8 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         </div>
 
         {magicLinkUrl && (
-          <div style={{ marginTop: 14, background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12 }}>
-            <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>
+          <div style={{ marginTop: 14, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
+            <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 6 }}>
               Existing link for this release:
             </div>
             <a href={magicLinkUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a", fontSize: 13, wordBreak: "break-all" }}>
@@ -1111,7 +1111,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         )}
       </div>
 
-      <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 20 }}>
+      <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
         <div className={styles.subheading} style={{ marginTop: 0 }}>Additional Request</div>
         <GateFields
           styles={styles}
@@ -1177,10 +1177,10 @@ function TracklistSection({ releaseId }) {
   return (
     <div style={{ marginBottom: 20 }}>
       <div className={styles.subheading} style={{ marginTop: 0 }}>Tracklist</div>
-      {tracks.length === 0 && <p style={{ fontSize: 12, color: "#888", marginBottom: 10 }}>No tracks added yet.</p>}
+      {tracks.length === 0 && <p style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 10 }}>No tracks added yet.</p>}
       {tracks.map((t) => (
         <div key={t.id} style={{ display: "grid", gridTemplateColumns: "50px 2fr 1.5fr 1.5fr 32px", gap: 8, alignItems: "center", marginBottom: 8 }}>
-          <div style={{ fontSize: 12, color: "#888", textAlign: "center" }}>#{t.sort_order}</div>
+          <div style={{ fontSize: 12, color: "var(--text-faint)", textAlign: "center" }}>#{t.sort_order}</div>
           <input
             className={styles.input}
             value={t.track_name || ""}
@@ -1244,7 +1244,7 @@ function UrlTab({ form, update, onSave, saving, did, releaseId }) {
               {form.link_media_report}
             </a>
           ) : (
-            <div className={styles.input} style={{ color: "#555", display: "flex", alignItems: "center" }}>
+            <div className={styles.input} style={{ color: "var(--text-dim)", display: "flex", alignItems: "center" }}>
               auto-filled once a magic link is generated
             </div>
           )}
@@ -1264,7 +1264,7 @@ function UrlTab({ form, update, onSave, saving, did, releaseId }) {
       <Field label="URL Phụ Lục">
         <UrlField styles={styles} value={form.link_phu_luc} onChange={(v) => update("link_phu_luc", v)} />
       </Field>
-      <p style={{ color: "#888", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
         Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{plStatus}</span>
         {" — "}{phuLucNextStep(form)}
       </p>
@@ -1342,20 +1342,20 @@ function AllUrlsSection({ did, releaseId }) {
   const validLinks = (groups || []).filter((g) => /^https?:\/\/\S+$/i.test(g.url));
 
   return (
-    <div style={{ marginTop: 28, borderTop: "1px solid #262626", paddingTop: 20 }}>
+    <div style={{ marginTop: 28, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
       <div className={styles.subheading} style={{ marginTop: 0 }}>All URLs Related to This DID</div>
-      <p style={{ color: "#666", fontSize: 11, marginTop: -8, marginBottom: 12 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: -8, marginBottom: 12 }}>
         Read-only — pulled from the Booking Board, every ticket referencing this release, and Magic Links. Edit each at its own source.
       </p>
       {groups === null ? (
-        <div style={{ color: "#666", fontSize: 12 }}>Loading…</div>
+        <div style={{ color: "var(--text-faint)", fontSize: 12 }}>Loading…</div>
       ) : validLinks.length === 0 ? (
-        <div style={{ color: "#666", fontSize: 12 }}>Nothing found elsewhere yet.</div>
+        <div style={{ color: "var(--text-faint)", fontSize: 12 }}>Nothing found elsewhere yet.</div>
       ) : (
         <div style={{ display: "grid", gap: 4 }}>
           {validLinks.map((g, i) => (
             <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
-              <span style={{ color: "#666", minWidth: 110, flexShrink: 0 }}>{g.source} — {g.label}</span>
+              <span style={{ color: "var(--text-faint)", minWidth: 110, flexShrink: 0 }}>{g.source} — {g.label}</span>
               <a href={g.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {g.url}
               </a>
@@ -1424,7 +1424,7 @@ function MediaBookingTab({ form, entries, categories, packageItems, mediaBooking
             Artist feedback — package change requested
           </div>
           <div style={{ fontSize: 12, color: "#ddd", whiteSpace: "pre-line" }}>{feedbackText}</div>
-          <div style={{ fontSize: 11, color: "#888", marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
             Use "Send Package Ticket Again" above to send this back to Marketing.
           </div>
         </div>
@@ -1440,13 +1440,13 @@ function MediaBookingTab({ form, entries, categories, packageItems, mediaBooking
                 <tr key={item.id}>
                   <td>{item.category}</td>
                   <td>{item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
-                  <td style={{ fontSize: 11, color: "#999", whiteSpace: "pre-line" }}>{formatDetailText(item.detail) || "—"}</td>
+                  <td style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "pre-line" }}>{formatDetailText(item.detail) || "—"}</td>
                   <td>{fmtVnd(item.amount)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <p style={{ color: "#666", fontSize: 11, marginTop: -16, marginBottom: 24 }}>
+          <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: -16, marginBottom: 24 }}>
             The confirmed package itself isn't round-scoped — it's one package, picked once. Only the booking links and Added/Booked counts below change per round.
           </p>
         </>
@@ -1464,7 +1464,7 @@ function MediaBookingTab({ form, entries, categories, packageItems, mediaBooking
             key={r}
             onClick={() => setRound(r)}
             className={`${styles.tabBtn} ${round === r ? styles.tabBtnActive : ""}`}
-            style={{ border: "1px solid #262626", borderRadius: 6 }}
+            style={{ border: "1px solid var(--border)", borderRadius: 6 }}
           >
             {r}
           </button>
@@ -1473,14 +1473,14 @@ function MediaBookingTab({ form, entries, categories, packageItems, mediaBooking
 
       <div className={styles.subheading} style={{ marginTop: 0 }}>Booking Links — {round}</div>
       {roundEntries.filter((e) => e.link).length > 0 ? (
-        <div style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12, marginBottom: 24, fontFamily: "monospace", fontSize: 12, whiteSpace: "pre-line", color: "#ccc" }}>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, marginBottom: 24, fontFamily: "monospace", fontSize: 12, whiteSpace: "pre-line", color: "var(--text-muted)" }}>
           {roundEntries
             .filter((e) => e.link)
             .flatMap((e) => e.link.split("\n").map((u) => u.trim()).filter(Boolean).map((u) => `${e.channel_name ? e.channel_name : e.platform}: ${u}`))
             .join("\n")}
         </div>
       ) : (
-        <p style={{ color: "#666", fontSize: 12, marginBottom: 24 }}>No links added for {round} yet.</p>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 24 }}>No links added for {round} yet.</p>
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
@@ -1489,22 +1489,22 @@ function MediaBookingTab({ form, entries, categories, packageItems, mediaBooking
           const added = addedFor(c.id);
           const isDone = booked != null && booked > 0 && added >= booked;
           return (
-            <div key={c.id} style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 12 }}>
+            <div key={c.id} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
                 {c.name}
               </div>
               {isDone ? (
                 <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: 13 }}>DONE</span>
               ) : booked != null ? (
-                <span style={{ color: "#ccc", fontSize: 13 }}>{added} / {booked}</span>
+                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{added} / {booked}</span>
               ) : (
-                <span style={{ color: "#666", fontSize: 13 }}>{added} / —</span>
+                <span style={{ color: "var(--text-faint)", fontSize: 13 }}>{added} / —</span>
               )}
             </div>
           );
         })}
       </div>
-      <p style={{ color: "#666", fontSize: 11, marginTop: 12 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 12 }}>
         Add/manage individual booking links on the Booking Board — this is a read-only summary per Hạng Mục, same as its "All" filter.
       </p>
     </div>
@@ -1584,7 +1584,7 @@ function ReadOnlyField({ label, value, isUrl }) {
           {value}
         </a>
       ) : (
-        <div className={styles.input} style={{ color: value ? "#ccc" : "#555", display: "flex", alignItems: "center" }}>
+        <div className={styles.input} style={{ color: value ? "var(--text-muted)" : "var(--text-dim)", display: "flex", alignItems: "center" }}>
           {value || "—"}
         </div>
       )}
@@ -1595,7 +1595,7 @@ function ReadOnlyField({ label, value, isUrl }) {
 function PreReleaseTab({ form, update, onSave, saving }) {
   return (
     <div>
-      <p style={{ color: "#888", fontSize: 12, marginTop: -4, marginBottom: 12 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -4, marginBottom: 12 }}>
         The 6 fields below are set on the Pre-release Workstation, not here — view only. Whatever OPS updates there shows up here the next time this page loads.
       </p>
       <div className={styles.grid2}>
@@ -1616,7 +1616,7 @@ function PreReleaseTab({ form, update, onSave, saving }) {
           <input type="date" className={styles.input} value={form.phu_luc_ngay_ky || ""} onChange={(e) => update("phu_luc_ngay_ky", e.target.value)} />
         </Field>
       </div>
-      <p style={{ color: "#888", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
         Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{phuLucStatusClient(form)}</span>
         {" — "}{phuLucNextStep(form)}
       </p>
@@ -1643,10 +1643,10 @@ function PreReleaseTab({ form, update, onSave, saving }) {
       </div>
 
       <div className={styles.subheading}>Generated Notes (preview)</div>
-      <pre style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 14, fontSize: 12, color: "#ccc", whiteSpace: "pre-wrap" }}>
+      <pre style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14, fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-wrap" }}>
 {buildProductNote(form)}
       </pre>
-      <pre style={{ background: "#121212", border: "1px solid #262626", borderRadius: 8, padding: 14, fontSize: 12, color: "#ccc", whiteSpace: "pre-wrap", marginTop: 10 }}>
+      <pre style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14, fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-wrap", marginTop: 10 }}>
 {buildLinkshareNote(form)}
       </pre>
 
@@ -1698,7 +1698,7 @@ function StreamingMilestoneTab({ form }) {
             🔗
           </a>
         ) : (
-          <span style={{ color: "#555", fontSize: 12 }}>no link set — add one on the URL tab</span>
+          <span style={{ color: "var(--text-dim)", fontSize: 12 }}>no link set — add one on the URL tab</span>
         )}
       </div>
 
@@ -1708,7 +1708,7 @@ function StreamingMilestoneTab({ form }) {
         <>
           <div className={styles.subheading}>Stream Numbers</div>
           {metrics.length === 0 ? (
-            <p style={{ color: "#666", fontSize: 12, marginBottom: 20 }}>No stream data linked yet.</p>
+            <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>No stream data linked yet.</p>
           ) : (
             <table className={styles.table} style={{ marginBottom: 24 }}>
               <thead><tr><th>Platform</th><th>Streams</th><th>Fetched</th></tr></thead>
@@ -1725,11 +1725,11 @@ function StreamingMilestoneTab({ form }) {
           )}
 
           <div className={styles.subheading}>Milestone (Chart Rank)</div>
-          <p style={{ color: "#666", fontSize: 11, marginTop: -8, marginBottom: 12 }}>
+          <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: -8, marginBottom: 12 }}>
             Matched by exact DID ({form.did || "—"}). Derivative-track matching isn't implemented yet.
           </p>
           {milestones.length === 0 ? (
-            <p style={{ color: "#666", fontSize: 12 }}>No milestone entries for this DID.</p>
+            <p style={{ color: "var(--text-faint)", fontSize: 12 }}>No milestone entries for this DID.</p>
           ) : (
             <table className={styles.table}>
               <thead><tr><th>Chart</th><th>Date</th><th>Rank</th><th>Platform</th></tr></thead>
@@ -1792,12 +1792,12 @@ function TasklistTab({ form, bookingEntries }) {
                 ) : val === "update" ? (
                   <span style={{ color: "#ffca4d" }}>◐ TBU</span>
                 ) : (
-                  <span style={{ color: "#555" }}>— Empty</span>
+                  <span style={{ color: "var(--text-dim)" }}>— Empty</span>
                 )
               ) : val ? (
                 <span style={{ color: "#7ee6a8" }}>✓ Filled</span>
               ) : (
-                <span style={{ color: "#555" }}>— Empty</span>
+                <span style={{ color: "var(--text-dim)" }}>— Empty</span>
               )}
             </td>
           </tr>

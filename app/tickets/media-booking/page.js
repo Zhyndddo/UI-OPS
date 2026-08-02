@@ -129,12 +129,12 @@ export default function MediaBookingList() {
                       <td style={{ fontSize: 11, lineHeight: 1.5 }}>
                         {rel ? (
                           <>
-                            <div style={{ color: "#ccc", fontWeight: 700 }}>{rel.title} - {rel.main_artist}</div>
-                            <div style={{ color: "#888" }}>Label: {rel.label || "—"}</div>
-                            <div style={{ color: "#888" }}>{fmtDate(rel.release_date)} {rel.release_time || ""}</div>
+                            <div style={{ color: "var(--text-muted)", fontWeight: 700 }}>{rel.title} - {rel.main_artist}</div>
+                            <div style={{ color: "var(--text-faint)" }}>Label: {rel.label || "—"}</div>
+                            <div style={{ color: "var(--text-faint)" }}>{fmtDate(rel.release_date)} {rel.release_time || ""}</div>
                           </>
                         ) : (
-                          <span style={{ color: "#555" }}>—</span>
+                          <span style={{ color: "var(--text-dim)" }}>—</span>
                         )}
                       </td>
                       <td>{t.data?.proposedPackage || "—"}</td>
@@ -1493,7 +1493,7 @@ function PackagesPanel({
                         <td style={{ fontSize: 12 }}>{cat?.name || line.platform || "—"}{line.brand ? ` — ${line.brand}` : ""}</td>
                         {/* Read-only now — quantity/Số Gói is edited from the
                             left data tool, this just mirrors it live. */}
-                        <td style={{ fontSize: 12, color: "#ccc" }}>
+                        <td style={{ fontSize: 12, color: "var(--text-muted)" }}>
                           {isAdsLine ? (
                             <span style={{ color: "var(--text-faint)" }}>—</span>
                           ) : line.is_package_priced ? (

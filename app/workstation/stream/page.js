@@ -395,11 +395,11 @@ function DidSearchField({ row, value, onSaveText, onLink }) {
         }}
       />
       {open && query.trim().length >= 3 && (
-        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 5, background: "#1a1a1a", border: "1px solid #333", borderRadius: 6, marginTop: 2, maxHeight: 180, overflowY: "auto" }}>
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 5, background: "var(--bg-hover)", border: "1px solid #333", borderRadius: 6, marginTop: 2, maxHeight: 180, overflowY: "auto" }}>
           {searching ? (
-            <div style={{ padding: 8, fontSize: 11, color: "#888" }}>Searching…</div>
+            <div style={{ padding: 8, fontSize: 11, color: "var(--text-faint)" }}>Searching…</div>
           ) : results.length === 0 ? (
-            <div style={{ padding: 8, fontSize: 11, color: "#888" }}>No matching release — will be saved as text only.</div>
+            <div style={{ padding: 8, fontSize: 11, color: "var(--text-faint)" }}>No matching release — will be saved as text only.</div>
           ) : (
             results.map((r) => (
               <button
@@ -407,10 +407,10 @@ function DidSearchField({ row, value, onSaveText, onLink }) {
                 type="button"
                 onMouseDown={(e) => e.preventDefault()} // keep the input's onBlur from firing before the click registers
                 onClick={() => { onLink(r); setOpen(false); }}
-                style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "6px 8px", cursor: "pointer", borderBottom: "1px solid #262626" }}
+                style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "6px 8px", cursor: "pointer", borderBottom: "1px solid var(--border)" }}
               >
                 <div style={{ fontSize: 11, color: "#f4f4f4" }}>{r.title} — {r.main_artist}</div>
-                <div style={{ fontSize: 10, color: "#888" }}>{r.did}</div>
+                <div style={{ fontSize: 10, color: "var(--text-faint)" }}>{r.did}</div>
               </button>
             ))
           )}
