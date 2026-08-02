@@ -13,12 +13,42 @@ import styles from "../shared.module.css";
 
 const CHANNELS = ["VIEENT", "ENVI"];
 
+// Mirrors app/workstation/pitching/page.js's DONE_VALUE/CANCEL_VALUES so the
+// dashboard's "Status Pitching" column agrees with the Pitching workstation
+// about what "done"/"cancelled" mean, instead of drifting into its own
+// definition.
+const PITCHING_DONE_VALUE = "Đã pitching";
+const PITCHING_CANCEL_VALUES = ["Không thực hiện", "Không hỗ trợ"];
+const PITCHING_TYPE_KEYS = ["priority", "spotify", "nct", "zing"];
+
+function pitchingStatusFor(release, key) {
+  if (key === "priority") return release?.priority_pitching;
+  if (key === "spotify") return release?.pitching_status_spotify;
+  if (key === "nct") return release?.pitching_status_nct;
+  if (key === "zing") return release?.pitching_status_zing;
+  return null;
+}
+
+// "Status Pitching" summary for a release, given the selected types from its
+// Pitching ticket (ticket.data — see app/releases/[id]/page.js's
+// pitchingTypesDraft) and the per-type status columns on the release itself.
+function pitchingSummary(release, ticketData) {
+  if (!ticketData) return { label: "Not requested", tone: "gray" };
+  const types = PITCHING_TYPE_KEYS.filter((k) => ticketData[k]);
+  if (types.length === 0) return { label: "Not requested", tone: "gray" };
+  if (types.every((k) => pitchingStatusFor(release, k) === PITCHING_DONE_VALUE)) return { label: "Done", tone: "orange" };
+  if (types.every((k) => PITCHING_CANCEL_VALUES.includes(pitchingStatusFor(release, k)))) return { label: "Cancelled", tone: "gray" };
+  return { label: "In Progress", tone: "yellow" };
+}
+
 export default function ReleasesDashboard() {
   const [releases, setReleases] = useState([]);
   const [bookingPct, setBookingPct] = useState({}); // release_id -> %
+  const [pitchingData, setPitchingData] = useState({}); // did -> pitching ticket's data (selected types)
   const [labels, setLabels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [savingChannel, setSavingChannel] = useState(null); // release id currently being saved
 
   const [statusFilter, setStatusFilter] = useState(null); // "preRelease" | "released" | "postRelease"
   const [createdFilter, setCreatedFilter] = useState(null); // "today" | "week" | "month"
@@ -49,6 +79,25 @@ export default function ReleasesDashboard() {
 
       const { data: labelRows } = await supabase.from("labels").select("label_name").order("label_name");
       setLabels(labelRows || []);
+
+      // Pitching tickets — one per release (matched by DID, stored oddly as
+      // data->>releaseId, same pattern as app/releases/[id]/page.js). Used
+      // to compute the "Status Pitching" column below without opening each
+      // release individually.
+      const { data: pitchTab } = await supabase.from("ticket_tabs").select("id").eq("key", "pitching").single();
+      if (pitchTab) {
+        const { data: pitchTix } = await supabase
+          .from("tickets")
+          .select("data")
+          .eq("tab_id", pitchTab.id)
+          .is("deleted_at", null);
+        const map = {};
+        (pitchTix || []).forEach((t) => {
+          const did = t.data?.releaseId;
+          if (did) map[did] = t.data;
+        });
+        setPitchingData(map);
+      }
 
       setLoading(false);
     })();
@@ -135,6 +184,19 @@ export default function ReleasesDashboard() {
     });
   }, [releases, createdFilter, statusFilter, channelFilter, typeFilter, labelFilter, searchTest]);
 
+  // "nhớ cập nhật cái channel nhan" — the Channel column was read-only and
+  // commonly blank (requester_segment is an optional dropdown on the create
+  // form, nothing defaults or requires it), so fixing a batch of blanks
+  // meant opening every release individually. Inline-editable here instead.
+  async function updateChannel(release, value) {
+    setSavingChannel(release.id);
+    const { error: err } = await supabase.from("releases").update({ requester_segment: value || null }).eq("id", release.id);
+    if (!err) {
+      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, requester_segment: value || null } : r)));
+    }
+    setSavingChannel(null);
+  }
+
   const { sorted: sortedReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(sortedReleases);
 
@@ -220,6 +282,7 @@ export default function ReleasesDashboard() {
                 <SortableTh label="Artist" sortKey="main_artist" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Release Date" sortKey="release_date" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Status" sortKey="status" sort={sort} onToggle={toggleSort} />
+                <th>Status Pitching</th>
                 <th>Metadata</th>
                 <th>Booking</th>
                 <th>Upload</th>
@@ -230,6 +293,7 @@ export default function ReleasesDashboard() {
                 const pct = metadataPercent(r);
                 const bpct = bookingPct[r.id] ?? 0;
                 const upct = uploadPercent(r);
+                const pitching = pitchingSummary(r, pitchingData[r.did]);
                 return (
                   <tr key={r.id}>
                     <td
@@ -238,7 +302,18 @@ export default function ReleasesDashboard() {
                     >
                       <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.did || "—"}</Link>
                     </td>
-                    <td>{r.requester_segment || "—"}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <select
+                        className={styles.select}
+                        style={{ minWidth: 100, opacity: savingChannel === r.id ? 0.5 : 1 }}
+                        value={r.requester_segment || ""}
+                        disabled={savingChannel === r.id}
+                        onChange={(e) => updateChannel(r, e.target.value)}
+                      >
+                        <option value="">—</option>
+                        {CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </td>
                     <td style={{ maxWidth: 260, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {r.release_category ? `${r.release_category} - ${r.project_type || "—"}` : (r.project_type || "—")}
                     </td>
@@ -253,6 +328,20 @@ export default function ReleasesDashboard() {
                     <td>{fmtDate(r.release_date)}</td>
                     <td>
                       <span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.12)", color: "#ff9d5c" }}>{r.status}</span>
+                    </td>
+                    <td>
+                      <span
+                        className={styles.statusBadge}
+                        style={
+                          pitching.tone === "orange"
+                            ? { background: "rgba(255,107,26,0.12)", color: "#ff9d5c" }
+                            : pitching.tone === "yellow"
+                            ? { background: "rgba(234,179,8,0.14)", color: "#eab308" }
+                            : { background: "rgba(148,163,184,0.14)", color: "var(--text-faint)" }
+                        }
+                      >
+                        {pitching.label}
+                      </span>
                     </td>
                     <td>
                       <span className={`${styles.pill} ${pct > 0 ? styles.pillOrange : styles.pillGray}`}>{pct}%</span>

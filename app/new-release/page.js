@@ -4,7 +4,7 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
-import { GateFields, BoolToggle, GateToggle } from "../../lib/GateFields";
+import { GateFields, GateToggle } from "../../lib/GateFields";
 import QuickCreate from "../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../lib/ReferenceInputs";
 import { buildLinkshareNote, defaultLinkshareFacebookTiming, defaultLinkshareTiktokTiming, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS } from "../../lib/releaseNotes";
@@ -54,12 +54,20 @@ const EMPTY_FORM = {
   meta_mv: "false",
   meta_doc: "false",
   gate_pitching: "false",
-  gate_publishing: "false",
   gate_goi_ho_tro_truyen_thong: "false",
+  gate_data_request: "false",
   gate_split_share: "false",
   gate_lyric_musixmatch: "false",
+  gate_mv_spotify: "false",
+  gate_discovery_mode_spotify: "false",
+  gate_sony_publish: "false",
+  gate_legal_request: "false",
+  gate_phu_luc_mg: "false",
+  gate_phu_luc_truyen_thong: "false",
+  gate_phu_luc_publishing: "false",
   gate_design: "false",
   gate_co_trong_net_youtube: "false",
+  design_content_types: [],
   split_share_entries: [],
 };
 

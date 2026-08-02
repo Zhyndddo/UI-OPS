@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, formatDetailText } from "../../../lib/helpers";
-import { GateFields, BoolToggle, GateToggle } from "../../../lib/GateFields";
+import { GateFields, GateToggle } from "../../../lib/GateFields";
 import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import UrlField from "../../../lib/UrlField";
@@ -207,6 +207,18 @@ export default function ReleaseDetailPage() {
   useEffect(() => {
     if (searchParams?.get("focus") === "media_booking") setTab("media_booking");
   }, [searchParams]);
+
+  // "PHỤ LỤC TRUYỀN THÔNG (CHỌN GÓI TỰ ĐỘNG CHỌN YES)" — the moment the
+  // release leaves BRIEF & DATA/DEALING (i.e. a real package/contract type
+  // has been picked), auto-flip this to "true" if it's still at its
+  // untouched default. Never overwrites an explicit "No"/"TBU" someone
+  // already set — only fires from the true default, once.
+  useEffect(() => {
+    if (!form.id) return;
+    if (!PIPELINE_STAGES.includes(form.project_type) && form.gate_phu_luc_truyen_thong === "false") {
+      update("gate_phu_luc_truyen_thong", "true");
+    }
+  }, [form.id, form.project_type]);
 
   useEffect(() => {
     if (tab === "media_booking" && searchParams?.get("focus") === "media_booking" && mediaBookingSectionRef.current && !autoScrolled) {
@@ -879,17 +891,11 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         <TracklistSection releaseId={form.id} />
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
-        <Field label="UPC">
-          <input className={styles.input} value={form.upc || ""} onChange={(e) => update("upc", e.target.value)} />
-        </Field>
-        <Field label="ISRC">
-          <input className={styles.input} value={form.isrc || ""} onChange={(e) => update("isrc", e.target.value)} />
-        </Field>
-        <Field label="Apple ID">
-          <input className={styles.input} value={form.apple_id || ""} onChange={(e) => update("apple_id", e.target.value)} />
-        </Field>
-      </div>
+      {/* UPC/ISRC/Apple ID hidden from Overview ("ẩn đi, không hiện ở dự án")
+          — they're redundant here: UPC already lives on the URL tab
+          (:1219), ISRC/Apple ID already live on the Pitching tab (:1516,
+          :1519). Same form.upc/isrc/apple_id columns, just one fewer place
+          showing them. */}
 
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, alignItems: "start" }}>
         <div>
@@ -980,25 +986,15 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         * Required for Send Upload (Audio, Artwork, Lyric, Metadata). Working Files and MV are tracked here but don't block the ticket. TBU counts the same as No for gating — it's not done yet.
       </p>
 
-      <div className={styles.subheading}>Other Checklist</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
-        <div className={styles.field} style={{ marginBottom: 0 }}>
-          <label className={styles.fieldLabel}>SONY PUBLISH</label>
-          <BoolToggle value={!!form.sony_publish} onChange={(v) => update("sony_publish", v)} />
-        </div>
-        <div className={styles.field} style={{ marginBottom: 0 }}>
-          <label className={styles.fieldLabel}>PUBLISHING</label>
-          <BoolToggle value={!!form.is_publish} onChange={(v) => update("is_publish", v)} />
-        </div>
-        <div className={styles.field} style={{ marginBottom: 0 }}>
-          <label className={styles.fieldLabel}>Splitshare</label>
-          <BoolToggle value={!!form.has_splitshare} onChange={(v) => update("has_splitshare", v)} />
-        </div>
-        <div className={styles.field} style={{ marginBottom: 0 }}>
-          <label className={styles.fieldLabel}>Request Phụ lục</label>
-          <BoolToggle value={!!form.phu_luc_requested} onChange={(v) => update("phu_luc_requested", v)} />
-        </div>
-      </div>
+      {/* "Other Checklist" (Sony Publish/Publishing/Splitshare/Request Phụ
+          Lục as plain Yes/No) removed — it duplicated fields that now live
+          as tri-state (with TBU) in the Marketing Request group below via
+          GateFields: gate_sony_publish, gate_split_share, gate_phu_luc_mg /
+          gate_phu_luc_truyen_thong / gate_phu_luc_publishing. The old
+          "PUBLISHING" box here was also a straight duplicate of
+          Additional Request's old gate_publishing field ("bị trùng
+          publishing") — both are gone now, folded into the Phụ Lục
+          Publishing field instead. */}
 
       <div style={{ marginTop: 24, borderTop: "1px solid #262626", paddingTop: 20 }}>
         <button

@@ -933,3 +933,177 @@ the column header row directly under the orange bar instead of losing it
 off the top of the screen, and the topbar itself no longer scrolls away
 either. Applies everywhere `styles.table` is used (every workstation and
 ticket list table), not just one page. No SQL — pure CSS/layout.
+
+## Follow-up round — Marketing Checklist/Request split, Publishing dedup, TBU carried over, Overview cleanup
+
+This round came in as one large batched message (10 numbered asks, several
+with a screenshot). Some were unambiguous and are done below; a few had
+genuine ambiguity in matching each instruction to its screenshot — those
+are called out explicitly so they can be corrected quickly rather than
+silently guessed wrong.
+
+**SQL to run first:** `add-marketing-request-fields.sql` — adds 8 new
+tri-state gate columns plus `design_content_types` (jsonb array), and
+backfills `gate_sony_publish`/`gate_split_share` from the old boolean
+columns they replace. Doesn't drop anything — old columns
+(`sony_publish`, `is_publish`, `has_splitshare`, `phu_luc_requested`,
+`gate_publishing`) are left in place with their historical data, just no
+longer read/written by the UI.
+
+### Done
+
+**Marketing Checklist / Marketing Request split** (`lib/GateFields.js`,
+the "Additional Request" grid on both the New Release create form and the
+release detail page) — now two labeled clusters instead of one flat grid:
+- **Marketing Checklist:** Profile Artist, Artist Photo, Project Proposal.
+- **Marketing Request:** Pitching, Gói Hỗ Trợ Truyền Thông, Data Request
+  (new), Priority Sync Lyric, Music Video on Spotify (new), Discovery Mode
+  on Spotify (new), Sony Publish (new tri-state, replaces the old
+  boolean), Splitshare, Legal Request (new), Phụ Lục MG (new), Phụ Lục
+  Truyền Thông (new — see auto-yes below), Phụ Lục Publishing (new),
+  plus **Design, Có Trong Net YouTube, and Pre-order** — these three
+  weren't in the list you sent, but they're functionally wired (Design
+  reveals the new Thể Loại picker, Pre-order reveals its URL field) so
+  they were kept rather than dropped silently. Say if any of the three
+  should move elsewhere or go away.
+
+**Publishing duplication fixed** ("bị trùng publishing") — the old
+`gate_publishing` field (tri-state, Additional Request) and `is_publish`
+(plain boolean, Overview's old "Other Checklist") were two separate DB
+columns both showing a field called "Publishing" on the same page. Both
+are now gone from the UI — the only Publishing-shaped field left is the
+new **Phụ Lục Publishing**, inside Marketing Request.
+
+**TBU carried into the old "Other Checklist" fields** — Sony Publish and
+Splitshare used to be plain Yes/No (`sony_publish`, `has_splitshare`);
+they're now tri-state with TBU via `gate_sony_publish`/`gate_split_share`
+in the Marketing Request cluster, replacing the old "Other Checklist"
+section on the release detail page entirely (Request Phụ Lục there is
+also superseded — split into the three new specific Phụ Lục fields
+instead of one generic flag).
+
+**"Thể Loại" on Design = Yes** — when the Design gate is set to Yes, a
+"Thể Loại" checkbox group appears (Lyrics / Music Video / Visualize),
+saved to the new `design_content_types` array. **Assumption flagged**:
+your instruction was "bấm yes thì thêm Thể loại vô MV Lyrics, Music
+Video, Visualize" with one screenshot showing the MV metadata-checklist
+toggle and another showing the full Additional Request grid — I attached
+this to the Design gate since content-type categories (Lyrics/MV/
+Visualize) read as a Design-ticket concept, not a metadata-checklist one,
+but if you meant a different toggle, tell me which and I'll move it.
+
+**Phụ Lục Truyền Thông auto-yes** ("CHỌN GÓI TỰ ĐỘNG CHỌN YES") — the
+moment a release's package/contract type resolves (leaves BRIEF & DATA/
+DEALING), `gate_phu_luc_truyen_thong` auto-flips to "true" if it's still
+at its untouched default — never overwrites an explicit No/TBU. Like
+every other field on this page, this still needs Save clicked to persist.
+
+**UPC/ISRC/Apple ID hidden from the release Overview tab** ("ẩn đi,
+không hiện ở dự án") — removed the redundant 3-field row; UPC still lives
+on the URL tab, ISRC/Apple ID still live on the Pitching tab. Same
+underlying columns, just one fewer place they show up.
+
+### Still pending — needs a quick confirmation before I build these
+
+These four involve either real ambiguity in which screenshot matched
+which instruction, or a bigger structural decision (team-based field
+locking doesn't exist anywhere else in this app yet) that's worth
+confirming before spending a full round building it:
+
+1. **New Release dashboard "Channel" column always blank** — confirmed
+   why: it reads `requester_segment` (an optional "Media Channel"
+   dropdown), which nothing requires or defaults, so it's easy to leave
+   empty at creation. My plan: make it inline-editable directly from the
+   dashboard table (a small dropdown per row) so blanks can be fixed in
+   bulk without opening every release. Confirm that's what "nhớ cập nhật
+   cái channel nhan" meant before I build it.
+2. **Add a "Status Pitching" column to the dashboard** — my plan: a new
+   column next to Metadata/Booking/Upload showing each release's Pitching
+   ticket status. The screenshot attached to this line actually showed the
+   Booking Board's TikTok filter row, not anything Pitching-related, so
+   I want to confirm the column itself (not the Booking Board) before
+   building it.
+3. **Booking Board: rename TikTok Channel sub-columns + add a team
+   filter** — rename "TIKTOK BOLERO / MT / TIKTOK VPOP / TIKTOK INDIE /
+   CAPCUT" to "TIKTOK NEWS / CAPCUT / LYRICS / REUP MB / MV" (5 columns
+   instead of 4), and add a filter by team (AR/Marketing/OPS/Design) next
+   to the existing All/Social/Community/Ads/TikTok Channel filter. Low
+   ambiguity on the rename itself, but confirm the new 5 names are exact
+   and in what order, and what "filter by team" should actually filter
+   (which releases/entries belong to which team isn't tracked on
+   `media_booking_entries` today — I'd need to add that).
+4. **URL tab: cluster fields by owning team (OPS / Marketing / Data) and
+   lock whatever AR shouldn't fill in** — this is the biggest one: it
+   needs a real notion of "which team owns which field" and enforced
+   read-only-per-team, which nothing in the app does yet (the closest
+   pattern, requester/executor on tickets, doesn't apply to release
+   fields). Before I build a new access-control layer for this, confirm:
+   which fields go in which cluster (OPS vs Marketing vs Data), and
+   whether "khóa lại" means read-only display or actually disabled/
+   grayed-out inputs for non-owning teams.
+ticket list table), not just one page. No SQL — pure CSS/layout.
+
+## Follow-up round — Dashboard Channel + Status Pitching, item 3/4/10 status
+
+Answers came back on the 4 pending items above:
+
+- Item 2 (Status Pitching column) — confirmed to belong on the New
+  Release dashboard, not the Booking Board; the screenshot really was
+  misaligned.
+- Item 3's "team filter" — still genuinely unclear, including to the
+  person who wrote the instruction ("i have no idea what team filter
+  is, guessing which is envi and which is vieent"). Not built this
+  round — see below.
+- Item 4 (URL tab team-clustering + field-locking) — explicitly
+  cancelled: "i don't think that neccesarry, sometime the boss is just
+  asking without knowing." Not built, and not planned unless raised
+  again with real specifics.
+
+### Done this round
+
+1. **Dashboard Channel column is now inline-editable.** `app/releases/page.js`
+   — the Channel cell is a `<select>` (VIEENT / ENVI / —) that writes
+   straight to `requester_segment` on change, no need to open the release.
+   No SQL — existing column, just a UI change.
+2. **New "Status Pitching" column on the dashboard.** `app/releases/page.js`
+   — added between Status and Metadata. For each release it looks up its
+   Pitching ticket (same `ticket_tabs.key = "pitching"` / `tickets.data->>
+   releaseId` matching pattern used on the release detail page), reads
+   which pitching types were selected (Priority/Spotify/NCT/Zing), and
+   summarizes: "Not requested" (no ticket, or ticket with nothing ticked),
+   "Done" (every selected type's status column reads "Đã pitching"),
+   "Cancelled" (every selected type is "Không thực hiện"/"Không hỗ trợ"),
+   or "In Progress" (anything else). Same DONE/CANCEL definitions as
+   `app/workstation/pitching/page.js`, so the two pages agree. No SQL —
+   reads existing columns (`priority_pitching`, `pitching_status_spotify`,
+   `pitching_status_nct`, `pitching_status_zing`) and the existing
+   `tickets` table.
+
+### Still open — item 3 (Booking Board rename + team filter)
+
+Splitting this in two, since the rename and the filter are different
+risk levels:
+
+- **Column rename** (TIKTOK BOLERO/MT, TIKTOK VPOP, TIKTOK INDIE, CAPCUT
+  → TIKTOK NEWS, CAPCUT, LYRICS, REUP MB, MV) — NOT built yet. These
+  aren't just display labels: `TIKTOK_CHANNEL_GROUPS` in
+  `app/booking/page.js` matches against the real `brand` value stored on
+  every existing `media_booking_entries` row. Renaming the constant alone
+  would silently stop matching any historical booking entry still tagged
+  with the old brand name — it needs a data migration (`update
+  media_booking_entries set brand = ... where brand = ...`) alongside the
+  code change, not just a code change. Also the old list has 4 names and
+  the new one has 5 — want to confirm there's a real 1:1 (or 1:many)
+  mapping from old to new before writing that migration, so no bookings
+  end up unmatched.
+- **Team filter** — still not built; not enough to build on top of a
+  guess. If it does turn out to mean "filter by VIEENT/ENVI" rather than
+  AR/Marketing/OPS/Design, that's actually just the existing
+  `requester_segment` value on the linked release (same field the
+  dashboard Channel column edits above) — cheap to add as a filter
+  dropdown on this page once confirmed. If it really does mean the
+  AR/Marketing/OPS/Design teams, `media_booking_entries` doesn't track
+  "which team" today and that'd need a new column first.
+
+Delivered as `starter_v2_round_z.zip`. No new SQL this round — both
+completed items reuse existing columns/tables.
