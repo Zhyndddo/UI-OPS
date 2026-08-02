@@ -1258,3 +1258,54 @@ under every sticky table header app-wide so the cutoff reads as an
 intentional edge instead of a glitch.
 
 No SQL this round — all three are pure code/CSS.
+
+## Follow-up round — regression fix, bulk team-add, editable email
+
+### Fixed: the sticky-header box-shadow from last round caused the new "blank first row" glitch
+
+The previous round's `box-shadow` on `.table th` (added to soften the
+tall-row cutoff) is a known trap on `border-collapse: collapse` tables —
+combined with `position: sticky` it can render as a solid banded gap
+instead of a soft shadow, which lines up exactly with the newly-reported
+blank first row. Reverted in `app/shared.module.css`; the row-height fix
+(ResultCell laid out 2-per-row) from last round stays, since that one was
+working as intended. If the shadow effect is wanted again later, it needs
+either the table off `border-collapse: collapse` first, or the shadow
+moved onto a non-collapsed wrapper — noted in the CSS comment so it isn't
+re-added blind.
+
+### New: bulk team add without the email rate limit
+
+`scripts/bulk-create-team.js` — creates accounts directly via
+`auth.admin.createUser({ email_confirm: true })` instead of
+`inviteUserByEmail`, which never sends an email at all, so the free-tier
+2/hour cap doesn't apply. Reads a CSV (`name,email,role,segment` —
+template at `data/team-import-template.csv`); emails can be real or
+placeholder/dummy (nothing here needs them to be deliverable, since no
+mail gets sent). Generated passwords are written to a local
+`team-created-credentials.csv` (NOT printed to the terminal/Actions log)
+for you to hand out over a private channel — delete that file once
+everyone's logged in and changed their password. Idempotent — skips any
+email that already has a profile. Dry-run first, `--confirm` to write.
+
+**Deliberately not added to the Data Fix Scripts Actions dropdown** —
+every other script there is safe to run from a CI log because it doesn't
+produce secrets; this one generates passwords, and an Actions log isn't
+a great place for those to live even briefly. Run it locally instead:
+
+```bash
+npm install @supabase/supabase-js --no-save
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/bulk-create-team.js data/team-import-template.csv
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/bulk-create-team.js data/team-import-template.csv --confirm
+```
+
+**New: Config -> Team's Email cell is now editable** (`app/config/page.js`
++ new `app/api/admin/update-email/route.js`) — needed for the placeholder
+emails above to get corrected once real addresses are known. Updates the
+person's actual login email (if they have one) and the profile record
+together — editing profiles.email alone would silently break their login,
+since AuthContext matches a signed-in session to a profile by email, and
+the session itself authenticates against auth.users' email, not
+profiles.email.
+
+No SQL this round.

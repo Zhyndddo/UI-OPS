@@ -243,6 +243,30 @@ function TeamSection() {
     load();
   }
 
+  // Goes through the server (needs the service role key to also update
+  // auth.users' email when this person already has a real login) — see
+  // app/api/admin/update-email/route.js for why both have to change
+  // together. Mainly for fixing up placeholder/dummy addresses used by
+  // scripts/bulk-create-team.js once the real one is known.
+  async function updateEmail(p, newEmail) {
+    if (!newEmail.trim() || newEmail.trim() === p.email) return;
+    setError(null);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    try {
+      const res = await fetch("/api/admin/update-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ profileId: p.id, authId: p.auth_id, newEmail: newEmail.trim() }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Email update failed");
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
   // Removes both their real login and their profiles row — a real
   // delete-user API route, since removing the auth account needs the
   // service role key, which the browser never has direct access to.
@@ -325,7 +349,15 @@ function TeamSection() {
                     onBlur={(e) => updateName(p, e.target.value)}
                   />
                 </td>
-                <td>{p.email}</td>
+                <td>
+                  <input
+                    className={styles.input}
+                    style={{ padding: "4px 8px", fontSize: 12, minWidth: 160 }}
+                    defaultValue={p.email}
+                    onBlur={(e) => updateEmail(p, e.target.value)}
+                    title={p.auth_id ? "Changing this also updates their login email." : "No login yet — this only changes the profile record."}
+                  />
+                </td>
                 <td>
                   <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={p.role} onChange={(e) => updateRole(p, e.target.value)}>
                     {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
