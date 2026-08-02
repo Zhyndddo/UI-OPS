@@ -1378,3 +1378,112 @@ the fix to Booking Board only for now — Pitching workstation and other
 tables were deliberately left alone this round.
 
 No SQL this round.
+
+## 2026-08-02 (2) — Sticky-header fix rolled out to every workstation
+
+Rolled the Booking-Board-only sticky-header fix from earlier today out to
+every table that uses the shared `.table` class (`shared.module.css`) —
+which is every workstation, every ticket list, and every dashboard table
+in the app (grepped for `styles.table` usage: booking, releases, artists,
+labels, config, pick-package, all `app/tickets/*`, all `app/workstation/*`
+including pitching).
+
+`.table` now uses `border-collapse: separate; border-spacing: 0` instead
+of `collapse`, and `.table th` carries the soft `box-shadow` under the
+sticky header directly. Collapse + a sticky `<th>` + box-shadow was the
+known rendering trap (see the long-standing comment on `.table th`) that
+caused the earlier "blank first row" regression on Booking Board — the
+fix there (switch off collapse first) is now the table's default
+everywhere, not a one-page workaround, so Pitching workstation's blank
+first row and any other workstation hitting the same class of bug is
+covered by the same change.
+
+Removed the now-redundant per-page override that had been added to
+`app/booking/page.js` for this — it's back to using the shared class
+plainly, since `shared.module.css` does the job for every table now.
+
+No SQL this round.
+
+## 2026-08-02 (3) — Booking Channels reference import + picker
+
+### New: real channel reference data imported, wired into the Add Link popup
+
+You sent the real "LIST KÊNH VIEENT & ENVI" sheet (142 usable rows —
+channel name, platform, URL, follower count, and a loose tag, across the
+VIEENT / ENVI / INDIE / VPOP / capcut brand groupings). This is exactly
+what `booking_channels` (schema.sql) was already built for — it was
+seeded with only 9 hand-typed rows (VIEENT's and ENVI's own official
+channels) and its own comment already said it should "match the real
+LIST KÊNH VIEENT & ENVI sheet exactly." There's also already a
+`/booking-channels` admin page for it — it just had no real data yet, and
+nothing in the Booking Board actually read from it.
+
+**Schema change** — `add-booking-channels-reference-fields.sql` adds 4
+nullable columns the original 9 rows didn't need: `brand`, `url`,
+`follower_count`, `note`. Run this against your database first:
+
+```sql
+alter table booking_channels add column if not exists brand text;
+alter table booking_channels add column if not exists url text;
+alter table booking_channels add column if not exists follower_count int;
+alter table booking_channels add column if not exists note text;
+```
+
+(Full file with column comments is `add-booking-channels-reference-fields.sql`
+at the repo root reference — not shipped inside `starter/`, same as
+`schema.sql` itself; ask if you want it bundled into this zip too.)
+
+**Import** — `scripts/import-booking-channels.js` reads
+`data/booking-channels-import.json` (the sheet, already committed) and
+inserts into `booking_channels`:
+
+- `platform` is normalized to the app's existing vocabulary (Facebook,
+  Instagram, TikTok, YouTube, Thread) — the sheet's "INS" → Instagram,
+  "Youtube" → YouTube, and "Capcut" → TikTok (those rows are all real
+  tiktok.com links; "Capcut" is kept in `note` as a tag instead of
+  inventing a 6th platform column nothing else in the app knows about).
+- `channel_type` (Direct/Partner — not in the sheet) is inferred: a row
+  only counts as "Direct" when the channel's own name IS the brand's name
+  (VIEENT's own pages, ENVI's own pages) — everything else (the ~130
+  community/curator pages) is "Partner".
+- `brand` is kept as the sheet's own raw grouping, not force-mapped onto
+  the Booking Board's column brand names (PAGE VPOP, TIKTOK VPOP, etc.) —
+  see the picker note below for why.
+- Idempotent via the table's existing `unique(name, platform, channel_type)`
+  — safe to re-run.
+- One spacer row (brand "capcut", nothing else filled in) has no name and
+  is skipped.
+
+```bash
+npm install @supabase/supabase-js --no-save
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-booking-channels.js
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-booking-channels.js --confirm
+```
+
+Also runs from the Data Fix Scripts Actions dropdown as
+`import-booking-channels` — no file path needed, it reads the committed
+JSON directly.
+
+**Picker wired into the Booking Board's Add Link popup**
+(`app/booking/page.js`) — `BrandCell`'s popup now has a collapsible "Pick
+from reference list" section: search by name, click a result to fill the
+first blank channel row with that channel's name + URL, instead of typing
+both from scratch. Free typing still works exactly as before regardless.
+
+Suggestions are filtered by platform (a reliable 1:1 mapping) and then
+*ranked* — not filtered — by whether the channel's raw `brand` likely
+matches this column's brand (a soft token-overlap check, e.g. column
+brand "PAGE VPOP" and sheet brand "VPOP" share the token VPOP). Kept as a
+ranking instead of a hard filter deliberately: the sheet's brand
+vocabulary and the Board's column brand vocabulary were never meant to
+line up exactly, and getting that mapping wrong should never mean a real
+channel becomes impossible to find — it just won't be sorted first.
+
+**`/booking-channels` admin page** now shows and lets you set URL, and
+displays brand/follower count/note/URL for every channel, plus a search
+box (with ~140 real rows in there now, the old just-scroll-and-look UI
+stopped being usable).
+
+No further code changes — the release-detail crash fix, filter-button
+darkening, and workstation sticky-header fix from earlier today are
+already in this same round.

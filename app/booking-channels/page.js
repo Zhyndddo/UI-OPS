@@ -13,7 +13,9 @@ export default function BookingChannelsPage() {
   const [name, setName] = useState("");
   const [platform, setPlatform] = useState("TikTok");
   const [channelType, setChannelType] = useState("Direct");
+  const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
 
   useEffect(() => { if (supabase) load(); }, []);
 
@@ -30,10 +32,18 @@ export default function BookingChannelsPage() {
     const siblings = channels.filter((c) => c.platform === platform && c.channel_type === channelType);
     if (siblings.some((c) => c.name.toLowerCase() === name.trim().toLowerCase())) return;
     const maxSort = Math.max(-1, ...siblings.map((c) => c.sort_order));
-    await supabase.from("booking_channels").insert({ name: name.trim(), platform, channel_type: channelType, sort_order: maxSort + 1 });
+    await supabase.from("booking_channels").insert({ name: name.trim(), platform, channel_type: channelType, url: url.trim() || null, sort_order: maxSort + 1 });
     setName("");
+    setUrl("");
     load();
   }
+
+  // Imported reference channels (~140 from the "LIST KÊNH VIEENT & ENVI"
+  // sheet) made this list too long to scan by eye — filters by name,
+  // brand, or note, same as the Add Link popup's own search.
+  const visibleChannels = search.trim()
+    ? channels.filter((c) => `${c.name} ${c.brand || ""} ${c.note || ""}`.toLowerCase().includes(search.trim().toLowerCase()))
+    : channels;
 
   async function remove(c) {
     await supabase.from("booking_channels").delete().eq("id", c.id);
@@ -68,25 +78,51 @@ export default function BookingChannelsPage() {
             <label className={styles.fieldLabel}>Channel Name</label>
             <input className={styles.input} placeholder="e.g. ENVI" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
+          <div className={styles.field} style={{ marginBottom: 0, minWidth: 220 }}>
+            <label className={styles.fieldLabel}>URL (optional)</label>
+            <input className={styles.input} placeholder="https://…" value={url} onChange={(e) => setUrl(e.target.value)} />
+          </div>
           <button className={styles.btnPrimary} type="submit">+ Add</button>
         </form>
 
+        <div className={styles.field} style={{ maxWidth: 320, marginBottom: 20 }}>
+          <input
+            className={styles.input}
+            placeholder="Search by name, brand, or tag…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+
         {loading ? (
           <div className={styles.emptyState}>Loading…</div>
-        ) : channels.length === 0 ? (
-          <div className={styles.emptyState}>No channels yet.</div>
+        ) : visibleChannels.length === 0 ? (
+          <div className={styles.emptyState}>{channels.length === 0 ? "No channels yet." : "No channels match that search."}</div>
         ) : (
           BOOKING_PLATFORMS.map((p) => {
-            const group = channels.filter((c) => c.platform === p);
+            const group = visibleChannels.filter((c) => c.platform === p);
             if (group.length === 0) return null;
             return (
               <div key={p} style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>{p}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>{p} ({group.length})</div>
                 <div style={{ display: "grid", gap: 6 }}>
                   {group.map((c) => (
-                    <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 14px" }}>
-                      <span>{c.name} <span style={{ color: "var(--text-faint)", fontSize: 11 }}>({c.channel_type})</span></span>
-                      <button onClick={() => remove(c)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 14 }}>✕</button>
+                    <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 14px", gap: 10 }}>
+                      <div style={{ overflow: "hidden" }}>
+                        <div>
+                          {c.name} <span style={{ color: "var(--text-faint)", fontSize: 11 }}>({c.channel_type}{c.brand ? ` · ${c.brand}` : ""})</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--text-faint)", display: "flex", gap: 10, marginTop: 2 }}>
+                          {c.follower_count != null && <span>{c.follower_count.toLocaleString()} followers</span>}
+                          {c.url && (
+                            <a href={c.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-soft)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 260 }}>
+                              {c.url}
+                            </a>
+                          )}
+                          {c.note && <span>{c.note}</span>}
+                        </div>
+                      </div>
+                      <button onClick={() => remove(c)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 14, flexShrink: 0 }}>✕</button>
                     </div>
                   ))}
                 </div>

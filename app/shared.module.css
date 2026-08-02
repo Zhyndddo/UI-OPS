@@ -65,7 +65,18 @@
 
 .table {
   width: 100%;
-  border-collapse: collapse;
+  /* Was border-collapse: collapse. Switched to separate (+ border-spacing:
+     0, so cell borders still look continuous — no visible gap opens up)
+     because collapse + a sticky <th> + a box-shadow is a known browser
+     rendering trap: it can draw the shadow as a solid banded gap instead
+     of a soft shadow. That combination is almost certainly what caused
+     the earlier "blank first row" glitch on Booking Board when a
+     box-shadow was briefly tried directly on .table th under collapse.
+     This table-wide switch is what lets every workstation table below
+     carry that box-shadow safely instead of scattering the same override
+     across each page individually. */
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13px;
 }
 
@@ -85,21 +96,18 @@
      the TopBar's (300) and the notification/dropdown panels, but above
      ordinary row content. Background is opaque so scrolled-under rows
      don't show through the floating header. Rows taller than one line
-     (checkbox lists, multi-line cells) still visibly peek out from behind
-     this header mid-scroll — that's inherent to sticky headers generally,
-     not something border-bottom alone fixes.
-     NOTE: a box-shadow was briefly added here to soften that cutoff, but
-     box-shadow on a <th> inside a border-collapse:collapse table is a
-     known rendering trap — browsers can draw it as a solid banded gap
-     instead of a soft shadow once combined with position:sticky, which is
-     almost certainly what produced the "blank first row" glitch reported
-     right after. Reverted; do not re-add box-shadow directly on .table th
-     without first switching the table off border-collapse:collapse (or
-     moving the shadow onto a non-collapsed wrapper element instead). */
+     (checkbox lists, multi-line cells) can still visibly peek out from
+     behind this header mid-scroll — that's inherent to sticky headers
+     generally, not something border-bottom alone fixes — but the
+     box-shadow below at least gives a clean visual edge instead of a
+     hard, confusing cutoff (and, on short/single-row tables, was
+     reported as making the row look entirely blank until this table was
+     switched off border-collapse: collapse above). */
   position: sticky;
   top: var(--topbar-height);
   z-index: 20;
   background: var(--bg);
+  box-shadow: 0 4px 6px -4px rgba(0, 0, 0, 0.35);
 }
 
 .table td {

@@ -63,6 +63,30 @@ const ADS_METRICS = {
 
 const ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
 
+// Soft brand matching between this Board's own column brand names (e.g.
+// "PAGE VPOP", "TIKTOK BOLERO / MT", "EXT TIKTOK - BK MUSIC") and
+// booking_channels.brand, which stores the reference sheet's raw grouping
+// instead (e.g. "VPOP", "ENVI - MIỀN TÂY/BOLERO"). The two vocabularies
+// were never meant to match exactly — this only ever RANKS suggestions in
+// the Add Link popup, never hides any, so a token that doesn't overlap
+// just means "not sorted to the top," not "invisible." Search always finds
+// a channel by name regardless of this matching.
+function brandTokens(value) {
+  return new Set(
+    (value || "")
+      .toUpperCase()
+      .replace(/[^A-ZÀ-Ỹ0-9]+/g, " ")
+      .split(" ")
+      .filter((t) => t && !["PAGE", "TIKTOK", "EXT", "SOCIAL", "BK", "CTV", "MT"].includes(t))
+  );
+}
+function brandsLikelyMatch(a, b) {
+  const ta = brandTokens(a);
+  const tb = brandTokens(b);
+  for (const t of ta) if (tb.has(t)) return true;
+  return false;
+}
+
 export default function BookingBoard() {
   const [releases, setReleases] = useState([]);
   const [entries, setEntries] = useState([]);
@@ -80,6 +104,7 @@ export default function BookingBoard() {
   const [expandedCell, setExpandedCell] = useState(null); // `${releaseId}:${categoryName}:${brand}` or null
   const [packagePreview, setPackagePreview] = useState(null); // release being previewed, or null
   const [unrequestedOnly, setUnrequestedOnly] = useState(false); // only relevant once a specific Hạng Mục is picked (not "All") — see below
+  const [bookingChannels, setBookingChannels] = useState([]); // booking_channels reference table — see BrandCell's Add Link popup
 
   useEffect(() => {
     const options = CATEGORY_SUBFILTERS[hangMucFilter];
@@ -102,11 +127,17 @@ export default function BookingBoard() {
     const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
     const { data: pkgs } = await supabase.from("media_booking_packages").select("id, release_id, name, media_booking_package_lines(category_id, brand, quantity)");
     const { data: targets } = await supabase.from("media_booking_dot2_targets").select("release_id");
+    // Reference channel list (see /booking-channels) — lets the Add Link
+    // popup below suggest a real channel + URL instead of OPS typing both
+    // from scratch every time. Missing table/no rows just means no
+    // suggestions show up; the popup still works exactly as before.
+    const { data: chans } = await supabase.from("booking_channels").select("*");
     setReleases(rels || []);
     setEntries(ents || []);
     setCategories(cats || []);
     setPackages(pkgs || []);
     setDot2ReleaseIds(new Set((targets || []).map((t) => t.release_id)));
+    setBookingChannels(chans || []);
     setLoading(false);
   }
 
@@ -487,25 +518,17 @@ export default function BookingBoard() {
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
-          {/* Booking Board only: border-collapse switched to "separate" (with
-              borderSpacing 0, so cell borders still look continuous) so the
-              sticky header can carry a real box-shadow for a soft cutoff
-              instead of the hard peek-through the shared .table class still
-              has elsewhere. box-shadow directly on a <th> inside a
-              border-collapse:collapse table is a known trap (see the long
-              comment in shared.module.css) — that's exactly what caused the
-              earlier "blank first row" regression. Switching this table off
-              collapse first is the fix path that comment says to take
-              before ever re-adding the shadow; kept scoped to this page's
-              inline styles only, shared.module.css's .table is untouched so
-              every other workstation keeps its current (imperfect but safe)
-              behavior. */}
-          <table className={styles.table} style={{ minWidth: 900, borderCollapse: "separate", borderSpacing: 0 }}>
+          {/* The sticky-header box-shadow (and the border-collapse:separate
+              it depends on to render safely) now lives in shared.module.css's
+              .table class itself, so every workstation gets it — this page
+              no longer needs its own copy. See the comment on .table in
+              shared.module.css for why collapse had to change first. */}
+          <table className={styles.table} style={{ minWidth: 900 }}>
             <thead>
               <tr>
-                <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288, boxShadow: "0 4px 6px -4px rgba(0, 0, 0, 0.35)" }}>Release</th>
-                <th style={{ borderRight: "2px solid var(--accent)", width: 154, minWidth: 154, maxWidth: 154, boxShadow: "0 4px 6px -4px rgba(0, 0, 0, 0.35)" }}>Package</th>
-                <th style={{ borderRight: "2px solid var(--accent)", boxShadow: "0 4px 6px -4px rgba(0, 0, 0, 0.35)" }}>Result</th>
+                <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288 }}>Release</th>
+                <th style={{ borderRight: "2px solid var(--accent)", width: 154, minWidth: 154, maxWidth: 154 }}>Package</th>
+                <th style={{ borderRight: "2px solid var(--accent)" }}>Result</th>
                 {columns.map((c, i) => {
                   const prev = columns[i - 1];
                   const isGroupStart = prev && prev.categoryName !== c.categoryName;
@@ -515,7 +538,6 @@ export default function BookingBoard() {
                       style={{
                         textAlign: "center",
                         borderLeft: isGroupStart ? "2px solid #555" : "1px solid var(--border)",
-                        boxShadow: "0 4px 6px -4px rgba(0, 0, 0, 0.35)",
                       }}
                     >
                       {c.label}
@@ -578,6 +600,7 @@ export default function BookingBoard() {
                         onCycleStatus={cycleStatus}
                         canAdd={hangMucFilter !== "All"}
                         cellBorderLeft={isGroupStart ? "2px solid #555" : "1px solid var(--border)"}
+                        referenceChannels={bookingChannels}
                       />
                     );
                   })}
@@ -660,13 +683,15 @@ function blankChannel() {
   return { channelName: "", urls: [""] };
 }
 
-function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, onAdd, onAddBulk, onCycleStatus, canAdd, cellBorderLeft }) {
+function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, onAdd, onAddBulk, onCycleStatus, canAdd, cellBorderLeft, referenceChannels }) {
   const [showAddPopup, setShowAddPopup] = useState(false);
   const [channels, setChannels] = useState([blankChannel()]);
   const [submitResult, setSubmitResult] = useState(null);
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [bulkResult, setBulkResult] = useState(null);
+  const [refSearch, setRefSearch] = useState("");
+  const [showRefPicker, setShowRefPicker] = useState(false);
   const added = cellEntries.length;
   const isDone = booked != null && booked > 0 && added >= booked;
   const hasChannelCol = !column.platform;
@@ -682,6 +707,39 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
   }
   function addChannel() {
     setChannels((prev) => [...prev, blankChannel()]);
+  }
+
+  // Reference picker — see /booking-channels and app/booking/page.js's
+  // load(). TikTok Channel columns (hasChannelCol) don't carry a fixed
+  // platform of their own, but every real channel in that Hạng Mục is a
+  // TikTok one, so those columns match against platform "TikTok" directly.
+  // Sorted (not filtered) by whether the channel's own brand grouping
+  // likely matches this column's brand — see brandsLikelyMatch's comment
+  // for why this never hides anything, only ranks.
+  const matchPlatform = column.platform || "TikTok";
+  const refMatches = useMemo(() => {
+    const platformRows = (referenceChannels || []).filter((c) => c.platform === matchPlatform);
+    const q = refSearch.trim().toLowerCase();
+    const filtered = q
+      ? platformRows.filter((c) => `${c.name} ${c.brand || ""} ${c.note || ""}`.toLowerCase().includes(q))
+      : platformRows;
+    return filtered
+      .map((c) => ({ c, likely: brandsLikelyMatch(c.brand, column.brand) }))
+      .sort((a, b) => (b.likely - a.likely) || (b.c.follower_count || 0) - (a.c.follower_count || 0))
+      .slice(0, 25);
+  }, [referenceChannels, refSearch, matchPlatform, column.brand]);
+
+  // Picking a suggestion fills the first still-blank channel row instead
+  // of always appending a new one, so the common "open popup, pick one
+  // channel" case doesn't leave a stray empty row behind.
+  function pickReferenceChannel(ch) {
+    setChannels((prev) => {
+      const blankIdx = prev.findIndex((c) => !c.channelName && c.urls.every((u) => !u.trim()));
+      const entry = { channelName: ch.name, urls: [ch.url || ""] };
+      if (blankIdx === -1) return [...prev, entry];
+      return prev.map((c, i) => (i === blankIdx ? entry : c));
+    });
+    setRefSearch("");
   }
 
   // "Done" saves every non-empty URL across every channel row in one batch
@@ -790,7 +848,7 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              position: "absolute", top: 0, left: "100%", marginLeft: 6, zIndex: 300, width: 260,
+              position: "absolute", top: 0, left: "100%", marginLeft: 6, zIndex: 300, width: 300,
               background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, padding: 12,
               boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
             }}
@@ -806,6 +864,54 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
                 {bulkMode ? "channels" : "bulk / CSV"}
               </button>
             </div>
+
+            {/* Reference picker — pulls from booking_channels (see
+                /booking-channels) instead of typing a channel name + URL
+                from scratch every time. Only shown in the normal (non-bulk)
+                flow; collapsed by default since most cells won't need it
+                open. Picking a channel fills the first blank row below —
+                free typing still works exactly as before either way. */}
+            {!bulkMode && referenceChannels && referenceChannels.length > 0 && (
+              <div style={{ marginBottom: 10, border: "1px solid var(--border)", borderRadius: 6, padding: 8 }}>
+                <button
+                  onClick={() => setShowRefPicker((s) => !s)}
+                  style={{ background: "none", border: "none", color: "var(--accent-soft)", fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0, width: "100%", textAlign: "left" }}
+                >
+                  {showRefPicker ? "▾" : "▸"} Pick from reference list
+                </button>
+                {showRefPicker && (
+                  <div style={{ marginTop: 6 }}>
+                    <input
+                      className={styles.input}
+                      style={{ width: "100%", padding: "5px 8px", fontSize: 11, boxSizing: "border-box", marginBottom: 6 }}
+                      placeholder="Search channel name…"
+                      value={refSearch}
+                      onChange={(e) => setRefSearch(e.target.value)}
+                    />
+                    <div style={{ maxHeight: 140, overflowY: "auto", display: "grid", gap: 2 }}>
+                      {refMatches.length === 0 && (
+                        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>No matching channels.</div>
+                      )}
+                      {refMatches.map(({ c, likely }) => (
+                        <button
+                          key={c.id}
+                          onClick={() => pickReferenceChannel(c)}
+                          title={c.url || ""}
+                          style={{
+                            display: "block", width: "100%", textAlign: "left", background: likely ? "var(--bg-hover)" : "none",
+                            border: "none", borderRadius: 4, padding: "4px 6px", cursor: "pointer", color: "var(--text)", fontSize: 11,
+                          }}
+                        >
+                          {c.name}
+                          {c.brand && <span style={{ color: "var(--text-faint)" }}> · {c.brand}</span>}
+                          {c.follower_count != null && <span style={{ color: "var(--text-faint)" }}> · {c.follower_count.toLocaleString()}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {!bulkMode ? (
               <div>

@@ -27,6 +27,12 @@ name: Data Fix Scripts
 # commit them to the repo too (e.g. data/phai-sinh-export.json,
 # data/manual-claim-export.json) and set file_path / file_path_2. Either
 # can be left blank if you're only importing one of the two.
+#
+# import-booking-channels reads its data from a fixed path in the repo
+# (data/booking-channels-import.json, already committed — no file_path
+# input needed) and writes into booking_channels. Run
+# add-booking-channels-reference-fields.sql against the database FIRST —
+# see DATA_FIXES.md — this script writes into columns that migration adds.
 
 on:
   workflow_dispatch:
@@ -48,6 +54,7 @@ on:
           - import-booking
           - import-legacy-orders
           - backfill-send-upload
+          - import-booking-channels
       confirm:
         description: "Actually write changes (unchecked = dry run only)"
         required: false
