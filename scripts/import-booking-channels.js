@@ -40,14 +40,20 @@
 //   type            -> note (the sheet's loose tag, e.g. "Key news/tổng
 //                      hợp", "Key lyrics" — descriptive only, not used by
 //                      any picker logic)
-//   channel_type    -> inferred, not in the sheet: a row is "Direct" only
-//                      when its channel name IS the brand's own name
-//                      (VIEENT's own pages, named "VIEENT"; ENVI's own
-//                      pages, named "ENVI") — every other row (all the
-//                      community/curator/partner pages) is "Partner".
-//                      Matches the existing channel_type vocabulary
-//                      ('Direct' | 'Partner') already used by the 9 seed
-//                      rows and the /booking-channels admin page.
+//   channel_type    -> always "Direct". EARLIER VERSION of this script
+//                      guessed "Direct" only for VIEENT's/ENVI's own named
+//                      pages and "Partner" for everything else (assuming
+//                      channel_type tracked page ownership) — wrong: every
+//                      channel on this reference sheet, including the
+//                      community/curator pages, is one VIEENT deals with
+//                      directly (no third-party agency in between), which
+//                      is what channel_type actually distinguishes (see
+//                      media_booking_entries.channel_type's comment in
+//                      schema.sql: "'Direct' = VIEENT runs it themselves,
+//                      no third-party contract; 'Partner' = an outside
+//                      vendor/channel is involved"). If a channel here
+//                      ever needs to be Partner instead, change it by hand
+//                      from /booking-channels.
 //
 // One row (brand: "capcut", everything else blank — a stray spacer row in
 // the source sheet) has no name and is skipped; nothing else to create a
@@ -90,19 +96,14 @@ const PLATFORM_MAP = {
   "capcut": "TikTok", // see file header comment — Capcut rows are tiktok.com links
 };
 
-// Self-channel brand names — a row is this brand's own official page only
-// when its display name matches one of these (case-insensitive), not just
-// shares the brand grouping.
-const SELF_NAMES = ["vieent", "envi"];
-
 function normPlatform(raw) {
   if (!raw) return null;
   return PLATFORM_MAP[String(raw).trim().toLowerCase()] || null;
 }
 
 function inferChannelType(name) {
-  if (!name) return "Partner";
-  return SELF_NAMES.includes(name.trim().toLowerCase()) ? "Direct" : "Partner";
+  // See the file header comment — every channel on this sheet is Direct.
+  return "Direct";
 }
 
 async function main() {

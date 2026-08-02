@@ -55,6 +55,7 @@ on:
           - import-legacy-orders
           - backfill-send-upload
           - import-booking-channels
+          - fix-booking-channels-direct
       confirm:
         description: "Actually write changes (unchecked = dry run only)"
         required: false

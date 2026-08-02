@@ -1593,3 +1593,38 @@ was only ever choosing which round's data to *display*.
 The Booking Board's own INT/Đợt 1/Đợt 2 picker (used for actually adding
 links) and the Magic Link page's round picker are both untouched — you
 only asked about this one square.
+
+## 2026-08-02 (6) — Booking channel import: fixed wrong channel_type
+
+You caught it: `scripts/import-booking-channels.js` guessed `channel_type`
+wrong — it set "Direct" only for VIEENT's/ENVI's own named pages and
+"Partner" for the ~134 community/curator channels, assuming channel_type
+tracked page ownership. It doesn't — per schema.sql's own comment on the
+concept, Direct/Partner is about who VIEENT contracts through ("Direct" =
+VIEENT runs it themselves, no third-party agency involved), and every
+channel on this reference sheet is one VIEENT deals with directly. They
+should all be "Direct".
+
+**Fixed for future/re-runs:** `import-booking-channels.js`'s
+`inferChannelType()` now just always returns "Direct" — if this script is
+re-run (e.g. after a fresh import), it'll get it right from the start.
+
+**If you already ran `--confirm` and the wrong data is live:**
+`scripts/fix-booking-channels-direct.js` — one-time correction, only
+touches rows this import created (`brand is not null`, which only this
+script ever sets — your 9 original hand-seeded rows and anything added by
+hand from `/booking-channels` are untouched). Checks for the (unlikely)
+case where flipping a row to Direct would collide with an existing Direct
+row of the same name+platform and skips + reports those individually
+instead of erroring the whole run.
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/fix-booking-channels-direct.js
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/fix-booking-channels-direct.js --confirm
+```
+
+Also in the Data Fix Scripts Actions dropdown as `fix-booking-channels-direct`.
+
+If you haven't run the import at all yet, you don't need this fix
+script — just run the (now-corrected) `import-booking-channels.js` and
+everything comes in right the first time.
