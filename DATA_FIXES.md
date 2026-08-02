@@ -1158,3 +1158,103 @@ it's the only import script here that needs two source files). Run
 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-legacy-orders.js data/phai-sinh-export.json data/manual-claim-export.json
 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-legacy-orders.js data/phai-sinh-export.json data/manual-claim-export.json --confirm
 ```
+
+## Follow-up round — light theme colors, Send Upload backfill, dashboard bug report
+
+### Done
+
+**Light theme colors** (`app/globals.css`, `[data-theme="light"]` block) —
+greys darkened toward near-black (`--text-muted`/`--text-faint`/
+`--text-dim`/`--border-strong` all repointed) so secondary text actually
+pops instead of reading washed-out; the whites (`--bg`/`--bg-card`/
+`--bg-input`/`--bg-hover`) are now a warm yellowish eggshell instead of
+stark white, so surfaces read as dimmer. Dark theme untouched. `--border`
+(hairline dividers) got a lighter warm tone rather than near-black, since
+a near-black hairline on an eggshell background would look heavier than
+before, not just "popped."
+
+**New one-time script: `scripts/backfill-send-upload.js`.** The BRIEF
+import creates releases with the Metadata Checklist already ticked from
+the sheet, but importing a row was never the same as a human clicking
+"Send Upload" on it — so imported releases that are fully uploadReady
+(4/4 required checklist items + Title/Artist/Release Date) were sitting
+there never actually sent. This script finds exactly those (only releases
+with a `legacy_id`, i.e. only ones that came from an import — never
+touches a release someone's still working on through the normal UI) and
+does exactly what the Send Upload button does: creates the Newrelease
+Upload ticket, sets `requested = true`, creates the Media Booking ticket.
+Dry-run first, `--confirm` to write, added to the Actions dropdown as
+`backfill-send-upload` (no file needed). Safe to re-run — skips anything
+already sent or already ticketed.
+
+### Investigated, not yet fixed — need more info from you
+
+**Bug: clicking into a release detail page sometimes 404s + crashes**
+(`TypeError: Cannot read properties of null (reading 'id')`). Went
+through the release detail page's load path (the initial release fetch,
+the Pitching/Media Booking/Artist Profile ticket lookups, the
+`gate_phu_luc_truyen_thong` auto-yes effect added a couple rounds back)
+and didn't find a null-dereference bug in any of them — everything that
+reads `.id` off a ticket/release object is already guarded by a
+truthiness check first. The 404 *before* the crash is the bigger clue:
+that pattern (a 404 for a hashed JS chunk, then a generic null-reference
+crash right after) is the classic symptom of a browser having an old
+version of the app already loaded in a tab and then trying to
+client-side-navigate into a route whose chunk hash changed in a newer
+deploy — not usually an actual code bug. Before I chase this further:
+next time it happens, try a hard refresh (Cmd+Shift+R / Ctrl+Shift+R) on
+that tab first — if that makes it go away, it was stale-chunk, not a real
+bug. If it still happens after a hard refresh, send the DID/URL of the
+specific release and I'll dig deeper with that as a concrete repro.
+
+**Dashboard filter — "probably the month"**: read through every filter on
+the New Release dashboard (`app/releases/page.js`) — Today/This
+Week/This Month, Pre-release/Release/Post-release, Channel, Type, Label,
+search — and didn't find a logic bug in any of them as written. One real
+candidate worth flagging though: "This Month" filters by `created_at`
+(when the row was added to the system), not `release_date` (when the
+song actually releases) — if you were expecting it to mean "releasing
+this month," that's not a bug, it's filtering the wrong date field for
+what you wanted. Let me know if that's it (easy one-line fix to switch
+which field it reads), or if you catch the actual bug happening again,
+a screenshot of it mid-glitch would pin it down fast.
+
+**Booking Board top-row hover glitch (item 2)** and **Community + Instagram
+column (item 3)** — held off on both; see the chat reply for what I found
+and what I need confirmed before building either.
+
+## Follow-up round — confirmed fixes: month filter, Instagram column, tall-row peek
+
+Three items from the previous round got confirmed with a screenshot/
+clarification, so all three are now fixed:
+
+**"This Month" dashboard filter (item 5)** — confirmed: meant "releasing
+this month," not "created this month." `app/releases/page.js`'s stat card
+and filter now both read `release_date` (bounded to the current calendar
+month — start through the first of next month) instead of `created_at`.
+Today/This Week left alone (not flagged as wrong).
+
+**Missing Instagram column (item 3)** — confirmed: the Booking Board
+workstation, not the ticket page. Found it: `PLATFORM_COLUMNS` in
+`app/booking/page.js` (the fixed platform-column list for Social's and
+Community's per-brand breakdown) was `["Facebook", "TikTok", "YouTube",
+"Thread"]` — missing Instagram even though it's already a real pickable
+platform on the Media Booking ticket itself. Any Instagram entries logged
+there had nowhere to show up on the Board. Added — now shows for all 3
+Community brands (and Social's, same shared list).
+
+**Booking Board top-row glitch (item 2)** — confirmed via the annotated
+screenshot: rows with the 4-item Result checklist column were roughly
+twice as tall as a normal row, so as they scrolled past the sticky table
+header, the header could only ever cover part of a row at a time —
+leaving a "half-cut" row with its title and top checkboxes hidden but the
+bottom checkboxes still poking out below the header, unlabeled. This is
+inherent to sticky headers with rows taller than one line (universal
+browser behavior, not really "fixable" outright), but I cut the row's
+height roughly in half — `ResultCell` in `app/booking/page.js` now lays
+its 4 items out 2-per-row instead of 4-stacked — which meaningfully
+shrinks how much of any row can be mid-cut. Also added a subtle shadow
+under every sticky table header app-wide so the cutoff reads as an
+intentional edge instead of a glitch.
+
+No SQL this round — all three are pure code/CSS.

@@ -43,8 +43,12 @@ function tiktokGroupForBrand(brand) {
 }
 
 // Social & Community: layer 1 picks the brand, layer 2 (columns) is this
-// same fixed platform list for either one.
-const PLATFORM_COLUMNS = ["Facebook", "TikTok", "YouTube", "Thread"];
+// same fixed platform list for either one. Instagram was missing here even
+// though it's already a real pickable platform on the Media Booking ticket
+// itself (see PLATFORMS in app/tickets/media-booking/page.js) — any
+// Instagram entries logged there had nowhere to show up on this Board for
+// Social or Community, for any of their brands.
+const PLATFORM_COLUMNS = ["Facebook", "Instagram", "TikTok", "YouTube", "Thread"];
 
 // Ads: layer 1 picks the ad-platform brand, layer 2 (columns) is that
 // brand's own fixed metric list — same lists as ADS_METRICS in the
@@ -585,9 +589,17 @@ export default function BookingBoard() {
 // nothing was ever booked for that Hạng Mục. Always all 4 Hạng Mục,
 // unaffected by the Hạng Mục column filter — this is the "at a glance,
 // which Hạng Mục on this release still need work" column.
+// Laid out 2-per-row instead of 1-per-row (4 stacked lines) — a 4-line
+// Result cell made every row in this table roughly twice as tall as an
+// ordinary row, which is what caused rows to visibly "peek out" partially
+// underneath the sticky header mid-scroll (the header can only fully cover
+// a row that's scrolled entirely past it — a much taller row spends more
+// scroll distance half-covered/half-showing). Halving the cell's height
+// doesn't eliminate that effect (inherent to any sticky header + row
+// taller than one line) but cuts it roughly in half.
 function ResultCell({ release, categories, bookedFor, entries, categoryIdByName }) {
   return (
-    <div style={{ display: "grid", gap: 3 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 10, rowGap: 3 }}>
       {categories.map((c) => {
         const booked = bookedFor(release, c.name, null);
         const added = entries.filter((e) => e.release_id === release.id && e.category_id === categoryIdByName[c.name]).length;

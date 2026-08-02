@@ -47,6 +47,7 @@ on:
           - cleanup-duplicate-media-booking
           - import-booking
           - import-legacy-orders
+          - backfill-send-upload
       confirm:
         description: "Actually write changes (unchecked = dry run only)"
         required: false

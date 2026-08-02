@@ -84,11 +84,16 @@
      lose their column labels partway down a scroll. z-index sits below
      the TopBar's (300) and the notification/dropdown panels, but above
      ordinary row content. Background is opaque so scrolled-under rows
-     don't show through the floating header. */
+     don't show through the floating header. Rows taller than one line
+     (checkbox lists, multi-line cells) still visibly peek out from behind
+     this header mid-scroll — that's inherent to sticky headers generally,
+     not something border-bottom alone fixes — but the shadow at least
+     makes the cutoff read as an intentional edge rather than a glitch. */
   position: sticky;
   top: var(--topbar-height);
   z-index: 20;
   background: var(--bg);
+  box-shadow: 0 4px 6px -4px rgba(0, 0, 0, 0.35);
 }
 
 .table td {

@@ -35,17 +35,26 @@
 }
 
 [data-theme="light"] {
-  --bg: #f7f6f4;
-  --bg-body: #f7f6f4;
-  --bg-card: #ffffff;
-  --bg-input: #ffffff;
-  --bg-hover: #f0efec;
-  --border: #e0ddd7;
-  --border-strong: #c9c5bd;
-  --text: #1a1a1a;
-  --text-muted: #5c5850;
-  --text-faint: #8a867c;
-  --text-dim: #a8a49a;
+  /* "Grey to almost-black, white to eggshell" pass — the old greys
+     (#5c5850/#8a867c/#a8a49a) read as washed-out/low-contrast against a
+     near-white background; darkened toward near-black so muted/faint text
+     actually pops instead of disappearing. The old whites (#ffffff for
+     cards/inputs, #f7f6f4 for the page body) are now a soft yellowish
+     eggshell instead of stark white, so surfaces read as dimmer/warmer —
+     --bg-card and --bg-input keep a slightly lighter eggshell than --bg so
+     cards/inputs still visually sit above the page body, same relationship
+     as before, just warmer overall. */
+  --bg: #f2ead4;
+  --bg-body: #f2ead4;
+  --bg-card: #faf3e2;
+  --bg-input: #faf3e2;
+  --bg-hover: #e8dfc4;
+  --border: #d8cca4;
+  --border-strong: #3a3527;
+  --text: #14120c;
+  --text-muted: #211f16;
+  --text-faint: #3a3527;
+  --text-dim: #56503b;
   --accent: #ff6b1a;
   --accent-soft: #d9531a;
   --accent-on: #ffffff;

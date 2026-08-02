@@ -111,6 +111,7 @@ export default function ReleasesDashboard() {
     startOfWeek.setDate(now.getDate() - now.getDay());
     startOfWeek.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
     let today = 0, thisWeek = 0, thisMonth = 0, preRelease = 0, released = 0, postRelease = 0;
     const byChannel = { VIEENT: 0, ENVI: 0 };
@@ -119,7 +120,13 @@ export default function ReleasesDashboard() {
       const created = new Date(r.created_at);
       if (created >= startOfToday) today++;
       if (created >= startOfWeek) thisWeek++;
-      if (created >= startOfMonth) thisMonth++;
+      // "This Month" means releasing this month, not created this month —
+      // reads release_date, with an upper bound too (release_date can be
+      // months/years in the future, unlike created_at).
+      if (r.release_date) {
+        const rd0 = new Date(r.release_date);
+        if (rd0 >= startOfMonth && rd0 < startOfNextMonth) thisMonth++;
+      }
 
       const rd = r.release_date ? new Date(r.release_date) : null;
       if (rd) {
@@ -161,13 +168,20 @@ export default function ReleasesDashboard() {
     startOfWeek.setDate(now.getDate() - now.getDay());
     startOfWeek.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
     return releases.filter((r) => {
       if (createdFilter) {
         const created = new Date(r.created_at);
         if (createdFilter === "today" && !(created >= startOfToday)) return false;
         if (createdFilter === "week" && !(created >= startOfWeek)) return false;
-        if (createdFilter === "month" && !(created >= startOfMonth)) return false;
+        if (createdFilter === "month") {
+          // Same fix as the stat card above — "This Month" filters by
+          // release_date (releasing this month), not created_at.
+          if (!r.release_date) return false;
+          const rd0 = new Date(r.release_date);
+          if (!(rd0 >= startOfMonth && rd0 < startOfNextMonth)) return false;
+        }
       }
       if (statusFilter) {
         const rd = r.release_date ? new Date(r.release_date) : null;
