@@ -1628,3 +1628,90 @@ Also in the Data Fix Scripts Actions dropdown as `fix-booking-channels-direct`.
 If you haven't run the import at all yet, you don't need this fix
 script — just run the (now-corrected) `import-booking-channels.js` and
 everything comes in right the first time.
+
+## 2026-08-02 (7) — Design ticket historical import
+
+You sent "2026 REQUEST DESIGN VIDEO VIEENT 1.xlsx" — real historical
+Design tab tickets. Checked it for exposed secrets first (same as the
+last upload) — none found, safe to process.
+
+The workbook has 12 sheets; almost everything usable lives in one place:
+
+- **BACKLOG** (4505 rows × 73 columns — the messiest sheet) actually
+  contains two unrelated tables sharing the same row numbers: a
+  team-assignment matrix in columns A–W, and — the one this import
+  uses — a clean one-row-per-task master table in columns BE:BT
+  (57–72), header at row 3. **895 populated task rows.**
+- **REQUEST / RECEIVE / PROCESS / ARCHIVED** are near-empty live-snapshot
+  tabs — checked every row of each by hand (not just a header/summary
+  glance). Only **one** real ticket turned up that wasn't already in
+  BACKLOG: a still-open REQUESTED row in REQUEST ("Congrats Post",
+  requested 2026-07-31 — hasn't finished processing yet so it hadn't
+  landed in BACKLOG). That one row is included.
+- **SOCIAL / ARTIST / OTHER** are raw Google-Form-response sheets, mostly
+  placeholder/instruction rows, not real per-task records — not
+  imported.
+- **TỔNG QUAN / Trang tính13** are dashboard/summary sheets — not
+  imported.
+
+**896 tickets total** (895 BACKLOG + 1 REQUEST) exported to
+`data/design-tickets-import.json`, mapped into the app's real Design
+ticket shape by `scripts/import-design-tickets.js` — see that file's
+header comment for the full field-by-field mapping (task-line parsing
+into typeRequest/designType/project/artist, priority mapping, free-text
+platform/size/description/executor, status_log built from the
+ngay_request/process/complete/refund columns, code-dedup into legacy_id,
+created_at carried forward from ngay_request).
+
+Two things worth knowing before you run it:
+
+- **Executor** (Như/Amy/Thư/Bảo/blank in the sheet) is stored as plain
+  text in the ticket's legacy `executor` column, not matched to a
+  `profiles` row — bare first names aren't safe to auto-resolve (more
+  than one staffer shares some of these first names elsewhere in the
+  same workbook). Assign real owners by hand later if you want that.
+- **Requester identity**: the sheet's `code` column is a squashed
+  legacy ID (timestamp + submitter email + task type, no separators) —
+  the email is pulled out where it parses cleanly and kept under
+  `data._legacyImport.requesterEmail` for reference only.
+  `requester_name`/`requester_segment`/`pic_profile_id` are left blank
+  rather than guessed.
+
+Idempotent via `legacy_id` (dedup+suffixed `code` values) — safe to
+re-run. Dry-run by default; pass `--confirm` to write.
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-design-tickets.js
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-design-tickets.js --confirm
+```
+
+Also in the Data Fix Scripts Actions dropdown as `import-design-tickets`.
+
+**Executor → profile linking:** the import script now also tries to link
+each ticket's `executor` (Như/Amy/Thư/Bảo) to a real `profiles` row
+(`pic_profile_id`) — but only on an exact, case-insensitive, unambiguous
+name match. This only works if you create those profiles with `name`
+set to exactly the short first name as it appears in the sheet (e.g.
+`name = "Như"`, not a fuller name) — otherwise it won't match and the
+executor stays free text only (nothing breaks, it's just unlinked).
+
+If you add those profiles **after** already running `import-design-tickets
+--confirm` once, re-running it won't retroactively fix the tickets
+already in the database (the `legacy_id` check skips them) — run
+`scripts/backfill-design-executor-profile.js` instead, which finds
+already-imported Design tickets with a still-unlinked executor and links
+them the same way. Safe to run repeatedly.
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/backfill-design-executor-profile.js
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/backfill-design-executor-profile.js --confirm
+```
+
+Also in the Data Fix Scripts Actions dropdown as
+`backfill-design-executor-profile`.
+
+**Recommended order for you:** add the 4 profiles first (name = exact
+short first name), then run `import-design-tickets` — that way every
+ticket gets linked on the first pass and you won't need the backfill
+script at all. If you'd already run the import before adding the
+profiles, run the backfill script afterward instead.
