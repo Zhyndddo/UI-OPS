@@ -1866,3 +1866,225 @@ actually page/email anyone by itself. If you want it to trigger a real
 notification, that's a bigger follow-up (wiring a new type into
 `notification_settings`/the digest system) — let me know if that's
 actually what you're after.
+
+## 2026-08-03 (6) — New: audit-booking-board (read-only diagnostic)
+
+You reported two things after the historical booking data import:
+1. A release's colored Result-cell dot shows green ("done") for a Hạng
+   Mục, but none of that Hạng Mục's actual brand/subchannel columns show
+   any progress.
+2. Large stretches of releases show grey/empty across the whole row.
+
+I don't have a way to query your live database directly from here, so
+`scripts/audit-booking-board.js` is a **read-only** diagnostic you can
+run from the Actions dropdown to see exactly what's going on — it never
+writes anything (`confirm` has no effect on it).
+
+**Why #1 happens:** the Result-cell dot counts every entry in a category
+regardless of brand — it doesn't check whether `channel_name` matches a
+real brand. The individual columns, on the other hand, only count an
+entry if `channel_name` EXACTLY matches one of the brands the Board
+actually renders. A stray casing/spacing difference or an old brand
+spelling from the import is enough for an entry to count toward the dot
+while being invisible in every column. Run the script with no DID for an
+all-releases summary of exactly these mismatched entries.
+
+**Why #2 happens:** a release's whole row goes grey when there's no
+`media_booking_packages` row whose `name` exactly equals that release's
+`project_type` — regardless of how many links were actually added. The
+same no-DID run also flags every release with a `project_type` but no
+matching package row.
+
+**For the specific release you flagged** (Sau Tiếng Mưa Đêm, DID
+STBP2406-0004): run the script with that DID in the `file_path` field
+(leave it blank for the general summary instead) —
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/audit-booking-board.js STBP2406-0004
+```
+
+— it dumps that release's `project_type`, every `media_booking_packages`
+row and whether it actually matches (the Board only uses the one that
+does), and every `media_booking_entries` row tied to it with its
+category/brand/platform/status. That'll show directly whether it's grey
+because of a missing/mismatched package, because the import never wrote
+any entries for it, or something else — paste the output back and I can
+tell you exactly what to fix from there (and whether a follow-up
+correction script makes sense once we know the actual pattern).
+
+Also in the Data Fix Scripts Actions dropdown as `audit-booking-board`.
+
+## 2026-08-03 (7) — Fix: "This Week" stat tile was keyed off created_at, not release_date
+
+`app/releases/page.js`'s "This Week" stat tile (and the filter it drives
+when clicked) was counting releases **created** in the current calendar
+week, same as "Today" — not releases actually **releasing** this week.
+That's inconsistent with "This Month" on the same row, which already
+reads `release_date`. Fixed "This Week" to match: it now counts releases
+whose `release_date` falls between this Sunday (inclusive) and the
+following Sunday (exclusive), same window described in your request.
+Both the stat tile itself and the filter it applies when you click it
+were updated together, so they stay in agreement.
+
+## 2026-08-03 (8) — Fix: sticky table header STILL not engaging — the round-6 fix was wrong
+
+The round-6 fix (see the CSS comment in `app/shared.module.css`) diagnosed
+the right mechanism — the table's `overflowX: "auto"` wrapper div forces
+the browser to compute `overflow-y` as `auto` too, which makes that div
+(not the page) the sticky header's scrolling context, and since the div
+itself never grows a real scrollbar, the header never floats — but the
+fix it shipped was wrong. It set `overflowY: "visible"` explicitly on the
+wrapper, on the theory that would opt back out of the coercion. It
+doesn't: the CSS rule is "if one axis is non-visible and the other is
+`visible`, the `visible` one computes to `auto`" — and that applies
+whether the `visible` value was left as the default or written by hand.
+So `overflowX: "auto"` next to an explicit `overflowY: "visible"` still
+computes to `overflow-y: auto` under the hood, and sticky still never
+engaged. That's why Upload, Pitching, Confirm (Re-Check), and Pre-release
+all kept showing the same "title row hovers over the first row, doesn't
+stick on scroll" symptom even after that fix shipped.
+
+**Actual fix:** `overflowY: "hidden"` instead of `"visible"`. `hidden` is
+not `visible`, so both axes are non-visible and the coercion rule never
+triggers — no forced `auto`, so the div never becomes a scroll container,
+so the page itself stays the true scrolling context and `position: sticky`
+on the header row now has something that actually scrolls to stick
+against. It's safe specifically because every one of these wrapper divs
+is sized to its content (never height-constrained) — there's nothing
+for `overflow-y: hidden` to ever clip, so vertically it's a no-op; it
+only changes what the browser computes the property to.
+
+Updated across all 9 pages that had the wrong value: `app/booking/page.js`,
+`app/workstation/{upload,pitching,confirm,pre-release,stream}/page.js`,
+`app/artists/page.js`, `app/tickets/{phai-sinh,manual-claim}/page.js`.
+The comment in `app/shared.module.css` above `.table th`'s sticky rules
+was rewritten to explain both the original coercion and why the first
+attempted fix didn't actually fix it, so this doesn't get re-broken by a
+future "helpful" cleanup.
+
+## 2026-08-03 (9) — Fix + new diagnostic: New Release dashboard's Channel column showing blank for imported data
+
+You confirmed: the import wrote the Channel value, the dashboard just
+wasn't showing it. Root cause — `app/releases/page.js` renders Channel as
+a `<select>` with exactly two hardcoded options, "VIEENT" and "ENVI" (see
+the `CHANNELS` constant). `releases.requester_segment` is free text
+(`import-brief.js` writes whatever's in the sheet's "SOCIAL BOOKING"
+column, trimmed but not validated against those two words). Any imported
+value that isn't an exact case-for-case match — different casing, extra
+wording, a legacy spelling — has no matching `<option>`, so the browser
+just shows the `<select>` blank. The value was genuinely sitting in the
+database the whole time; the dropdown just had nowhere to display it.
+Same blind spot hits the "By Media Channel" stat tiles above the table,
+which also only count rows that are exactly "VIEENT" or "ENVI".
+
+**Fix shipped:** the `<select>` now adds a one-off `<option>` for the
+row's actual raw value whenever it doesn't match VIEENT/ENVI, labeled
+"(unrecognized — pick to fix)" with a hover tooltip — so instead of
+silently going blank, you now SEE the real imported value sitting there,
+and can just pick VIEENT or ENVI from the same dropdown to correct it
+in place (same inline-save path as before, no separate edit flow).
+
+**New diagnostic** (read-only, no `--confirm`, same pattern as
+`audit-booking-board`): `scripts/audit-release-channel.js` prints every
+distinct value seen in `requester_segment` across all releases, a count
+of each, and flags every one that isn't exactly VIEENT/ENVI/blank — plus
+a sample of up to 30 affected releases (DID, title, artist, raw value) so
+you can see the actual scope before deciding whether this needs a bulk
+correction script or just a few manual clicks in the now-visible
+dropdown. Also in the Data Fix Scripts Actions dropdown as
+`audit-release-channel`.
+
+## 2026-08-03 (10) — Fix + new diagnostic: Pre-release "CANVA" group showing blank, same root cause as the Channel column
+
+Same bug class as round (9)'s Channel column, this time on the
+Pre-release workstation's 6 picker columns: CANVA, MV, Artist Pick,
+Musixmatch Status, NCT Lyric, Zing Lyric. Each renders as a `<select>`
+with a small fixed option list (e.g. CANVA is only "Done"/"CUT"/"No
+Vid"), but `import-ops-tracking.js` writes whatever free text was in the
+source sheet's STATUS/NOTE/Artist Pick columns straight into these
+fields with no mapping onto those lists. Any imported value that isn't
+an exact match has no matching `<option>` and renders blank — the value
+is really in the database, the picker just has nowhere to show it. That
+matches what you saw: the whole CANVA group looking empty even though
+the historical OPS tracking data was imported.
+
+**Fix shipped:** extracted a shared `PickSelect` component for all 6
+columns that, same as the Channel column fix, adds a flagged
+"(unrecognized — pick to fix)" option showing the real imported value
+whenever it doesn't match the picker's fixed list — so it's visible
+instead of silently blank, and you can just pick the correct option to
+fix it in place.
+
+**New diagnostic** (read-only, no `--confirm`): `scripts/audit-pre-release-fields.js`
+checks all 6 fields at once and, per field, lists every value that isn't
+one of its known options plus a sample of affected releases (DID, title,
+artist, raw value) — run it to see the actual scope before deciding if
+this needs a bulk correction pass. Also in the Data Fix Scripts Actions
+dropdown as `audit-pre-release-fields`.
+
+## 2026-08-03 (11) — Team import CSV
+
+You sent an updated `team-import-template.csv`, but it's byte-for-byte
+identical to the placeholder already in the repo (Nguyen Van A / Tran
+Thi B) — nothing to update. You confirmed: nothing to do right now,
+you'll send the real new-hire list separately when ready.
+
+Worth noting for when you do: `scripts/bulk-create-team.js` is already
+idempotent by email — it checks each row's email against `profiles`
+first and skips it (logs "profile already exists, skipping") if that
+person was already created in a previous run. So re-running the same
+file, or a file that's a superset of a previous one, is always safe —
+no need to manually strip out people you've already imported.
+
+## 2026-08-03 (12) — data/team-import-template.csv updated with your real team list
+
+Replaced the placeholder rows with the real list you sent (17 rows). Two
+things worth flagging before you run this with `--confirm` — I didn't
+change them, since I don't know which is actually right:
+
+1. **`duy.dang@vieent.vn` appears 8 times** (rows "Duy2" through "Duy8",
+   with "Duy4" listed twice), each with a different name but the exact
+   same email. `bulk-create-team.js` is idempotent by email, so this is
+   safe in the sense that it won't error or create duplicates — the
+   first matching row ("Duy2") creates the account, every row after it
+   for that same email gets skipped with "profile already exists,
+   skipping." But if these were meant to be 7 different people, only one
+   account (named "Duy2") will actually get created — the other 6 names
+   are silently dropped. If that's not what you want, fix the emails to
+   be unique per person before running with `--confirm`.
+2. **"Nh_" (row 4)** — looks like it might be a name that got mangled in
+   transit (a Vietnamese diacritic character turning into `_`?). Worth
+   double-checking before you hand out that account.
+
+Everything else parses cleanly against the script's rules (role is one
+of exc/admin/dev, segment is one of AR/Marketing/OPS/Design and only
+required when role isn't dev — Leila's row correctly has no segment
+since she's `dev`).
+
+Run a dry run first (no `--confirm`) from the Actions dropdown as
+`bulk-create-team` with `file_path` set to `data/team-import-template.csv`
+to see exactly what it'll do before committing to it.
+
+## 2026-08-03 (13) — Fix: Summary page's team filter tabs (dev view) did nothing
+
+You flagged (with two screenshots showing AR and Design giving identical
+numbers) that the ALL/AR/MARKETING/OPS/DESIGN tabs on `/summary` weren't
+filtering at all as a dev.
+
+Root cause: those tabs correctly update `viewTeam` state when clicked,
+but the two things that render below it never actually read that state:
+
+- `ticketStatsByType`'s `visibleTypes` was `isDev ? ticketTabs.map(...) : ...`
+  — for a dev, that's unconditionally "every ticket type," full stop,
+  regardless of which tab was selected. The non-dev branch (which DOES
+  correctly filter by team) was simply never reachable once you're a dev.
+- `showNewRelease` was `isDev || effectiveTeam !== "Design"` — the
+  `isDev ||` meant it was always `true` for a dev even with the Design
+  tab active, so the New Release tile never hid the way it does for a
+  real Design admin/exc.
+
+Both now key off `effectiveTeam` (which IS `viewTeam` for a dev) instead
+of branching on `isDev` at all — clicking AR/Marketing/OPS/Design now
+narrows the ticket table to that team's types (matching what a real
+admin/exc of that team sees) and hides New Release when Design is
+selected; the "All" tab keeps showing everything, same as before.

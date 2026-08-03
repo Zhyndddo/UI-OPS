@@ -70,7 +70,16 @@ export default function SummaryPage() {
     const tabById = {};
     ticketTabs.forEach((t) => (tabById[t.id] = t.key));
 
-    const visibleTypes = isDev ? ticketTabs.map((t) => t.key) : [...(TEAM_TICKET_TYPES[effectiveTeam] || []), ...SHARED_TICKET_TYPES];
+    // Bug fix: this used to key off `isDev` alone — a dev always got the
+    // full union of every ticket type no matter which team tab was
+    // clicked, so the ALL/AR/Marketing/OPS/Design tabs above visibly
+    // changed `viewTeam` state but the ticket table underneath never
+    // actually read it, and looked identical on every tab. Now it keys
+    // off `effectiveTeam` (which IS `viewTeam` for a dev) — "All" (the
+    // dev-only catch-all tab) still shows every type; picking one team
+    // narrows to just that team's types, same as a real admin/exc sees
+    // for their own team below.
+    const visibleTypes = effectiveTeam === "All" ? ticketTabs.map((t) => t.key) : [...(TEAM_TICKET_TYPES[effectiveTeam] || []), ...SHARED_TICKET_TYPES];
 
     return visibleTypes.map((key) => {
       const typeTickets = tickets.filter((t) => tabById[t.tab_id] === key);
@@ -81,8 +90,12 @@ export default function SummaryPage() {
   }, [isDev, effectiveTeam, tickets, ticketTabs]);
 
   // New Release summary applies to every team except Design, which has no
-  // stake in the release pipeline itself.
-  const showNewRelease = isDev || effectiveTeam !== "Design";
+  // stake in the release pipeline itself. Same bug as visibleTypes above —
+  // `isDev ||` used to force this on even when a dev had the Design tab
+  // selected, so switching to Design never hid it like it does for a real
+  // Design admin/exc. Dropped: effectiveTeam alone is correct for both
+  // (it's already `viewTeam` for a dev, `profile.segment` otherwise).
+  const showNewRelease = effectiveTeam !== "Design";
 
   return (
     <AppShell>

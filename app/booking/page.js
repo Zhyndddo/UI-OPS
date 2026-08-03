@@ -573,7 +573,7 @@ export default function BookingBoard() {
             <div style={{ color: "var(--text-dim)", marginTop: -12 }}>Không tìm thấy</div>
           </div>
         ) : (
-          <div style={{ overflowX: "auto", overflowY: "visible" }}>
+          <div style={{ overflowX: "auto", overflowY: "hidden" }}>
           {/* The sticky-header box-shadow (and the border-collapse:separate
               it depends on to render safely) now lives in shared.module.css's
               .table class itself, so every workstation gets it — this page

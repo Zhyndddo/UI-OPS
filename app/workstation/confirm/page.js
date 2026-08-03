@@ -135,7 +135,7 @@ export default function ConfirmWorkstation() {
           ) : visibleReleases.length === 0 ? (
             <div className={styles.emptyState}>{releases.length === 0 ? "No releases yet." : "Nothing outstanding."}</div>
           ) : phase === "confirm_phase1" ? (
-            <div style={{ overflowX: "auto", overflowY: "visible" }}>
+            <div style={{ overflowX: "auto", overflowY: "hidden" }}>
             <table className={styles.table} style={{ minWidth: 900 }}>
               <thead>
                 <tr>
@@ -182,7 +182,7 @@ export default function ConfirmWorkstation() {
             <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </div>
           ) : (
-            <div style={{ overflowX: "auto", overflowY: "visible" }}>
+            <div style={{ overflowX: "auto", overflowY: "hidden" }}>
             <table className={styles.table} style={{ minWidth: 900 }}>
               <thead>
                 <tr>

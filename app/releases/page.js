@@ -110,6 +110,8 @@ export default function ReleasesDashboard() {
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay());
     startOfWeek.setHours(0, 0, 0, 0);
+    const startOfNextWeek = new Date(startOfWeek);
+    startOfNextWeek.setDate(startOfWeek.getDate() + 7);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
@@ -119,7 +121,15 @@ export default function ReleasesDashboard() {
     releases.forEach((r) => {
       const created = new Date(r.created_at);
       if (created >= startOfToday) today++;
-      if (created >= startOfWeek) thisWeek++;
+      // "This Week" means releasing this week (Sunday through the following
+      // Sunday), not created this week — same reasoning/fix as "This Month"
+      // below: release_date is what the team actually cares about tracking
+      // here, and it can be set well after (or, for backfilled data, well
+      // before) created_at.
+      if (r.release_date) {
+        const rdw = new Date(r.release_date);
+        if (rdw >= startOfWeek && rdw < startOfNextWeek) thisWeek++;
+      }
       // "This Month" means releasing this month, not created this month —
       // reads release_date, with an upper bound too (release_date can be
       // months/years in the future, unlike created_at).
@@ -167,6 +177,8 @@ export default function ReleasesDashboard() {
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay());
     startOfWeek.setHours(0, 0, 0, 0);
+    const startOfNextWeek = new Date(startOfWeek);
+    startOfNextWeek.setDate(startOfWeek.getDate() + 7);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
@@ -174,7 +186,14 @@ export default function ReleasesDashboard() {
       if (createdFilter) {
         const created = new Date(r.created_at);
         if (createdFilter === "today" && !(created >= startOfToday)) return false;
-        if (createdFilter === "week" && !(created >= startOfWeek)) return false;
+        if (createdFilter === "week") {
+          // Same fix as the stat card above — "This Week" filters by
+          // release_date (releasing Sunday through the following Sunday),
+          // not created_at.
+          if (!r.release_date) return false;
+          const rdw = new Date(r.release_date);
+          if (!(rdw >= startOfWeek && rdw < startOfNextWeek)) return false;
+        }
         if (createdFilter === "month") {
           // Same fix as the stat card above — "This Month" filters by
           // release_date (releasing this month), not created_at.
@@ -323,9 +342,24 @@ export default function ReleasesDashboard() {
                         value={r.requester_segment || ""}
                         disabled={savingChannel === r.id}
                         onChange={(e) => updateChannel(r, e.target.value)}
+                        title={
+                          r.requester_segment && !CHANNELS.includes(r.requester_segment)
+                            ? `Imported value doesn't match VIEENT/ENVI exactly — pick one to fix it`
+                            : undefined
+                        }
                       >
                         <option value="">—</option>
                         {CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
+                        {/* An imported/legacy value that isn't exactly "VIEENT" or "ENVI"
+                            (different casing, a typo, a different word entirely from the
+                            source sheet) used to just render blank here — the data was
+                            really in requester_segment, this <select> just had no <option>
+                            for it. Surfacing it as its own option instead of silently
+                            dropping it — see scripts/audit-release-channel.js to find every
+                            release affected this way. */}
+                        {r.requester_segment && !CHANNELS.includes(r.requester_segment) && (
+                          <option value={r.requester_segment}>{r.requester_segment} (unrecognized — pick to fix)</option>
+                        )}
                       </select>
                     </td>
                     <td style={{ maxWidth: 260, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>

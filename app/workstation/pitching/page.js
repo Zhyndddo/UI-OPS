@@ -155,7 +155,7 @@ export default function PitchingWorkstation() {
           ) : visibleRows.length === 0 ? (
             <div className={styles.emptyState}>{rows.length === 0 ? "No Pitching tickets with UPC filled yet." : "Nothing outstanding."}</div>
           ) : (
-            <div style={{ overflowX: "auto", overflowY: "visible" }}>
+            <div style={{ overflowX: "auto", overflowY: "hidden" }}>
             <table className={styles.table} style={{ minWidth: 700 }}>
               <thead>
                 <tr>

@@ -109,19 +109,39 @@
      table in <div style={{ overflowX: "auto" }}> for horizontal
      scrolling on narrow screens — setting overflow-x alone forces the
      browser to compute overflow-y as "auto" too (a CSS spec quirk: you
-     can't have one axis scroll and the other stay visible), which makes
-     THAT DIV the nearest scrolling ancestor for position:sticky's
+     can't have one axis scroll and the other stay "visible"), which
+     makes THAT DIV the nearest scrolling ancestor for position:sticky's
      purposes instead of the page/viewport. Since the div itself never
      grows a real vertical scrollbar (it's sized to its content, and the
      PAGE scrolls instead), its own scroll offset never moves — so from
      this th's perspective, "the nearest scrolling ancestor" never
      scrolls, and sticky never engages at all (not a z-index or overlap
-     problem — the header just never floats). Every page's wrapper div
-     must set overflowY: "visible" explicitly alongside overflowX: "auto"
-     to opt back out of that implicit coercion and restore the page as
-     the real scrolling context. This was the actual root cause behind
-     "the header doesn't stick when I scroll" reports — not a shadow/
-     collapse issue like the ones above. */
+     problem — the header just never floats).
+
+     CORRECTION (this fix went through two attempts — the first one below
+     didn't actually work, kept here so the mistake doesn't get repeated):
+     the first attempt paired overflowX: "auto" with an EXPLICIT
+     overflowY: "visible" on the wrapper div, on the theory that setting
+     it back to "visible" by hand would opt back out of the coercion
+     above. It doesn't — the CSS spec rule is "if one axis is non-visible
+     and the other is visible, the visible one computes to auto"
+     REGARDLESS of whether that "visible" was the initial value or
+     explicitly written — so overflowY: "visible" next to overflowX:
+     "auto" still computes to overflow-y: auto, and sticky still never
+     engages. That's why the header kept failing to stick even after that
+     first fix shipped. The actual fix: set overflowY: "hidden" instead of
+     "visible". "hidden" is not "visible", so BOTH axes are now
+     non-visible and the coercion rule never triggers — no forced auto,
+     no accidental vertical scroll container. It's safe here specifically
+     because the wrapper div's height is always sized to its content
+     (never height-constrained), so there is nothing for overflow-y:
+     hidden to ever actually clip — it's a no-op vertically and only
+     changes what the spec computes the property to, which is exactly
+     what's needed to keep the page itself as the true scrolling context.
+     Every page's table wrapper div must use overflowX: "auto", overflowY:
+     "hidden" together — not overflowY: "visible", and not omitting
+     overflowY entirely (same bug, since the initial value of overflow-y
+     IS "visible"). */
   position: sticky;
   top: var(--topbar-height);
   z-index: 20;
