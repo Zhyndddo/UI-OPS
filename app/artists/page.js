@@ -121,7 +121,7 @@ export default function ArtistsPage() {
         {artists.length === 0 ? (
           <div className={styles.emptyState}>No artists yet.</div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ overflowX: "auto", overflowY: "visible" }}>
           <table className={styles.table} style={{ minWidth: 1200 }}>
             <thead>
               <tr>

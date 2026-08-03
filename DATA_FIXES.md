@@ -1817,3 +1817,52 @@ within that group and within the rest).
 This is explicitly a "for now" sort per your ask — happy to build a real
 column-picker (click a header to sort by date/status/etc, like Pre-release
 already has) if release date alone doesn't cover what you need.
+
+## 2026-08-03 (4) — Found the REAL sticky-header root cause: overflowY
+
+Previous rounds fixed a real z-index issue on the sticky corner cell, but
+that wasn't the actual reason Pre-release's header wasn't sticking to
+the topbar at all while scrolling. Root cause: every workstation table
+is wrapped in `<div style={{ overflowX: "auto" }}>` for horizontal
+scrolling on narrow screens. Setting `overflow-x` alone forces the
+browser to compute `overflow-y` as `auto` too (a real CSS spec quirk —
+you can't have one axis scroll and the other stay `visible`), which
+makes THAT DIV the nearest scrolling ancestor for `position: sticky`
+purposes, instead of the actual page. Since the div itself never grows a
+real vertical scrollbar (it's sized to its content; the page scrolls
+around it instead), the div's own scroll position never moves — so from
+the sticky header's perspective, its nearest scrolling context never
+scrolls, and the header just never floats at all. Not an overlap or
+z-index problem — sticky was silently inert the whole time.
+
+**Fixed everywhere this pattern appears** (Pre-release, Pitching,
+Upload, Confirm×2, Booking Board, Stream, Artists, Phái Sinh, Manual
+Claim) — every one of those wrapper divs now sets `overflowY: "visible"`
+explicitly alongside `overflowX: "auto"`, opting back out of the
+implicit coercion so the page is the real scrolling context again. Full
+explanation left as a comment on `.table th` in `shared.module.css` for
+next time this comes up.
+
+## 2026-08-03 (5) — "Khác" ticket pulled onto the sidebar + a CC field
+
+The shared "Khác" (catch-all) ticket type now has its own shortcut
+directly on the main sidebar — labeled **"Cứu mạng Zhyn ơi"** by default
+— instead of being one option buried inside the Tickets switcher.
+
+**The label is admin-editable**, dev role only: Config → Sidebar Label.
+Backed by `app_settings.khac_sidebar_label` — the sidebar falls back to
+the joke default if that row is ever missing, so nothing breaks if the
+setting hasn't been seeded yet. **Run
+`add-khac-sidebar-label-setting.sql`** against your database if it
+predates this round (schema.sql already seeds it for fresh deploys).
+
+**New field on the Khác ticket form**: "Also Notify (CC)", defaults to
+Zhyn's account (an.thien@vieent.vn) on every new Khác ticket, editable
+or clearable by whoever's filling out the form. Worth being upfront
+about the scope of this: it's a plain text field on the ticket, not a
+real hookup into the notification system (Khác doesn't have an
+executor/PIC concept to plug into — `executorTeam: null`) — it doesn't
+actually page/email anyone by itself. If you want it to trigger a real
+notification, that's a bigger follow-up (wiring a new type into
+`notification_settings`/the digest system) — let me know if that's
+actually what you're after.

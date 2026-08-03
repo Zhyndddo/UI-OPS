@@ -102,7 +102,26 @@
      box-shadow below at least gives a clean visual edge instead of a
      hard, confusing cutoff (and, on short/single-row tables, was
      reported as making the row look entirely blank until this table was
-     switched off border-collapse: collapse above). */
+     switched off border-collapse: collapse above).
+
+     IMPORTANT — this sticky-top only works if .table's own scrolling
+     wrapper div doesn't ALSO scroll vertically. Every page wraps its
+     table in <div style={{ overflowX: "auto" }}> for horizontal
+     scrolling on narrow screens — setting overflow-x alone forces the
+     browser to compute overflow-y as "auto" too (a CSS spec quirk: you
+     can't have one axis scroll and the other stay visible), which makes
+     THAT DIV the nearest scrolling ancestor for position:sticky's
+     purposes instead of the page/viewport. Since the div itself never
+     grows a real vertical scrollbar (it's sized to its content, and the
+     PAGE scrolls instead), its own scroll offset never moves — so from
+     this th's perspective, "the nearest scrolling ancestor" never
+     scrolls, and sticky never engages at all (not a z-index or overlap
+     problem — the header just never floats). Every page's wrapper div
+     must set overflowY: "visible" explicitly alongside overflowX: "auto"
+     to opt back out of that implicit coercion and restore the page as
+     the real scrolling context. This was the actual root cause behind
+     "the header doesn't stick when I scroll" reports — not a shadow/
+     collapse issue like the ones above. */
   position: sticky;
   top: var(--topbar-height);
   z-index: 20;

@@ -269,7 +269,7 @@ export default function StreamWorkstation() {
 
 function StreamTable({ rows, onUpdate, onRemove, onLink, manual }) {
   return (
-    <div style={{ overflowX: "auto" }}>
+    <div style={{ overflowX: "auto", overflowY: "visible" }}>
       <table className={styles.table} style={{ minWidth: 1400 }}>
         <thead>
           {/* Sticky on BOTH axes now — top:0 so the column labels stay

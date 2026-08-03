@@ -34,7 +34,7 @@ export default function ConfigPage() {
               ["platforms", "Platforms"],
               ["designTypes", "Design Types"],
               ["sizes", "Sizes"],
-              ...(isDev ? [["notifications", "Notifications"], ["sessions", "Sessions"]] : []),
+              ...(isDev ? [["notifications", "Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
             ].map(([key, label]) => (
               <button
                 key={key}
@@ -56,6 +56,7 @@ export default function ConfigPage() {
           {section === "sizes" && <SizesSection />}
           {section === "notifications" && isDev && <NotificationsSection />}
           {section === "sessions" && isDev && <SessionsSection />}
+          {section === "sidebarLabel" && isDev && <SidebarLabelSection />}
         </div>
       </div>
     </AppShell>
@@ -1081,6 +1082,53 @@ function SessionsSection() {
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+// Dev-only — renames the "Khác" shortcut on the main sidebar (see
+// lib/Sidebar.js, app_settings.khac_sidebar_label). Sidebar itself
+// already falls back to the joke default name if this row is ever
+// missing, so there's nothing else this needs to guard against.
+function SidebarLabelSection() {
+  const [value, setValue] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.from("app_settings").select("value").eq("key", "khac_sidebar_label").maybeSingle().then(({ data }) => {
+      setValue(typeof data?.value === "string" ? data.value : "");
+      setLoading(false);
+    });
+  }, []);
+
+  async function save() {
+    if (!value.trim()) return;
+    setSaving(true);
+    await supabase.from("app_settings").upsert({ key: "khac_sidebar_label", value: value.trim() });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div style={{ maxWidth: 420 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
+        Renames the "Khác" ticket shortcut on the main sidebar — dev only. Everyone sees whatever's saved here;
+        it just controls the label, not who can access the ticket type itself.
+      </p>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Sidebar label</label>
+        <input className={styles.input} value={value} onChange={(e) => setValue(e.target.value)} placeholder="Cứu mạng Zhyn ơi" />
+      </div>
+      <button className={styles.btnPrimary} onClick={save} disabled={saving || !value.trim()}>
+        {saving ? "Saving…" : "Save"}
+      </button>
+      {saved && <span style={{ marginLeft: 10, color: "var(--success-fg)", fontSize: 12 }}>Saved</span>}
     </div>
   );
 }

@@ -129,7 +129,7 @@ export default function ManualClaimList() {
           ) : visibleTickets.length === 0 ? (
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
+            <div style={{ overflowX: "auto", overflowY: "visible" }}>
             <table className={styles.table} style={{ minWidth: 1100 }}>
               <thead>
                 <tr>
