@@ -33,8 +33,6 @@ name: Data Fix Scripts
 # input needed) and writes into booking_channels. Run
 # add-booking-channels-reference-fields.sql against the database FIRST —
 # see DATA_FIXES.md — this script writes into columns that migration adds.
-<<<<<<< Updated upstream
-=======
 #
 # import-design-tickets reads its data from a fixed path in the repo
 # (data/design-tickets-import.json, already committed — no file_path
@@ -48,7 +46,6 @@ name: Data Fix Scripts
 #
 # backfill-design-executor-profile takes no file_path — it reads/writes
 # the database directly. Safe to re-run.
->>>>>>> Stashed changes
 
 on:
   workflow_dispatch:
@@ -72,11 +69,8 @@ on:
           - backfill-send-upload
           - import-booking-channels
           - fix-booking-channels-direct
-<<<<<<< Updated upstream
-=======
           - import-design-tickets
           - backfill-design-executor-profile
->>>>>>> Stashed changes
       confirm:
         description: "Actually write changes (unchecked = dry run only)"
         required: false

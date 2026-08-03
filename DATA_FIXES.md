@@ -1715,3 +1715,63 @@ short first name), then run `import-design-tickets` — that way every
 ticket gets linked on the first pass and you won't need the backfill
 script at all. If you'd already run the import before adding the
 profiles, run the backfill script afterward instead.
+
+## 2026-08-03 — Booking Board: TikTok Channel gets a 3rd filter layer, reference-picker fix, editable channel list, sticky-header z-index fix
+
+**TikTok Channel now has a real 3-layer drill-down**, matching the
+ticket's Package Builder exactly: Group (In-house/Partner, unchanged) →
+Brand (NEW — a picker for the group's 4 real brands) → columns, which
+are now the 5 fixed subchannel types (TIKTOK NEWS / TIKTOK CAPCUT / MẪU
+CAPCUT / TIKTOK REUP MV / TIKTOK LYRICS) instead of the 4 brands. Picking
+a brand no longer IS the final column set — it's a filter, and the
+columns underneath show which subchannel type each booked link belongs
+to.
+
+This needed a small schema change: `media_booking_entries` gets a new
+`subchannel_type` column (see `add-media-booking-subchannel-type.sql`).
+It's separate from the existing `platform` column, which for TikTok
+Channel already holds the specific channel/account name (e.g. "Hey lên
+nhạc") — the two are independent tags on the same link now, not
+alternatives. **Run the migration SQL against your database before this
+round's code goes live** — the Add Link popup writes to that column
+directly.
+
+```sql
+-- add-media-booking-subchannel-type.sql
+alter table media_booking_entries add column if not exists subchannel_type text;
+```
+
+The "booked" target number shown per subchannel column is the same
+brand-level aggregate for all 5 of that brand's columns — the underlying
+target itself isn't split by subchannel on the ticket side either (one
+quantity per brand, built by summing all its DSP rows), so there's
+nothing more granular to show.
+
+**Reference-picker fix:** picking a channel from "Pick from reference
+list" in the Add Link popup used to also fill in the URL from the
+reference list's own `url` field — silently defaulting the real booking
+link to a value nobody typed, which could go stale without anyone
+noticing. It now only fills the Channel Name; the URL is always typed or
+pasted by hand. The reference list's own URL stays purely informational
+(so the team knows which handle a channel name points to).
+
+**Channel reference list is now editable.** `/booking-channels` — every
+existing channel (name, platform, channel type, brand, URL, follower
+count, note) can be edited in place via a new "Edit" link on each row,
+not just added/removed. Changing name/platform/channel type is guarded
+against the table's unique constraint — a collision is caught and shown
+inline instead of silently failing.
+
+**Sticky-header/first-row overlap, another pass:** found a real,
+consistent bug across every workstation table with a sticky left+top
+corner cell (the "Release Info" column header) — Pitching, Pre-release,
+Upload, Confirm, and the Booking Board. That header cell's inline
+`zIndex: 2` was far below the shared `.table th` class's `zIndex: 20`,
+so during scroll it could render BEHIND its sibling header cells instead
+of on top of them at the corner where sticky-top and sticky-left meet.
+Bumped to `zIndex: 21` (one above the shared header z-index) everywhere
+this pattern appears. This is a real, verified inconsistency and a
+plausible contributor to the reported overlap — flagging honestly that I
+couldn't reproduce the exact glitch live (no browser access this
+session) to confirm it's the *whole* fix; let me know if it's still
+happening after this round and I'll keep digging.

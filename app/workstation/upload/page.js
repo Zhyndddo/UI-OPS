@@ -161,7 +161,7 @@ export default function UploadWorkstation() {
                     sortKey="release_date"
                     sort={sort}
                     onToggle={toggleSort}
-                    style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}
+                    style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}
                   >
                     UPC / Link Drive / Release
                   </SortableTh>

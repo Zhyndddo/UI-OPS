@@ -28,13 +28,20 @@ function subfilterLabel(categoryName, value) {
   return categoryName === "Social" ? `SOCIAL ${value}` : value;
 }
 
-// TikTok Channel: layer 1 picks the group, layer 2 (columns) is that
-// group's 4 real brands — same grouping/brand lists as TIKTOK_GROUPS in
-// the media-booking ticket.
+// TikTok Channel: layer 1 picks the group, layer 2 picks the group's real
+// brand — same grouping/brand lists as TIKTOK_GROUPS in the media-booking
+// ticket.
 const TIKTOK_CHANNEL_GROUPS = {
   "In-house": ["TIKTOK BOLERO / MT", "TIKTOK VPOP", "TIKTOK INDIE", "CAPCUT"],
   "Partner": ["EXT TIKTOK - BK MUSIC", "EXT TIKTOK - DUCTH", "EXT TIKTOK - BK GROUP", "EXT TIKTOK - CTV MẪU"],
 };
+
+// TikTok Channel: layer 3 (columns, once a brand is picked) is this fixed
+// subchannel-type list — same list, same labels, as TIKTOK_SUBCHANNELS in
+// the media-booking ticket's Package Builder ("+ TIKTOK NEWS" etc.), so a
+// link added here is tagged with the exact same vocabulary the target was
+// planned against. MUST stay in sync with that file's copy.
+const TIKTOK_SUBCHANNELS = ["TIKTOK NEWS", "TIKTOK CAPCUT", "MẪU CAPCUT", "TIKTOK REUP MV", "TIKTOK LYRICS"];
 
 function tiktokGroupForBrand(brand) {
   if (TIKTOK_CHANNEL_GROUPS["In-house"].includes(brand)) return "In-house";
@@ -99,6 +106,7 @@ export default function BookingBoard() {
   const [round, setRound] = useState("Đợt 1"); // 'INT' | 'Đợt 1' | 'Đợt 2' — now a RELEASE-level (row) filter, see roundFilteredReleases
   const [hangMucFilter, setHangMucFilter] = useState("All"); // 'All' | a category name — determines the columns
   const [subFilter, setSubFilter] = useState(null); // layer-1 pick within hangMucFilter (a brand, or a brand group) — only relevant when CATEGORY_SUBFILTERS[hangMucFilter] exists; resets whenever hangMucFilter changes, see effect below
+  const [tiktokBrandFilter, setTiktokBrandFilter] = useState(null); // layer-2 pick, TikTok Channel only — which of the picked group's 4 brands; columns (layer 3) are then that brand's 5 fixed subchannel types. Resets whenever hangMucFilter or subFilter (the group) changes, see effect below.
   const [typeFilter, setTypeFilter] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
   const [expandedCell, setExpandedCell] = useState(null); // `${releaseId}:${categoryName}:${brand}` or null
@@ -111,6 +119,19 @@ export default function BookingBoard() {
     setSubFilter(options ? options[0] : null);
     setUnrequestedOnly(false);
   }, [hangMucFilter]);
+
+  // tiktokBrandFilter tracks whichever group subFilter is currently picked
+  // — resets to that group's first brand both when the Hạng Mục changes
+  // (e.g. away from TikTok Channel and back) and when the group itself
+  // changes (In-house <-> Partner), so it's never left pointing at a brand
+  // that belongs to the OTHER group.
+  useEffect(() => {
+    if (hangMucFilter === "TikTok Channel" && TIKTOK_CHANNEL_GROUPS[subFilter]) {
+      setTiktokBrandFilter(TIKTOK_CHANNEL_GROUPS[subFilter][0]);
+    } else {
+      setTiktokBrandFilter(null);
+    }
+  }, [hangMucFilter, subFilter]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -184,13 +205,14 @@ export default function BookingBoard() {
     return matching.reduce((sum, l) => sum + (l.quantity || 0), 0);
   }
 
-  function addedFor(release, categoryName, brand, platform, entryPool) {
+  function addedFor(release, categoryName, brand, platform, subchannelType, entryPool) {
     const categoryId = categoryIdByName[categoryName];
     return entryPool.filter((e) =>
       e.release_id === release.id &&
       e.category_id === categoryId &&
       (brand === null || (e.channel_name || "") === (brand || "")) &&
-      (platform == null || (e.platform || "") === platform)
+      (platform == null || (e.platform || "") === platform) &&
+      (subchannelType == null || (e.subchannel_type || "") === subchannelType)
     ).length;
   }
 
@@ -222,11 +244,20 @@ export default function BookingBoard() {
   }, [releases, round, dot2ReleaseIds]);
 
   // Columns: one per Hạng Mục when "All" is picked (aggregate ratio across
-  // every brand in that category). Otherwise every Hạng Mục is a 2-layer
-  // pick: subFilter (a brand, or — for TikTok Channel — a brand group)
-  // determines what the columns actually are:
-  //  - TikTok Channel: columns = that group's 4 brands (brand varies, no
-  //    fixed platform — same as before).
+  // every brand in that category). Otherwise every Hạng Mục is a multi-
+  // layer pick: subFilter (a brand, or — for TikTok Channel — a brand
+  // group) determines what the columns actually are:
+  //  - TikTok Channel: a 3rd layer — tiktokBrandFilter, the specific brand
+  //    within the picked group — narrows further; columns are then that
+  //    brand's 5 fixed subchannel types (TIKTOK NEWS/CAPCUT/MẪU CAPCUT/
+  //    REUP MV/LYRICS — see TIKTOK_SUBCHANNELS), tagged via the entry's
+  //    own `subchannel_type` column (kept separate from `platform`, which
+  //    still holds the actual channel/account name picked or typed in the
+  //    Add Link popup — see BrandCell). booked (the target) is looked up
+  //    by brand only, same aggregate total for every one of that brand's
+  //    5 subchannel columns — the underlying target itself isn't split by
+  //    subchannel on the ticket side either (media_booking_package_lines
+  //    has one quantity per brand, built by summing all its DSP rows).
   //  - Social / Community: columns = the fixed platform list, all scoped
   //    to the one brand picked in subFilter.
   //  - Ads: columns = that ad brand's own fixed metric list (the metric
@@ -235,15 +266,17 @@ export default function BookingBoard() {
   // filter needs to know the current columns to check.
   const columns = useMemo(() => {
     if (hangMucFilter === "All") {
-      return categories.map((c) => ({ key: c.name, label: c.name, categoryName: c.name, brand: null, platform: null }));
+      return categories.map((c) => ({ key: c.name, label: c.name, categoryName: c.name, brand: null, platform: null, subchannelType: null }));
     }
     if (hangMucFilter === "TikTok Channel") {
-      return (TIKTOK_CHANNEL_GROUPS[subFilter] || []).map((b) => ({
-        key: `${hangMucFilter}:${b}`,
-        label: b,
+      if (!tiktokBrandFilter) return [];
+      return TIKTOK_SUBCHANNELS.map((sub) => ({
+        key: `${hangMucFilter}:${tiktokBrandFilter}:${sub}`,
+        label: sub,
         categoryName: hangMucFilter,
-        brand: b,
+        brand: tiktokBrandFilter,
         platform: null,
+        subchannelType: sub,
       }));
     }
     if (hangMucFilter === "Ads") {
@@ -253,6 +286,7 @@ export default function BookingBoard() {
         categoryName: hangMucFilter,
         brand: subFilter,
         platform: m,
+        subchannelType: null,
       }));
     }
     if (hangMucFilter === "Social" || hangMucFilter === "Community") {
@@ -262,10 +296,11 @@ export default function BookingBoard() {
         categoryName: hangMucFilter,
         brand: subFilter,
         platform: p,
+        subchannelType: null,
       }));
     }
     return [];
-  }, [hangMucFilter, categories, subFilter]);
+  }, [hangMucFilter, categories, subFilter, tiktokBrandFilter]);
 
   const filteredReleases = useMemo(() => {
     return roundFilteredReleases.filter((r) => {
@@ -311,7 +346,7 @@ export default function BookingBoard() {
   // Every added link counts toward "already added" regardless of status —
   // status (Chưa Booking / Đã Gửi / Done) is tracked per link but doesn't
   // gate the ratio, matching "already added" literally.
-  async function addEntry(releaseId, categoryName, brand, platform, link) {
+  async function addEntry(releaseId, categoryName, brand, platform, link, subchannelType) {
     if (!link.trim()) return;
     // channel_type is only meaningful for TikTok Channel (its In-house vs
     // Partner split) — derived straight from the brand so it always agrees
@@ -323,7 +358,7 @@ export default function BookingBoard() {
       .insert({
         release_id: releaseId, booking_round: round, channel_type: channelTypeTag,
         category_id: categoryIdByName[categoryName] || null, channel_name: brand || null,
-        platform: platform || null, link, status: "Chưa Booking",
+        platform: platform || null, subchannel_type: subchannelType || null, link, status: "Chưa Booking",
       })
       .select()
       .single();
@@ -336,15 +371,20 @@ export default function BookingBoard() {
   // `rows` is [{ channelName, link }]; platformFixed mirrors addEntry's
   // `platform` arg (the column's own fixed metric name for Ads-like
   // columns, or null everywhere else where each row's own channelName is
-  // what actually becomes the entry's `platform` field).
-  async function addEntries(releaseId, categoryName, brand, platformFixed, rows) {
+  // what actually becomes the entry's `platform` field). subchannelType is
+  // the column's fixed TikTok Channel subchannel tag (TIKTOK NEWS/etc, or
+  // null for every non-TikTok-Channel column) — unlike platform, it's
+  // never derived from the row, since the row's channelName is still the
+  // real channel/account name and both need to be stored independently.
+  async function addEntries(releaseId, categoryName, brand, platformFixed, subchannelType, rows) {
     const channelTypeTag = categoryName === "TikTok Channel" ? tiktokGroupForBrand(brand) : null;
     const payload = (rows || [])
       .filter((row) => row.link && row.link.trim())
       .map((row) => ({
         release_id: releaseId, booking_round: round, channel_type: channelTypeTag,
         category_id: categoryIdByName[categoryName] || null, channel_name: brand || null,
-        platform: platformFixed || row.channelName || null, link: row.link.trim(), status: "Chưa Booking",
+        platform: platformFixed || row.channelName || null, subchannel_type: subchannelType || null,
+        link: row.link.trim(), status: "Chưa Booking",
       }));
     if (payload.length === 0) return { count: 0 };
     const { data, error } = await supabase.from("media_booking_entries").insert(payload).select();
@@ -364,7 +404,7 @@ export default function BookingBoard() {
     filteredReleases.forEach((r) => {
       const row = [r.did || "", r.title, r.main_artist];
       columns.forEach((c) => {
-        row.push(addedFor(r, c.categoryName, c.brand, c.platform, roundEntries));
+        row.push(addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries));
         row.push(bookedFor(r, c.categoryName, c.brand) ?? "—");
       });
       rows.push(row);
@@ -474,6 +514,22 @@ export default function BookingBoard() {
               ))}
             </div>
           )}
+          {/* Layer 2 for TikTok Channel only — picks the specific brand
+              within the group just picked above. Columns (layer 3) only
+              appear once this is set — see the columns useMemo. */}
+          {hangMucFilter === "TikTok Channel" && subFilter && (
+            <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden", flexWrap: "wrap" }}>
+              {(TIKTOK_CHANNEL_GROUPS[subFilter] || []).map((b) => (
+                <button
+                  key={b}
+                  onClick={() => setTiktokBrandFilter(b)}
+                  style={{ padding: "9px 16px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: tiktokBrandFilter === b ? "#ff6b1a" : "transparent", color: tiktokBrandFilter === b ? "#0a0a0a" : "var(--text-muted)" }}
+                >
+                  {b}
+                </button>
+              ))}
+            </div>
+          )}
           {hangMucFilter !== "All" && (
             <button
               onClick={() => setUnrequestedOnly((v) => !v)}
@@ -526,7 +582,7 @@ export default function BookingBoard() {
           <table className={styles.table} style={{ minWidth: 900 }}>
             <thead>
               <tr>
-                <th style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288 }}>Release</th>
+                <th style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288 }}>Release</th>
                 <th style={{ borderRight: "2px solid var(--accent)", width: 154, minWidth: 154, maxWidth: 154 }}>Package</th>
                 <th style={{ borderRight: "2px solid var(--accent)" }}>Result</th>
                 {columns.map((c, i) => {
@@ -591,12 +647,13 @@ export default function BookingBoard() {
                           e.release_id === r.id &&
                           e.category_id === categoryIdByName[c.categoryName] &&
                           (c.brand === null || (e.channel_name || "") === (c.brand || "")) &&
-                          (c.platform == null || (e.platform || "") === c.platform)
+                          (c.platform == null || (e.platform || "") === c.platform) &&
+                          (c.subchannelType == null || (e.subchannel_type || "") === c.subchannelType)
                         )}
                         expanded={expandedCell === `${r.id}:${c.key}`}
                         onToggle={() => setExpandedCell(expandedCell === `${r.id}:${c.key}` ? null : `${r.id}:${c.key}`)}
-                        onAdd={(platform, link) => addEntry(r.id, c.categoryName, c.brand, c.platform || platform, link)}
-                        onAddBulk={(rows) => addEntries(r.id, c.categoryName, c.brand, c.platform, rows)}
+                        onAdd={(platform, link) => addEntry(r.id, c.categoryName, c.brand, c.platform || platform, link, c.subchannelType)}
+                        onAddBulk={(rows) => addEntries(r.id, c.categoryName, c.brand, c.platform, c.subchannelType, rows)}
                         onCycleStatus={cycleStatus}
                         canAdd={hangMucFilter !== "All"}
                         cellBorderLeft={isGroupStart ? "2px solid #555" : "1px solid var(--border)"}
@@ -731,11 +788,18 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
 
   // Picking a suggestion fills the first still-blank channel row instead
   // of always appending a new one, so the common "open popup, pick one
-  // channel" case doesn't leave a stray empty row behind.
+  // channel" case doesn't leave a stray empty row behind. Only the
+  // CHANNEL NAME is filled in from the reference list — the URL field is
+  // always left blank for the team to type/paste themselves. The
+  // reference list's own `url` is informational only (so the team knows
+  // which channel a given handle points to); it was previously also
+  // auto-filled into the actual booking link, which meant the real
+  // booking link silently defaulted to a value nobody typed and could go
+  // stale/wrong without anyone noticing.
   function pickReferenceChannel(ch) {
     setChannels((prev) => {
       const blankIdx = prev.findIndex((c) => !c.channelName && c.urls.every((u) => !u.trim()));
-      const entry = { channelName: ch.name, urls: [ch.url || ""] };
+      const entry = { channelName: ch.name, urls: [""] };
       if (blankIdx === -1) return [...prev, entry];
       return prev.map((c, i) => (i === blankIdx ? entry : c));
     });

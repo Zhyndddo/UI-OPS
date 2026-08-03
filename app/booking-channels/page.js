@@ -5,8 +5,20 @@ import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import styles from "../shared.module.css";
 
-const BOOKING_PLATFORMS = ["TikTok", "Facebook", "Instagram", "YouTube"];
+const BOOKING_PLATFORMS = ["TikTok", "Facebook", "Instagram", "YouTube", "Thread"];
 const BOOKING_CHANNEL_TYPES = ["Direct", "Partner"];
+
+function editStateFor(c) {
+  return {
+    name: c.name || "",
+    platform: c.platform || "TikTok",
+    channel_type: c.channel_type || "Direct",
+    brand: c.brand || "",
+    url: c.url || "",
+    follower_count: c.follower_count != null ? String(c.follower_count) : "",
+    note: c.note || "",
+  };
+}
 
 export default function BookingChannelsPage() {
   const [channels, setChannels] = useState([]);
@@ -16,6 +28,9 @@ export default function BookingChannelsPage() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [editValues, setEditValues] = useState(null);
+  const [saveError, setSaveError] = useState(null);
 
   useEffect(() => { if (supabase) load(); }, []);
 
@@ -47,6 +62,60 @@ export default function BookingChannelsPage() {
 
   async function remove(c) {
     await supabase.from("booking_channels").delete().eq("id", c.id);
+    load();
+  }
+
+  function startEdit(c) {
+    setEditingId(c.id);
+    setEditValues(editStateFor(c));
+    setSaveError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditValues(null);
+    setSaveError(null);
+  }
+
+  function updateEditField(field, value) {
+    setEditValues((prev) => ({ ...prev, [field]: value }));
+  }
+
+  // Every field on the row is now editable, including platform and
+  // channel_type (previously fixed at creation). Changing either can
+  // collide with the table's unique(name, platform, channel_type)
+  // constraint (e.g. renaming into a name that already exists under the
+  // new platform/type) — caught and shown inline rather than failing
+  // silently or creating a duplicate.
+  async function saveEdit(id) {
+    const followerCount = editValues.follower_count.trim() === "" ? null : Math.round(Number(editValues.follower_count));
+    if (editValues.follower_count.trim() !== "" && Number.isNaN(followerCount)) {
+      setSaveError("Follower count must be a number.");
+      return;
+    }
+    const payload = {
+      name: editValues.name.trim(),
+      platform: editValues.platform,
+      channel_type: editValues.channel_type,
+      brand: editValues.brand.trim() || null,
+      url: editValues.url.trim() || null,
+      follower_count: followerCount,
+      note: editValues.note.trim() || null,
+    };
+    if (!payload.name) {
+      setSaveError("Name can't be blank.");
+      return;
+    }
+    const { error } = await supabase.from("booking_channels").update(payload).eq("id", id);
+    if (error) {
+      setSaveError(error.message.includes("duplicate") || error.message.includes("unique")
+        ? "A channel with this name + platform + channel type already exists."
+        : error.message);
+      return;
+    }
+    setEditingId(null);
+    setEditValues(null);
+    setSaveError(null);
     load();
   }
 
@@ -106,25 +175,78 @@ export default function BookingChannelsPage() {
               <div key={p} style={{ marginBottom: 20 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>{p} ({group.length})</div>
                 <div style={{ display: "grid", gap: 6 }}>
-                  {group.map((c) => (
-                    <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 14px", gap: 10 }}>
-                      <div style={{ overflow: "hidden" }}>
-                        <div>
-                          {c.name} <span style={{ color: "var(--text-faint)", fontSize: 11 }}>({c.channel_type}{c.brand ? ` · ${c.brand}` : ""})</span>
+                  {group.map((c) => {
+                    const isEditing = editingId === c.id;
+                    if (isEditing) {
+                      return (
+                        <div key={c.id} style={{ background: "var(--bg-card)", border: "1px solid var(--accent)", borderRadius: 6, padding: "10px 14px" }}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                            <div className={styles.field} style={{ marginBottom: 0, minWidth: 160 }}>
+                              <label className={styles.fieldLabel}>Name</label>
+                              <input className={styles.input} value={editValues.name} onChange={(e) => updateEditField("name", e.target.value)} />
+                            </div>
+                            <div className={styles.field} style={{ marginBottom: 0, minWidth: 120 }}>
+                              <label className={styles.fieldLabel}>Platform</label>
+                              <select className={styles.select} value={editValues.platform} onChange={(e) => updateEditField("platform", e.target.value)}>
+                                {BOOKING_PLATFORMS.map((pl) => <option key={pl} value={pl}>{pl}</option>)}
+                              </select>
+                            </div>
+                            <div className={styles.field} style={{ marginBottom: 0, minWidth: 120 }}>
+                              <label className={styles.fieldLabel}>Channel Type</label>
+                              <select className={styles.select} value={editValues.channel_type} onChange={(e) => updateEditField("channel_type", e.target.value)}>
+                                {BOOKING_CHANNEL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                              </select>
+                            </div>
+                            <div className={styles.field} style={{ marginBottom: 0, minWidth: 160 }}>
+                              <label className={styles.fieldLabel}>Brand</label>
+                              <input className={styles.input} value={editValues.brand} onChange={(e) => updateEditField("brand", e.target.value)} placeholder="e.g. VPOP" />
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                            <div className={styles.field} style={{ marginBottom: 0, minWidth: 260, flex: 1 }}>
+                              <label className={styles.fieldLabel}>URL</label>
+                              <input className={styles.input} value={editValues.url} onChange={(e) => updateEditField("url", e.target.value)} placeholder="https://…" />
+                            </div>
+                            <div className={styles.field} style={{ marginBottom: 0, minWidth: 120 }}>
+                              <label className={styles.fieldLabel}>Followers</label>
+                              <input className={styles.input} value={editValues.follower_count} onChange={(e) => updateEditField("follower_count", e.target.value)} placeholder="e.g. 39500" />
+                            </div>
+                            <div className={styles.field} style={{ marginBottom: 0, minWidth: 160, flex: 1 }}>
+                              <label className={styles.fieldLabel}>Note</label>
+                              <input className={styles.input} value={editValues.note} onChange={(e) => updateEditField("note", e.target.value)} />
+                            </div>
+                          </div>
+                          {saveError && <div style={{ color: "#ff6b6b", fontSize: 11, marginBottom: 8 }}>{saveError}</div>}
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <button className={styles.btnPrimary} onClick={() => saveEdit(c.id)}>Save</button>
+                            <button className={styles.btnSmall} onClick={cancelEdit}>Cancel</button>
+                          </div>
                         </div>
-                        <div style={{ fontSize: 11, color: "var(--text-faint)", display: "flex", gap: 10, marginTop: 2 }}>
-                          {c.follower_count != null && <span>{c.follower_count.toLocaleString()} followers</span>}
-                          {c.url && (
-                            <a href={c.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-soft)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 260 }}>
-                              {c.url}
-                            </a>
-                          )}
-                          {c.note && <span>{c.note}</span>}
+                      );
+                    }
+                    return (
+                      <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 14px", gap: 10 }}>
+                        <div style={{ overflow: "hidden" }}>
+                          <div>
+                            {c.name} <span style={{ color: "var(--text-faint)", fontSize: 11 }}>({c.channel_type}{c.brand ? ` · ${c.brand}` : ""})</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-faint)", display: "flex", gap: 10, marginTop: 2 }}>
+                            {c.follower_count != null && <span>{c.follower_count.toLocaleString()} followers</span>}
+                            {c.url && (
+                              <a href={c.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-soft)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 260 }}>
+                                {c.url}
+                              </a>
+                            )}
+                            {c.note && <span>{c.note}</span>}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 12, flexShrink: 0, alignItems: "center" }}>
+                          <button onClick={() => startEdit(c)} style={{ background: "none", border: "none", color: "var(--accent-soft)", cursor: "pointer", fontSize: 11, textDecoration: "underline" }}>Edit</button>
+                          <button onClick={() => remove(c)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 14 }}>✕</button>
                         </div>
                       </div>
-                      <button onClick={() => remove(c)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 14, flexShrink: 0 }}>✕</button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
