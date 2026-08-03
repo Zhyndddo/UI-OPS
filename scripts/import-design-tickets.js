@@ -99,9 +99,19 @@
 // are preserved as-is in data._legacyImport instead of being dropped or
 // forced into a bucket they don't belong to.
 //
-// created_at: set from ngay_request where present (matches
-// import-legacy-orders.js's convention of carrying the real historical
-// creation time forward instead of leaving it at import-time "now").
+// created_at: ALWAYS set explicitly on every row (never conditionally
+// omitted) — best available date from ngay_request, falling back through
+// start_date / ngay_process / ngay_complete / ngay_refund / deadline for
+// the 9 rows missing ngay_request, and finally to import time for the
+// handful with no usable date at all. Carrying the real historical
+// creation time forward matches import-legacy-orders.js's convention.
+// Setting it on every row (not just when available) isn't just
+// cosmetic — PostgREST's bulk insert treats a key that's PRESENT on some
+// rows of the array but ABSENT on others as an explicit NULL for the
+// rows missing it (not "fall through to the column default"), so
+// conditionally setting created_at only when ngay_request existed was
+// actually inserting NULL into a NOT NULL column for every other row in
+// the same batch — this is what broke the first real run.
 //
 // legacy_id: the sheet's `code` column, deduplicated — 14 codes in the
 // 896-row export collide (same submitter+timestamp+task-type string
@@ -186,6 +196,15 @@ function extractEmail(code) {
   return m ? m[0] : null;
 }
 
+// Best available date for created_at — see the file header comment on
+// why this must never return undefined/null for a row that's actually
+// getting inserted (importNowIso is a fixed timestamp captured once at
+// the top of main(), not a fresh Date() per row, so every fallback row
+// in one run gets the same import time rather than drifting mid-batch).
+function bestCreatedAt(row, importNowIso) {
+  return row.ngay_request || row.start_date || row.ngay_process || row.ngay_complete || row.ngay_refund || row.deadline || importNowIso;
+}
+
 const STATUS_LOG_MAP = {
   ngay_request: "REQUESTED",
   ngay_process: "PROCESS",
@@ -194,6 +213,7 @@ const STATUS_LOG_MAP = {
 };
 
 async function main() {
+  const importNowIso = new Date().toISOString(); // captured once — see bestCreatedAt's comment
   const rows = JSON.parse(fs.readFileSync(FILE, "utf8"));
   if (rows.length === 0) {
     console.log("No rows found in " + FILE);
@@ -295,8 +315,8 @@ async function main() {
       executor: row.executor || null,
       pic_profile_id: picProfileId,
       legacy_id: legacyId,
+      created_at: bestCreatedAt(row, importNowIso),
     };
-    if (row.ngay_request) ticket.created_at = row.ngay_request;
 
     payload.push(ticket);
     toInsert++;

@@ -1775,3 +1775,45 @@ plausible contributor to the reported overlap — flagging honestly that I
 couldn't reproduce the exact glitch live (no browser access this
 session) to confirm it's the *whole* fix; let me know if it's still
 happening after this round and I'll keep digging.
+
+## 2026-08-03 (2) — import-design-tickets: fixed the created_at crash
+
+Your first real run of `import-design-tickets` failed on the first
+insert chunk: `null value in column "created_at" of relation "tickets"
+violates not-null constraint`. Root cause: the script only set
+`created_at` on a row when `ngay_request` was present, leaving the key
+off the object entirely for the 9 rows that lacked it. That's fine for a
+single-row insert (Postgres falls through to the column's `default
+now()`) — but PostgREST's BULK insert treats a key that's present on
+some rows of the array and absent on others as an explicit `NULL` for
+the rows missing it, not "use the default." Since those 9 rows were
+mixed into the same 50-row chunk as rows that DID have `created_at`,
+Postgres saw an explicit NULL going into a NOT NULL column and rejected
+the whole chunk — which is why it failed immediately at row 0 and
+nothing got inserted (confirmed: this was a clean failure, not a partial
+import — safe to just re-run).
+
+**Fixed:** `created_at` is now always set explicitly on every row —
+falls back through `ngay_request` → `start_date` → `ngay_process` →
+`ngay_complete` → `ngay_refund` → `deadline` → import time, in that
+order, so it's never omitted. Only 3 of the 896 rows have no usable date
+anywhere and fall all the way back to import time.
+
+Re-run the same command — this round's `data/design-tickets-import.json`
+and `scripts/import-design-tickets.js` are otherwise unchanged, so
+nothing else about the plan (executor linking, dedup, etc.) is affected.
+
+## 2026-08-03 (3) — Media Booking ticket list: auto-sorted by release date
+
+`/tickets/media-booking` now sorts by release date (soonest first)
+instead of ticket `created_at` — for a booking execution queue, "which
+release is coming up next" is the more useful priority signal than
+"which ticket was made most recently." Tickets with no matching release
+sort to the bottom rather than jumping to the top from a missing date.
+The admin view's existing REFUND-first grouping is preserved on top of
+this (REFUND tickets still surface first; release date decides the order
+within that group and within the rest).
+
+This is explicitly a "for now" sort per your ask — happy to build a real
+column-picker (click a header to sort by date/status/etc, like Pre-release
+already has) if release date alone doesn't cover what you need.

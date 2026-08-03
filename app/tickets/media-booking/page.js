@@ -78,11 +78,31 @@ export default function MediaBookingList() {
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
+  // Auto-sort by release date (soonest first) instead of the query's
+  // default created_at desc — for a booking execution queue, "which
+  // release is coming up next" is the priority signal, not "which ticket
+  // was made most recently." Tickets with no matching release (releaseId
+  // missing, or the release wasn't found in releasesByDid) sort last
+  // rather than being pulled to the top by a missing/undefined date.
+  // "for now" per your ask — a real column-picker sort can replace this
+  // later if release date isn't always the right axis.
+  function byReleaseDate(a, b) {
+    const da = releasesByDid[a.data?.releaseId]?.release_date;
+    const db = releasesByDid[b.data?.releaseId]?.release_date;
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+    return da.localeCompare(db);
+  }
+
   const visibleTickets = useMemo(() => {
     if (!tab) return [];
-    if (isExecutorView) return tickets.filter((t) => t.status === statusFilter);
-    return [...tickets].sort((a, b) => (a.status === "REFUND" ? 0 : 1) - (b.status === "REFUND" ? 0 : 1));
-  }, [tickets, tab, isExecutorView, statusFilter]);
+    if (isExecutorView) return tickets.filter((t) => t.status === statusFilter).sort(byReleaseDate);
+    // Sort by release date first, then a STABLE re-sort pulling REFUND
+    // tickets to the top — Array.sort is stable, so the release-date
+    // order survives within each of the two groups.
+    return [...tickets].sort(byReleaseDate).sort((a, b) => (a.status === "REFUND" ? 0 : 1) - (b.status === "REFUND" ? 0 : 1));
+  }, [tickets, tab, isExecutorView, statusFilter, releasesByDid]);
 
   const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
 
