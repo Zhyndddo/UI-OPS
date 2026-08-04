@@ -2739,3 +2739,44 @@ app-layer only. Verified with
 `tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
 brace/paren/bracket balance check against all 3 touched files before
 sending — zero errors.
+
+## 2026-08-05 (27) — Phái Sinh column layout, Music Video on Spotify built out
+
+**1. Phái Sinh ticket — column width/layout only, no new columns.**
+- Widened a lot: Type, Label, Tên Bài, Artist, Contributor, Release, PIC.
+- Widened a little: Tác Quyền.
+- Narrowed a lot: URL (down to ~70-90px).
+- **Related DID moved out of its own column**, into the Tên Bài cell as a
+  second stacked input right below the title — the row was already
+  several lines tall (Artist/Contributor groups), so this reclaims a
+  whole column's worth of width instead of adding to the row height.
+- **New pill tags under Type**: "Publishing" / "Splitshare", shown when
+  the related DID's own release has that gate field ticked "Yes" —
+  assumed `gate_phu_luc_publishing` and `gate_split_share` respectively
+  (flag if a different field was meant). One batched query looks up all
+  referenced related-DID releases at once.
+
+**2. Music Video on Spotify — fully built out** (round 24 placeholder).
+- Auto-created on `gate_mv_spotify` = "Yes" at New Release creation, same
+  pattern as Pre-order Itunes/Priority Sync Lyric/Pitching.
+- Bespoke page (`app/tickets/mv-spotify/page.js`), same 4-status executor
+  view (Request/Process/Complete/Refund) as the other two new ticket
+  types this round.
+- Row layout matches the Upload Workstation: Release info, Link LBM
+  (view-only hyperlink), Link Drive (view-only hyperlink, with **MV
+  status right underneath it as a second line** — `releases.canva_status`,
+  the same Full/Lyric/Visualization field the Pre-release Workstation's
+  "MV" column and the New Release/Overview conditional field already
+  edit), **Spotify MV Link** (new `releases.spotify_mv_link` column — this
+  ticket is its only editor), and **Note** — intentionally kept as
+  `ticket.data.note` rather than a releases column, per explicit "no link
+  to anywhere," so it only ever shows up on this one ticket, nowhere else.
+
+Migration delivered separately:
+`add-round27-mv-spotify-and-phai-sinh.sql` (adds
+`releases.spotify_mv_link`, narrows Music Video on Spotify's
+`ticket_tabs.status_options` to the 4 requested values). Also folded into
+`schema.sql`. Phái Sinh's changes are app-layer only. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
+brace/paren/bracket balance check against all 3 touched files before
+sending — zero errors.

@@ -360,6 +360,21 @@ export default function NewReleasePage() {
       }
     }
 
+    // gate_mv_spotify = "true" means a Music Video on Spotify ticket
+    // should exist for this release — same auto-create-on-Yes pattern.
+    if (form.gate_mv_spotify === "true") {
+      const { data: mvTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "mv_spotify").single();
+      if (mvTab) {
+        await supabase.from("tickets").insert({
+          tab_id: mvTab.id,
+          data: { releaseId: data.did },
+          status: mvTab.default_status,
+          status_log: { [mvTab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+
     if (form.single_album_ep !== "Single" && trackRows && trackRows.length > 0) {
       await supabase.from("release_tracks").insert(
         trackRows
