@@ -8,7 +8,7 @@ import { LABEL_HOP_TAC_OPTIONS, LABEL_PHAN_LOAI_OPTIONS } from "../../lib/picker
 import PickSelect from "../../lib/PickSelect";
 import styles from "../shared.module.css";
 
-const EMPTY = { label_name: "", hop_tac: [], the_loai: "", phan_loai: "" };
+const EMPTY = { label_name: "", hop_tac: [], the_loai: "", phan_loai: "", contract_signed: false };
 
 export default function LabelsPage() {
   const [labels, setLabels] = useState([]);
@@ -68,7 +68,15 @@ export default function LabelsPage() {
       setError("Label Name is required.");
       return;
     }
-    const payload = { ...form, label_name: withLabelPrefix(form.label_name), the_loai: form.the_loai || null };
+    const payload = {
+      ...form,
+      // Ticking "Contract Signed" at creation skips the "HĐ - " prefix
+      // entirely, so there's nothing to click off afterward — same result
+      // as adding it un-signed and then hitting the table row's "Contract
+      // Signed" button, just in one step.
+      label_name: form.contract_signed ? stripLabelPrefix(form.label_name) : withLabelPrefix(form.label_name),
+      the_loai: form.the_loai || null,
+    };
     const { error: err } = await supabase.from("labels").insert(payload);
     if (err) setError(err.message);
     else {
@@ -158,6 +166,20 @@ export default function LabelsPage() {
           <div className={styles.field} style={{ marginBottom: 0, minWidth: 140 }}>
             <label className={styles.fieldLabel}>Phân Loại</label>
             <PickSelect styles={styles} opts={["", ...LABEL_PHAN_LOAI_OPTIONS]} value={form.phan_loai} onChange={(v) => setForm((f) => ({ ...f, phan_loai: v }))} />
+          </div>
+          {/* Contract Signed at creation — ticking this skips the "HĐ - "
+              prefix entirely instead of adding it and requiring a separate
+              click on the table row's "Contract Signed" button afterward. */}
+          <div className={styles.field} style={{ marginBottom: 0 }}>
+            <label className={styles.fieldLabel} style={{ visibility: "hidden" }}>Contract</label>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)", cursor: "pointer", height: 32 }}>
+              <input
+                type="checkbox"
+                checked={form.contract_signed}
+                onChange={(e) => setForm((f) => ({ ...f, contract_signed: e.target.checked }))}
+              />
+              Contract Signed
+            </label>
           </div>
           <button className={styles.btnPrimary} type="submit">+ Add Label</button>
         </form>

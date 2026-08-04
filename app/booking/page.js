@@ -350,19 +350,25 @@ export default function BookingBoard() {
 
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(filteredReleases);
 
+  // Per-round release counts (INT / Đợt 1 / Đợt 2) — replaces the old
+  // Done/Đang Booking/Chưa Booking status counters, per explicit request.
+  // Mirrors roundFilteredReleases' own membership rules exactly, but
+  // computed for all three rounds at once (not just the currently-picked
+  // one) so all four stat cards can show simultaneously. INT and Đợt 1 are
+  // mutually exclusive (same isIntType branching as roundFilteredReleases);
+  // Đợt 2 membership is independent (dot2ReleaseIds), so a release can
+  // count toward both Đợt 1 and Đợt 2 at once, same as before.
   const stats = useMemo(() => {
     const total = releases.length;
-    let done = 0, notBooked = 0, inProgress = 0;
-    roundFilteredReleases.forEach((r) => {
-      const relEntries = roundEntries.filter((e) => e.release_id === r.id);
-      if (relEntries.length === 0) { notBooked++; return; }
-      const pkg = packageByRelease[r.id];
-      const totalBooked = (pkg?.media_booking_package_lines || []).reduce((sum, l) => sum + (l.quantity || 0), 0);
-      if (totalBooked > 0 && relEntries.length >= totalBooked) done++;
-      else inProgress++;
+    let int = 0, dot1 = 0, dot2 = 0;
+    releases.forEach((r) => {
+      const isIntType = !!r.project_type && /int\s*media/i.test(r.project_type);
+      if (isIntType) int++;
+      else if (!!r.project_type && r.project_type !== "Chỉ Phát Hành") dot1++;
+      if (dot2ReleaseIds.has(r.id)) dot2++;
     });
-    return { total, done, inProgress, notBooked };
-  }, [releases, roundFilteredReleases, roundEntries, packageByRelease]);
+    return { total, int, dot1, dot2 };
+  }, [releases, dot2ReleaseIds]);
 
   // Every added link counts toward "already added" regardless of status —
   // status (Chưa Booking / Đã Gửi / Done) is tracked per link but doesn't
@@ -463,16 +469,16 @@ export default function BookingBoard() {
             <div className={styles.statValue} style={{ fontSize: 34 }}>{stats.total}</div>
           </div>
           <div className={styles.statCard}>
-            <div className={styles.statLabel}>Done ({round})</div>
-            <div className={styles.statValue} style={{ fontSize: 34, color: "#7ee6a8" }}>{stats.done}</div>
+            <div className={styles.statLabel}>INT</div>
+            <div className={styles.statValue} style={{ fontSize: 34, color: "#7ee6a8" }}>{stats.int}</div>
           </div>
           <div className={styles.statCard}>
-            <div className={styles.statLabel}>Đang Booking</div>
-            <div className={styles.statValue} style={{ fontSize: 34, color: "#ffca4d" }}>{stats.inProgress}</div>
+            <div className={styles.statLabel}>Đợt 1</div>
+            <div className={styles.statValue} style={{ fontSize: 34, color: "#ffca4d" }}>{stats.dot1}</div>
           </div>
           <div className={styles.statCard}>
-            <div className={styles.statLabel}>Chưa Booking</div>
-            <div className={styles.statValue} style={{ fontSize: 34, color: "var(--text-faint)" }}>{stats.notBooked}</div>
+            <div className={styles.statLabel}>Đợt 2</div>
+            <div className={styles.statValue} style={{ fontSize: 34, color: "var(--text-faint)" }}>{stats.dot2}</div>
           </div>
         </div>
 

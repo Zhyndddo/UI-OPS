@@ -2502,3 +2502,36 @@ change. Verified with
 `tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
 brace/paren/bracket balance check against all 7 touched files before
 sending — zero errors.
+
+## 2026-08-05 (22) — Contract Signed at creation, new MV options, Booking Board round counters
+
+**1. Contract Signed at label creation.** The Labels create row now has a
+"Contract Signed" checkbox. Ticking it before submitting skips the
+"HĐ - " prefix entirely (and sets `contract_signed: true` on insert), so
+there's no longer a separate step of adding the label, then clicking the
+table row's "Contract Signed" button afterward — same end result, one
+step instead of two. Unticked behaves exactly as before (prefix added,
+`contract_signed` false).
+
+**5. MV type options replaced.** `MV_TYPE_OPTIONS`
+(`lib/pickerOptions.js`) changed from LYRIC/Đã có/Chưa có/Không có to the
+new set: Full / Lyric / Visualization, per explicit request. All three
+call sites (Pre-release Workstation's "MV" column, New Release's and the
+release detail Overview tab's conditional MV-type field) already used or
+were switched to the shared `PickSelect` component, so any release still
+holding an old option value shows up flagged as
+"(unrecognized — pick to fix)" instead of silently rendering blank — no
+data is hidden by the option-list change.
+
+**New: Booking Board round counters.** The three status-based stat cards
+(Done / Đang Booking / Chưa Booking) are replaced with per-round release
+counts: INT, Đợt 1, Đợt 2 — same round-membership rules
+`roundFilteredReleases` already used (INT = INT-media project type; Đợt 1
+= any other real project type; Đợt 2 = has Đợt 2 targets set), just
+computed for all three rounds at once instead of only the currently
+selected one, so all four cards (Tổng Releases + the three round counts)
+show together regardless of which round tab is active.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck`
+plus a brace/paren/bracket balance check against all 5 touched files
+before sending — zero errors. No schema change this round.

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
 import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS } from "../../lib/GateFields";
 import { MV_TYPE_OPTIONS } from "../../lib/pickerOptions";
+import PickSelect from "../../lib/PickSelect";
 import QuickCreate from "../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../lib/ReferenceInputs";
 import { buildLinkshareNote, defaultLinkshareFacebookTiming, defaultLinkshareTiktokTiming, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS } from "../../lib/releaseNotes";
@@ -67,7 +68,7 @@ const EMPTY_FORM = {
   meta_working_files: "false",
   meta_lyric: "false",
   meta_mv: "false",
-  canva_status: "", // MV type (LYRIC/Đã có/Chưa có/Không có) — same field the Pre-release Workstation edits, revealed under Metadata Checklist's MV toggle
+  canva_status: "", // MV type (Full/Lyric/Visualization) — same field the Pre-release Workstation edits, revealed under Metadata Checklist's MV toggle
   meta_doc: "false",
   gate_pitching: "false",
   // TBU by default — every release starts in BRIEF & DATA, which is
@@ -672,9 +673,7 @@ export default function NewReleasePage() {
                     Yes, per explicit request. */}
                 {m.key === "meta_mv" && form.meta_mv === "true" && (
                   <div style={{ marginTop: 6 }}>
-                    <select className={styles.select} value={form.canva_status || ""} onChange={(e) => update("canva_status", e.target.value)}>
-                      {MV_TYPE_OPTIONS.map((o) => <option key={o} value={o}>{o || "— MV type —"}</option>)}
-                    </select>
+                    <PickSelect styles={styles} opts={MV_TYPE_OPTIONS} value={form.canva_status} onChange={(v) => update("canva_status", v)} placeholder="— MV type —" />
                   </div>
                 )}
               </div>

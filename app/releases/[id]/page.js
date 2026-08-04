@@ -12,6 +12,7 @@ import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import UrlField from "../../../lib/UrlField";
 import { validateLabelNameEdit } from "../../../lib/labelHelpers";
 import { MV_TYPE_OPTIONS } from "../../../lib/pickerOptions";
+import PickSelect from "../../../lib/PickSelect";
 import { TICKET_TYPE_LABELS, TEAMS } from "../../../lib/teamTypes";
 import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
@@ -1079,9 +1080,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
                 too once MV is ticked Yes, per explicit request. */}
             {m.key === "meta_mv" && form.meta_mv === "true" && (
               <div style={{ marginTop: 6 }}>
-                <select className={styles.select} value={form.canva_status || ""} onChange={(e) => update("canva_status", e.target.value)}>
-                  {MV_TYPE_OPTIONS.map((o) => <option key={o} value={o}>{o || "— MV type —"}</option>)}
-                </select>
+                <PickSelect styles={styles} opts={MV_TYPE_OPTIONS} value={form.canva_status} onChange={(v) => update("canva_status", v)} placeholder="— MV type —" />
               </div>
             )}
           </div>
