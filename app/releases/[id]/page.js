@@ -844,12 +844,18 @@ function LinkPill({ label, href }) {
 // "possibly the ticket in the future too" (per the original request) is a
 // noted extension point, not built yet — there's no per-ticket note source
 // to pull from at the moment.
+// Design excluded from this panel's team list per explicit request ("they
+// don't really note anything for the product") — Design still exists as a
+// real team everywhere else (its own ticket type, TEAMS, etc.), this is
+// just a display-only filter local to the note panel.
+const NOTE_PANEL_TEAMS = TEAMS.filter((t) => t !== "Design");
+
 function ReleaseNotePanel({ note }) {
-  const [selectedTeam, setSelectedTeam] = useState(TEAMS[0]);
+  const [selectedTeam, setSelectedTeam] = useState(NOTE_PANEL_TEAMS[0]);
   return (
     <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden", height: 140 }}>
       <div style={{ width: 100, flexShrink: 0, borderRight: "1px solid var(--border)", overflowY: "auto", background: "var(--bg-card)" }}>
-        {TEAMS.map((t) => (
+        {NOTE_PANEL_TEAMS.map((t) => (
           <button
             key={t}
             type="button"

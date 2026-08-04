@@ -169,7 +169,10 @@ export default function UploadWorkstation() {
                   <th>Link LBM</th>
                   <th>Link Share</th>
                   <th>Smartlink</th>
-                  <th>Pre-order</th>
+                  {/* Pre-order column removed — Link Preorder is now edited
+                      from the Pre-order Itunes ticket popup instead (see
+                      app/tickets/pre-order-itunes/page.js), same real
+                      releases.link_preorder column, one editing surface. */}
                   {/* Renamed from plain "Note" — this is the existing
                       brief-backed popup (product note + linkshare timing),
                       distinct from the independent Note columns added to
@@ -216,7 +219,7 @@ export default function UploadWorkstation() {
 }
 
 function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateField, onUpdatePic, onOpenNote }) {
-  const URL_KEYS = ["drive_link", "link_lbm", "link_share", "smartlink", "link_preorder"];
+  const URL_KEYS = ["drive_link", "link_lbm", "link_share", "smartlink"];
   const [drafts, setDrafts] = useState(() => {
     const initial = {};
     URL_KEYS.forEach((k) => (initial[k] = release[k] || ""));
@@ -265,9 +268,6 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateFiel
           disabled={release.needs_update}
           disabledTitle={PRIORITY_MODE_WARNING}
         />
-      </td>
-      <td style={{ minWidth: 180 }}>
-        <UrlField styles={styles} value={drafts.link_preorder} onChange={(v) => setDrafts((d) => ({ ...d, link_preorder: v }))} onBlur={() => onUpdateField(release, "link_preorder", drafts.link_preorder)} />
       </td>
       <td>
         <div style={{ display: "flex", gap: 8 }}>

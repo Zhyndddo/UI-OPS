@@ -125,7 +125,7 @@ export default function PreReleaseWorkstation() {
   return (
     <AppShell>
       <div className={styles.page}>
-        <div className={styles.container} style={{ maxWidth: 1300 }}>
+        <div className={styles.container} style={{ maxWidth: 1600 }}>
           <TypeSwitcher kind="workstation" current="pre_release" />
           <div className={styles.eyebrow}>// Workstation</div>
           <h1 className={styles.title} style={{ marginBottom: 16 }}>Pre-release</h1>
@@ -143,14 +143,14 @@ export default function PreReleaseWorkstation() {
           ) : (
             <>
             <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
-            <table className={styles.table} style={{ minWidth: 1100 }}>
+            <table className={styles.table} style={{ minWidth: 1300 }}>
               <thead>
                 <tr>
                   <SortableTh
                     sortKey="release_date"
                     sort={sort}
                     onToggle={toggleSort}
-                    style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}
+                    style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}
                   >
                     Release info
                   </SortableTh>
@@ -194,9 +194,9 @@ function PreReleaseRow({ release, pic, isOverride, profiles, onUpdateField, onUp
 
   return (
     <tr>
-      <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>
+      <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}>
         <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
-        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release.main_artist} · {release.did} · {fmtDate(release.release_date)} {release.release_time}</div>
+        <div style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{release.main_artist} · {release.did} · {fmtDate(release.release_date)} {release.release_time}</div>
       </td>
       <td>
         <PickSelect styles={styles} opts={CANVA_OPTS} value={release.canva_mv_status} onChange={(v) => onUpdateField(release, "canva_mv_status", v)} />

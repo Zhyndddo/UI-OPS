@@ -2633,3 +2633,109 @@ for them in case the live DB is ever missing one.
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck`
 plus a brace/paren/bracket balance check against all 28 touched/created
 files before sending — zero errors.
+
+## 2026-08-05 (25) — Pre-order Itunes ticket built out, Pitching DSP auto-status, note panel drops Design
+
+**1. Pre-order Itunes ticket — fully built out (was a round-24 placeholder).**
+- Auto-created the moment `gate_pre_order` is ticked "Yes" on the New
+  Release create form (mirrors the existing Pitching/Artist Profile
+  auto-send pattern) — no manual "Send Ticket" click needed at creation
+  time. Toggling it "Yes" later, from the release detail page, still works
+  too (round 24's generic "Send Ticket" button, unchanged).
+- Rebuilt as a bespoke page (was the generic `TicketListPage`) —
+  `app/tickets/pre-order-itunes/page.js`. Executor (OPS) view: 4 status
+  tabs only — Request/Process/Complete/Refund, no Cancel (custom
+  `status_options` on this type's `ticket_tabs` row). Rows match the
+  Pitching ticket list's shape (Request Date/Release/PIC/Status).
+  Requester (AR) view: same flat list, no status tabs — standard dual-view
+  default, nothing special needed there.
+- Clicking a row opens a popup: "Pre-order Itunes ticket" title top-left,
+  two external-link buttons underneath (**Itunes convert** →
+  vieent.com/en/ituneslink, **linkfire** → Linkfire dashboard, both open
+  in a new tab), release info, then **Link LBM** and **Link Preorder** —
+  both real `releases` columns (`link_lbm`, `link_preorder`), same ones
+  the URL tab and Upload Workstation already read/write, not ticket data.
+  Status is also editable here (executor only).
+- **Link Preorder's column removed from the Upload Workstation table** —
+  it's edited from this ticket's popup now instead, one surface instead of
+  two. Link LBM's own Upload Workstation column is untouched (it's shared
+  infrastructure — Confirm Workstation's Phase 1 completion also depends
+  on it — removing it there felt riskier than the request called for; flag
+  if it should come out too).
+
+**2. Priority Sync Lyric — skipped this round.** The request text for item
+2 was an exact copy of item 1's (same "Pre-order Itunes ticket" title,
+same LBM/Preorder fields, same iTunes/Linkfire buttons) — clearly a
+paste-over, not the real spec for this type. Left as the round-24
+placeholder; send the real spec whenever you're ready for this one.
+
+**3. Pitching ticket — DSP status now auto-syncs from the ticket.** The
+Pitching Workstation's popup already only showed tabs for the DSPs
+actually requested (no change needed there — was already filtering on
+`ticket.data[type]`). New this round: each DSP's status column on the
+release now auto-follows the ticket's requested-flags + overall status,
+computed on every Pitching Workstation page load (same "auto-sync on
+load" pattern as the Stream Workstation's metrics rows):
+- Not requested at all → the DSP's own "won't do" value (Priority/Spotify:
+  "Không thực hiện"; NCT/Zing: "Không hỗ trợ" — their vocab has no exact
+  "Không thực hiện" equivalent, this is the closest same-bucket value).
+- Requested, ticket ticket status not yet PROCESS → "Chưa thực hiện".
+- Requested, ticket status IS PROCESS → "Đang thực hiện" for
+  Priority/Spotify. NCT/Zing have no "in progress" option in their own
+  vocab (`NCT_ZING_OPTS` has no such value) — they stay at "Chưa thực
+  hiện" until OPS picks a real value by hand; flag if NCT/Zing should get
+  an in-progress option added to support this properly.
+Only ever touches a column that's currently blank or still one of these
+same auto-managed pre-work values — a real in-progress pick or a
+completed one ("Đã pitching"/"Có gói") is never silently overwritten.
+
+**4. Note panel — Design removed from the team list.** The release detail
+page's header note panel (team list left / note content right, from round
+19) no longer shows Design as a pickable team — display-only filter
+local to that one component; Design still exists as a real team
+everywhere else (its own ticket type, TEAMS, etc.).
+
+Migration delivered separately: `add-round25-preorder-4-statuses.sql`
+(narrows Pre-order Itunes's `ticket_tabs.status_options` down to the 4
+requested values — idempotent). Also folded into `schema.sql`. Everything
+else this round is app-layer only, no schema change. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
+brace/paren/bracket balance check against all 5 touched files before
+sending — zero errors.
+
+## 2026-08-05 (26) — Priority Sync Lyric built out, Pre-release Workstation width
+
+**Priority Sync Lyric — fully built out** (round 24's placeholder, round
+25 skipped it since that request's text was a copy of Pre-order Itunes's).
+- Auto-created the moment `gate_lyric_musixmatch` is ticked "Yes" on the
+  New Release create form — same pattern as Pitching/Artist
+  Profile/Pre-order Itunes.
+- Rebuilt as a bespoke page (`app/tickets/priority-sync-lyric/page.js`,
+  was the generic `TicketListPage`). Executor (OPS) view: same 4 status
+  tabs as Pre-order Itunes — Request/Process/Complete/Refund, no Cancel.
+  Requester (AR) view: flat list, no tabs, standard dual-view default.
+- **No popup this time** (unlike Pre-order Itunes) — columns are inline on
+  the row, matching the Pre-release Workstation's layout: Release info,
+  Link LBM (plain hyperlink, view-only — edited from Pre-order Itunes's
+  ticket or the Upload Workstation, not here), Musixmatch Status,
+  Musixmatch Link, PIC, Status. Musixmatch Status/Link edit the exact same
+  `releases.musixmatch_status`/`musixmatch_link` columns the Pre-release
+  Workstation already shows — same DB column, so a change here shows up
+  there immediately and vice versa, no sync code needed.
+
+**Pre-release Workstation — width tweaks (unrelated, per explicit note).**
+The sticky "Release info" column now has a 260px minimum width (up from
+unconstrained/content-driven) with the artist/DID/date line forced to one
+line (`whiteSpace: nowrap`) instead of wrapping — the DID no longer bleeds
+onto a second line. The page's own container widened from 1300px to
+1600px, and the table's minimum width from 1100px to 1300px, so the
+scrollable table area has more room before horizontal scrolling kicks in.
+
+Migration delivered separately:
+`add-round26-priority-sync-lyric-4-statuses.sql` (narrows Priority Sync
+Lyric's `ticket_tabs.status_options` to the 4 requested values —
+idempotent). Also folded into `schema.sql`. Everything else this round is
+app-layer only. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
+brace/paren/bracket balance check against all 3 touched files before
+sending — zero errors.

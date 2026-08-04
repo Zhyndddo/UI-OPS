@@ -325,6 +325,41 @@ export default function NewReleasePage() {
       }
     }
 
+    // gate_pre_order = "true" means a Pre-order Itunes ticket should exist
+    // for this release — auto-created at New Release creation, per
+    // explicit request, same "tick Yes here -> ticket appears" pattern as
+    // Pitching/Artist Profile above. Fields left blank (DID + Note only,
+    // per the ticket type's own config) — LBM url and Link Preorder are
+    // filled in later from the ticket's own popup, not collected here.
+    if (form.gate_pre_order === "true") {
+      const { data: poTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pre_order_itunes").single();
+      if (poTab) {
+        await supabase.from("tickets").insert({
+          tab_id: poTab.id,
+          data: { releaseId: data.did },
+          status: poTab.default_status,
+          status_log: { [poTab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+
+    // gate_lyric_musixmatch = "true" means a Priority Sync Lyric ticket
+    // should exist for this release — same auto-create-on-Yes pattern as
+    // Pre-order Itunes above, per explicit request.
+    if (form.gate_lyric_musixmatch === "true") {
+      const { data: pslTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "priority_sync_lyric").single();
+      if (pslTab) {
+        await supabase.from("tickets").insert({
+          tab_id: pslTab.id,
+          data: { releaseId: data.did },
+          status: pslTab.default_status,
+          status_log: { [pslTab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+
     if (form.single_album_ep !== "Single" && trackRows && trackRows.length > 0) {
       await supabase.from("release_tracks").insert(
         trackRows
