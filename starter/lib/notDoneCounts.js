@@ -39,7 +39,10 @@ const DUAL_VIEW_EXECUTOR_TEAM = {
   split_share: "Legal",
   phu_luc_mg: "Legal",
   phu_luc_publishing: "Legal",
-  phu_luc_truyen_thong: "Legal",
+  // phu_luc_truyen_thong retired (merged into "phu_luc" — see
+  // GATE_TICKET_TYPES's comment in lib/GateFields.js). "phu_luc" itself
+  // deliberately stays OUT of this map — no dual-view change requested,
+  // it keeps its existing single flat view for everyone.
 };
 
 function isExecutorView(typeKey, profile) {

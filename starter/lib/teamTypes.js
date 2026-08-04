@@ -84,12 +84,16 @@ export const TEAM_TICKET_TYPES = {
     // AR is the requester side of every new Data Request sub-ticket below
     "co_trong_net_youtube", "pre_order_itunes", "priority_sync_lyric",
     "mv_spotify", "discovery_mode_spotify", "sony_publish",
-    "split_share", "phu_luc_mg", "phu_luc_publishing", "phu_luc_truyen_thong",
+    "split_share", "phu_luc_mg", "phu_luc_publishing",
   ],
   Marketing: ["media_booking", "stream_update"],
   Design: ["design"],
-  // New Legal Request sub-tickets (Legal-executed) — see lib/ticketConfigs.js
-  Legal: ["split_share", "phu_luc_mg", "phu_luc_publishing", "phu_luc_truyen_thong"],
+  // New Legal Request sub-tickets (Legal-executed) — see lib/ticketConfigs.js.
+  // "phu_luc" added per explicit correction — "Phụ Lục Truyền Thông" was
+  // never a separate ticket type, it IS Phụ Lục (just relabeled below for
+  // clarity), and Legal had visibility into it under its old name, so this
+  // keeps that visibility rather than losing it in the retirement.
+  Legal: ["split_share", "phu_luc_mg", "phu_luc_publishing", "phu_luc"],
 };
 
 export const TICKET_TYPE_LABELS = {
@@ -100,7 +104,12 @@ export const TICKET_TYPE_LABELS = {
   manual_claim: "Manual Claim",
   report_conflict: "Report Conflict",
   artist_profile: "Artist Profile",
-  phu_luc: "Phụ Lục",
+  // Relabeled per explicit correction — "Phụ Lục Truyền Thông" (one of the
+  // round-24 placeholder Legal Request sub-tickets) was never actually a
+  // separate thing from this ticket type; that placeholder is retired
+  // (see GATE_TICKET_TYPES's comment in lib/GateFields.js) and this is
+  // the real one. Route/data/behavior are all unchanged — label only.
+  phu_luc: "Phụ Lục Truyền Thông",
   stream_update: "Stream Update",
   khac: "Khác",
   pitching: "Pitching",
@@ -117,7 +126,7 @@ export const TICKET_TYPE_LABELS = {
   split_share: "Splitshare",
   phu_luc_mg: "Phụ Lục MG",
   phu_luc_publishing: "Phụ Lục Publishing",
-  phu_luc_truyen_thong: "Phụ Lục Truyền Thông",
+  // phu_luc_truyen_thong retired — see phu_luc's label above.
 };
 
 export const TICKET_ROUTES = {
@@ -146,7 +155,7 @@ export const TICKET_ROUTES = {
   split_share: "/tickets/split-share",
   phu_luc_mg: "/tickets/phu-luc-mg",
   phu_luc_publishing: "/tickets/phu-luc-publishing",
-  phu_luc_truyen_thong: "/tickets/phu-luc-truyen-thong",
+  // phu_luc_truyen_thong retired — see phu_luc's label above.
 };
 
 // "Khác" is genuinely shared by every team (matches the plan doc: "Khác /

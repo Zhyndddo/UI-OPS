@@ -93,6 +93,15 @@ export const PITCHING_TYPES = [
   ["zing", "Zing"],
 ];
 
+// Which platforms the Artist Profile ticket needs set up on — "show to
+// pick like the pitching field" per explicit request, same checkbox-
+// group idiom as PITCHING_TYPES above.
+export const ARTIST_PROFILE_PLATFORMS = [
+  ["spotify", "Spotify"],
+  ["tiktok", "Tiktok"],
+  ["apple", "Apple"],
+];
+
 // "Thể Loại" options revealed once Design is set to Yes — best-guess
 // mapping from "bấm yes thì thêm Thể loại vô MV Lyrics, Music Video,
 // Visualize" onto the Design gate specifically, since Design tickets are
@@ -191,7 +200,19 @@ export const GATE_TICKET_TYPES = {
   gate_split_share: "split_share",
   gate_phu_luc_mg: "phu_luc_mg",
   gate_phu_luc_publishing: "phu_luc_publishing",
-  gate_phu_luc_truyen_thong: "phu_luc_truyen_thong",
+  // Points at the existing "phu_luc" ticket type, NOT a separate
+  // "phu_luc_truyen_thong" type — per explicit correction, that was never
+  // a real distinct thing, it IS Phụ Lục (just relabeled "Phụ Lục Truyền
+  // Thông" for clarity — see TICKET_TYPE_LABELS.phu_luc). This key is
+  // used for DISPLAY only (does an existing phu_luc ticket exist? -> show
+  // the green "Ticket Sent" link) — deliberately excluded from the
+  // generic auto-create-on-Save loop in app/releases/[id]/page.js
+  // (same exclusion as gate_sony_publish, different reason): Phụ Lục
+  // tickets are created by the pick-package magic-link flow with real
+  // required data (Giá Trị Phụ Lục etc.), and this gate field auto-flips
+  // "Yes" the moment a package is picked — auto-creating a second, empty
+  // placeholder phu_luc ticket alongside the real one would be wrong.
+  gate_phu_luc_truyen_thong: "phu_luc",
 };
 
 // Display-only status for a mapped gate field once it's "Yes" — mirrors
@@ -234,6 +255,16 @@ function GateTicketLink({ styles, gateKey, ticketMap, sonyPublishMetaReady }) {
     return (
       <p style={{ color: "var(--warn-fg)", fontSize: 11, marginTop: 6, marginBottom: 0 }}>
         ⚠ Not enough data to upload yet — fill in Audio/Artwork/Lyric/Metadata doc, then Save to send.
+      </p>
+    );
+  }
+  // Not "sends on Save" — this one is created by the pick-package
+  // magic-link flow, not by Save on this page (see GATE_TICKET_TYPES'
+  // comment above).
+  if (gateKey === "gate_phu_luc_truyen_thong") {
+    return (
+      <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 6, marginBottom: 0 }}>
+        Sends automatically once the artist locks in a package
       </p>
     );
   }
@@ -302,7 +333,7 @@ export function GateGrid({ styles, fields, form, update, suppressUrlFor, ticketM
 // detail page: the real ticket, saved immediately per checkbox) — when
 // absent, ticking Pitching "Yes" just cross-links to the Pitching ticket
 // instead of showing a picker.
-export function GateFields({ styles, form, update, pitchingTypes, onPitchingToggle, suppressUrlFor, pitchingInfoTicket, onSendPitchingInfoTicket, ticketMap, sonyPublishMetaReady }) {
+export function GateFields({ styles, form, update, pitchingTypes, onPitchingToggle, suppressUrlFor, pitchingInfoTicket, onSendPitchingInfoTicket, ticketMap, sonyPublishMetaReady, artistProfileTypes, onArtistProfileToggle }) {
   const entries = form.split_share_entries || [];
   const designTypes = form.design_content_types || [];
 
@@ -381,6 +412,33 @@ export function GateFields({ styles, form, update, pitchingTypes, onPitchingTogg
             Pitching detail (priority, Spotify/NCT/Zing) is on the Pitching ticket for this release.
           </p>
         )
+      )}
+
+      {/* Artist Profile's Spotify/Tiktok/Apple platform picker — "show to
+          pick like the pitching field" per explicit request, right after
+          Pitching's own block since Artist Profile is also in the Data
+          Request grid above. onArtistProfileToggle absent (New Release
+          create form doesn't pass it before this round) falls back to no
+          picker shown at all, matching Pitching's own onPitchingToggle
+          fallback. */}
+      {form.gate_artist_profile === "true" && onArtistProfileToggle && (
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
+            Set up on which platforms?
+          </div>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            {ARTIST_PROFILE_PLATFORMS.map(([key, label]) => (
+              <label key={key} className={styles.checkboxRow}>
+                <input
+                  type="checkbox"
+                  checked={!!artistProfileTypes?.[key]}
+                  onChange={(e) => onArtistProfileToggle(key, e.target.checked)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </div>
       )}
 
       <div className={styles.subheading}>Marketing Request</div>

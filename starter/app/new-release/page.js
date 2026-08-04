@@ -91,6 +91,7 @@ const EMPTY_FORM = {
 };
 
 const EMPTY_PITCHING_TYPES = { priority: false, spotify: false, nct: false, zing: false };
+const EMPTY_ARTIST_PROFILE_TYPES = { spotify: false, tiktok: false, apple: false };
 
 const META_ITEMS = [
   { key: "meta_audio", label: "Audio" },
@@ -110,6 +111,7 @@ export default function NewReleasePage() {
   const router = useRouter();
   const [form, setForm] = useState(EMPTY_FORM);
   const [pitchingTypes, setPitchingTypes] = useState(EMPTY_PITCHING_TYPES);
+  const [artistProfileTypes, setArtistProfileTypes] = useState(EMPTY_ARTIST_PROFILE_TYPES);
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -316,13 +318,14 @@ export default function NewReleasePage() {
 
     // gate_artist_profile = "true" means an Artist Profile ticket should
     // exist for this release's main artist — created now, email left
-    // blank for OPS to fill in (not collected on this form).
+    // blank for OPS to fill in (not collected on this form). spotify/
+    // tiktok/apple carry the "set up on which platforms" picker's state.
     if (form.gate_artist_profile === "true") {
       const { data: apTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
       if (apTab) {
         await supabase.from("tickets").insert({
           tab_id: apTab.id,
-          data: { releaseId: data.did, artistName: form.main_artist, email: "" },
+          data: { releaseId: data.did, artistName: form.main_artist, email: "", ...artistProfileTypes },
           status: apTab.default_status,
           status_log: { [apTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
@@ -375,6 +378,48 @@ export default function NewReleasePage() {
           data: { releaseId: data.did },
           status: mvTab.default_status,
           status_log: { [mvTab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+
+    // gate_split_share / gate_phu_luc_mg / gate_phu_luc_publishing = "true"
+    // — same auto-create-on-Yes pattern as above, per explicit request
+    // (previously these 3 Legal Request types only ever got created via
+    // the release detail page's manual "Send Ticket"/Save flow, never at
+    // New Release creation time itself).
+    if (form.gate_split_share === "true") {
+      const { data: ssTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "split_share").single();
+      if (ssTab) {
+        await supabase.from("tickets").insert({
+          tab_id: ssTab.id,
+          data: { releaseId: data.did },
+          status: ssTab.default_status,
+          status_log: { [ssTab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+    if (form.gate_phu_luc_mg === "true") {
+      const { data: mgTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "phu_luc_mg").single();
+      if (mgTab) {
+        await supabase.from("tickets").insert({
+          tab_id: mgTab.id,
+          data: { releaseId: data.did },
+          status: mgTab.default_status,
+          status_log: { [mgTab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+    if (form.gate_phu_luc_publishing === "true") {
+      const { data: pubTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "phu_luc_publishing").single();
+      if (pubTab) {
+        await supabase.from("tickets").insert({
+          tab_id: pubTab.id,
+          data: { releaseId: data.did },
+          status: pubTab.default_status,
+          status_log: { [pubTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
         });
       }
@@ -780,6 +825,8 @@ export default function NewReleasePage() {
             update={update}
             pitchingTypes={pitchingTypes}
             onPitchingToggle={(key, checked) => setPitchingTypes((p) => ({ ...p, [key]: checked }))}
+            artistProfileTypes={artistProfileTypes}
+            onArtistProfileToggle={(key, checked) => setArtistProfileTypes((p) => ({ ...p, [key]: checked }))}
             suppressUrlFor={["gate_pre_order"]}
           />
 
@@ -793,6 +840,7 @@ export default function NewReleasePage() {
               onClick={() => {
                 setForm(EMPTY_FORM);
                 setPitchingTypes(EMPTY_PITCHING_TYPES);
+                setArtistProfileTypes(EMPTY_ARTIST_PROFILE_TYPES);
                 setError(null);
                 setCreatedDid(null);
                 setLabelTouched(false);

@@ -280,22 +280,14 @@ export const TICKET_CONFIGS = {
       { key: "note", label: "Note", type: "textarea" },
     ],
   },
-  phu_luc_truyen_thong: {
-    // Mirrors gate_phu_luc_truyen_thong, which is a read-only auto-computed
-    // badge (see lib/GateFields.js ReadOnlyGateBadge) — this ticket is still
-    // manually sendable once that badge is "Yes", same "Send Ticket" button
-    // idiom as every other field here, just not gated behind a hand-toggle.
-    releaseFieldMap: { attachTo: "releaseId", map: { releaseId: "did" } },
-    label: "Phụ Lục Truyền Thông",
-    oneTicketPerRelease: true,
-    requesterTeam: "AR",
-    executorTeam: "Legal",
-    bothEditable: ["note"],
-    fields: [
-      { key: "releaseId", label: "DID", type: "text", required: true },
-      { key: "note", label: "Note", type: "textarea" },
-    ],
-  },
+  // phu_luc_truyen_thong retired per explicit correction — it was never a
+  // real distinct ticket type, it IS the existing "phu_luc" type (see
+  // that type's own definition, and GATE_TICKET_TYPES's comment in
+  // lib/GateFields.js). The config block that used to live here, the
+  // /tickets/phu-luc-truyen-thong wrapper pages, and its ticket_tabs seed
+  // row are all removed — see add-round31-*.sql for the matching cleanup
+  // of any tickets a stray earlier version of this app may have already
+  // created under that key.
   khac: {
     label: "Khác",
     requesterTeam: null,

@@ -2896,3 +2896,63 @@ opens the Sony Publish ticket. Migration: `ticket_tabs.sony_publish` narrowed to
 Migration: `add-round30-ops-sub-teams-and-sony-publish.sql`. Verified with
 `tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a brace/paren/bracket balance check across
 every edited/new file before sending — zero errors.
+
+## 2026-08-05 (31) — Artist Profile revised, Splitshare/Phụ Lục MG/Phụ Lục Publishing built out, Phụ Lục Truyền Thông rename
+
+**Phụ Lục Truyền Thông retired, merged into the real Phụ Lục.** Confirmed with the user: it was never a
+separate ticket type, it IS the existing Phụ Lục ticket (auto-created from the pick-package magic-link flow).
+`ticket_tabs.phu_luc.label` relabeled to "Phụ Lục Truyền Thông" (route/data/behavior otherwise untouched); the
+`phu_luc_truyen_thong` placeholder type from round 24 — its config block, `/tickets/phu-luc-truyen-thong`
+wrapper pages, `TICKET_TYPE_LABELS`/`TICKET_ROUTES`/`TEAM_TICKET_TYPES` entries — is fully removed.
+`gate_phu_luc_truyen_thong`'s "Send Ticket" affordance (`GATE_TICKET_TYPES` in `lib/GateFields.js`) now points
+at the real `phu_luc` ticket type for display purposes only — it's excluded from the round-30 generic
+auto-create-on-Save loop (same exclusion mechanism as Sony Publish, different reason): Phụ Lục tickets need
+real data from the magic-link flow, an empty auto-created placeholder would be wrong. Legal's ticket switcher
+gains `phu_luc` (it had `phu_luc_truyen_thong` before, this keeps that visibility under the real name).
+Migration soft-deletes any tickets that may already exist under the retired `phu_luc_truyen_thong` key —
+flagged as a real possibility since round 30's generic gate-ticket-on-Save logic would have started
+auto-creating them the moment `gate_phu_luc_truyen_thong` next flipped "Yes" (which happens automatically,
+not by hand) on any Save, in the window between round 30 shipping and this round retargeting it.
+
+**Splitshare, Phụ Lục MG, Phụ Lục Publishing built out.** All three: auto-created at New Release creation now
+(added matching blocks to `app/new-release/page.js`'s `performInsert()` — previously only reachable via the
+release detail page's manual Send Ticket/Save flow), Legal-executor/AR-requester dual view with the same 4
+statuses (REQUESTED/PROCESS/COMPLETE/REFUND) as every other Data/Legal Request sub-ticket. Splitshare
+(`app/tickets/split-share/page.js`, bespoke) has its own short field set per explicit request — Release / PIC
+/ Status / Ngày Set (hand-edited date) / Ngày Hoàn Thành (NOT hand-edited — `updateStatus()` stamps today's
+date the moment status becomes COMPLETE, and clears it back to null the moment it's taken back out of
+COMPLETE). Phụ Lục MG and Phụ Lục Publishing share a new `lib/PhuLucStyleTicketList.js` component — "reuse the
+current Phụ Lục template, just add the name next to each column to differentiate them" — same columns as the
+original Phụ Lục ticket (Ngày Order / Release / Giá Trị PL / Mã PL / PIC / Status / PL Status / Link Phụ Lục /
+Ngày Gửi / Ngày Ký, PL Status computed the same way), labels suffixed "(MG)"/"(Publishing)", plus the dual-view
++ 4-status-tab layer the original Phụ Lục never had. Unlike the original (which owns real `releases` columns
+for link/ngày Gửi/ngày Ký), these two store everything in `tickets.data` — they don't have dedicated release
+columns of their own.
+
+**Artist Profile revised** (`app/tickets/artist-profile/page.js` — converted to a bespoke page; the generic
+`TicketListPage` engine only ever renders the first 4 `config.fields` as columns and has no concept of a
+view-only field, neither works for what this round needed):
+- Bài Hát Phát Hành Gần Nhất is now view-only in the table — "computed, not an input field" — no input
+  rendered for it at all (still whatever value the ticket already has, just never editable from here).
+- New Note column, placed before Deadline.
+- New "set up on which platforms" Spotify/Tiktok/Apple picker — "show to pick like the pitching field," same
+  checkbox-group idiom as Pitching's "Which pitching?" block. Lives in `lib/GateFields.js` as
+  `ARTIST_PROFILE_PLATFORMS`, rendered in `GateFields` right after Pitching's own block (both the New Release
+  dashboard and the release detail page — `artistProfileTypes`/`onArtistProfileToggle` threaded through both,
+  same `*TypesDraft` pattern Pitching already used), and shown as checkboxes in the ticket table itself
+  (executor-editable, view-only badges for the requester side).
+- Two new external-link buttons — Spotify for Artists / Apple Music for Artists — reading their URLs from a
+  new Config page section ("Artist Profile Links" tab, **not** dev-only since "3rd party sometime change their
+  url" is exactly the kind of thing an exc/admin needs to fix without a dev around), stored in `app_settings`
+  key `artist_profile_links`. Buttons simply don't render until someone fills the URLs in once.
+- **Simplification flagged:** the manual "New Ticket" form (`app/tickets/artist-profile/new`, generic
+  `NewTicketPage`) was NOT extended with the platform picker — that engine has no checkbox-field type, and the
+  picker's primary path is the New Release dashboard/release detail page anyway. Add it by hand later on that
+  specific release if a ticket was created without it.
+
+No schema changes beyond the two `ticket_tabs` updates (label + status_options) and the retirement cleanup —
+every new field (Ngày Set, Ngày Hoàn Thành, Giá Trị PL, Mã PL, Link Phụ Lục, Ngày Gửi, Ngày Ký, the Artist
+Profile platform picker, Note) lives in `tickets.data` jsonb. Migration:
+`add-round31-phu-luc-rename-and-legal-tickets.sql`. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a brace/paren/bracket balance check across
+every edited/new file before sending — zero errors.
