@@ -130,6 +130,7 @@ export default function PhaiSinhList() {
           ) : visibleTickets.length === 0 ? (
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (
+            <>
             <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
             <table className={styles.table} style={{ minWidth: 1700 }}>
               <thead>
@@ -157,6 +158,7 @@ export default function PhaiSinhList() {
             </table>
             </div>
             <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+            </>
           )}
         </div>
       </div>

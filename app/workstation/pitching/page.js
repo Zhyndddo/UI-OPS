@@ -155,6 +155,7 @@ export default function PitchingWorkstation() {
           ) : visibleRows.length === 0 ? (
             <div className={styles.emptyState}>{rows.length === 0 ? "No Pitching tickets with UPC filled yet." : "Nothing outstanding."}</div>
           ) : (
+            <>
             <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
             <table className={styles.table} style={{ minWidth: 700 }}>
               <thead>
@@ -214,6 +215,7 @@ export default function PitchingWorkstation() {
             </table>
             </div>
             <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+            </>
           )}
         </div>
       </div>

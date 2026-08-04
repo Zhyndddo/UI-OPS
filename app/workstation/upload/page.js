@@ -153,6 +153,7 @@ export default function UploadWorkstation() {
           ) : visibleReleases.length === 0 ? (
             <div className={styles.emptyState}>{releases.length === 0 ? "No releases have had SEND UPLOAD clicked yet." : "Nothing outstanding — everything's done."}</div>
           ) : (
+            <>
             <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
             <table className={styles.table} style={{ minWidth: 1100 }}>
               <thead>
@@ -192,6 +193,7 @@ export default function UploadWorkstation() {
             </table>
             </div>
             <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+            </>
           )}
         </div>
       </div>

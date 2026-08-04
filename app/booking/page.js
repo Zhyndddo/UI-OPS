@@ -573,6 +573,7 @@ export default function BookingBoard() {
             <div style={{ color: "var(--text-dim)", marginTop: -12 }}>Không tìm thấy</div>
           </div>
         ) : (
+          <>
           <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
           {/* The sticky-header box-shadow (and the border-collapse:separate
               it depends on to render safely) now lives in shared.module.css's
@@ -667,6 +668,7 @@ export default function BookingBoard() {
           </table>
           </div>
           <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+          </>
         )}
       </div>
     </div>

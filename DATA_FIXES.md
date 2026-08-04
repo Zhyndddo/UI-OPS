@@ -2169,3 +2169,21 @@ rule overrides it just for the 9 tables that have the bounded
 scroll-box wrapper — each of those `<div>`s now carries a `scrollBox`
 class alongside its inline overflow/maxHeight style specifically so this
 selector can target them.
+
+## 2026-08-03 (16) — Fix: round 13 broke the Vercel build (adjacent JSX elements)
+
+Sorry — round 13 shipped a real syntax error. Moving `<Pagination />` to
+sit after `</div>` instead of inside it turned each conditional branch
+into two sibling JSX elements (`<div>...</div>` followed by
+`<Pagination />`) with no single parent wrapping them — invalid JSX,
+which is exactly the "Expected ',', got 'page'" error Vercel's build
+caught in `app/workstation/confirm/page.js`.
+
+Fixed by wrapping each `<div className={styles.scrollBox}>...</div>` +
+`<Pagination />` pair in a React fragment (`<>...</>`) — same 7 files
+affected: `app/workstation/{upload,pitching,confirm,pre-release}/page.js`,
+`app/tickets/{phai-sinh,manual-claim}/page.js`, `app/booking/page.js`
+(confirm's two phases both needed it). Verified this time with
+`tsc --jsx react --allowJs --checkJs false` against all 7 files before
+sending — zero syntax errors, which is the same class of check that
+would have caught this before it reached Vercel.
