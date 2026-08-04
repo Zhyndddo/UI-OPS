@@ -2535,3 +2535,101 @@ show together regardless of which round tab is active.
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck`
 plus a brace/paren/bracket balance check against all 5 touched files
 before sending — zero errors. No schema change this round.
+
+## 2026-08-05 (23) — Contract Signed create-row button style
+
+Small follow-up to round 22's item 1: the "Contract Signed" toggle on the
+Labels create row is now a button styled like the table row's own
+"Contract Signed" button (`styles.btnSmall` — orange outline, uppercase)
+instead of a plain checkbox, per explicit request. It's a real toggle
+(click to flip), with an active fill (orange background + border) when
+on so the state reads at a glance — the row's version is a one-time
+action button, not a toggle, so this one needed its own active/inactive
+styling rather than reusing that logic outright. Behavior (skips the
+"HĐ - " prefix on insert when on) is unchanged from round 22.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck`
+plus a brace/paren/bracket balance check before sending. No schema
+change.
+
+## 2026-08-05 (24) — Data Request field tickets + Legal team
+
+The big one: every request-tick field on the release detail page's Data
+Request / Marketing Request / Legal Request groups now has (or links to)
+its own ticket, per explicit request. New team: **Legal**.
+
+**New team: Legal.** Added to `lib/teamTypes.js` `TEAMS`, plus the two
+places that duplicated the team list as a local hardcoded const instead of
+importing it — `app/config/page.js` (Team picker on profile
+create/reassign) and `lib/TopBar.js` (dev "View As" switcher). No DB
+migration needed for this part — `profiles.segment` is a plain text
+column, not an enum.
+
+**Already-have fields — no action, per explicit instruction:**
+- **Design** (`gate_design`) — already has its own ticket type
+  (`design`, executor Design), own page (`app/tickets/design`).
+- **Gói Hỗ Trợ Truyền Thông** (`gate_goi_ho_tro_truyen_thong`) — already
+  the `media_booking` ticket + magic-link package flow.
+
+**Pitching — "moved to the ticket system."** The `pitching` ticket
+already existed (auto-created when a DSP is requested) and
+`tickets.status`/`status_log` already exist as real columns on every
+ticket type — so per the explicit note ("I think just add the column
+status and we done"), this really was mostly a UI gap, not new schema.
+Added the dedicated ticket list page that was previously missing
+(`app/tickets/pitching/page.js` — `TICKET_ROUTES.pitching` used to fall
+back to `/tickets` if visited directly). It's deliberately narrow: overall
+**Status** (editable, with the same timestamped `status_log` history
+every ticket type already uses) and **PIC** (`tickets.pic_profile_id` —
+the "OPS executive" seat) only. Per-DSP work (Priority/Spotify/NCT/Zing)
+stays exactly where it was, on the Pitching Workstation — this page
+doesn't duplicate it. The "Which pitching?" picker on the release detail
+page now links out to this new list.
+
+**Ten new placeholder ticket types** — one per remaining field, each
+executor/requester pair exactly as specified, fields deliberately minimal
+(DID + a Note) per the explicit "leave blank" instruction — flesh out per
+type as follow-up rounds cover them individually:
+
+- **OPS-executed** (Data Request group): Có Trong Net YouTube, Pre-order
+  Itunes, Priority Sync Lyric, Music Video on Spotify, Discovery Mode on
+  Spotify, Sony Publish.
+- **Legal-executed** (Legal Request group): Splitshare, Phụ Lục MG, Phụ
+  Lục Publishing, Phụ Lục Truyền Thông.
+
+Each is a thin config entry in `lib/ticketConfigs.js` (requesterTeam AR)
+plus a 6-line list + 6-line create-form page reusing the generic
+`TicketListPage`/`NewTicketPage` engine (same pattern as Report Conflict,
+Stream Update, etc.) — genuinely minimal, matching the request. Splitshare
+is a separate tracking ticket from the existing inline % / Shared Label /
+Scope entries editor already on the Legal Request group — that editor is
+untouched.
+
+**Release detail page wiring.** Once a mapped gate field is ticked "Yes"
+(or, for the one read-only auto-computed field, Phụ Lục Truyền Thông,
+once it auto-flips), a small "Send Ticket" button appears right under the
+toggle — click once to create the ticket (idempotent), after which it
+becomes a "✓ Ticket Sent — View" link straight to that ticket's list page.
+One batched query on page load fetches all 10 types' existing tickets for
+this release at once (`lib/GateFields.js` `GATE_TICKET_TYPES` map +
+`app/releases/[id]/page.js`'s `gateTicketMap`/`sendGateTicket`), rather
+than 10 separate round trips.
+
+Migration delivered separately:
+`add-round24-legal-team-and-gate-tickets.sql` — adds `ticket_tabs.
+executor_team` (if missing), inserts the 10 new `ticket_tabs` rows (+
+matching `entity_field_groups` "Info" tabs), and backfills `executor_team`
+for the pre-existing types that didn't already have it, all via
+idempotent `if not exists`/`on conflict do nothing`/`coalesce()` so it's
+safe to run regardless of what the live DB already has. Also folded into
+`schema.sql`. **Note:** per an earlier architecture check, `schema.sql`
+was already missing 6 `gate_*` columns
+(`gate_mv_spotify`/`gate_discovery_mode_spotify`/`gate_sony_publish`/
+`gate_phu_luc_mg`/`gate_phu_luc_publishing`/`gate_phu_luc_truyen_thong`)
+that the app already reads/writes — those aren't new this round, but the
+migration file includes a commented-out `add column if not exists` block
+for them in case the live DB is ever missing one.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck`
+plus a brace/paren/bracket balance check against all 28 touched/created
+files before sending — zero errors.

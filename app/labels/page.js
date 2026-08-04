@@ -167,19 +167,26 @@ export default function LabelsPage() {
             <label className={styles.fieldLabel}>Phân Loại</label>
             <PickSelect styles={styles} opts={["", ...LABEL_PHAN_LOAI_OPTIONS]} value={form.phan_loai} onChange={(v) => setForm((f) => ({ ...f, phan_loai: v }))} />
           </div>
-          {/* Contract Signed at creation — ticking this skips the "HĐ - "
-              prefix entirely instead of adding it and requiring a separate
-              click on the table row's "Contract Signed" button afterward. */}
+          {/* Contract Signed at creation — toggling this on skips the
+              "HĐ - " prefix entirely instead of adding it and requiring a
+              separate click on the table row's "Contract Signed" button
+              afterward. Styled to match that same row button (styles.btnSmall)
+              rather than a plain checkbox, with an active/inactive fill so
+              its toggled state actually reads at a glance. */}
           <div className={styles.field} style={{ marginBottom: 0 }}>
             <label className={styles.fieldLabel} style={{ visibility: "hidden" }}>Contract</label>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)", cursor: "pointer", height: 32 }}>
-              <input
-                type="checkbox"
-                checked={form.contract_signed}
-                onChange={(e) => setForm((f) => ({ ...f, contract_signed: e.target.checked }))}
-              />
-              Contract Signed
-            </label>
+            <button
+              type="button"
+              className={styles.btnSmall}
+              onClick={() => setForm((f) => ({ ...f, contract_signed: !f.contract_signed }))}
+              style={{
+                background: form.contract_signed ? "rgba(255,107,26,0.15)" : "transparent",
+                borderColor: form.contract_signed ? "var(--accent)" : "var(--border-strong)",
+                color: form.contract_signed ? "var(--accent)" : "var(--text-muted)",
+              }}
+            >
+              {form.contract_signed ? "✓ Contract Signed" : "Contract Signed"}
+            </button>
           </div>
           <button className={styles.btnPrimary} type="submit">+ Add Label</button>
         </form>

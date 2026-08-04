@@ -11,7 +11,7 @@ const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
 // "Remarketing"), hardcoded directly in the New Release form and release
 // detail page — not admin-configurable via lookup_options anymore.
 const ROLES = ["exc", "admin", "dev"];
-const TEAMS = ["AR", "Marketing", "OPS", "Design"];
+const TEAMS = ["AR", "Marketing", "OPS", "Design", "Legal"];
 
 export default function ConfigPage() {
   const { profile } = useAuth();

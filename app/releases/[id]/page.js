@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, formatDetailText } from "../../../lib/helpers";
-import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS } from "../../../lib/GateFields";
+import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, GATE_TICKET_TYPES } from "../../../lib/GateFields";
 import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import UrlField from "../../../lib/UrlField";
@@ -67,6 +67,11 @@ export default function ReleaseDetailPage() {
   // in a small box so AR can see what changed before resending).
   const [mediaBookingTicket, setMediaBookingTicket] = useState(null);
   const [pitchingInfoTicket, setPitchingInfoTicket] = useState(null);
+  // One ticket per Data Request/Marketing Request/Legal Request field that
+  // has a related ticket type (see lib/GateFields.js GATE_TICKET_TYPES) —
+  // keyed by ticket TYPE key (e.g. "co_trong_net_youtube"), not gate field
+  // key, so it can be handed straight to <GateFields ticketMap=.../>.
+  const [gateTicketMap, setGateTicketMap] = useState({});
   const searchParams = useSearchParams();
   const mediaBookingSectionRef = useRef(null);
   const [autoScrolled, setAutoScrolled] = useState(false);
@@ -143,6 +148,29 @@ export default function ReleaseDetailPage() {
           const found = mbTix?.[0] || null;
           setHasMediaBookingTicket(!!found);
           setMediaBookingTicket(found);
+        }
+        // Data Request / Marketing Request / Legal Request sub-tickets —
+        // one batched fetch for all 10 mapped types at once (see
+        // GATE_TICKET_TYPES in lib/GateFields.js), rather than 10 separate
+        // round trips like the older per-field fetches above.
+        const gateTicketTypeKeys = [...new Set(Object.values(GATE_TICKET_TYPES))];
+        const { data: gateTabs } = await supabase.from("ticket_tabs").select("id, key").in("key", gateTicketTypeKeys);
+        if (gateTabs && gateTabs.length > 0) {
+          const tabIdToKey = {};
+          gateTabs.forEach((t) => (tabIdToKey[t.id] = t.key));
+          const { data: gateTix } = await supabase
+            .from("tickets")
+            .select("*")
+            .in("tab_id", gateTabs.map((t) => t.id))
+            .eq("data->>releaseId", data.did)
+            .is("deleted_at", null);
+          const map = {};
+          (gateTix || []).forEach((t) => {
+            const key = tabIdToKey[t.tab_id];
+            // If somehow more than one exists for a type, keep the newest.
+            if (key && (!map[key] || new Date(t.created_at) > new Date(map[key].created_at))) map[key] = t;
+          });
+          setGateTicketMap(map);
         }
       });
     supabase
@@ -509,6 +537,31 @@ export default function ReleaseDetailPage() {
     if (created) setPitchingInfoTicket(created);
   }
 
+  // Generic "Send Ticket" handler for the Data Request/Marketing
+  // Request/Legal Request sub-tickets (see GATE_TICKET_TYPES in
+  // lib/GateFields.js) — idempotent, same shape as sendPitchingInfoTicket
+  // above, just parameterized by ticket type instead of hardcoded to one.
+  // Fields deliberately left blank per explicit request — just the
+  // releaseId link + requester attribution; note field stays empty until
+  // someone fills it in from the ticket list.
+  async function sendGateTicket(ticketType) {
+    if (gateTicketMap[ticketType]) return;
+    const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", ticketType).single();
+    if (!tab) return;
+    const { data: created } = await supabase
+      .from("tickets")
+      .insert({
+        tab_id: tab.id,
+        data: { releaseId: form.did },
+        status: tab.default_status,
+        status_log: { [tab.default_status]: new Date().toISOString() },
+        requester_segment: form.requester_segment || null,
+      })
+      .select()
+      .single();
+    if (created) setGateTicketMap((m) => ({ ...m, [ticketType]: created }));
+  }
+
 
   // Magic link generation moved to Marketing's package spec builder (not
   // built yet) — this page only reads/displays an existing link now,
@@ -697,6 +750,8 @@ export default function ReleaseDetailPage() {
             onPitchingToggle={handlePitchingToggle}
             pitchingInfoTicket={pitchingInfoTicket}
             onSendPitchingInfoTicket={sendPitchingInfoTicket}
+            gateTicketMap={gateTicketMap}
+            onSendGateTicket={sendGateTicket}
             setTab={setTab}
           />
         )}
@@ -902,7 +957,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, setTab }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, gateTicketMap, onSendGateTicket, setTab }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -1218,6 +1273,8 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           onPitchingToggle={onPitchingToggle}
           pitchingInfoTicket={pitchingInfoTicket}
           onSendPitchingInfoTicket={onSendPitchingInfoTicket}
+          ticketMap={gateTicketMap}
+          onSendTicket={onSendGateTicket}
         />
 
         {/* Moved here from the old "Pre-release & Note" tab, right before
