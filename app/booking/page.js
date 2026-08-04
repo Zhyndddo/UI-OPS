@@ -294,7 +294,7 @@ export default function BookingBoard() {
         subchannelType: null,
       }));
     }
-    if (hangMucFilter === "Social" || hangMucFilter === "Community") {
+    if (hangMucFilter === "Social") {
       return PLATFORM_COLUMNS.map((p) => ({
         key: `${hangMucFilter}:${subFilter}:${p}`,
         label: p,
@@ -302,6 +302,22 @@ export default function BookingBoard() {
         brand: subFilter,
         platform: p,
         subchannelType: null,
+      }));
+    }
+    if (hangMucFilter === "Community") {
+      // Per explicit request, Community uses the same channel-name + URL
+      // combo as TikTok Channel's columns instead of Social's plain-URL
+      // style — same shape as TikTok Channel's columns above: platform
+      // left null (so BrandCell's hasChannelCol is true and shows a
+      // Channel Name field) and subchannelType carries the fixed column
+      // identity instead (here, the platform name itself).
+      return PLATFORM_COLUMNS.map((p) => ({
+        key: `${hangMucFilter}:${subFilter}:${p}`,
+        label: p,
+        categoryName: hangMucFilter,
+        brand: subFilter,
+        platform: null,
+        subchannelType: p,
       }));
     }
     return [];
@@ -792,7 +808,14 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
   // Sorted (not filtered) by whether the channel's own brand grouping
   // likely matches this column's brand — see brandsLikelyMatch's comment
   // for why this never hides anything, only ranks.
-  const matchPlatform = column.platform || "TikTok";
+  // Community columns now also leave `platform` null (see the columns
+  // useMemo — same channel+URL combo shape as TikTok Channel), so the old
+  // blanket "no platform means TikTok Channel" fallback no longer holds.
+  // TikTok Channel's own columns still fall back to "TikTok"; every other
+  // no-platform column (i.e. Community) matches on its own subchannelType
+  // instead, which is where the real platform name (Facebook/Instagram/…)
+  // now lives.
+  const matchPlatform = column.platform || (column.categoryName === "TikTok Channel" ? "TikTok" : column.subchannelType);
   const refMatches = useMemo(() => {
     const platformRows = (referenceChannels || []).filter((c) => c.platform === matchPlatform);
     const q = refSearch.trim().toLowerCase();
@@ -1162,7 +1185,7 @@ function PackagePreviewPopup({ release, categories, onClose }) {
               {(pkg.media_booking_package_lines || []).map((l) => (
                 <tr key={l.id}>
                   <td style={{ fontSize: 12 }}>{categoryNameById[l.category_id] || l.platform || "—"}{l.brand ? ` — ${l.brand}` : ""}</td>
-                  <td>{l.quantity ?? "—"} {l.unit}</td>
+                  <td>{l.quantity != null ? l.quantity.toLocaleString("en-US") : "—"} {l.unit}</td>
                   <td style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "pre-line" }}>{formatDetailText(l.detail) || "—"}</td>
                   <td>{l.amount != null ? new Intl.NumberFormat("vi-VN").format(l.amount) + " đ" : "—"}</td>
                 </tr>

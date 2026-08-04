@@ -13,6 +13,7 @@ import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import { MV_TYPE_OPTIONS } from "../../../lib/pickerOptions";
 import styles from "../../shared.module.css";
 
 // Field labels swapped per the redesign: the column that used to show as
@@ -21,7 +22,7 @@ import styles from "../../shared.module.css";
 // converted from free text to real single-choice pickers, plus one
 // genuinely new field (Zing Lyric).
 const CANVA_OPTS = ["", "Done", "CUT", "No Vid"];
-const MV_OPTS = ["", "LYRIC", "Đã có", "Chưa có", "Không có"];
+const MV_OPTS = MV_TYPE_OPTIONS;
 const PICK_OPTS = ["", "Done", "Uneditible", "Skip"];
 const MUSIXMATCH_STATUS_OPTS = ["", "Catalog", "Added", "Sync"];
 

@@ -2413,3 +2413,92 @@ No schema change this round (`buildStreamNote` is pure computation over
 already-loaded metric columns). Verified with
 `tsc --jsx react --allowJs --checkJs false` against all 3 touched files
 before sending — zero syntax errors.
+
+## 2026-08-05 (21) — Labels overhaul, Booking Board Community + numbers, Tasklist team grouping, MV type field
+
+Five items this round.
+
+**1. Labels reference table overhaul.**
+- **Hợp Tác**: converted from free text to a multi-select pill tag picker
+  (Youtube / Publishing / Nhạc Số — `lib/pickerOptions.js`
+  `LABEL_HOP_TAC_OPTIONS`, rendered by the new `TagPicker` component local
+  to `app/labels/page.js`). Old free-text data is preserved, not
+  discarded: `labels.hop_tac` (text) was renamed to `hop_tac_legacy` and a
+  new `labels.hop_tac` (`text[]`) took over the name — see
+  `add-round21-labels-hop-tac.sql`.
+- **PIC → "Thời gian hoạt động gần nhất"**: the old free-text PIC field is
+  gone from the create row entirely and the table column is relabeled.
+  The value is no longer hand-entered — it's auto-computed from each
+  label's own releases (latest `release_date` year, matched by the
+  denormalized `releases.label` text) and **persisted** to the
+  pre-existing `labels.latest_activity_year` column on every page load
+  (`syncLatestActivityYears()`, same "auto-sync on load" pattern as the
+  Stream Workstation's metrics rows — only writes rows whose stored year
+  is actually stale). Per explicit decision, persisted rather than
+  display-only, so other queries/exports can rely on it.
+- **Phân Loại**: converted from free text to a single-choice select
+  (Priority / New / Collab before — `LABEL_PHAN_LOAI_OPTIONS`), using the
+  new shared `lib/PickSelect.js` (extracted from the Pre-release
+  Workstation's existing unrecognized-value-flagging pattern — a stored
+  value that doesn't match the fixed list shows as its own flagged
+  "(unrecognized — pick to fix)" option instead of rendering blank).
+- **Genre** (new field, takes the create row's freed-up PIC slot):
+  single-choice select sourced from `lookup_options` where
+  `category = 'genre'` (the same lookup list New Release's own Genre
+  field and the release detail page already use). Bound to
+  `labels.the_loai` — this column already existed in the schema, unused;
+  reused instead of adding a redundant new one.
+- Release detail page (`app/releases/[id]/page.js`): the label's Hợp Tác
+  tags are now shown read-only, directly below the Label field, in the
+  space Curve ID used to occupy (fetched by `label_name` on load).
+
+**2. Booking Board — Community uses the Channel+URL combo.** Hạng Mục
+"Community" columns now carry a `subchannelType` (platform-named) instead
+of a fixed `platform`, the same shape TikTok Channel already used — so
+each column shows a Channel Name input alongside the URL input, not just
+a bare URL field. `BrandCell`'s platform-matching logic
+(`matchPlatform`) updated to fall back to `subchannelType` when
+`column.platform` isn't set.
+
+**3. Booking Board — thousand separator on Quantity.** Package preview
+popup's Quantity cell now renders with `.toLocaleString("en-US")`
+(comma-grouped). Deliberately left the Amount column's existing `vi-VN`
+dot-separated currency formatting untouched — different fields, was
+already correct for its own convention.
+
+**4. Tasklist tab — grouped by team.** `TasklistTab` on the release
+detail page now renders one subheaded table per team (AR / Marketing /
+OPS / Design order, empty groups hidden) instead of one flat list. This
+is a **best-guess mapping** — flagged in a comment above the function —
+since most Tasklist rows turned out to be OPS-owned (16 of 18: all
+metadata, Smartlink/UPC/Link LBM/Link Share, all three pitching
+platforms, CANVAS status, Artist Pick status, Musixmatch) with only Link
+Drive (AR) and Media Booking entries (Marketing) landing elsewhere;
+Design has none currently. Please flag any row that's mapped to the
+wrong team.
+
+**5. MV type conditional field.** Ticking the Metadata Checklist's "MV"
+toggle (`meta_mv`) to Yes now reveals a single-choice select right below
+it — LYRIC / Đã có / Chưa có / Không có (`lib/pickerOptions.js`
+`MV_TYPE_OPTIONS`) — on both the New Release create form and the release
+detail page's Overview tab. Per explicit clarification this is bound to
+`releases.canva_status`, the same column the Pre-release Workstation's
+**"MV"** column already edits (not the literally-named
+`canva_mv_status`, which is a different column labeled "CANVA" there —
+see the existing comment in `app/workstation/pre-release/page.js` about
+this naming swap). `MV_TYPE_OPTIONS` was pulled out to
+`lib/pickerOptions.js` so the Pre-release Workstation and these two new
+call sites can't drift out of sync.
+
+New shared files this round: `lib/pickerOptions.js` (small option lists
+reused across pages), `lib/PickSelect.js` (unrecognized-value-flagging
+single-select, generalized out of the Pre-release Workstation).
+
+Migration delivered separately: `add-round21-labels-hop-tac.sql` (renames
+`labels.hop_tac` → `hop_tac_legacy`, adds new `labels.hop_tac text[]`;
+also folded into `schema.sql`). `labels.the_loai`, `labels.phan_loai`,
+and `labels.latest_activity_year` already existed and needed no schema
+change. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
+brace/paren/bracket balance check against all 7 touched files before
+sending — zero errors.

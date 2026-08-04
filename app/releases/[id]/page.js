@@ -11,6 +11,7 @@ import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import UrlField from "../../../lib/UrlField";
 import { validateLabelNameEdit } from "../../../lib/labelHelpers";
+import { MV_TYPE_OPTIONS } from "../../../lib/pickerOptions";
 import { TICKET_TYPE_LABELS, TEAMS } from "../../../lib/teamTypes";
 import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
@@ -912,6 +913,17 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
     setLabelDraft(form.label || "");
   }, [form.label]);
 
+  // Hợp Tác lives on the labels table, not the release — same
+  // denormalized-text lookup pattern the old Curve ID field used (matches
+  // by label_name). Shown read-only right below Label, in the space that
+  // opened up once Curve ID was removed from this column.
+  const [labelHopTac, setLabelHopTac] = useState(null);
+  useEffect(() => {
+    if (!supabase || !form.label) { setLabelHopTac(null); return; }
+    supabase.from("labels").select("hop_tac").eq("label_name", form.label).maybeSingle()
+      .then(({ data }) => setLabelHopTac(data?.hop_tac || null));
+  }, [form.label]);
+
   useEffect(() => {
     if (!supabase) return;
     supabase
@@ -1004,6 +1016,21 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
               <QuickCreate kind="label" onCreated={(newLabel) => { setLabelsList((prev) => [...prev, newLabel]); setLabelDraft(newLabel.label_name); update("label", newLabel.label_name); }} />
             </div>
           </Field>
+          {/* Blank space that opened up below Label once Curve ID was
+              removed from this column — now shows the label's Hợp Tác
+              tags (read-only; edited on the Label List itself). */}
+          {labelHopTac && labelHopTac.length > 0 && (
+            <div style={{ marginTop: -8, marginBottom: 16 }}>
+              <label className={styles.fieldLabel}>Hợp Tác</label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                {labelHopTac.map((tag) => (
+                  <span key={tag} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 700, borderRadius: 999, border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1047,6 +1074,16 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           <div key={m.key} className={styles.field} style={{ marginBottom: 0 }}>
             <label className={styles.fieldLabel}>{m.label}{REQUIRED_META_KEYS.includes(m.key) ? " *" : ""}</label>
             <GateToggle value={form[m.key] || "false"} onChange={(v) => update(m.key, v)} />
+            {/* MV type — same field the Pre-release Workstation edits
+                (releases.canva_status, labeled "MV" there), surfaced here
+                too once MV is ticked Yes, per explicit request. */}
+            {m.key === "meta_mv" && form.meta_mv === "true" && (
+              <div style={{ marginTop: 6 }}>
+                <select className={styles.select} value={form.canva_status || ""} onChange={(e) => update("canva_status", e.target.value)}>
+                  {MV_TYPE_OPTIONS.map((o) => <option key={o} value={o}>{o || "— MV type —"}</option>)}
+                </select>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -1843,59 +1880,80 @@ function StreamingMilestoneTab({ form }) {
   );
 }
 
+// Team assignment per row is a BEST-GUESS mapping (per explicit request),
+// not sourced from any existing data — nothing in the codebase ties these
+// release-level fields to a team today. Assigned by which
+// workstation/tab each field is normally edited from: Metadata Checklist,
+// Smartlink/UPC/Link LBM/Link Share are all Upload/Confirm territory
+// (OPS); Pitching status fields are the Pitching workstation (OPS);
+// CANVAS Status/Artist Pick Status/Musixmatch are the Pre-release
+// workstation (OPS); Media Booking entries is the Booking Board
+// (Marketing); Link Drive is filled in at creation (AR). This is heavily
+// OPS-weighted because most of these fields genuinely are OPS workstation
+// fields today — correct any of these if they should sit elsewhere.
 function TasklistTab({ form, bookingEntries }) {
   // Metadata Checklist fields are tri-state strings ("false"/"true"/"update"),
   // not real booleans — flagged with "gate: true" so the row below renders a
   // TBU state instead of just falling through the plain truthy check (which
   // would otherwise show "✓ Filled" for the string "false").
   const items = [
-    ["Link Drive", form.drive_link],
-    ["Metadata: Audio", form.meta_audio, true],
-    ["Metadata: Artwork", form.meta_artwork, true],
-    ["Metadata: Working Files", form.meta_working_files, true],
-    ["Metadata: Lyric", form.meta_lyric, true],
-    ["Metadata: MV", form.meta_mv, true],
-    ["Metadata: Doc", form.meta_doc, true],
-    ["Smartlink", form.smartlink],
-    ["UPC", form.upc],
-    ["Link LBM", form.link_lbm],
-    ["Link Share", form.link_share],
-    ["Media Booking entries", bookingEntries.length > 0],
-    ["Pitching: Spotify", form.pitching_status_spotify],
-    ["Pitching: NCT", form.pitching_status_nct],
-    ["Pitching: Zing", form.pitching_status_zing],
-    ["CANVAS Status", form.canva_status],
-    ["Artist Pick Status", form.artist_pick_status],
-    ["Musixmatch", form.musixmatch_link],
+    ["Link Drive", form.drive_link, false, "AR"],
+    ["Metadata: Audio", form.meta_audio, true, "OPS"],
+    ["Metadata: Artwork", form.meta_artwork, true, "OPS"],
+    ["Metadata: Working Files", form.meta_working_files, true, "OPS"],
+    ["Metadata: Lyric", form.meta_lyric, true, "OPS"],
+    ["Metadata: MV", form.meta_mv, true, "OPS"],
+    ["Metadata: Doc", form.meta_doc, true, "OPS"],
+    ["Smartlink", form.smartlink, false, "OPS"],
+    ["UPC", form.upc, false, "OPS"],
+    ["Link LBM", form.link_lbm, false, "OPS"],
+    ["Link Share", form.link_share, false, "OPS"],
+    ["Media Booking entries", bookingEntries.length > 0, false, "Marketing"],
+    ["Pitching: Spotify", form.pitching_status_spotify, false, "OPS"],
+    ["Pitching: NCT", form.pitching_status_nct, false, "OPS"],
+    ["Pitching: Zing", form.pitching_status_zing, false, "OPS"],
+    ["CANVAS Status", form.canva_status, false, "OPS"],
+    ["Artist Pick Status", form.artist_pick_status, false, "OPS"],
+    ["Musixmatch", form.musixmatch_link, false, "OPS"],
   ];
+
+  const grouped = TEAMS.map((team) => ({ team, rows: items.filter((it) => it[3] === team) })).filter((g) => g.rows.length > 0);
+
   return (
-    <table className={styles.table}>
-      <thead>
-        <tr><th>Field</th><th>Status</th></tr>
-      </thead>
-      <tbody>
-        {items.map(([label, val, isGate]) => (
-          <tr key={label}>
-            <td>{label}</td>
-            <td>
-              {isGate ? (
-                val === "true" ? (
-                  <span style={{ color: "#7ee6a8" }}>✓ Filled</span>
-                ) : val === "update" ? (
-                  <span style={{ color: "#ffca4d" }}>◐ TBU</span>
-                ) : (
-                  <span style={{ color: "var(--text-dim)" }}>— Empty</span>
-                )
-              ) : val ? (
-                <span style={{ color: "#7ee6a8" }}>✓ Filled</span>
-              ) : (
-                <span style={{ color: "var(--text-dim)" }}>— Empty</span>
-              )}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div>
+      {grouped.map(({ team, rows }) => (
+        <div key={team} style={{ marginBottom: 20 }}>
+          <div className={styles.subheading} style={{ marginTop: 0 }}>{team}</div>
+          <table className={styles.table}>
+            <thead>
+              <tr><th>Field</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {rows.map(([label, val, isGate]) => (
+                <tr key={label}>
+                  <td>{label}</td>
+                  <td>
+                    {isGate ? (
+                      val === "true" ? (
+                        <span style={{ color: "#7ee6a8" }}>✓ Filled</span>
+                      ) : val === "update" ? (
+                        <span style={{ color: "#ffca4d" }}>◐ TBU</span>
+                      ) : (
+                        <span style={{ color: "var(--text-dim)" }}>— Empty</span>
+                      )
+                    ) : val ? (
+                      <span style={{ color: "#7ee6a8" }}>✓ Filled</span>
+                    ) : (
+                      <span style={{ color: "var(--text-dim)" }}>— Empty</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
   );
 }
 
