@@ -6,11 +6,10 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, formatDetailText } from "../../../lib/helpers";
-import { GateFields, GateToggle } from "../../../lib/GateFields";
+import { GateFields, GateToggle, GateGrid, PROJECT_PROPOSAL_FIELD } from "../../../lib/GateFields";
 import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import UrlField from "../../../lib/UrlField";
-import { useAuth } from "../../../lib/AuthContext";
 import { validateLabelNameEdit } from "../../../lib/labelHelpers";
 import { TICKET_TYPE_LABELS } from "../../../lib/teamTypes";
 import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
@@ -230,6 +229,26 @@ export default function ReleaseDetailPage() {
       update("gate_phu_luc_truyen_thong", "true");
     }
   }, [form?.id, form?.project_type]);
+
+  // Gói Hỗ Trợ Truyền Thông is now a read-only, continuously-recomputed
+  // status (not a manual toggle — see LEGAL... no, MARKETING_REQUEST_FIELDS
+  // in lib/GateFields.js), so unlike the one-time flip above this keeps
+  // recomputing on every relevant change rather than only firing once from
+  // a default: TBU while still in BRIEF & DATA/DEALING; NO once the artist
+  // has locked "Chỉ Phát Hành" UNLESS the INT MEDIA follow-up has been sent
+  // (form.int_media_requested, set by the "Send INT MEDIA Follow-up"
+  // button below); YES for every other resolved package.
+  useEffect(() => {
+    if (!form) return;
+    const computed = PIPELINE_STAGES.includes(form.project_type)
+      ? "update"
+      : form.project_type === "Chỉ Phát Hành" && !form.int_media_requested
+      ? "false"
+      : "true";
+    if (form.gate_goi_ho_tro_truyen_thong !== computed) {
+      update("gate_goi_ho_tro_truyen_thong", computed);
+    }
+  }, [form?.id, form?.project_type, form?.int_media_requested]);
 
   useEffect(() => {
     if (tab === "media_booking" && searchParams?.get("focus") === "media_booking" && mediaBookingSectionRef.current && !autoScrolled) {
@@ -821,8 +840,6 @@ function fmtVnd(n) {
 }
 
 function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, setTab }) {
-  const { profile } = useAuth();
-  const isAdminOrAbove = profile?.role === "admin" || profile?.role === "dev";
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -833,7 +850,6 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
   useEffect(() => {
     setLabelDraft(form.label || "");
   }, [form.label]);
-  const [labelCurveId, setLabelCurveId] = useState(null);
 
   useEffect(() => {
     if (!supabase) return;
@@ -851,16 +867,6 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
     supabase.from("artists").select("stage_name, labels(label_name)").order("stage_name").then(({ data }) => setArtistsList(data || []));
     supabase.from("labels").select("label_name").order("label_name").then(({ data }) => setLabelsList(data || []));
   }, []);
-
-  // Curve ID lives on the labels table, not the release — releases.label
-  // is a denormalized text copy, so this looks up the matching real label
-  // row to find its Curve ID (for display) and to validate the "HĐ -"
-  // prefix rule if the Label field's text gets edited.
-  useEffect(() => {
-    if (!supabase || !form.label) { setLabelCurveId(null); return; }
-    supabase.from("labels").select("curve_id").eq("label_name", form.label).maybeSingle()
-      .then(({ data }) => setLabelCurveId(data?.curve_id || null));
-  }, [form.label]);
 
   return (
     <div>
@@ -922,7 +928,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
                   value={labelDraft}
                   onChange={setLabelDraft}
                   onBlur={(e) => {
-                    const check = validateLabelNameEdit(form.label, e.target.value, labelCurveId);
+                    const check = validateLabelNameEdit(form.label, e.target.value);
                     if (!check.ok) {
                       window.alert(check.message);
                       setLabelDraft(form.label || "");
@@ -935,16 +941,6 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
                 />
               </div>
               <QuickCreate kind="label" onCreated={(newLabel) => { setLabelsList((prev) => [...prev, newLabel]); setLabelDraft(newLabel.label_name); update("label", newLabel.label_name); }} />
-            </div>
-          </Field>
-          <Field label="Curve ID">
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input className={styles.input} style={{ flex: 1, opacity: 0.7 }} value={labelCurveId || ""} readOnly placeholder="— set on the Label List —" />
-              {isAdminOrAbove && (
-                <Link href="/labels" style={{ fontSize: 11, color: "var(--accent)", whiteSpace: "nowrap" }}>
-                  Edit in Label List →
-                </Link>
-              )}
             </div>
           </Field>
         </div>
@@ -996,6 +992,10 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
       <p style={{ fontSize: 11, color: "var(--text-faint)", marginTop: -12, marginBottom: 20 }}>
         * Required for Send Upload (Audio, Artwork, Lyric, Metadata). Working Files and MV are tracked here but don't block the ticket. TBU counts the same as No for gating — it's not done yet.
       </p>
+
+      {/* Project Proposal — separated from the request groups below,
+          rendered right under Metadata Checklist per the regroup. */}
+      <GateGrid styles={styles} fields={PROJECT_PROPOSAL_FIELD} form={form} update={update} />
 
       {/* "Other Checklist" (Sony Publish/Publishing/Splitshare/Request Phụ
           Lục as plain Yes/No) removed — it duplicated fields that now live
@@ -1110,7 +1110,6 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
       </div>
 
       <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
-        <div className={styles.subheading} style={{ marginTop: 0 }}>Additional Request</div>
         <GateFields
           styles={styles}
           form={form}

@@ -6,7 +6,7 @@ import { supabase } from "../../lib/supabaseClient";
 import { withLabelPrefix, stripLabelPrefix, hasLabelPrefix, LABEL_PREFIX } from "../../lib/labelHelpers";
 import styles from "../shared.module.css";
 
-const EMPTY = { label_name: "", hop_tac: "", pic: "", phan_loai: "", curve_id: "" };
+const EMPTY = { label_name: "", hop_tac: "", pic: "", phan_loai: "" };
 
 export default function LabelsPage() {
   const [labels, setLabels] = useState([]);
@@ -29,7 +29,7 @@ export default function LabelsPage() {
       setError("Label Name is required.");
       return;
     }
-    const payload = { ...form, label_name: withLabelPrefix(form.label_name), curve_id: form.curve_id || null };
+    const payload = { ...form, label_name: withLabelPrefix(form.label_name) };
     const { error: err } = await supabase.from("labels").insert(payload);
     if (err) setError(err.message);
     else {
@@ -51,12 +51,18 @@ export default function LabelsPage() {
   async function updateField(label, field, value) {
     setLabels((prev) => prev.map((l) => (l.id === label.id ? { ...l, [field]: value } : l)));
     await supabase.from("labels").update({ [field]: value }).eq("id", label.id);
+  }
 
-    if (field === "curve_id" && value.trim() && hasLabelPrefix(label.label_name)) {
-      const stripped = stripLabelPrefix(label.label_name);
-      setLabels((prev) => prev.map((l) => (l.id === label.id ? { ...l, label_name: stripped } : l)));
-      await supabase.from("labels").update({ label_name: stripped }).eq("id", label.id);
-    }
+  // One-time, one-way action: strips the "HĐ - " prefix and marks the
+  // label as under contract. This is now the ONLY sanctioned way to remove
+  // the prefix (see validateLabelNameEdit) — no Curve ID field to gate it
+  // on anymore. Any further correction goes through direct DB edit (no
+  // dev-role reset UI, per the "Direct DB edit only" decision).
+  async function signContract(label) {
+    if (!window.confirm(`Mark "${label.label_name}" as contract signed? This removes the "${LABEL_PREFIX}" prefix and can't be undone here.`)) return;
+    const stripped = stripLabelPrefix(label.label_name);
+    setLabels((prev) => prev.map((l) => (l.id === label.id ? { ...l, label_name: stripped, contract_signed: true } : l)));
+    await supabase.from("labels").update({ label_name: stripped, contract_signed: true }).eq("id", label.id);
   }
 
   async function deleteLabel(label) {
@@ -92,10 +98,6 @@ export default function LabelsPage() {
             <input className={styles.input} value={form.label_name} onChange={(e) => setForm((f) => ({ ...f, label_name: e.target.value }))} />
           </div>
           <div className={styles.field} style={{ marginBottom: 0, minWidth: 140 }}>
-            <label className={styles.fieldLabel}>Curve ID</label>
-            <input className={styles.input} value={form.curve_id} onChange={(e) => setForm((f) => ({ ...f, curve_id: e.target.value }))} />
-          </div>
-          <div className={styles.field} style={{ marginBottom: 0, minWidth: 140 }}>
             <label className={styles.fieldLabel}>Hợp Tác</label>
             <input className={styles.input} value={form.hop_tac} onChange={(e) => setForm((f) => ({ ...f, hop_tac: e.target.value }))} />
           </div>
@@ -111,7 +113,8 @@ export default function LabelsPage() {
         </form>
         <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: -2, marginBottom: 20 }}>
           New labels get "{LABEL_PREFIX}" prepended automatically — shown as a fixed badge below, not part of
-          the editable name. It's removed automatically the moment Curve ID gets filled in.
+          the editable name. Click "Contract Signed" once the contract is in to remove it — one-time, can't be
+          undone from here.
         </p>
 
         {labels.length === 0 ? (
@@ -119,7 +122,7 @@ export default function LabelsPage() {
         ) : (
           <table className={styles.table}>
             <thead>
-              <tr><th>Label Name</th><th>Curve ID</th><th>Hợp Tác</th><th>PIC</th><th>Phân Loại</th><th>Note</th><th></th></tr>
+              <tr><th>Label Name</th><th>Contract</th><th>Hợp Tác</th><th>PIC</th><th>Phân Loại</th><th>Note</th><th></th></tr>
             </thead>
             <tbody>
               {labels.map((l) => (
@@ -137,7 +140,13 @@ export default function LabelsPage() {
                       />
                     </div>
                   </td>
-                  <td><input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 100 }} defaultValue={l.curve_id || ""} onBlur={(e) => updateField(l, "curve_id", e.target.value)} /></td>
+                  <td>
+                    {hasLabelPrefix(l.label_name) ? (
+                      <button className={styles.btnSmall} onClick={() => signContract(l)}>Contract Signed</button>
+                    ) : (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "var(--success-fg)" }}>✓ Signed</span>
+                    )}
+                  </td>
                   <td><input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 100 }} defaultValue={l.hop_tac || ""} onBlur={(e) => updateField(l, "hop_tac", e.target.value)} /></td>
                   <td><input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 100 }} defaultValue={l.pic || ""} onBlur={(e) => updateField(l, "pic", e.target.value)} /></td>
                   <td><input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 100 }} defaultValue={l.phan_loai || ""} onBlur={(e) => updateField(l, "phan_loai", e.target.value)} /></td>

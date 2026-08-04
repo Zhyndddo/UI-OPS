@@ -2187,3 +2187,94 @@ affected: `app/workstation/{upload,pitching,confirm,pre-release}/page.js`,
 `tsc --jsx react --allowJs --checkJs false` against all 7 files before
 sending — zero syntax errors, which is the same class of check that
 would have caught this before it reached Vercel.
+
+## 2026-08-04 (17) — New Release: duplicate-DID soft lock, Contract Signed button, Additional Request regroup
+
+Three separate feature requests, all on the New Release create form
+and/or the release detail page's Overview tab.
+
+**Duplicate-release soft lock.** `app/new-release/page.js` computes a DID
+preview (`didPreview()`) as the user types, but nothing stopped two
+releases with the same title+artist initials and release date from both
+actually being created — easy to do by accident when re-entering a
+product. `handleSubmit` now runs a new `didPrefixFor()` (same
+title/artist-initials + release-date computation as `didPreview`, minus
+the `-####` placeholder — mirrors `_field_initials()`/`set_release_did()`
+in schema.sql exactly) and queries `releases` for any existing `did like
+'<prefix>-%'` before inserting. A match pops a modal showing the
+duplicate's title/artist/DID/date with two buttons: "Cancel Creation"
+(closes the modal, nothing happens) or "Confirm New Creation" (proceeds
+with the already-built insert payload via a new `performInsert()`,
+extracted out of the old inline `handleSubmit` body specifically so both
+the no-duplicate path and the confirmed-duplicate path can call it).
+Deliberately a soft lock, not a hard block — legitimate remarketing/
+re-release cases exist and shouldn't be impossible to create.
+
+**Label "Contract Signed" button replaces Curve-ID-gated prefix removal.**
+Previously, removing labels' auto-added `"HĐ - "` prefix required filling
+in Curve ID (`validateLabelNameEdit()` blocked the edit otherwise, and
+`app/labels/page.js`'s `updateField()` auto-stripped the prefix the
+moment Curve ID got a value). Curve ID is gone from the Label List's
+create form, table column, and the release detail page's Label field
+entirely (plus the now-dead `labelCurveId` state/fetch effect and its
+"Edit in Label List →" link in `app/releases/[id]/page.js`). In its
+place: a new `contract_signed boolean` column on `labels` (migration:
+`add-label-contract-signed-and-artist-portfolio-url.sql`) and a one-time
+"Contract Signed" button per row on the Label List — click it once
+(confirm dialog first) and it strips the prefix and sets
+`contract_signed = true` in one update; the cell then shows a static "✓
+Signed" badge instead of the button. `validateLabelNameEdit()` no longer
+takes a `curveId` parameter — it now unconditionally blocks any manual
+edit that would drop the prefix, redirecting to the button instead. No
+role-gating on the button (matches this page's existing pattern; the
+explicit decision was "Direct DB edit only" for corrections, so no
+separate dev-reset UI was built either).
+
+**Additional Request regroup.** The old flat "Additional Request" wrapper
+title above `<GateFields />` is gone from both call sites
+(`app/new-release/page.js` and `app/releases/[id]/page.js`) — the four
+group subheadings inside `lib/GateFields.js` are now the only titles,
+per the explicit "remove all (like Additional Request) title" ask. New
+grouping:
+
+- **Marketing Checklist**: "Artist Info" (renamed from "Profile Artist" —
+  same `gate_artist_profile` field; ticking Yes now also reveals a URL
+  popup for the artist's portfolio link, new `artist_portfolio_url`
+  column, with a hover tooltip — "Add artist portfolio link"), Artist
+  Photo. Project Proposal moved OUT of this grid entirely — it's rendered
+  separately, directly under each caller's own Metadata Checklist
+  section (new exported `GateGrid`/`PROJECT_PROPOSAL_FIELD` from
+  `lib/GateFields.js`), to keep checklist-y fields visually separate from
+  request-y ones.
+- **Data Request**: Pitching (now this group's first field — the "which
+  pitching?" detail popup moved to render directly under this grid
+  instead of at the very bottom of the whole component), Có Trong Net
+  YouTube, "Pre-order Itunes" (relabeled from "Pre-order"), Priority Sync
+  Lyric, Music Video on Spotify, Discovery Mode on Spotify, Sony Publish.
+- **Marketing Request**: Gói Hỗ Trợ Truyền Thông, Design. Gói Hỗ Trợ
+  Truyền Thông is now **read-only** (a status badge, not a toggle) and
+  continuously recomputed by a new effect in `app/releases/[id]/page.js`:
+  `"update"` (TBU) while `project_type` is still in `PIPELINE_STAGES`
+  (BRIEF & DATA/DEALING); `"false"` (NO) once `project_type === "Chỉ
+  Phát Hành"` is locked in, unless the INT MEDIA follow-up has been sent
+  (`form.int_media_requested`, the existing "Send INT MEDIA Follow-up"
+  button); `"true"` (YES) for every other resolved package. Mirrors the
+  existing one-time `gate_phu_luc_truyen_thong` auto-flip effect's
+  pattern but recomputes on every relevant change instead of firing once
+  from a default. On the New Release create form (no live `project_type`
+  yet — every release starts in BRIEF & DATA) this just defaults to
+  `"update"`.
+- **Legal Request**: Splitshare (moved in from Data Request), Phụ Lục MG,
+  Phụ Lục Publishing, Phụ Lục Truyền Thông (still read-only, unchanged —
+  same auto-flip effect as before).
+- **Removed**: the old standalone `gate_legal_request` field (distinct
+  from the "Legal Request" *group* name) — dropped from the UI, from
+  `lib/GateFields.js`'s field lists, and from `EMPTY_FORM` in
+  `app/new-release/page.js`, per the explicit "unused and remove field"
+  list.
+
+Migration delivered separately: `add-label-contract-signed-and-artist-portfolio-url.sql`
+(adds `labels.contract_signed` and `releases.artist_portfolio_url`; also
+folded into `schema.sql` for fresh installs). Verified with
+`tsc --jsx react --allowJs --checkJs false` against all 5 touched files
+before sending — zero syntax errors.

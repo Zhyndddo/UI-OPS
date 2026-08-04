@@ -4,7 +4,7 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
-import { GateFields, GateToggle } from "../../lib/GateFields";
+import { GateFields, GateToggle, GateGrid, PROJECT_PROPOSAL_FIELD } from "../../lib/GateFields";
 import QuickCreate from "../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../lib/ReferenceInputs";
 import { buildLinkshareNote, defaultLinkshareFacebookTiming, defaultLinkshareTiktokTiming, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS } from "../../lib/releaseNotes";
@@ -28,6 +28,20 @@ function didPreview(title, mainArtist, releaseDate) {
   const artistInit = fieldInitials(mainArtist);
   const datePart = releaseDate ? releaseDate.split("-").reverse().join("") : "--------"; // input value is YYYY-MM-DD → DDMMYYYY
   return `${titleInit}${artistInit}-${datePart}-####`;
+}
+
+// Same computation as didPreview, minus the trailing "-####" placeholder —
+// this is exactly what set_release_did() in schema.sql writes before its
+// own DB-assigned numeric suffix, so a `did like '${prefix}-%'` query finds
+// any existing release whose title+artist initials and release date match,
+// regardless of that suffix. Returns null until there's enough to compute
+// a real (non-placeholder) prefix.
+function didPrefixFor(title, mainArtist, releaseDate) {
+  if (!title?.trim() || !mainArtist?.trim() || !releaseDate) return null;
+  const titleInit = fieldInitials(title);
+  const artistInit = fieldInitials(mainArtist);
+  const datePart = releaseDate.split("-").reverse().join("");
+  return `${titleInit}${artistInit}-${datePart}`;
 }
 
 const EMPTY_FORM = {
@@ -54,14 +68,16 @@ const EMPTY_FORM = {
   meta_mv: "false",
   meta_doc: "false",
   gate_pitching: "false",
-  gate_goi_ho_tro_truyen_thong: "false",
+  // TBU by default — every release starts in BRIEF & DATA, which is
+  // exactly the state that maps to "update" now that this is a read-only,
+  // auto-computed status (see the effect in app/releases/[id]/page.js).
+  gate_goi_ho_tro_truyen_thong: "update",
   gate_data_request: "false",
   gate_split_share: "false",
   gate_lyric_musixmatch: "false",
   gate_mv_spotify: "false",
   gate_discovery_mode_spotify: "false",
   gate_sony_publish: "false",
-  gate_legal_request: "false",
   gate_phu_luc_mg: "false",
   gate_phu_luc_truyen_thong: "false",
   gate_phu_luc_publishing: "false",
@@ -98,6 +114,11 @@ export default function NewReleasePage() {
   const [autofillNote, setAutofillNote] = useState(null);
   const [tiktokTimingTouched, setTiktokTimingTouched] = useState(false);
   const [facebookTimingTouched, setFacebookTimingTouched] = useState(false);
+  // Soft-lock duplicate warning — set when a same-prefix DID already
+  // exists; holds the duplicate release plus the already-built payload/
+  // tracks so "Confirm New Creation" can just resume the insert without
+  // re-validating the form.
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
 
   // Linkshare timing defaults — Facebook depends on how much lead time
   // this release actually has (today vs. Release Date), so it recomputes
@@ -195,7 +216,6 @@ export default function NewReleasePage() {
       return;
     }
 
-    setSubmitting(true);
     const { tracks: trackRows, ...formForInsert } = form;
     const payload = {
       ...formForInsert,
@@ -206,6 +226,30 @@ export default function NewReleasePage() {
       drive_link: form.drive_link || null,
       brief: form.brief || null,
     };
+
+    // Soft-lock duplicate check — same DID prefix (title+artist initials +
+    // release date) as an existing release strongly suggests this is a
+    // re-entry of the same product. Warn instead of silently creating a
+    // second one; "Confirm New Creation" bypasses this and proceeds anyway
+    // (legit remarketing/re-release cases do exist).
+    const prefix = didPrefixFor(form.title, form.main_artist, form.release_date);
+    if (prefix) {
+      const { data: existing } = await supabase
+        .from("releases")
+        .select("id, did, title, main_artist, release_date")
+        .like("did", `${prefix}-%`)
+        .limit(1);
+      if (existing && existing.length > 0) {
+        setDuplicateWarning({ existing: existing[0], payload, trackRows });
+        return;
+      }
+    }
+
+    await performInsert(payload, trackRows);
+  }
+
+  async function performInsert(payload, trackRows) {
+    setSubmitting(true);
 
     const { data, error: insertError } = await supabase
       .from("releases")
@@ -623,8 +667,10 @@ export default function NewReleasePage() {
               </div>
             ))}
           </div>
+          {/* Project Proposal — separated from the request groups below,
+              rendered right under Metadata Checklist per the regroup. */}
+          <GateGrid styles={styles} fields={PROJECT_PROPOSAL_FIELD} form={form} update={update} />
 
-          <div className={styles.subheading} style={{ marginTop: 8 }}>Additional Request</div>
           <GateFields
             styles={styles}
             form={form}
@@ -654,6 +700,46 @@ export default function NewReleasePage() {
             </button>
           </div>
         </form>
+
+        {duplicateWarning && (
+          <div
+            style={{
+              position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+              display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+            }}
+          >
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 24, maxWidth: 440 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#ff9d5c", marginBottom: 10 }}>
+                ⚠ Possible duplicate release
+              </div>
+              <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 10 }}>
+                An existing release already has a matching DID prefix (same title/artist initials and release date):
+              </p>
+              <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12 }}>
+                <div style={{ fontWeight: 700, color: "var(--text-muted)" }}>{duplicateWarning.existing.title}</div>
+                <div style={{ color: "var(--text-faint)", marginTop: 2 }}>
+                  {duplicateWarning.existing.main_artist} · {duplicateWarning.existing.did} · {duplicateWarning.existing.release_date}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button type="button" className={styles.btnSecondary} onClick={() => setDuplicateWarning(null)}>
+                  Cancel Creation
+                </button>
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  onClick={async () => {
+                    const { payload, trackRows } = duplicateWarning;
+                    setDuplicateWarning(null);
+                    await performInsert(payload, trackRows);
+                  }}
+                >
+                  Confirm New Creation
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
     </AppShell>

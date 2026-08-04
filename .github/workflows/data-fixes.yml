@@ -46,6 +46,24 @@ name: Data Fix Scripts
 #
 # backfill-design-executor-profile takes no file_path — it reads/writes
 # the database directly. Safe to re-run.
+#
+# audit-booking-board is READ-ONLY — it never writes anything, `confirm`
+# has no effect on it. Run with file_path blank for an all-releases
+# mismatch summary, or put a release's DID in file_path to dump full
+# diagnostics for just that one release.
+#
+# audit-release-channel is also READ-ONLY, no file_path needed. Prints
+# every distinct value seen in releases.requester_segment (the New
+# Release dashboard's "Channel" column) and flags any that aren't exactly
+# "VIEENT" or "ENVI" — those imported/legacy values are really in the
+# database, they just don't match either <option> the dashboard's
+# dropdown offers, so they silently render blank there.
+#
+# audit-pre-release-fields is also READ-ONLY, no file_path needed. Same
+# check as audit-release-channel but for the Pre-release workstation's 6
+# picker columns (CANVA, MV, Artist Pick, Musixmatch Status, NCT Lyric,
+# Zing Lyric) — flags any release whose value in one of those fields
+# doesn't match that field's fixed option list.
 
 on:
   workflow_dispatch:
@@ -71,13 +89,16 @@ on:
           - fix-booking-channels-direct
           - import-design-tickets
           - backfill-design-executor-profile
+          - audit-booking-board
+          - audit-release-channel
+          - audit-pre-release-fields
       confirm:
-        description: "Actually write changes (unchecked = dry run only)"
+        description: "Actually write changes (unchecked = dry run only) — ignored by audit-booking-board, which never writes anything"
         required: false
         type: boolean
         default: false
       file_path:
-        description: "import-brief / import-ops-tracking / import-booking / import-legacy-orders — path (in this repo) to the .xlsx or .json"
+        description: "import-brief / import-ops-tracking / import-booking / import-legacy-orders — path (in this repo) to the .xlsx or .json. audit-booking-board — leave blank for an all-releases summary, or put one release's DID here to dump full diagnostics for just that release."
         required: false
         default: "data/brief-import.xlsx"
       file_path_2:
@@ -120,6 +141,17 @@ jobs:
             else
               node scripts/${{ inputs.script }}.js "${{ inputs.file_path }}"
             fi
+          elif [ "${{ inputs.script }}" = "audit-booking-board" ]; then
+            # Read-only — never takes --confirm. file_path is repurposed as
+            # an optional DID here (not a repo file path) — pass it through
+            # as-is (including blank, for the all-releases summary).
+            node scripts/audit-booking-board.js "${{ inputs.file_path }}"
+          elif [ "${{ inputs.script }}" = "audit-release-channel" ]; then
+            # Read-only — never takes --confirm, no file_path needed.
+            node scripts/audit-release-channel.js
+          elif [ "${{ inputs.script }}" = "audit-pre-release-fields" ]; then
+            # Read-only — never takes --confirm, no file_path needed.
+            node scripts/audit-pre-release-fields.js
           elif [ "${{ inputs.confirm }}" = "true" ]; then
             node scripts/${{ inputs.script }}.js --confirm
           else
