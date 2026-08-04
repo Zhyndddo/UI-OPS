@@ -1,0 +1,86 @@
+/* Theme variables — dark is the default (matches the original design),
+   [data-theme="light"] on <html> overrides them. Every color used across
+   shared.module.css (and ideally page-level inline styles) should
+   reference one of these instead of a hardcoded hex, so the whole app
+   actually responds to the toggle rather than just isolated pieces of it. */
+
+:root {
+  /* Height of the sticky TopBar — table header rows (see .table th in
+     shared.module.css) pin themselves at this offset once they scroll to
+     the top of the viewport, so they float directly under the topbar
+     instead of under it or with a gap above it. Keep in sync with
+     TopBar.js's own minHeight if that bar's padding/font ever changes. */
+  --topbar-height: 44px;
+  --bg: #0a0a0a;
+  --bg-body: #0b0b0b;
+  --bg-card: #121212;
+  --bg-input: #141414;
+  --bg-hover: #111111;
+  --border: #262626;
+  --border-strong: #333333;
+  --text: #f4f4f4;
+  --text-muted: #999999;
+  --text-faint: #666666;
+  --text-dim: #555555;
+  --accent: #ff6b1a;
+  --accent-soft: #ff9d5c;
+  --accent-on: #0a0a0a; /* text color used ON TOP of the accent background */
+  --success-bg: rgba(76, 175, 80, 0.15);
+  --success-fg: #7ee6a8;
+  --warn-bg: rgba(255, 193, 7, 0.15);
+  --warn-fg: #ffca4d;
+  --error-bg: #2a1212;
+  --error-border: #5a2323;
+  --error-fg: #ff9d9d;
+}
+
+[data-theme="light"] {
+  /* "Grey to almost-black, white to eggshell" pass — the old greys
+     (#5c5850/#8a867c/#a8a49a) read as washed-out/low-contrast against a
+     near-white background; darkened toward near-black so muted/faint text
+     actually pops instead of disappearing. The old whites (#ffffff for
+     cards/inputs, #f7f6f4 for the page body) are now a soft yellowish
+     eggshell instead of stark white, so surfaces read as dimmer/warmer —
+     --bg-card and --bg-input keep a slightly lighter eggshell than --bg so
+     cards/inputs still visually sit above the page body, same relationship
+     as before, just warmer overall. */
+  --bg: #f2ead4;
+  --bg-body: #f2ead4;
+  --bg-card: #faf3e2;
+  --bg-input: #faf3e2;
+  --bg-hover: #e8dfc4;
+  --border: #d8cca4;
+  --border-strong: #3a3527;
+  --text: #14120c;
+  --text-muted: #211f16;
+  --text-faint: #3a3527;
+  --text-dim: #56503b;
+  --accent: #ff6b1a;
+  --accent-soft: #d9531a;
+  --accent-on: #ffffff;
+  --success-bg: rgba(46, 125, 50, 0.12);
+  --success-fg: #2e7d32;
+  --warn-bg: rgba(230, 145, 0, 0.12);
+  --warn-fg: #e69100;
+  --error-bg: #fdeaea;
+  --error-border: #f0b8b8;
+  --error-fg: #b23b3b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-body);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+}

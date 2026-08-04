@@ -1,0 +1,160 @@
+// Field configs for the ticket types sharing the generic list+form system
+// (Newrelease Upload and Phụ Lục have bespoke pages for special logic).
+// Matches the entity_fields seeded in schema.sql for each type.
+//
+// requesterTeam/executorTeam drive the dual-view pattern from v1: the same
+// ticket type renders differently depending on which team you're viewing
+// from — a plain table with narrow edit rights (requester) vs. status
+// filter tabs + full edit (executor). requesterTeam: 'ANY' means every
+// team except the executor team sees the requester view (Design can be
+// requested by anyone). null on both means no dual view at all — a single
+// unified view, matching types with no natural requester/executor split
+// (auto-created or single-team tickets like Phụ Lục, Package Prep).
+//
+// bothEditable — field keys editable by BOTH sides even in dual-view mode
+// (matches v1 exactly: description/note-type fields stayed open to the
+// requester even though most fields locked to executor-only).
+
+export const TICKET_CONFIGS = {
+  // design intentionally NOT here anymore — it has its own bespoke pages
+  // now (app/tickets/design/page.js + new/page.js) since it needs the
+  // real Platform → Design Type → Size cascade, salvaged from v1's actual
+  // Config admin panel. Every other type below still uses the generic
+  // list+form system.
+  phai_sinh: {
+    // NOTE: the create form is now a bespoke page
+    // (app/tickets/phai-sinh/new/page.js) — Type + Deadline share a row,
+    // Composer/Lyricist are paired, and Artist/Label reference the
+    // Artist/Label List tables, none of which the generic NewTicketPage
+    // renderer supports well enough to be worth the special-casing. This
+    // fields list (and defaultDeadlineFrom below) is kept only as a record
+    // of the field set/labels — it's no longer read by any create form.
+    // The list view (app/tickets/phai-sinh/page.js) is also bespoke and
+    // doesn't read this config either.
+    defaultDeadlineFrom: "releaseDate",
+    label: "Phái Sinh",
+    requesterTeam: "AR",
+    executorTeam: "OPS",
+    bothEditable: ["description", "tacQuyen", "note", "url", "refLink"],
+    fields: [
+      { key: "tenBai", label: "Tên Bài", type: "text", required: true },
+      { key: "relatedDid", label: "Related DID", type: "relatedDid" },
+      { key: "artist", label: "Artist", type: "text", required: true },
+      { key: "featureArtist", label: "Feature Artist", type: "text" },
+      { key: "label", label: "Label", type: "text" },
+      { key: "typeRequest", label: "Type", type: "text" },
+      { key: "composer", label: "Composer", type: "text" },
+      { key: "lyricist", label: "Lyricist", type: "text" },
+      { key: "producer", label: "Producer", type: "text" },
+      { key: "mixer", label: "Mixer", type: "text" },
+      { key: "url", label: "URL", type: "url" },
+      // refLink (LBM url) and note are no longer collected at ticket
+      // creation — OPS fills them in later from the list view — but the
+      // keys stay real data fields once a ticket exists, so they're kept
+      // here for the record.
+      { key: "refLink", label: "LBM url", type: "url" },
+      { key: "tacQuyen", label: "Tác Quyền", type: "textarea", required: true },
+      { key: "releaseDate", label: "Release Date", type: "date" },
+      { key: "releaseTime", label: "Release Time", type: "text" },
+      { key: "description", label: "Description", type: "textarea", defaultValue: "Full CID, FB +4 ngày, TikTok +7 ngày" },
+      { key: "note", label: "Note", type: "textarea" },
+    ],
+  },
+  // media_booking intentionally NOT here anymore — bespoke pages now
+  // (app/tickets/media-booking/page.js + new/page.js), since it's where
+  // the real package-building popup lives (Propose Package template
+  // picker + editable itemized package + magic link generation).
+  manual_claim: {
+    releaseFieldMap: { attachTo: "tenBai", map: { tenBai: "title", artist: "main_artist", label: "label" } },
+    label: "Manual Claim",
+    requesterTeam: "AR",
+    executorTeam: "OPS",
+    bothEditable: ["note", "url"],
+    fields: [
+      { key: "label", label: "Label", type: "text", required: true },
+      { key: "tenBai", label: "Tên Bài", type: "text", required: true },
+      { key: "artist", label: "Artist", type: "text", required: true },
+      {
+        key: "url",
+        label: "URL",
+        type: "url",
+        required: true,
+        // Multiple claims often mean multiple links — paste rows straight
+        // out of Excel (each row keeps its own line) or just hit Enter
+        // between them. The Manual Claim list shows each line as its own
+        // clickable link when it's a real URL (see MultiLinkCell).
+        multiline: true,
+        placeholder: "https://…\nhttps://…\nhttps://…",
+        helpText: "One link per line — paste straight from Excel or press Enter between links. Too many to list? Put them in a Google Sheet and paste that sheet's link here instead.",
+      },
+      { key: "note", label: "Note", type: "textarea" },
+    ],
+  },
+  report_conflict: {
+    releaseFieldMap: { attachTo: "assetTitle", map: { assetTitle: "title", artist: "main_artist" } },
+    label: "Report Conflict",
+    requesterTeam: "AR",
+    executorTeam: "OPS",
+    bothEditable: ["note"],
+    fields: [
+      { key: "conflictType", label: "Type", type: "text", required: true },
+      { key: "assetTitle", label: "Asset Title", type: "text", required: true },
+      { key: "artist", label: "Artist", type: "text" },
+      { key: "reportedURL", label: "Reported Sound Link", type: "url", required: true },
+      { key: "officialSongTitle", label: "Official Song Title", type: "text", required: true },
+      { key: "officialArtist", label: "Official Artist", type: "text", required: true },
+      { key: "officialISRC", label: "Official ISRC", type: "text" },
+      { key: "officialUPC", label: "Official UPC", type: "text" },
+      { key: "officialURL", label: "Official URL", type: "url" },
+      { key: "originalReleaseDate", label: "Original Release Date", type: "text" },
+      { key: "tiktokProfile", label: "TikTok Profile", type: "text" },
+      { key: "linkMVYoutube", label: "MV YouTube Link", type: "url" },
+      { key: "originalSoundLink", label: "Original Sound Link", type: "url" },
+      { key: "textBlock", label: "Text Block", type: "textarea" },
+      { key: "note", label: "Note", type: "textarea" },
+    ],
+  },
+  artist_profile: {
+    label: "Artist Profile",
+    requesterTeam: "AR",
+    executorTeam: "OPS",
+    bothEditable: [],
+    fields: [
+      { key: "artistName", label: "Tên Nghệ Sĩ", type: "text", required: true },
+      { key: "email", label: "Email Nghệ Sĩ", type: "text", required: true },
+      { key: "latestSong", label: "Bài Hát Phát Hành Gần Nhất", type: "text" },
+      { key: "spotifyUrl", label: "Spotify URL", type: "url" },
+      { key: "appleUrl", label: "Apple URL", type: "url" },
+      { key: "fbUrl", label: "Facebook URL", type: "url" },
+    ],
+  },
+  stream_update: {
+    releaseFieldMap: { attachTo: "releaseId", map: { releaseId: "did" } },
+    label: "Stream Update",
+    requesterTeam: null,
+    executorTeam: null,
+    bothEditable: [],
+    fields: [
+      { key: "releaseId", label: "DID", type: "text", required: true },
+      { key: "platform", label: "Platform", type: "text", required: true },
+      { key: "metric", label: "Metric", type: "text" },
+      { key: "value", label: "Value", type: "text" },
+    ],
+  },
+  khac: {
+    label: "Khác",
+    requesterTeam: null,
+    executorTeam: null,
+    bothEditable: [],
+    fields: [
+      { key: "request", label: "Request", type: "text", required: true },
+      { key: "chiTiet", label: "Chi Tiết", type: "textarea" },
+      // Defaults to Zhyn's own account so every "Khác" ticket also lands
+      // on their radar without anyone having to remember to add it — free
+      // text, not a real notification-system hookup, since Khác doesn't
+      // have an executor/PIC concept to plug into (executorTeam: null
+      // above). Anyone filling out the form can still edit or clear it.
+      { key: "alsoNotify", label: "Also Notify (CC)", type: "text", defaultValue: "an.thien@vieent.vn" },
+    ],
+  },
+};
