@@ -6,12 +6,14 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, formatDetailText } from "../../../lib/helpers";
-import { GateFields, GateToggle, GateGrid, PROJECT_PROPOSAL_FIELD } from "../../../lib/GateFields";
+import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, GATE_TICKET_TYPES } from "../../../lib/GateFields";
 import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import UrlField from "../../../lib/UrlField";
 import { validateLabelNameEdit } from "../../../lib/labelHelpers";
-import { TICKET_TYPE_LABELS } from "../../../lib/teamTypes";
+import { MV_TYPE_OPTIONS } from "../../../lib/pickerOptions";
+import PickSelect from "../../../lib/PickSelect";
+import { TICKET_TYPE_LABELS, TEAMS } from "../../../lib/teamTypes";
 import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
 
@@ -65,6 +67,16 @@ export default function ReleaseDetailPage() {
   // in a small box so AR can see what changed before resending).
   const [mediaBookingTicket, setMediaBookingTicket] = useState(null);
   const [pitchingInfoTicket, setPitchingInfoTicket] = useState(null);
+  // One ticket per Data Request/Marketing Request/Legal Request field that
+  // has a related ticket type (see lib/GateFields.js GATE_TICKET_TYPES) —
+  // keyed by ticket TYPE key (e.g. "co_trong_net_youtube"), not gate field
+  // key, so it can be handed straight to <GateFields ticketMap=.../>.
+  const [gateTicketMap, setGateTicketMap] = useState({});
+  // ticket_tabs row (id + default_status) per GATE_TICKET_TYPES ticket
+  // type, keyed by ticket TYPE key — fetched once on load alongside
+  // gateTicketMap above, so saveTab() below can create any missing gate
+  // tickets without an extra read per type on every single save.
+  const [gateTabsMap, setGateTabsMap] = useState({});
   const searchParams = useSearchParams();
   const mediaBookingSectionRef = useRef(null);
   const [autoScrolled, setAutoScrolled] = useState(false);
@@ -141,6 +153,34 @@ export default function ReleaseDetailPage() {
           const found = mbTix?.[0] || null;
           setHasMediaBookingTicket(!!found);
           setMediaBookingTicket(found);
+        }
+        // Data Request / Marketing Request / Legal Request sub-tickets —
+        // one batched fetch for all 10 mapped types at once (see
+        // GATE_TICKET_TYPES in lib/GateFields.js), rather than 10 separate
+        // round trips like the older per-field fetches above.
+        const gateTicketTypeKeys = [...new Set(Object.values(GATE_TICKET_TYPES))];
+        const { data: gateTabs } = await supabase.from("ticket_tabs").select("id, key, default_status").in("key", gateTicketTypeKeys);
+        if (gateTabs && gateTabs.length > 0) {
+          const tabIdToKey = {};
+          const tabsMap = {};
+          gateTabs.forEach((t) => {
+            tabIdToKey[t.id] = t.key;
+            tabsMap[t.key] = { id: t.id, default_status: t.default_status };
+          });
+          setGateTabsMap(tabsMap);
+          const { data: gateTix } = await supabase
+            .from("tickets")
+            .select("*")
+            .in("tab_id", gateTabs.map((t) => t.id))
+            .eq("data->>releaseId", data.did)
+            .is("deleted_at", null);
+          const map = {};
+          (gateTix || []).forEach((t) => {
+            const key = tabIdToKey[t.tab_id];
+            // If somehow more than one exists for a type, keep the newest.
+            if (key && (!map[key] || new Date(t.created_at) > new Date(map[key].created_at))) map[key] = t;
+          });
+          setGateTicketMap(map);
         }
       });
     supabase
@@ -265,7 +305,28 @@ export default function ReleaseDetailPage() {
   async function saveTab() {
     setSaving(true);
     setError(null);
-    const { error: err } = await supabase.from("releases").update(form).eq("id", id);
+
+    // Sony Publish is special-cased ahead of the write: unlike every
+    // other gate-linked ticket, per explicit request it only auto-creates
+    // once the 4 required metadata fields (REQUIRED_META_KEYS) are ALL
+    // filled in — until then, ticking "Yes" and saving just saves the
+    // gate field itself, with no ticket, same "loop until ready" idea as
+    // the generic gate tickets below but gated on metadata instead of
+    // just existence. The moment it IS ready, creating the ticket also
+    // sends the release to the Upload workstation (same effect as the
+    // SEND UPLOAD button — a newrelease_upload ticket + requested=true —
+    // deliberately NOT the Priority Pitching shortcut or Media Booking
+    // cascade, neither of which Sony Publish asked for), if it hasn't
+    // already gone out via the normal button. Computed here (against the
+    // in-memory form, not yet-saved DB state) so the requested:true flag
+    // can ride the same release write below instead of a second round
+    // trip.
+    const sonyPublishReady =
+      form.gate_sony_publish === "true" && !gateTicketMap.sony_publish && REQUIRED_META_KEYS.every((k) => form[k] === "true");
+    const sonyPublishSendsUpload = sonyPublishReady && !form.requested;
+    const releasePatch = sonyPublishSendsUpload ? { ...form, requested: true } : form;
+
+    const { error: err } = await supabase.from("releases").update(releasePatch).eq("id", id);
     if (err) {
       setSaving(false);
       setError(err.message);
@@ -316,8 +377,87 @@ export default function ReleaseDetailPage() {
       }
     }
 
+    // Data Request / Marketing Request / Legal Request sub-tickets (see
+    // GATE_TICKET_TYPES in lib/GateFields.js) — folded into Save instead of
+    // a separate manual "Send Ticket" click, same idempotent-on-save
+    // pattern as Pitching/Artist Profile just above. This also closes a
+    // real bug the manual button had: it read live off local form state, so
+    // clicking it before Save created a ticket referencing a gate field
+    // that hadn't actually been persisted yet. Uses gateTabsMap (fetched
+    // once on load, alongside gateTicketMap) instead of a fresh
+    // ticket_tabs lookup per type, so this adds zero extra reads per save —
+    // only a write for whichever types are newly "Yes" and don't have a
+    // ticket yet.
+    // gate_sony_publish is excluded here — it has its own metadata-gated
+    // block right below instead of the unconditional "Yes + no ticket yet"
+    // rule every other gate type follows.
+    const missingGateEntries = Object.entries(GATE_TICKET_TYPES).filter(
+      ([gateKey, ticketType]) => gateKey !== "gate_sony_publish" && form[gateKey] === "true" && !gateTicketMap[ticketType] && gateTabsMap[ticketType]
+    );
+    if (missingGateEntries.length > 0) {
+      const created = await Promise.all(
+        missingGateEntries.map(async ([, ticketType]) => {
+          const tab = gateTabsMap[ticketType];
+          const { data: row } = await supabase
+            .from("tickets")
+            .insert({
+              tab_id: tab.id,
+              data: { releaseId: form.did },
+              status: tab.default_status,
+              status_log: { [tab.default_status]: new Date().toISOString() },
+              requester_segment: form.requester_segment || null,
+            })
+            .select()
+            .single();
+          return row ? [ticketType, row] : null;
+        })
+      );
+      const newlyCreated = created.filter(Boolean);
+      if (newlyCreated.length > 0) {
+        setGateTicketMap((m) => {
+          const next = { ...m };
+          newlyCreated.forEach(([ticketType, row]) => (next[ticketType] = row));
+          return next;
+        });
+      }
+    }
+
+    // Sony Publish — fires only when sonyPublishReady (computed above,
+    // before the write) was true. Creates the ticket, then — the "special"
+    // part — also sends the release to the Upload workstation exactly
+    // like the SEND UPLOAD button would (newrelease_upload ticket +
+    // requested=true, the latter already folded into releasePatch above)
+    // if it hasn't already been sent some other way.
+    if (sonyPublishReady) {
+      const spTab = gateTabsMap.sony_publish;
+      if (spTab) {
+        const { data: spCreated } = await supabase
+          .from("tickets")
+          .insert({
+            tab_id: spTab.id,
+            data: { releaseId: form.did },
+            status: spTab.default_status,
+            status_log: { [spTab.default_status]: new Date().toISOString() },
+            requester_segment: form.requester_segment || null,
+          })
+          .select()
+          .single();
+        if (spCreated) setGateTicketMap((m) => ({ ...m, sony_publish: spCreated }));
+      }
+      if (sonyPublishSendsUpload) {
+        const { data: uploadTab } = await supabase.from("ticket_tabs").select("id").eq("key", "newrelease_upload").single();
+        if (uploadTab) {
+          await supabase.from("tickets").insert({
+            tab_id: uploadTab.id,
+            data: { releaseId: form.did, project: form.title, artist: form.main_artist, label: form.label },
+          });
+        }
+      }
+    }
+
     setSaving(false);
-    setRelease(form);
+    setForm(releasePatch);
+    setRelease(releasePatch);
     setSaved(true);
   }
 
@@ -507,6 +647,12 @@ export default function ReleaseDetailPage() {
     if (created) setPitchingInfoTicket(created);
   }
 
+  // The standalone "Send Ticket" click for Data Request/Marketing
+  // Request/Legal Request sub-tickets (see GATE_TICKET_TYPES in
+  // lib/GateFields.js) is gone — folded into saveTab() above instead, same
+  // idempotent-on-save pattern as Pitching/Artist Profile. GateTicketLink
+  // now only ever displays state (sent vs. not yet), never triggers a
+  // write itself.
 
   // Magic link generation moved to Marketing's package spec builder (not
   // built yet) — this page only reads/displays an existing link now,
@@ -614,40 +760,46 @@ export default function ReleaseDetailPage() {
           ← Back to New Release
         </Link>
 
-        <div style={{ marginBottom: 20 }}>
-          <div className={styles.eyebrow}>{form.did || "—"}</div>
-          {firstUrl(form.link_lbm) ? (
-            <a
-              href={firstUrl(form.link_lbm)}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ display: "block", textDecoration: "none" }}
-              title={firstUrl(form.link_lbm)}
-            >
-              <h1 className={styles.title} style={{ marginBottom: 4, color: "inherit" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20, alignItems: "start", marginBottom: 20 }}>
+          <div>
+            <div className={styles.eyebrow}>{form.did || "—"}</div>
+            {firstUrl(form.link_lbm) ? (
+              <a
+                href={firstUrl(form.link_lbm)}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: "block", textDecoration: "none" }}
+                title={firstUrl(form.link_lbm)}
+              >
+                <h1 className={styles.title} style={{ marginBottom: 4, color: "inherit" }}>
+                  {form.title} — {form.main_artist}
+                </h1>
+              </a>
+            ) : (
+              <h1 className={styles.title} style={{ marginBottom: 4 }}>
                 {form.title} — {form.main_artist}
               </h1>
-            </a>
-          ) : (
-            <h1 className={styles.title} style={{ marginBottom: 4 }}>
-              {form.title} — {form.main_artist}
-            </h1>
-          )}
-          <div style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: form.upc ? 4 : 14 }}>
-            {form.release_date} {form.release_time}
-          </div>
-          {form.upc && (
-            <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 14 }}>
-              UPC: <span style={{ color: "var(--text-faint)" }}>{form.upc}</span>
+            )}
+            <div style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: form.upc ? 4 : 14 }}>
+              {form.release_date} {form.release_time}
             </div>
-          )}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <LinkPill label="Link Drive" href={firstUrl(form.drive_link)} />
-            <span style={{ color: "#444" }}>|</span>
-            <LinkPill label="Smartlink" href={firstUrl(form.smartlink)} />
-            <span style={{ color: "#444" }}>|</span>
-            <LinkPill label="Magic Link" href={magicLinkUrl} />
+            {form.upc && (
+              <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 14 }}>
+                UPC: <span style={{ color: "var(--text-faint)" }}>{form.upc}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <LinkPill label="Link Drive" href={firstUrl(form.drive_link)} />
+              <span style={{ color: "#444" }}>|</span>
+              <LinkPill label="Smartlink" href={firstUrl(form.smartlink)} />
+              <span style={{ color: "#444" }}>|</span>
+              <LinkPill label="Magic Link" href={magicLinkUrl} />
+              <span style={{ color: "#444" }}>|</span>
+              <LinkPill label="Promotion Package" href={firstUrl(form.promotion_package_url)} />
+            </div>
           </div>
+
+          <ReleaseNotePanel note={form.brief} />
         </div>
 
         {error && <div className={styles.errorBox}>{error}</div>}
@@ -689,6 +841,7 @@ export default function ReleaseDetailPage() {
             onPitchingToggle={handlePitchingToggle}
             pitchingInfoTicket={pitchingInfoTicket}
             onSendPitchingInfoTicket={sendPitchingInfoTicket}
+            gateTicketMap={gateTicketMap}
             setTab={setTab}
           />
         )}
@@ -696,6 +849,9 @@ export default function ReleaseDetailPage() {
         {tab === "media_booking" && (
           <MediaBookingTab
             form={form}
+            update={update}
+            onSave={saveTab}
+            saving={saving}
             entries={bookingEntries}
             categories={bookingCategories}
             packageItems={packageItems}
@@ -763,6 +919,64 @@ function LinkPill({ label, href }) {
       {dot}
       {label}
     </a>
+  );
+}
+
+// Top-right note panel, sitting next to the header — same two-pane shape
+// as the notification bell dropdown (lib/NotificationBell.js: fixed-width
+// list on the left, content on the right). Per explicit decision, the note
+// itself is a SINGLE shared field (releases.brief — same "Next Step Note"
+// edited at the bottom of the Overview tab, see PreReleaseTab/OverviewTab)
+// rather than one note per team, so clicking a different team here doesn't
+// change what's shown — it's just which team's "view" you're browsing
+// from, matching every team seeing the same note today. Read-only here;
+// editing happens via the Next Step Note field near Save on Overview.
+// "possibly the ticket in the future too" (per the original request) is a
+// noted extension point, not built yet — there's no per-ticket note source
+// to pull from at the moment.
+// Design excluded from this panel's team list per explicit request ("they
+// don't really note anything for the product") — Design still exists as a
+// real team everywhere else (its own ticket type, TEAMS, etc.), this is
+// just a display-only filter local to the note panel.
+const NOTE_PANEL_TEAMS = TEAMS.filter((t) => t !== "Design");
+
+function ReleaseNotePanel({ note }) {
+  const [selectedTeam, setSelectedTeam] = useState(NOTE_PANEL_TEAMS[0]);
+  return (
+    <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden", height: 140 }}>
+      <div style={{ width: 100, flexShrink: 0, borderRight: "1px solid var(--border)", overflowY: "auto", background: "var(--bg-card)" }}>
+        {NOTE_PANEL_TEAMS.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setSelectedTeam(t)}
+            style={{
+              display: "block",
+              width: "100%",
+              textAlign: "left",
+              padding: "8px 10px",
+              fontSize: 11,
+              fontWeight: selectedTeam === t ? 700 : 400,
+              border: "none",
+              cursor: "pointer",
+              background: selectedTeam === t ? "var(--bg-hover)" : "transparent",
+              color: selectedTeam === t ? "var(--accent)" : "var(--text-muted)",
+              borderLeft: selectedTeam === t ? "2px solid var(--accent)" : "2px solid transparent",
+            }}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      <div style={{ flex: 1, minWidth: 0, padding: 10, overflowY: "auto" }}>
+        <div style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>
+          {selectedTeam} — NOTE
+        </div>
+        <div style={{ fontSize: 12, color: note ? "var(--text-muted)" : "var(--text-faint)", whiteSpace: "pre-wrap" }}>
+          {note || "No note yet — edit it from the Next Step Note field on Overview."}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -839,7 +1053,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, setTab }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, gateTicketMap, setTab }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -849,6 +1063,17 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
 
   useEffect(() => {
     setLabelDraft(form.label || "");
+  }, [form.label]);
+
+  // Hợp Tác lives on the labels table, not the release — same
+  // denormalized-text lookup pattern the old Curve ID field used (matches
+  // by label_name). Shown read-only right below Label, in the space that
+  // opened up once Curve ID was removed from this column.
+  const [labelHopTac, setLabelHopTac] = useState(null);
+  useEffect(() => {
+    if (!supabase || !form.label) { setLabelHopTac(null); return; }
+    supabase.from("labels").select("hop_tac").eq("label_name", form.label).maybeSingle()
+      .then(({ data }) => setLabelHopTac(data?.hop_tac || null));
   }, [form.label]);
 
   useEffect(() => {
@@ -943,6 +1168,21 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
               <QuickCreate kind="label" onCreated={(newLabel) => { setLabelsList((prev) => [...prev, newLabel]); setLabelDraft(newLabel.label_name); update("label", newLabel.label_name); }} />
             </div>
           </Field>
+          {/* Blank space that opened up below Label once Curve ID was
+              removed from this column — now shows the label's Hợp Tác
+              tags (read-only; edited on the Label List itself). */}
+          {labelHopTac && labelHopTac.length > 0 && (
+            <div style={{ marginTop: -8, marginBottom: 16 }}>
+              <label className={styles.fieldLabel}>Hợp Tác</label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                {labelHopTac.map((tag) => (
+                  <span key={tag} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 700, borderRadius: 999, border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -986,6 +1226,14 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           <div key={m.key} className={styles.field} style={{ marginBottom: 0 }}>
             <label className={styles.fieldLabel}>{m.label}{REQUIRED_META_KEYS.includes(m.key) ? " *" : ""}</label>
             <GateToggle value={form[m.key] || "false"} onChange={(v) => update(m.key, v)} />
+            {/* MV type — same field the Pre-release Workstation edits
+                (releases.canva_status, labeled "MV" there), surfaced here
+                too once MV is ticked Yes, per explicit request. */}
+            {m.key === "meta_mv" && form.meta_mv === "true" && (
+              <div style={{ marginTop: 6 }}>
+                <PickSelect styles={styles} opts={MV_TYPE_OPTIONS} value={form.canva_status} onChange={(v) => update("canva_status", v)} placeholder="— MV type —" />
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -993,9 +1241,12 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         * Required for Send Upload (Audio, Artwork, Lyric, Metadata). Working Files and MV are tracked here but don't block the ticket. TBU counts the same as No for gating — it's not done yet.
       </p>
 
-      {/* Project Proposal — separated from the request groups below,
-          rendered right under Metadata Checklist per the regroup. */}
-      <GateGrid styles={styles} fields={PROJECT_PROPOSAL_FIELD} form={form} update={update} />
+      {/* Marketing Checklist — rendered directly under Metadata Checklist
+          (not inside GateFields) per follow-up feedback: the whole group
+          belongs here, not split with Project Proposal alone up here and
+          Artist Info/Artist Photo left below in the request section. */}
+      <div className={styles.subheading}>Marketing Checklist</div>
+      <GateGrid styles={styles} fields={MARKETING_CHECKLIST_FIELDS} form={form} update={update} />
 
       {/* "Other Checklist" (Sony Publish/Publishing/Splitshare/Request Phụ
           Lục as plain Yes/No) removed — it duplicated fields that now live
@@ -1118,7 +1369,17 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           onPitchingToggle={onPitchingToggle}
           pitchingInfoTicket={pitchingInfoTicket}
           onSendPitchingInfoTicket={onSendPitchingInfoTicket}
+          ticketMap={gateTicketMap}
+          sonyPublishMetaReady={requiredMetaDoneLive === REQUIRED_META_KEYS.length}
         />
+
+        {/* Moved here from the old "Pre-release & Note" tab, right before
+            Save, per explicit request — this is the same releases.brief
+            field shown (read-only) in the note panel next to the header. */}
+        <div className={styles.subheading}>Next Step Note</div>
+        <Field label="">
+          <textarea className={styles.textarea} value={form.brief || ""} onChange={(e) => update("brief", e.target.value)} placeholder="Tình trạng data, xác nhận gói HTTT..." />
+        </Field>
 
         <SaveBar onSave={onSave} saving={saving} />
       </div>
@@ -1217,6 +1478,11 @@ function UrlTab({ form, update, onSave, saving, did, releaseId }) {
     ["artist_photo_url", "Artist Photo URL"],
     ["project_proposal_url", "Project Proposal URL"],
     ["drive_link", "Link Drive"],
+    // Taken from / linked with the same column edited on the Pre-release
+    // Workstation (app/workstation/pre-release/page.js) — that page still
+    // has its own edit surface too; this is an added edit surface on the
+    // detail page's URL tab, not a move.
+    ["musixmatch_link", "Musixmatch URL"],
   ];
   const plStatus = phuLucStatusClient(form);
   return (
@@ -1412,7 +1678,7 @@ function resolveBookingRound(form) {
   return null;
 }
 
-function MediaBookingTab({ form, entries, categories, packageItems, mediaBookingTicket, sectionRef }) {
+function MediaBookingTab({ form, update, onSave, saving, entries, categories, packageItems, mediaBookingTicket, sectionRef }) {
   const round = resolveBookingRound(form);
   const roundEntries = round ? entries.filter((e) => e.booking_round === round) : [];
   const feedbackText = mediaBookingTicket?.data?.feedback?.text;
@@ -1518,6 +1784,25 @@ function MediaBookingTab({ form, entries, categories, packageItems, mediaBooking
           Booking links will show here once a package is picked (or, for Chỉ Phát Hành, once an INT MEDIA follow-up is sent).
         </p>
       )}
+
+      {/* Moved here from the old "Pre-release & Note" tab — Phụ Lục is a
+          Booking-side deliverable, this tab is where it belongs. */}
+      <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+        <div className={styles.subheading} style={{ marginTop: 0 }}>Phụ Lục (Booking)</div>
+        <div className={styles.grid2}>
+          <Field label="Ngày Gửi">
+            <input type="date" className={styles.input} value={form.phu_luc_ngay_gui || ""} onChange={(e) => update("phu_luc_ngay_gui", e.target.value)} />
+          </Field>
+          <Field label="Ngày Ký">
+            <input type="date" className={styles.input} value={form.phu_luc_ngay_ky || ""} onChange={(e) => update("phu_luc_ngay_ky", e.target.value)} />
+          </Field>
+        </div>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -8, marginBottom: 0 }}>
+          Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{phuLucStatusClient(form)}</span>
+          {" — "}{phuLucNextStep(form)}
+        </p>
+        <SaveBar onSave={onSave} saving={saving} />
+      </div>
     </div>
   );
 }
@@ -1618,24 +1903,9 @@ function PreReleaseTab({ form, update, onSave, saving }) {
         <ReadOnlyField label="NCT Lyric" value={form.nct_lyric} />
       </div>
 
-      <div className={styles.subheading}>Phụ Lục (Booking)</div>
-      <div className={styles.grid2}>
-        <Field label="Ngày Gửi">
-          <input type="date" className={styles.input} value={form.phu_luc_ngay_gui || ""} onChange={(e) => update("phu_luc_ngay_gui", e.target.value)} />
-        </Field>
-        <Field label="Ngày Ký">
-          <input type="date" className={styles.input} value={form.phu_luc_ngay_ky || ""} onChange={(e) => update("phu_luc_ngay_ky", e.target.value)} />
-        </Field>
-      </div>
-      <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
-        Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{phuLucStatusClient(form)}</span>
-        {" — "}{phuLucNextStep(form)}
-      </p>
-
-      <div className={styles.subheading}>Next Step Note</div>
-      <Field label="">
-        <textarea className={styles.textarea} value={form.brief || ""} onChange={(e) => update("brief", e.target.value)} placeholder="Tình trạng data, xác nhận gói HTTT..." />
-      </Field>
+      {/* Phụ Lục (Booking) moved to the Media Booking tab, and Next Step
+          Note moved to the bottom of Overview (right before Save) — both
+          per explicit request. */}
 
       <div className={styles.subheading}>Linkshare Note</div>
       <div className={styles.grid2}>
@@ -1762,59 +2032,80 @@ function StreamingMilestoneTab({ form }) {
   );
 }
 
+// Team assignment per row is a BEST-GUESS mapping (per explicit request),
+// not sourced from any existing data — nothing in the codebase ties these
+// release-level fields to a team today. Assigned by which
+// workstation/tab each field is normally edited from: Metadata Checklist,
+// Smartlink/UPC/Link LBM/Link Share are all Upload/Confirm territory
+// (OPS); Pitching status fields are the Pitching workstation (OPS);
+// CANVAS Status/Artist Pick Status/Musixmatch are the Pre-release
+// workstation (OPS); Media Booking entries is the Booking Board
+// (Marketing); Link Drive is filled in at creation (AR). This is heavily
+// OPS-weighted because most of these fields genuinely are OPS workstation
+// fields today — correct any of these if they should sit elsewhere.
 function TasklistTab({ form, bookingEntries }) {
   // Metadata Checklist fields are tri-state strings ("false"/"true"/"update"),
   // not real booleans — flagged with "gate: true" so the row below renders a
   // TBU state instead of just falling through the plain truthy check (which
   // would otherwise show "✓ Filled" for the string "false").
   const items = [
-    ["Link Drive", form.drive_link],
-    ["Metadata: Audio", form.meta_audio, true],
-    ["Metadata: Artwork", form.meta_artwork, true],
-    ["Metadata: Working Files", form.meta_working_files, true],
-    ["Metadata: Lyric", form.meta_lyric, true],
-    ["Metadata: MV", form.meta_mv, true],
-    ["Metadata: Doc", form.meta_doc, true],
-    ["Smartlink", form.smartlink],
-    ["UPC", form.upc],
-    ["Link LBM", form.link_lbm],
-    ["Link Share", form.link_share],
-    ["Media Booking entries", bookingEntries.length > 0],
-    ["Pitching: Spotify", form.pitching_status_spotify],
-    ["Pitching: NCT", form.pitching_status_nct],
-    ["Pitching: Zing", form.pitching_status_zing],
-    ["CANVAS Status", form.canva_status],
-    ["Artist Pick Status", form.artist_pick_status],
-    ["Musixmatch", form.musixmatch_link],
+    ["Link Drive", form.drive_link, false, "AR"],
+    ["Metadata: Audio", form.meta_audio, true, "OPS"],
+    ["Metadata: Artwork", form.meta_artwork, true, "OPS"],
+    ["Metadata: Working Files", form.meta_working_files, true, "OPS"],
+    ["Metadata: Lyric", form.meta_lyric, true, "OPS"],
+    ["Metadata: MV", form.meta_mv, true, "OPS"],
+    ["Metadata: Doc", form.meta_doc, true, "OPS"],
+    ["Smartlink", form.smartlink, false, "OPS"],
+    ["UPC", form.upc, false, "OPS"],
+    ["Link LBM", form.link_lbm, false, "OPS"],
+    ["Link Share", form.link_share, false, "OPS"],
+    ["Media Booking entries", bookingEntries.length > 0, false, "Marketing"],
+    ["Pitching: Spotify", form.pitching_status_spotify, false, "OPS"],
+    ["Pitching: NCT", form.pitching_status_nct, false, "OPS"],
+    ["Pitching: Zing", form.pitching_status_zing, false, "OPS"],
+    ["CANVAS Status", form.canva_status, false, "OPS"],
+    ["Artist Pick Status", form.artist_pick_status, false, "OPS"],
+    ["Musixmatch", form.musixmatch_link, false, "OPS"],
   ];
+
+  const grouped = TEAMS.map((team) => ({ team, rows: items.filter((it) => it[3] === team) })).filter((g) => g.rows.length > 0);
+
   return (
-    <table className={styles.table}>
-      <thead>
-        <tr><th>Field</th><th>Status</th></tr>
-      </thead>
-      <tbody>
-        {items.map(([label, val, isGate]) => (
-          <tr key={label}>
-            <td>{label}</td>
-            <td>
-              {isGate ? (
-                val === "true" ? (
-                  <span style={{ color: "#7ee6a8" }}>✓ Filled</span>
-                ) : val === "update" ? (
-                  <span style={{ color: "#ffca4d" }}>◐ TBU</span>
-                ) : (
-                  <span style={{ color: "var(--text-dim)" }}>— Empty</span>
-                )
-              ) : val ? (
-                <span style={{ color: "#7ee6a8" }}>✓ Filled</span>
-              ) : (
-                <span style={{ color: "var(--text-dim)" }}>— Empty</span>
-              )}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div>
+      {grouped.map(({ team, rows }) => (
+        <div key={team} style={{ marginBottom: 20 }}>
+          <div className={styles.subheading} style={{ marginTop: 0 }}>{team}</div>
+          <table className={styles.table}>
+            <thead>
+              <tr><th>Field</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {rows.map(([label, val, isGate]) => (
+                <tr key={label}>
+                  <td>{label}</td>
+                  <td>
+                    {isGate ? (
+                      val === "true" ? (
+                        <span style={{ color: "#7ee6a8" }}>✓ Filled</span>
+                      ) : val === "update" ? (
+                        <span style={{ color: "#ffca4d" }}>◐ TBU</span>
+                      ) : (
+                        <span style={{ color: "var(--text-dim)" }}>— Empty</span>
+                      )
+                    ) : val ? (
+                      <span style={{ color: "#7ee6a8" }}>✓ Filled</span>
+                    ) : (
+                      <span style={{ color: "var(--text-dim)" }}>— Empty</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
   );
 }
 

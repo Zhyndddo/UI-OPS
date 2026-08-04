@@ -142,7 +142,7 @@ export default function BookingBoard() {
     setLoading(true);
     const { data: rels } = await supabase
       .from("releases")
-      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked")
+      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note")
       .order("release_date", { ascending: false });
     const { data: ents } = await supabase.from("media_booking_entries").select("*");
     const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
@@ -160,6 +160,11 @@ export default function BookingBoard() {
     setDot2ReleaseIds(new Set((targets || []).map((t) => t.release_id)));
     setBookingChannels(chans || []);
     setLoading(false);
+  }
+
+  async function updateReleaseNote(release, value) {
+    setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, booking_note: value } : r)));
+    await supabase.from("releases").update({ booking_note: value }).eq("id", release.id);
   }
 
   // Mirrors phu_luc_status() in schema.sql
@@ -289,7 +294,7 @@ export default function BookingBoard() {
         subchannelType: null,
       }));
     }
-    if (hangMucFilter === "Social" || hangMucFilter === "Community") {
+    if (hangMucFilter === "Social") {
       return PLATFORM_COLUMNS.map((p) => ({
         key: `${hangMucFilter}:${subFilter}:${p}`,
         label: p,
@@ -297,6 +302,22 @@ export default function BookingBoard() {
         brand: subFilter,
         platform: p,
         subchannelType: null,
+      }));
+    }
+    if (hangMucFilter === "Community") {
+      // Per explicit request, Community uses the same channel-name + URL
+      // combo as TikTok Channel's columns instead of Social's plain-URL
+      // style — same shape as TikTok Channel's columns above: platform
+      // left null (so BrandCell's hasChannelCol is true and shows a
+      // Channel Name field) and subchannelType carries the fixed column
+      // identity instead (here, the platform name itself).
+      return PLATFORM_COLUMNS.map((p) => ({
+        key: `${hangMucFilter}:${subFilter}:${p}`,
+        label: p,
+        categoryName: hangMucFilter,
+        brand: subFilter,
+        platform: null,
+        subchannelType: p,
       }));
     }
     return [];
@@ -329,19 +350,25 @@ export default function BookingBoard() {
 
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(filteredReleases);
 
+  // Per-round release counts (INT / Đợt 1 / Đợt 2) — replaces the old
+  // Done/Đang Booking/Chưa Booking status counters, per explicit request.
+  // Mirrors roundFilteredReleases' own membership rules exactly, but
+  // computed for all three rounds at once (not just the currently-picked
+  // one) so all four stat cards can show simultaneously. INT and Đợt 1 are
+  // mutually exclusive (same isIntType branching as roundFilteredReleases);
+  // Đợt 2 membership is independent (dot2ReleaseIds), so a release can
+  // count toward both Đợt 1 and Đợt 2 at once, same as before.
   const stats = useMemo(() => {
     const total = releases.length;
-    let done = 0, notBooked = 0, inProgress = 0;
-    roundFilteredReleases.forEach((r) => {
-      const relEntries = roundEntries.filter((e) => e.release_id === r.id);
-      if (relEntries.length === 0) { notBooked++; return; }
-      const pkg = packageByRelease[r.id];
-      const totalBooked = (pkg?.media_booking_package_lines || []).reduce((sum, l) => sum + (l.quantity || 0), 0);
-      if (totalBooked > 0 && relEntries.length >= totalBooked) done++;
-      else inProgress++;
+    let int = 0, dot1 = 0, dot2 = 0;
+    releases.forEach((r) => {
+      const isIntType = !!r.project_type && /int\s*media/i.test(r.project_type);
+      if (isIntType) int++;
+      else if (!!r.project_type && r.project_type !== "Chỉ Phát Hành") dot1++;
+      if (dot2ReleaseIds.has(r.id)) dot2++;
     });
-    return { total, done, inProgress, notBooked };
-  }, [releases, roundFilteredReleases, roundEntries, packageByRelease]);
+    return { total, int, dot1, dot2 };
+  }, [releases, dot2ReleaseIds]);
 
   // Every added link counts toward "already added" regardless of status —
   // status (Chưa Booking / Đã Gửi / Done) is tracked per link but doesn't
@@ -442,16 +469,16 @@ export default function BookingBoard() {
             <div className={styles.statValue} style={{ fontSize: 34 }}>{stats.total}</div>
           </div>
           <div className={styles.statCard}>
-            <div className={styles.statLabel}>Done ({round})</div>
-            <div className={styles.statValue} style={{ fontSize: 34, color: "#7ee6a8" }}>{stats.done}</div>
+            <div className={styles.statLabel}>INT</div>
+            <div className={styles.statValue} style={{ fontSize: 34, color: "#7ee6a8" }}>{stats.int}</div>
           </div>
           <div className={styles.statCard}>
-            <div className={styles.statLabel}>Đang Booking</div>
-            <div className={styles.statValue} style={{ fontSize: 34, color: "#ffca4d" }}>{stats.inProgress}</div>
+            <div className={styles.statLabel}>Đợt 1</div>
+            <div className={styles.statValue} style={{ fontSize: 34, color: "#ffca4d" }}>{stats.dot1}</div>
           </div>
           <div className={styles.statCard}>
-            <div className={styles.statLabel}>Chưa Booking</div>
-            <div className={styles.statValue} style={{ fontSize: 34, color: "var(--text-faint)" }}>{stats.notBooked}</div>
+            <div className={styles.statLabel}>Đợt 2</div>
+            <div className={styles.statValue} style={{ fontSize: 34, color: "var(--text-faint)" }}>{stats.dot2}</div>
           </div>
         </div>
 
@@ -586,6 +613,10 @@ export default function BookingBoard() {
                 <th style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288 }}>Release</th>
                 <th style={{ borderRight: "2px solid var(--accent)", width: 154, minWidth: 154, maxWidth: 154 }}>Package</th>
                 <th style={{ borderRight: "2px solid var(--accent)" }}>Result</th>
+                {/* Fixed column, next to Result — kept out of the dynamic
+                    per-Hạng-Mục column set below so it stays in the same
+                    place regardless of which filter is active. */}
+                <th style={{ borderRight: "2px solid var(--accent)", width: 140, minWidth: 140 }}>Note</th>
                 {columns.map((c, i) => {
                   const prev = columns[i - 1];
                   const isGroupStart = prev && prev.categoryName !== c.categoryName;
@@ -634,6 +665,14 @@ export default function BookingBoard() {
                   </td>
                   <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)" }}>
                     <ResultCell release={r} categories={categories} bookedFor={bookedFor} entries={roundEntries} categoryIdByName={categoryIdByName} />
+                  </td>
+                  <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 140, minWidth: 140 }}>
+                    <input
+                      className={styles.input}
+                      style={{ width: "100%", boxSizing: "border-box" }}
+                      defaultValue={r.booking_note || ""}
+                      onBlur={(e) => updateReleaseNote(r, e.target.value)}
+                    />
                   </td>
                   {columns.map((c, i) => {
                     const prev = columns[i - 1];
@@ -775,7 +814,14 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
   // Sorted (not filtered) by whether the channel's own brand grouping
   // likely matches this column's brand — see brandsLikelyMatch's comment
   // for why this never hides anything, only ranks.
-  const matchPlatform = column.platform || "TikTok";
+  // Community columns now also leave `platform` null (see the columns
+  // useMemo — same channel+URL combo shape as TikTok Channel), so the old
+  // blanket "no platform means TikTok Channel" fallback no longer holds.
+  // TikTok Channel's own columns still fall back to "TikTok"; every other
+  // no-platform column (i.e. Community) matches on its own subchannelType
+  // instead, which is where the real platform name (Facebook/Instagram/…)
+  // now lives.
+  const matchPlatform = column.platform || (column.categoryName === "TikTok Channel" ? "TikTok" : column.subchannelType);
   const refMatches = useMemo(() => {
     const platformRows = (referenceChannels || []).filter((c) => c.platform === matchPlatform);
     const q = refSearch.trim().toLowerCase();
@@ -1145,7 +1191,7 @@ function PackagePreviewPopup({ release, categories, onClose }) {
               {(pkg.media_booking_package_lines || []).map((l) => (
                 <tr key={l.id}>
                   <td style={{ fontSize: 12 }}>{categoryNameById[l.category_id] || l.platform || "—"}{l.brand ? ` — ${l.brand}` : ""}</td>
-                  <td>{l.quantity ?? "—"} {l.unit}</td>
+                  <td>{l.quantity != null ? l.quantity.toLocaleString("en-US") : "—"} {l.unit}</td>
                   <td style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "pre-line" }}>{formatDetailText(l.detail) || "—"}</td>
                   <td>{l.amount != null ? new Intl.NumberFormat("vi-VN").format(l.amount) + " đ" : "—"}</td>
                 </tr>

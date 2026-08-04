@@ -1,17 +1,21 @@
 "use client";
 
+import Link from "next/link";
 import UrlField from "./UrlField";
+import { TICKET_ROUTES } from "./teamTypes";
 
 // Shared by the New Release create form and the release detail page, so
 // the tri-state Additional Flags don't live in two duplicated copies.
 //
 // Regrouped per the "re group the current additional request" request —
 // the old wrapper title ("Additional Request") is gone from both call
-// sites; these four groups' own subheadings (rendered inside GateFields
-// below) are now the only titles. Project Proposal moved OUT of this file's
-// grid entirely — it renders right under each caller's own Metadata
-// Checklist via the exported GateGrid/PROJECT_PROPOSAL_FIELD, to keep
-// checklist-y things separate from request-y things.
+// sites; these four groups' own subheadings are now the only titles.
+// Marketing Checklist (including Project Proposal — see below) is rendered
+// by each CALLER directly under its own Metadata Checklist section, not
+// inside <GateFields> itself, per explicit follow-up feedback: the whole
+// group belongs next to Metadata Checklist, not split with Project
+// Proposal alone up there and Artist Info/Artist Photo left in the request
+// section further down. <GateFields> itself starts with Data Request.
 //
 // Marketing Checklist — things Marketing tracks about the artist/project
 // itself. "Profile Artist" relabeled "Artist Info" per the request; ticking
@@ -20,12 +24,8 @@ import UrlField from "./UrlField";
 export const MARKETING_CHECKLIST_FIELDS = [
   ["gate_artist_profile", "Artist Info"],
   ["gate_artist_photo", "Artist Photo"],
+  ["gate_project_proposal", "Project Proposal"],
 ];
-
-// Rendered separately, directly under each caller's Metadata Checklist —
-// not part of any GateGrid call inside GateFields itself. Exported as its
-// own single-field list so both callers can feed it straight into GateGrid.
-export const PROJECT_PROPOSAL_FIELD = [["gate_project_proposal", "Project Proposal"]];
 
 // Data Request — Pitching now leads this group (its own "which pitching?"
 // picker renders directly under this grid, right below the Pitching field,
@@ -40,10 +40,11 @@ export const DATA_REQUEST_FIELDS = [
   ["gate_sony_publish", "Sony Publish"],
 ];
 
-// Marketing Request — down to these two. gate_goi_ho_tro_truyen_thong is
-// now read-only (see { readOnly: true } and ReadOnlyGateBadge below):
-// it's a continuously-recomputed status, not a manual choice — TBU while
-// the release is still in BRIEF & DATA/DEALING, NO once "Chỉ Phát Hành" is
+// Marketing Request — down to these two, Design first per follow-up
+// feedback (order swap — no logic change). gate_goi_ho_tro_truyen_thong is
+// read-only (see { readOnly: true } and ReadOnlyGateBadge below): it's a
+// continuously-recomputed status, not a manual choice — TBU while the
+// release is still in BRIEF & DATA/DEALING, NO once "Chỉ Phát Hành" is
 // locked in (until the INT MEDIA follow-up is sent), YES otherwise. See
 // the effect in app/releases/[id]/page.js keyed on
 // PIPELINE_STAGES/form.project_type/form.int_media_requested. The New
@@ -51,8 +52,8 @@ export const DATA_REQUEST_FIELDS = [
 // in BRIEF & DATA), so it just defaults this to "update" and the detail
 // page's effect takes over once a package gets picked.
 export const MARKETING_REQUEST_FIELDS = [
-  ["gate_goi_ho_tro_truyen_thong", "Gói Hỗ Trợ Truyền Thông", { readOnly: true }],
   ["gate_design", "Design"],
+  ["gate_goi_ho_tro_truyen_thong", "Gói Hỗ Trợ Truyền Thông", { readOnly: true }],
 ];
 
 // Legal Request — Splitshare moved in here per the regroup (out of Data
@@ -77,7 +78,6 @@ export const LEGAL_REQUEST_FIELDS = [
 // Kept for any code still importing the old flat list.
 export const GATE_FIELDS = [
   ...MARKETING_CHECKLIST_FIELDS,
-  ...PROJECT_PROPOSAL_FIELD,
   ...DATA_REQUEST_FIELDS,
   ...MARKETING_REQUEST_FIELDS,
   ...LEGAL_REQUEST_FIELDS,
@@ -173,6 +173,77 @@ const FIELD_TOOLTIPS = {
   gate_artist_profile: "Add artist portfolio link",
 };
 
+// Which gate fields have a related ticket type (lib/ticketConfigs.js) —
+// per the "every request tick gets a related ticket" wave. gate_pitching
+// is deliberately NOT here: it already gets its own richer "Which
+// pitching?" picker block below the grid (see GateFields below), which now
+// also links out to the dedicated /tickets/pitching list. gate_design and
+// gate_goi_ho_tro_truyen_thong are also excluded — those already have
+// their own established ticket flows (Design ticket, Media Booking +
+// magic-link), no action needed there per explicit instruction.
+export const GATE_TICKET_TYPES = {
+  gate_co_trong_net_youtube: "co_trong_net_youtube",
+  gate_pre_order: "pre_order_itunes",
+  gate_lyric_musixmatch: "priority_sync_lyric",
+  gate_mv_spotify: "mv_spotify",
+  gate_discovery_mode_spotify: "discovery_mode_spotify",
+  gate_sony_publish: "sony_publish",
+  gate_split_share: "split_share",
+  gate_phu_luc_mg: "phu_luc_mg",
+  gate_phu_luc_publishing: "phu_luc_publishing",
+  gate_phu_luc_truyen_thong: "phu_luc_truyen_thong",
+};
+
+// Display-only status for a mapped gate field once it's "Yes" — mirrors
+// the Pitching field's "Send Ticket to Collect Info" button idiom, but
+// this one never triggers a write itself. ticketMap is keyed by ticket
+// type key (not gate field key) -> the existing ticket row for this
+// release, or undefined if none exists yet. ticketMap is optional — the
+// New Release create form (no release/DID to attach a ticket to yet)
+// passes none, so this renders nothing there.
+//
+// The actual ticket creation is folded into Save (see saveTab() in
+// app/releases/[id]/page.js) — every gate field that's "Yes" gets its
+// ticket created (if missing) the moment the release write succeeds, so
+// there's no separate manual click here to fall out of sync with an
+// unsaved field. Before the first save after ticking "Yes", this shows a
+// small "sends on Save" hint instead of a clickable button.
+//
+// gate_sony_publish is the one exception — it also needs the 4 required
+// Metadata Checklist items (Audio/Artwork/Lyric/Metadata doc) filled in
+// before it'll actually send on Save (see saveTab()'s sonyPublishReady
+// gate), so instead of the generic hint it shows a warning until
+// sonyPublishMetaReady is true — same "loops until ready" idea, just
+// surfaced so it's obvious why nothing sent yet.
+function GateTicketLink({ styles, gateKey, ticketMap, sonyPublishMetaReady }) {
+  const ticketType = GATE_TICKET_TYPES[gateKey];
+  if (!ticketType || !ticketMap) return null;
+  const ticket = ticketMap?.[ticketType];
+  if (ticket) {
+    return (
+      <Link
+        href={TICKET_ROUTES[ticketType]}
+        className={styles.btnSmall}
+        style={{ marginTop: 6, display: "inline-block", borderColor: "#2e7d32", color: "#81c784" }}
+      >
+        ✓ Ticket Sent — View
+      </Link>
+    );
+  }
+  if (gateKey === "gate_sony_publish" && !sonyPublishMetaReady) {
+    return (
+      <p style={{ color: "var(--warn-fg)", fontSize: 11, marginTop: 6, marginBottom: 0 }}>
+        ⚠ Not enough data to upload yet — fill in Audio/Artwork/Lyric/Metadata doc, then Save to send.
+      </p>
+    );
+  }
+  return (
+    <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 6, marginBottom: 0 }}>
+      Ticket sends on Save
+    </p>
+  );
+}
+
 // Plain status display for a gate field that isn't meant to be hand-picked
 // (see gate_phu_luc_truyen_thong's comment above) — same tri-state colors
 // as the real toggle, just not a button.
@@ -187,7 +258,7 @@ function ReadOnlyGateBadge({ value }) {
   );
 }
 
-export function GateGrid({ styles, fields, form, update, suppressUrlFor }) {
+export function GateGrid({ styles, fields, form, update, suppressUrlFor, ticketMap, sonyPublishMetaReady }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 12 }}>
       {fields.map(([key, label, opts]) => {
@@ -215,6 +286,9 @@ export function GateGrid({ styles, fields, form, update, suppressUrlFor }) {
                 />
               </div>
             )}
+            {form[key] === "true" && (
+              <GateTicketLink styles={styles} gateKey={key} ticketMap={ticketMap} sonyPublishMetaReady={sonyPublishMetaReady} />
+            )}
           </div>
         );
       })}
@@ -228,7 +302,7 @@ export function GateGrid({ styles, fields, form, update, suppressUrlFor }) {
 // detail page: the real ticket, saved immediately per checkbox) — when
 // absent, ticking Pitching "Yes" just cross-links to the Pitching ticket
 // instead of showing a picker.
-export function GateFields({ styles, form, update, pitchingTypes, onPitchingToggle, suppressUrlFor, pitchingInfoTicket, onSendPitchingInfoTicket }) {
+export function GateFields({ styles, form, update, pitchingTypes, onPitchingToggle, suppressUrlFor, pitchingInfoTicket, onSendPitchingInfoTicket, ticketMap, sonyPublishMetaReady }) {
   const entries = form.split_share_entries || [];
   const designTypes = form.design_content_types || [];
 
@@ -250,11 +324,11 @@ export function GateFields({ styles, form, update, pitchingTypes, onPitchingTogg
 
   return (
     <div>
-      <div className={styles.subheading} style={{ marginTop: 0 }}>Marketing Checklist</div>
-      <GateGrid styles={styles} fields={MARKETING_CHECKLIST_FIELDS} form={form} update={update} suppressUrlFor={suppressUrlFor} />
-
-      <div className={styles.subheading}>Data Request</div>
-      <GateGrid styles={styles} fields={DATA_REQUEST_FIELDS} form={form} update={update} suppressUrlFor={suppressUrlFor} />
+      {/* Marketing Checklist (Artist Info/Artist Photo/Project Proposal)
+          is NOT rendered here — each caller renders it directly under its
+          own Metadata Checklist section instead, per follow-up feedback. */}
+      <div className={styles.subheading} style={{ marginTop: 0 }}>Data Request</div>
+      <GateGrid styles={styles} fields={DATA_REQUEST_FIELDS} form={form} update={update} suppressUrlFor={suppressUrlFor} ticketMap={ticketMap} sonyPublishMetaReady={sonyPublishMetaReady} />
 
       {/* Pitching detail popup — moved to directly under the Data Request
           grid (Pitching is that grid's first field) instead of the very
@@ -293,6 +367,14 @@ export function GateFields({ styles, form, update, pitchingTypes, onPitchingTogg
                 {pitchingInfoTicket ? "✓ Pitching Info Ticket Sent" : "Send Ticket to Collect Info"}
               </button>
             )}
+            {/* "Move Pitching to the ticket system" per explicit request —
+                overall status + PIC now live on a dedicated ticket list
+                page instead of nowhere. */}
+            <div style={{ marginTop: 10 }}>
+              <Link href={TICKET_ROUTES.pitching} className={styles.btnSmall}>
+                View Pitching Ticket (Status/PIC)
+              </Link>
+            </div>
           </div>
         ) : (
           <p style={{ color: "var(--text-faint)", fontSize: 11, marginBottom: 12 }}>
@@ -302,10 +384,10 @@ export function GateFields({ styles, form, update, pitchingTypes, onPitchingTogg
       )}
 
       <div className={styles.subheading}>Marketing Request</div>
-      <GateGrid styles={styles} fields={MARKETING_REQUEST_FIELDS} form={form} update={update} suppressUrlFor={suppressUrlFor} />
+      <GateGrid styles={styles} fields={MARKETING_REQUEST_FIELDS} form={form} update={update} suppressUrlFor={suppressUrlFor} ticketMap={ticketMap} />
 
       <div className={styles.subheading}>Legal Request</div>
-      <GateGrid styles={styles} fields={LEGAL_REQUEST_FIELDS} form={form} update={update} suppressUrlFor={suppressUrlFor} />
+      <GateGrid styles={styles} fields={LEGAL_REQUEST_FIELDS} form={form} update={update} suppressUrlFor={suppressUrlFor} ticketMap={ticketMap} />
 
       {form.gate_design === "true" && (
         <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, marginBottom: 12 }}>

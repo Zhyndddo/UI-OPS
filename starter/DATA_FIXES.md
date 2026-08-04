@@ -2278,3 +2278,621 @@ Migration delivered separately: `add-label-contract-signed-and-artist-portfolio-
 folded into `schema.sql` for fresh installs). Verified with
 `tsc --jsx react --allowJs --checkJs false` against all 5 touched files
 before sending — zero syntax errors.
+
+## 2026-08-04 (18) — Follow-up: Marketing Checklist placement + Marketing Request order
+
+Two small corrections to round 17's regroup, from screenshots:
+
+**Marketing Checklist placement.** Round 17 pulled Project Proposal out
+of the Marketing Checklist group on its own, rendering it right under
+Metadata Checklist while Artist Info/Artist Photo stayed further down
+next to Data Request — a literal read of the original "Project Proposal
+-> move this to right under metadata checklist" line, but not what was
+meant. Corrected: Project Proposal is back inside
+`MARKETING_CHECKLIST_FIELDS` (`lib/GateFields.js`), and the whole
+Marketing Checklist group (all 3 fields, with its own subheading) now
+renders directly under Metadata Checklist on both `app/new-release/page.js`
+and `app/releases/[id]/page.js`, no longer inside `<GateFields>` at all —
+`<GateFields>` now starts straight with Data Request. Removed the
+now-unnecessary `PROJECT_PROPOSAL_FIELD` single-field export.
+
+**Marketing Request order.** Design and Gói Hỗ Trợ Truyền Thông swapped —
+Design now renders first, matching the originally-intended listing order.
+Pure display-order change in `MARKETING_REQUEST_FIELDS`, no logic touched.
+
+Verified with `tsc --jsx react --allowJs --checkJs false` against all 3
+touched files before sending — zero syntax errors.
+
+## 2026-08-04 (19) — Sidebar order fix, header additions, tab reshuffle, per-workstation notes
+
+Five separate requests.
+
+**1. Khác sidebar position.** Turned out to be real, once pinned down —
+`lib/Sidebar.js`'s `navItems` spliced Khác in at a fixed position
+(`num: "05"`) BEFORE `AR_NAV` (Artist List/Label List, "06"/"07"), so for
+AR users/dev it sat above the artist/label reference shortcuts instead of
+below everything. Fixed: `navItems` now builds `[...NAV, ...(showArNav ?
+AR_NAV : []), khacItem]` — Khác always last regardless of whether AR_NAV
+renders — and every item's `num` is now assigned by final array position
+(`String(i + 1).padStart(2, "0")`) instead of being hardcoded per item, so
+this stays correct if the nav ever grows. (Tickets index page's ordering,
+`app/tickets/page.js`, was already correct — `SHARED_TICKET_TYPES`
+appended last — no change needed there.)
+
+**2a. Promotion Package header link.** Added a `LinkPill` for
+`form.promotion_package_url` (an existing column, already editable on the
+URL tab) next to Link Drive/Smartlink/Magic Link in the release detail
+page's header.
+
+**2b. Note panel next to the header.** New `ReleaseNotePanel` component,
+same two-pane shape as the notification bell dropdown
+(`lib/NotificationBell.js`: fixed-width list left, content right) — left
+pane lists all 4 teams (`TEAMS` from `lib/teamTypes.js`), click to
+highlight; right pane shows the note. Per explicit decision, this is a
+**single shared note** (`releases.brief` — the same field edited at the
+bottom of Overview, see below) rather than one note per team, so which
+team is selected only changes the highlighted pill, not the content
+shown — every team already sees the same note today. Read-only here;
+editing happens via Next Step Note on Overview. The header itself is now
+a `2fr 1fr` grid: existing header content on the left, this panel on the
+right.
+
+**3. Pre-release & Note tab reshuffle.**
+- Phụ Lục (Ngày Gửi/Ngày Ký date pair + status line) moved from
+  `PreReleaseTab` to `MediaBookingTab` — it's a Booking-side deliverable,
+  that tab is where it belongs. `MediaBookingTab` didn't have
+  `update`/`onSave`/`saving` wired in before (it was 100% read-only) —
+  added those props plus a `SaveBar`, both at the component and its call
+  site.
+- Next Step Note (`releases.brief` textarea) moved from `PreReleaseTab`
+  to the very bottom of `OverviewTab`, right before its `SaveBar` — same
+  field shown read-only in the new header note panel (2b above).
+
+**4. Musixmatch URL on the URL tab.** Added `["musixmatch_link",
+"Musixmatch URL"]` to `UrlTab`'s `urlFields` array — same `UrlField`
+pattern as every other URL there. This is a genuinely new edit surface on
+the detail page (the field was previously only editable on the
+Pre-release Workstation, and shown read-only in Pre-release & Note) — the
+Workstation's own edit surface is untouched.
+
+**5. Note column per workstation.** Added an independent (not shared
+with any other field) Note column to Pitching (`pitching_note`), Confirm
+(`confirm_note` — same field, shown in both Phase 1 and Phase 2 tables),
+Pre-release (`pre_release_note`), and Booking Board (`booking_note`, a
+fixed column next to Result so it doesn't shift around with the
+Hạng-Mục-dependent dynamic columns). Deliberately **not** touched:
+- **Upload** already has a Note affordance (the 📝 button bound to
+  `releases.brief`, same field as Next Step Note) — left as-is rather
+  than converted, since that popup also edits linkshare timing and
+  rebuilding it risked regressing that unrelated feature.
+- **Stream** already has its own note column
+  (`release_stream_metrics.stream_note`, pre-existing) — nothing to add.
+- **Milestone** has no per-release row table to attach a note to (its
+  tables are keyed by chart entry, not by release) — skipped.
+- **Package Price** is still an unbuilt placeholder page — skipped.
+
+Migration delivered separately: `add-round19-notes-and-header-fields.sql`
+(adds `releases.pitching_note`/`confirm_note`/`pre_release_note`/
+`booking_note`; also folded into `schema.sql`). Verified with
+`tsc --jsx react --allowJs --checkJs false` against all 6 touched files
+before sending — zero syntax errors.
+
+## 2026-08-04 (20) — Follow-up: Upload Note relabel + Streaming's real auto-composed note
+
+Two corrections to round 19's item 5, from explicit feedback.
+
+**Upload Note relabel.** The existing Upload workstation note (📝 button,
+bound to `releases.brief`) is deliberately different from the new
+independent Note columns — per feedback, just needed a clearer label so
+it doesn't read as the same thing. `app/workstation/upload/page.js`'s
+table header changed from "Note" to "Upload Note", and the button's hover
+title from "Note — ..." to "Upload Note — ...". No behavior change.
+
+**Streaming's real note.** Turns out `stream_note` (the plain free-text
+field already on `release_stream_metrics`) isn't what was meant by
+"streaming note" at all — the team has a Google Sheets formula that
+*computes* a note straight from a row's own metric columns (Spotify/
+Tiktok views+creations/Youtube/Youtube Music/Zing/NCT), formatted with
+K/M/B suffixes. Ported that formula literally into a new
+`buildStreamNote(m)` in `lib/releaseNotes.js` (full LET/LAMBDA source
+kept in a comment above it for reference) — same K/M/B rounding, same
+line order, same "blank if all 6 current-metrics are zero" gate, and the
+same quirk where the Tiktok creations suffix still appends even if the
+Tiktok views line itself is blank (kept exactly as the sheet computes it,
+not "fixed").
+
+This is offered as a **preview**, not an auto-fill — `stream_note` itself
+stays exactly as it was (plain input, edited on blur, never touched by
+this). `StreamTable`'s Note cell in `app/workstation/stream/page.js` now
+has a small "▸ Auto note" toggle underneath the input; opening it shows
+the live-computed text for that row with a "Use this" button that copies
+it into the field. Nothing fires automatically — a manually-typed note
+is never silently overwritten by a metrics change.
+
+No schema change this round (`buildStreamNote` is pure computation over
+already-loaded metric columns). Verified with
+`tsc --jsx react --allowJs --checkJs false` against all 3 touched files
+before sending — zero syntax errors.
+
+## 2026-08-05 (21) — Labels overhaul, Booking Board Community + numbers, Tasklist team grouping, MV type field
+
+Five items this round.
+
+**1. Labels reference table overhaul.**
+- **Hợp Tác**: converted from free text to a multi-select pill tag picker
+  (Youtube / Publishing / Nhạc Số — `lib/pickerOptions.js`
+  `LABEL_HOP_TAC_OPTIONS`, rendered by the new `TagPicker` component local
+  to `app/labels/page.js`). Old free-text data is preserved, not
+  discarded: `labels.hop_tac` (text) was renamed to `hop_tac_legacy` and a
+  new `labels.hop_tac` (`text[]`) took over the name — see
+  `add-round21-labels-hop-tac.sql`.
+- **PIC → "Thời gian hoạt động gần nhất"**: the old free-text PIC field is
+  gone from the create row entirely and the table column is relabeled.
+  The value is no longer hand-entered — it's auto-computed from each
+  label's own releases (latest `release_date` year, matched by the
+  denormalized `releases.label` text) and **persisted** to the
+  pre-existing `labels.latest_activity_year` column on every page load
+  (`syncLatestActivityYears()`, same "auto-sync on load" pattern as the
+  Stream Workstation's metrics rows — only writes rows whose stored year
+  is actually stale). Per explicit decision, persisted rather than
+  display-only, so other queries/exports can rely on it.
+- **Phân Loại**: converted from free text to a single-choice select
+  (Priority / New / Collab before — `LABEL_PHAN_LOAI_OPTIONS`), using the
+  new shared `lib/PickSelect.js` (extracted from the Pre-release
+  Workstation's existing unrecognized-value-flagging pattern — a stored
+  value that doesn't match the fixed list shows as its own flagged
+  "(unrecognized — pick to fix)" option instead of rendering blank).
+- **Genre** (new field, takes the create row's freed-up PIC slot):
+  single-choice select sourced from `lookup_options` where
+  `category = 'genre'` (the same lookup list New Release's own Genre
+  field and the release detail page already use). Bound to
+  `labels.the_loai` — this column already existed in the schema, unused;
+  reused instead of adding a redundant new one.
+- Release detail page (`app/releases/[id]/page.js`): the label's Hợp Tác
+  tags are now shown read-only, directly below the Label field, in the
+  space Curve ID used to occupy (fetched by `label_name` on load).
+
+**2. Booking Board — Community uses the Channel+URL combo.** Hạng Mục
+"Community" columns now carry a `subchannelType` (platform-named) instead
+of a fixed `platform`, the same shape TikTok Channel already used — so
+each column shows a Channel Name input alongside the URL input, not just
+a bare URL field. `BrandCell`'s platform-matching logic
+(`matchPlatform`) updated to fall back to `subchannelType` when
+`column.platform` isn't set.
+
+**3. Booking Board — thousand separator on Quantity.** Package preview
+popup's Quantity cell now renders with `.toLocaleString("en-US")`
+(comma-grouped). Deliberately left the Amount column's existing `vi-VN`
+dot-separated currency formatting untouched — different fields, was
+already correct for its own convention.
+
+**4. Tasklist tab — grouped by team.** `TasklistTab` on the release
+detail page now renders one subheaded table per team (AR / Marketing /
+OPS / Design order, empty groups hidden) instead of one flat list. This
+is a **best-guess mapping** — flagged in a comment above the function —
+since most Tasklist rows turned out to be OPS-owned (16 of 18: all
+metadata, Smartlink/UPC/Link LBM/Link Share, all three pitching
+platforms, CANVAS status, Artist Pick status, Musixmatch) with only Link
+Drive (AR) and Media Booking entries (Marketing) landing elsewhere;
+Design has none currently. Please flag any row that's mapped to the
+wrong team.
+
+**5. MV type conditional field.** Ticking the Metadata Checklist's "MV"
+toggle (`meta_mv`) to Yes now reveals a single-choice select right below
+it — LYRIC / Đã có / Chưa có / Không có (`lib/pickerOptions.js`
+`MV_TYPE_OPTIONS`) — on both the New Release create form and the release
+detail page's Overview tab. Per explicit clarification this is bound to
+`releases.canva_status`, the same column the Pre-release Workstation's
+**"MV"** column already edits (not the literally-named
+`canva_mv_status`, which is a different column labeled "CANVA" there —
+see the existing comment in `app/workstation/pre-release/page.js` about
+this naming swap). `MV_TYPE_OPTIONS` was pulled out to
+`lib/pickerOptions.js` so the Pre-release Workstation and these two new
+call sites can't drift out of sync.
+
+New shared files this round: `lib/pickerOptions.js` (small option lists
+reused across pages), `lib/PickSelect.js` (unrecognized-value-flagging
+single-select, generalized out of the Pre-release Workstation).
+
+Migration delivered separately: `add-round21-labels-hop-tac.sql` (renames
+`labels.hop_tac` → `hop_tac_legacy`, adds new `labels.hop_tac text[]`;
+also folded into `schema.sql`). `labels.the_loai`, `labels.phan_loai`,
+and `labels.latest_activity_year` already existed and needed no schema
+change. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
+brace/paren/bracket balance check against all 7 touched files before
+sending — zero errors.
+
+## 2026-08-05 (22) — Contract Signed at creation, new MV options, Booking Board round counters
+
+**1. Contract Signed at label creation.** The Labels create row now has a
+"Contract Signed" checkbox. Ticking it before submitting skips the
+"HĐ - " prefix entirely (and sets `contract_signed: true` on insert), so
+there's no longer a separate step of adding the label, then clicking the
+table row's "Contract Signed" button afterward — same end result, one
+step instead of two. Unticked behaves exactly as before (prefix added,
+`contract_signed` false).
+
+**5. MV type options replaced.** `MV_TYPE_OPTIONS`
+(`lib/pickerOptions.js`) changed from LYRIC/Đã có/Chưa có/Không có to the
+new set: Full / Lyric / Visualization, per explicit request. All three
+call sites (Pre-release Workstation's "MV" column, New Release's and the
+release detail Overview tab's conditional MV-type field) already used or
+were switched to the shared `PickSelect` component, so any release still
+holding an old option value shows up flagged as
+"(unrecognized — pick to fix)" instead of silently rendering blank — no
+data is hidden by the option-list change.
+
+**New: Booking Board round counters.** The three status-based stat cards
+(Done / Đang Booking / Chưa Booking) are replaced with per-round release
+counts: INT, Đợt 1, Đợt 2 — same round-membership rules
+`roundFilteredReleases` already used (INT = INT-media project type; Đợt 1
+= any other real project type; Đợt 2 = has Đợt 2 targets set), just
+computed for all three rounds at once instead of only the currently
+selected one, so all four cards (Tổng Releases + the three round counts)
+show together regardless of which round tab is active.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck`
+plus a brace/paren/bracket balance check against all 5 touched files
+before sending — zero errors. No schema change this round.
+
+## 2026-08-05 (23) — Contract Signed create-row button style
+
+Small follow-up to round 22's item 1: the "Contract Signed" toggle on the
+Labels create row is now a button styled like the table row's own
+"Contract Signed" button (`styles.btnSmall` — orange outline, uppercase)
+instead of a plain checkbox, per explicit request. It's a real toggle
+(click to flip), with an active fill (orange background + border) when
+on so the state reads at a glance — the row's version is a one-time
+action button, not a toggle, so this one needed its own active/inactive
+styling rather than reusing that logic outright. Behavior (skips the
+"HĐ - " prefix on insert when on) is unchanged from round 22.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck`
+plus a brace/paren/bracket balance check before sending. No schema
+change.
+
+## 2026-08-05 (24) — Data Request field tickets + Legal team
+
+The big one: every request-tick field on the release detail page's Data
+Request / Marketing Request / Legal Request groups now has (or links to)
+its own ticket, per explicit request. New team: **Legal**.
+
+**New team: Legal.** Added to `lib/teamTypes.js` `TEAMS`, plus the two
+places that duplicated the team list as a local hardcoded const instead of
+importing it — `app/config/page.js` (Team picker on profile
+create/reassign) and `lib/TopBar.js` (dev "View As" switcher). No DB
+migration needed for this part — `profiles.segment` is a plain text
+column, not an enum.
+
+**Already-have fields — no action, per explicit instruction:**
+- **Design** (`gate_design`) — already has its own ticket type
+  (`design`, executor Design), own page (`app/tickets/design`).
+- **Gói Hỗ Trợ Truyền Thông** (`gate_goi_ho_tro_truyen_thong`) — already
+  the `media_booking` ticket + magic-link package flow.
+
+**Pitching — "moved to the ticket system."** The `pitching` ticket
+already existed (auto-created when a DSP is requested) and
+`tickets.status`/`status_log` already exist as real columns on every
+ticket type — so per the explicit note ("I think just add the column
+status and we done"), this really was mostly a UI gap, not new schema.
+Added the dedicated ticket list page that was previously missing
+(`app/tickets/pitching/page.js` — `TICKET_ROUTES.pitching` used to fall
+back to `/tickets` if visited directly). It's deliberately narrow: overall
+**Status** (editable, with the same timestamped `status_log` history
+every ticket type already uses) and **PIC** (`tickets.pic_profile_id` —
+the "OPS executive" seat) only. Per-DSP work (Priority/Spotify/NCT/Zing)
+stays exactly where it was, on the Pitching Workstation — this page
+doesn't duplicate it. The "Which pitching?" picker on the release detail
+page now links out to this new list.
+
+**Ten new placeholder ticket types** — one per remaining field, each
+executor/requester pair exactly as specified, fields deliberately minimal
+(DID + a Note) per the explicit "leave blank" instruction — flesh out per
+type as follow-up rounds cover them individually:
+
+- **OPS-executed** (Data Request group): Có Trong Net YouTube, Pre-order
+  Itunes, Priority Sync Lyric, Music Video on Spotify, Discovery Mode on
+  Spotify, Sony Publish.
+- **Legal-executed** (Legal Request group): Splitshare, Phụ Lục MG, Phụ
+  Lục Publishing, Phụ Lục Truyền Thông.
+
+Each is a thin config entry in `lib/ticketConfigs.js` (requesterTeam AR)
+plus a 6-line list + 6-line create-form page reusing the generic
+`TicketListPage`/`NewTicketPage` engine (same pattern as Report Conflict,
+Stream Update, etc.) — genuinely minimal, matching the request. Splitshare
+is a separate tracking ticket from the existing inline % / Shared Label /
+Scope entries editor already on the Legal Request group — that editor is
+untouched.
+
+**Release detail page wiring.** Once a mapped gate field is ticked "Yes"
+(or, for the one read-only auto-computed field, Phụ Lục Truyền Thông,
+once it auto-flips), a small "Send Ticket" button appears right under the
+toggle — click once to create the ticket (idempotent), after which it
+becomes a "✓ Ticket Sent — View" link straight to that ticket's list page.
+One batched query on page load fetches all 10 types' existing tickets for
+this release at once (`lib/GateFields.js` `GATE_TICKET_TYPES` map +
+`app/releases/[id]/page.js`'s `gateTicketMap`/`sendGateTicket`), rather
+than 10 separate round trips.
+
+Migration delivered separately:
+`add-round24-legal-team-and-gate-tickets.sql` — adds `ticket_tabs.
+executor_team` (if missing), inserts the 10 new `ticket_tabs` rows (+
+matching `entity_field_groups` "Info" tabs), and backfills `executor_team`
+for the pre-existing types that didn't already have it, all via
+idempotent `if not exists`/`on conflict do nothing`/`coalesce()` so it's
+safe to run regardless of what the live DB already has. Also folded into
+`schema.sql`. **Note:** per an earlier architecture check, `schema.sql`
+was already missing 6 `gate_*` columns
+(`gate_mv_spotify`/`gate_discovery_mode_spotify`/`gate_sony_publish`/
+`gate_phu_luc_mg`/`gate_phu_luc_publishing`/`gate_phu_luc_truyen_thong`)
+that the app already reads/writes — those aren't new this round, but the
+migration file includes a commented-out `add column if not exists` block
+for them in case the live DB is ever missing one.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck`
+plus a brace/paren/bracket balance check against all 28 touched/created
+files before sending — zero errors.
+
+## 2026-08-05 (25) — Pre-order Itunes ticket built out, Pitching DSP auto-status, note panel drops Design
+
+**1. Pre-order Itunes ticket — fully built out (was a round-24 placeholder).**
+- Auto-created the moment `gate_pre_order` is ticked "Yes" on the New
+  Release create form (mirrors the existing Pitching/Artist Profile
+  auto-send pattern) — no manual "Send Ticket" click needed at creation
+  time. Toggling it "Yes" later, from the release detail page, still works
+  too (round 24's generic "Send Ticket" button, unchanged).
+- Rebuilt as a bespoke page (was the generic `TicketListPage`) —
+  `app/tickets/pre-order-itunes/page.js`. Executor (OPS) view: 4 status
+  tabs only — Request/Process/Complete/Refund, no Cancel (custom
+  `status_options` on this type's `ticket_tabs` row). Rows match the
+  Pitching ticket list's shape (Request Date/Release/PIC/Status).
+  Requester (AR) view: same flat list, no status tabs — standard dual-view
+  default, nothing special needed there.
+- Clicking a row opens a popup: "Pre-order Itunes ticket" title top-left,
+  two external-link buttons underneath (**Itunes convert** →
+  vieent.com/en/ituneslink, **linkfire** → Linkfire dashboard, both open
+  in a new tab), release info, then **Link LBM** and **Link Preorder** —
+  both real `releases` columns (`link_lbm`, `link_preorder`), same ones
+  the URL tab and Upload Workstation already read/write, not ticket data.
+  Status is also editable here (executor only).
+- **Link Preorder's column removed from the Upload Workstation table** —
+  it's edited from this ticket's popup now instead, one surface instead of
+  two. Link LBM's own Upload Workstation column is untouched (it's shared
+  infrastructure — Confirm Workstation's Phase 1 completion also depends
+  on it — removing it there felt riskier than the request called for; flag
+  if it should come out too).
+
+**2. Priority Sync Lyric — skipped this round.** The request text for item
+2 was an exact copy of item 1's (same "Pre-order Itunes ticket" title,
+same LBM/Preorder fields, same iTunes/Linkfire buttons) — clearly a
+paste-over, not the real spec for this type. Left as the round-24
+placeholder; send the real spec whenever you're ready for this one.
+
+**3. Pitching ticket — DSP status now auto-syncs from the ticket.** The
+Pitching Workstation's popup already only showed tabs for the DSPs
+actually requested (no change needed there — was already filtering on
+`ticket.data[type]`). New this round: each DSP's status column on the
+release now auto-follows the ticket's requested-flags + overall status,
+computed on every Pitching Workstation page load (same "auto-sync on
+load" pattern as the Stream Workstation's metrics rows):
+- Not requested at all → the DSP's own "won't do" value (Priority/Spotify:
+  "Không thực hiện"; NCT/Zing: "Không hỗ trợ" — their vocab has no exact
+  "Không thực hiện" equivalent, this is the closest same-bucket value).
+- Requested, ticket ticket status not yet PROCESS → "Chưa thực hiện".
+- Requested, ticket status IS PROCESS → "Đang thực hiện" for
+  Priority/Spotify. NCT/Zing have no "in progress" option in their own
+  vocab (`NCT_ZING_OPTS` has no such value) — they stay at "Chưa thực
+  hiện" until OPS picks a real value by hand; flag if NCT/Zing should get
+  an in-progress option added to support this properly.
+Only ever touches a column that's currently blank or still one of these
+same auto-managed pre-work values — a real in-progress pick or a
+completed one ("Đã pitching"/"Có gói") is never silently overwritten.
+
+**4. Note panel — Design removed from the team list.** The release detail
+page's header note panel (team list left / note content right, from round
+19) no longer shows Design as a pickable team — display-only filter
+local to that one component; Design still exists as a real team
+everywhere else (its own ticket type, TEAMS, etc.).
+
+Migration delivered separately: `add-round25-preorder-4-statuses.sql`
+(narrows Pre-order Itunes's `ticket_tabs.status_options` down to the 4
+requested values — idempotent). Also folded into `schema.sql`. Everything
+else this round is app-layer only, no schema change. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
+brace/paren/bracket balance check against all 5 touched files before
+sending — zero errors.
+
+## 2026-08-05 (26) — Priority Sync Lyric built out, Pre-release Workstation width
+
+**Priority Sync Lyric — fully built out** (round 24's placeholder, round
+25 skipped it since that request's text was a copy of Pre-order Itunes's).
+- Auto-created the moment `gate_lyric_musixmatch` is ticked "Yes" on the
+  New Release create form — same pattern as Pitching/Artist
+  Profile/Pre-order Itunes.
+- Rebuilt as a bespoke page (`app/tickets/priority-sync-lyric/page.js`,
+  was the generic `TicketListPage`). Executor (OPS) view: same 4 status
+  tabs as Pre-order Itunes — Request/Process/Complete/Refund, no Cancel.
+  Requester (AR) view: flat list, no tabs, standard dual-view default.
+- **No popup this time** (unlike Pre-order Itunes) — columns are inline on
+  the row, matching the Pre-release Workstation's layout: Release info,
+  Link LBM (plain hyperlink, view-only — edited from Pre-order Itunes's
+  ticket or the Upload Workstation, not here), Musixmatch Status,
+  Musixmatch Link, PIC, Status. Musixmatch Status/Link edit the exact same
+  `releases.musixmatch_status`/`musixmatch_link` columns the Pre-release
+  Workstation already shows — same DB column, so a change here shows up
+  there immediately and vice versa, no sync code needed.
+
+**Pre-release Workstation — width tweaks (unrelated, per explicit note).**
+The sticky "Release info" column now has a 260px minimum width (up from
+unconstrained/content-driven) with the artist/DID/date line forced to one
+line (`whiteSpace: nowrap`) instead of wrapping — the DID no longer bleeds
+onto a second line. The page's own container widened from 1300px to
+1600px, and the table's minimum width from 1100px to 1300px, so the
+scrollable table area has more room before horizontal scrolling kicks in.
+
+Migration delivered separately:
+`add-round26-priority-sync-lyric-4-statuses.sql` (narrows Priority Sync
+Lyric's `ticket_tabs.status_options` to the 4 requested values —
+idempotent). Also folded into `schema.sql`. Everything else this round is
+app-layer only. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
+brace/paren/bracket balance check against all 3 touched files before
+sending — zero errors.
+
+## 2026-08-05 (27) — Phái Sinh column layout, Music Video on Spotify built out
+
+**1. Phái Sinh ticket — column width/layout only, no new columns.**
+- Widened a lot: Type, Label, Tên Bài, Artist, Contributor, Release, PIC.
+- Widened a little: Tác Quyền.
+- Narrowed a lot: URL (down to ~70-90px).
+- **Related DID moved out of its own column**, into the Tên Bài cell as a
+  second stacked input right below the title — the row was already
+  several lines tall (Artist/Contributor groups), so this reclaims a
+  whole column's worth of width instead of adding to the row height.
+- **New pill tags under Type**: "Publishing" / "Splitshare", shown when
+  the related DID's own release has that gate field ticked "Yes" —
+  assumed `gate_phu_luc_publishing` and `gate_split_share` respectively
+  (flag if a different field was meant). One batched query looks up all
+  referenced related-DID releases at once.
+
+**2. Music Video on Spotify — fully built out** (round 24 placeholder).
+- Auto-created on `gate_mv_spotify` = "Yes" at New Release creation, same
+  pattern as Pre-order Itunes/Priority Sync Lyric/Pitching.
+- Bespoke page (`app/tickets/mv-spotify/page.js`), same 4-status executor
+  view (Request/Process/Complete/Refund) as the other two new ticket
+  types this round.
+- Row layout matches the Upload Workstation: Release info, Link LBM
+  (view-only hyperlink), Link Drive (view-only hyperlink, with **MV
+  status right underneath it as a second line** — `releases.canva_status`,
+  the same Full/Lyric/Visualization field the Pre-release Workstation's
+  "MV" column and the New Release/Overview conditional field already
+  edit), **Spotify MV Link** (new `releases.spotify_mv_link` column — this
+  ticket is its only editor), and **Note** — intentionally kept as
+  `ticket.data.note` rather than a releases column, per explicit "no link
+  to anywhere," so it only ever shows up on this one ticket, nowhere else.
+
+Migration delivered separately:
+`add-round27-mv-spotify-and-phai-sinh.sql` (adds
+`releases.spotify_mv_link`, narrows Music Video on Spotify's
+`ticket_tabs.status_options` to the 4 requested values). Also folded into
+`schema.sql`. Phái Sinh's changes are app-layer only. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
+brace/paren/bracket balance check against all 3 touched files before
+sending — zero errors.
+
+## 2026-08-05 (28) — Pre-release Workstation: explicit 3-line Release info
+
+The sticky "Release info" column now renders as three explicit lines —
+Name / Artist & DID / Release date + time — instead of the title plus one
+run-on line combining artist, DID, date, and time. Same 260px column
+width from round 26, just split so each line is short and never wraps.
+
+App-layer only, no schema change. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
+brace/paren/bracket balance check before sending — zero errors.
+
+## 2026-08-05 (29) — Filter out already-ticketed releases from manual "New Ticket" forms
+
+Since a lot of ticket types can now be auto-created from the New Release
+dashboard (ticking a gate field "Yes") AND also created manually from the
+ticket page's own "New Ticket" form, it was possible to accidentally create
+a second ticket for a release that already had one. Per explicit request,
+went with "filter out" over "hide the button" — the release just doesn't
+show up as a pickable option once it already has a ticket of that type.
+
+- New `oneTicketPerRelease: true` flag added to `lib/ticketConfigs.js` on
+  every type that can be both auto-created and manually created: Artist
+  Profile, Có Trong Net YouTube, Pre-order Itunes, Priority Sync Lyric,
+  Music Video on Spotify, Discovery Mode on Spotify, Sony Publish,
+  Splitshare, Phụ Lục MG, Phụ Lục Publishing, Phụ Lục Truyền Thông.
+  (Note: Artist Profile's manual form has no release-picker field at all —
+  its fields are artist name/email/etc, not tied to a specific release —
+  so the flag is inert there for now; flagging in case Artist Profile's
+  form is later given a release field.)
+- `lib/NewTicketPage.js` (the generic create-form engine) now reads that
+  flag: when set, it fetches every non-deleted ticket of that type's
+  `data.releaseId` values on load and passes them to `ReleasePicker` as
+  `excludeDids`, so an already-ticketed release simply doesn't appear in
+  the search results. Also added a belt-and-suspenders re-check right
+  before insert (same pattern Media Booking already used) that blocks the
+  submit with a clear error if a duplicate slipped in via a race (e.g. an
+  auto-ticket landing in the gap between the form loading and submitting).
+- `app/tickets/phu-luc/new/page.js` (Phụ Lục's own bespoke form — not on
+  the generic engine, and normally auto-created from the pick-package
+  magic link flow) got the equivalent treatment by hand: releases with an
+  existing non-deleted Phụ Lục ticket are filtered out of its own inline
+  search, plus the same pre-insert re-check. Note Phụ Lục stores
+  `data.releaseId` as the release's UUID (a pre-existing convention
+  difference from every other type here, which stores the DID) — the
+  filter logic matches that, not the DID-based one.
+- Media Booking's `/new` page already had this exact pattern from before —
+  untouched, no regressions there.
+
+App-layer only, no schema change. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
+brace/paren/bracket balance check on all three edited files before
+sending — zero errors.
+
+## 2026-08-05 (30) — Gate tickets auto-send on Save, OPS split into 3 sub-teams, Sony Publish built out
+
+Three bundled changes this round.
+
+**Gate tickets fold into Save, no more manual "Send Ticket" click.** The Data Request/Marketing Request/Legal
+Request sub-tickets (Có Trong Net YouTube, Pre-order Itunes, Priority Sync Lyric, Music Video on Spotify,
+Discovery Mode on Spotify, Sony Publish, Splitshare, Phụ Lục MG/Publishing/Truyền Thông) used to need a
+separate "Send Ticket" click after ticking a gate field to "Yes" and saving. That button read straight off
+local (unsaved) form state, so clicking it before Save created a ticket referencing a gate field that hadn't
+actually been persisted yet — a real bug. Now `saveTab()` in `app/releases/[id]/page.js` creates any missing
+gate ticket the moment the release write itself succeeds — same idempotent-on-save pattern Pitching/Artist
+Profile already used. Uses a new `gateTabsMap` state (ticket_tabs id/default_status per type, fetched once on
+load alongside the existing `gateTicketMap`) instead of a fresh `ticket_tabs` lookup per type, so this adds
+**zero extra reads per save** — only a write for whichever types are newly "Yes" and don't have a ticket yet,
+addressing the read/write-rate concern raised before implementing. `lib/GateFields.js`'s `GateTicketLink` is
+now display-only — green "✓ Ticket Sent — View" once a ticket exists, otherwise a muted "Ticket sends on Save"
+hint instead of a clickable button.
+
+**OPS split into Youtube/Publishing/Operation.** New team list: AR, Marketing, Design, Youtube, Publishing,
+Operation, Legal — OPS itself is hidden from the config page's profile create/reassign dropdown and the dev
+"View As" switcher, per explicit request. It still exists everywhere else (ticketConfigs.js's `executorTeam`,
+`TEAM_TICKET_TYPES`/`TEAM_WORKSTATION_TYPES`, `notDoneCounts.js`, `ticket_tabs.executor_team`) as a hidden
+aggregate representing the union of the three real sub-teams — used for ticket-type ownership/routing and for
+counting/reporting/summarizing (Summary page's dev tab picker shows one combined "OPS" tab via the new
+`REPORTING_TEAMS` export, not three separate ones). New `lib/teamTypes.js` exports: `OPS_SUB_TEAMS`,
+`isOpsTeam()`, `resolveTeamKey()`, `isExecutorSegment()`, `REPORTING_TEAMS`. Every place that used to compare
+`segment === "OPS"` directly now goes through one of these — `lib/TicketListPage.js`'s dual-view check,
+`lib/notDoneCounts.js`'s dual-view check, `lib/workstationHelpers.js`'s `filterProfilesByTeam` (used by all 4
+OPS-team PIC dropdowns), `lib/teamTypes.js`'s `typesForTeam` (sidebar/switcher visibility), and the 6 bespoke
+ticket pages' own `isExecutorView` checks (Pitching, Phái Sinh, Music Video on Spotify, Manual Claim,
+Pre-order Itunes, Priority Sync Lyric — plus the new Sony Publish page uses it from the start). Legal is
+completely untouched, per explicit confirmation. Migration: `update profiles set segment = 'Operation' where
+segment = 'OPS'` — every existing OPS profile migrates to Operation as a one-time default; reassign anyone who
+should actually be Youtube or Publishing by hand afterward. **Flagged risk, not fixable from here:** if a
+DB-side trigger or the `fanout_notification()` RPC (neither is defined in `schema.sql` — same gap flagged back
+in round 24) resolves "notify team OPS" by literally matching `profiles.segment = 'OPS'`, those notifications
+could silently stop reaching anyone once this migration runs, since no profile will have that literal value
+anymore. Please verify against the real function/trigger definition in production.
+
+**Sony Publish built out.** Special-cased, unlike every other gate-linked type: it only auto-creates once the
+4 required Metadata Checklist fields (Audio/Artwork/Lyric/Metadata doc) are ALL filled in — both at New
+Release creation (`app/new-release/page.js`, rarely satisfied that early since the checklist is usually filled
+in afterward) and on every subsequent Save on the release detail page (same "loop until ready" idea as the
+generic gate tickets, just gated on metadata instead of just existence). The moment it fires, it ALSO sends
+the release to the Upload workstation — a `newrelease_upload` ticket + `requested: true` — same effect as the
+SEND UPLOAD button, deliberately without the Priority Pitching shortcut or Media Booking cascade (neither was
+asked for). Before it's ready, the release detail page shows a warning ("⚠ Not enough data to upload yet…")
+instead of the generic "Ticket sends on Save" hint. The ticket's own list page (`app/tickets/sony-publish`,
+fully bespoke) is laid out like the Upload Workstation: Release info / Link LBM / UPC / ISRC (releases.isrc
+already existed as a column — Priority Pitching's supplement field — but had no editable UI anywhere until
+now) / PIC / Status, all editable from here. Once a release has a Sony Publish ticket, its Upload Workstation
+and Pre-release Workstation rows lock — per explicit confirmation, this means the fields actually become
+non-interactive, not just visually greyed. Implemented as a new shared `lib/SonyPublishLockRow.js` (a single
+spanning cell replaces the row's normal content — a true absolutely-positioned overlay would fight with these
+tables' sticky first column) + `lib/useSonyPublishDids.js` (one batched fetch, not per-row) used by both
+workstations. Clicking the grey watermark banner ("Sony Publish — no task here required for this product")
+opens the Sony Publish ticket. Migration: `ticket_tabs.sony_publish` narrowed to the same 4 statuses
+(REQUESTED/PROCESS/COMPLETE/REFUND) every other Data Request sub-ticket type uses.
+
+Migration: `add-round30-ops-sub-teams-and-sony-publish.sql`. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a brace/paren/bracket balance check across
+every edited/new file before sending — zero errors.

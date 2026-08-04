@@ -6,6 +6,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
+import { isOpsTeam } from "../../../lib/teamTypes";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import LinkOrEditCell from "../../../lib/LinkOrEditCell";
 import { usePagination } from "../../../lib/usePagination";
@@ -26,8 +27,9 @@ export default function PhaiSinhList() {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
+  const [relatedReleases, setRelatedReleases] = useState({}); // did -> release (gate_split_share/gate_phu_luc_publishing only)
 
-  const isExecutorView = !profile?.segment || profile.segment === "OPS";
+  const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
 
   useEffect(() => {
     if (!supabase) return;
@@ -43,6 +45,18 @@ export default function PhaiSinhList() {
     if (!statusFilter) setStatusFilter(tabRow.status_options[0]);
     const { data } = await supabase.from("tickets").select("*, profiles(name)").eq("tab_id", tabRow.id).is("deleted_at", null).order("created_at", { ascending: false });
     setTickets(data || []);
+    // Related DID's own product — looked up so the Publishing/Splitshare
+    // pill tags under Type can reflect that release's own gate fields
+    // (gate_phu_luc_publishing / gate_split_share), per explicit request.
+    const relatedDids = [...new Set((data || []).map((t) => t.data?.relatedDid).filter(Boolean))];
+    if (relatedDids.length > 0) {
+      const { data: rels } = await supabase.from("releases").select("did, gate_split_share, gate_phu_luc_publishing").in("did", relatedDids);
+      const map = {};
+      (rels || []).forEach((r) => (map[r.did] = r));
+      setRelatedReleases(map);
+    } else {
+      setRelatedReleases({});
+    }
     setLoading(false);
   }
 
@@ -135,9 +149,26 @@ export default function PhaiSinhList() {
             <table className={styles.table} style={{ minWidth: 1700 }}>
               <thead>
                 <tr>
-                  <th>Type</th><th>Label</th><th>Tên Bài</th><th>Related DID</th><th>Artist</th><th>Contributor</th>
-                  <th>Release</th><th>Description</th><th>Tác Quyền</th><th>URL</th><th>Note</th><th>LBM url</th>
-                  <th>PIC</th><th>Status</th>
+                  {/* Related DID no longer has its own column — moved into
+                      the Tên Bài cell (see PhaiSinhRow) since each row is
+                      already several lines tall, freeing up a column for
+                      width instead. Widths tuned per explicit request:
+                      Type/Label/Tên Bài/Artist/Contributor/Release/PIC
+                      greatly widened, Tác Quyền a little, URL greatly
+                      narrowed. */}
+                  <th style={{ minWidth: 180 }}>Type</th>
+                  <th style={{ minWidth: 180 }}>Label</th>
+                  <th style={{ minWidth: 240 }}>Tên Bài</th>
+                  <th style={{ minWidth: 240 }}>Artist</th>
+                  <th style={{ minWidth: 220 }}>Contributor</th>
+                  <th style={{ minWidth: 180 }}>Release</th>
+                  <th>Description</th>
+                  <th style={{ minWidth: 200 }}>Tác Quyền</th>
+                  <th style={{ minWidth: 70 }}>URL</th>
+                  <th>Note</th>
+                  <th>LBM url</th>
+                  <th style={{ minWidth: 180 }}>PIC</th>
+                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -148,6 +179,7 @@ export default function PhaiSinhList() {
                     tab={tab}
                     profiles={profiles}
                     isExecutorView={isExecutorView}
+                    relatedRelease={relatedReleases[t.data?.relatedDid]}
                     onUpdateField={updateField}
                     onUpdateStatus={updateStatus}
                     onUpdatePic={updatePic}
@@ -166,7 +198,7 @@ export default function PhaiSinhList() {
   );
 }
 
-function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePic, onAcknowledgeEdit }) {
+function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, onUpdateField, onUpdateStatus, onUpdatePic, onAcknowledgeEdit }) {
   const d = ticket.data || {};
   const color = statusColor(ticket.status);
   const isRefundLike = REFUND_LIKE.includes(ticket.status);
@@ -205,10 +237,28 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onU
     + (composerLyricist ? `\nComposer/Lyricist: ${composerLyricist}` : "");
   const contributorGroup = [d.producer ? `Producer: ${d.producer}` : "", mixerDisplay ? `Mixer: ${mixerDisplay}` : ""].filter(Boolean).join("\n");
 
+  // Publishing/Splitshare pill tags — shown under Type when the related
+  // DID's own release has that gate field ticked "Yes". Assumption:
+  // "Publishing" maps to gate_phu_luc_publishing (the Legal Request field
+  // literally labeled "Phụ Lục Publishing" on the release detail page) and
+  // "Splitshare" maps to gate_split_share — flag if a different field was
+  // meant.
+  const relatedTags = [
+    relatedRelease?.gate_phu_luc_publishing === "true" ? "Publishing" : null,
+    relatedRelease?.gate_split_share === "true" ? "Splitshare" : null,
+  ].filter(Boolean);
+
   return (
     <tr style={showEditedHighlight ? { boxShadow: "inset 3px 0 0 var(--accent)", background: "rgba(255,107,26,0.06)" } : undefined}>
       <td style={{ verticalAlign: "top" }}>
         <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={d.typeRequest || ""} onBlur={(e) => onUpdateField(ticket, "typeRequest", e.target.value, !isExecutorView)} />
+        {relatedTags.length > 0 && (
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+            {relatedTags.map((tag) => (
+              <span key={tag} className={styles.pill}>{tag}</span>
+            ))}
+          </div>
+        )}
         {showEditedHighlight && (
           <div
             title={`Edited by ${d.__requesterEditedBy || "requester"} — click to clear`}
@@ -220,14 +270,26 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onU
         )}
       </td>
       {textCell("label", d.label)}
-      {textCell("tenBai", d.tenBai)}
-      {textCell("relatedDid", d.relatedDid)}
+      <td style={{ verticalAlign: "top" }}>
+        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, marginBottom: 4 }} defaultValue={d.tenBai || ""} onBlur={(e) => onUpdateField(ticket, "tenBai", e.target.value, !isExecutorView)} />
+        {/* Related DID moved here from its own column, per explicit
+            request — the row is already several lines tall (Artist/
+            Contributor groups below), so this uses that height instead of
+            costing a whole extra column. */}
+        <input
+          className={styles.input}
+          style={{ padding: "4px 8px", fontSize: 11, opacity: 0.85 }}
+          placeholder="Related DID…"
+          defaultValue={d.relatedDid || ""}
+          onBlur={(e) => onUpdateField(ticket, "relatedDid", e.target.value, !isExecutorView)}
+        />
+      </td>
       <td style={{ fontSize: 12, whiteSpace: "pre-line" }}>{artistGroup || "—"}</td>
       <td style={{ fontSize: 12, whiteSpace: "pre-line" }}>{contributorGroup || "—"}</td>
       <td style={{ fontSize: 12 }}>{releaseGroup}</td>
       {textareaCell("description", d.description)}
       {textareaCell("tacQuyen", d.tacQuyen)}
-      <td style={{ minWidth: 160 }}><LinkOrEditCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v, !isExecutorView)} /></td>
+      <td style={{ minWidth: 70, maxWidth: 90 }}><LinkOrEditCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v, !isExecutorView)} /></td>
       {textareaCell("note", d.note)}
       <td style={{ minWidth: 160 }}><LinkOrEditCell styles={styles} value={d.refLink} onSave={(v) => onUpdateField(ticket, "refLink", v, !isExecutorView)} /></td>
       <td>

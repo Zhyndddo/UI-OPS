@@ -8,10 +8,10 @@ import { useTheme } from "./ThemeContext";
 import { useAuth } from "./AuthContext";
 
 const NAV = [
-  { num: "01", label: "Dashboard", href: "/releases" },
-  { num: "02", label: "Workstation", href: "/workstation" },
-  { num: "03", label: "Tickets", href: "/tickets" },
-  { num: "04", label: "Summary", href: "/summary" },
+  { label: "Dashboard", href: "/releases" },
+  { label: "Workstation", href: "/workstation" },
+  { label: "Tickets", href: "/tickets" },
+  { label: "Summary", href: "/summary" },
 ];
 // Pulled out of the Tickets switcher onto the main sidebar directly, per
 // request — "Khác" (the shared catch-all ticket type every team can use)
@@ -20,6 +20,12 @@ const NAV = [
 // -> Sidebar Label, dev-only) via app_settings.khac_sidebar_label — this
 // is just the fallback shown before that setting loads or if it's never
 // been set. See DEFAULT_KHAC_LABEL below.
+//
+// Position: always last, below everything else the current user has in
+// their sidebar (including AR_NAV, which it used to sit above) — per
+// explicit request. Numbers are no longer hardcoded per item; they're
+// assigned by final array position in navItems below, so Khác always gets
+// whatever number is last regardless of whether AR_NAV is shown.
 const KHAC_HREF = "/tickets/khac";
 const DEFAULT_KHAC_LABEL = "Cứu mạng Zhyn ơi";
 // New Release, Tools, Artists, and Labels are deliberately not in the
@@ -29,8 +35,8 @@ const DEFAULT_KHAC_LABEL = "Cứu mạng Zhyn ơi";
 // tables day to day, so they get direct top-level shortcuts too (in
 // addition to, not instead of, the Reference entries everyone else uses).
 const AR_NAV = [
-  { num: "06", label: "Artist List", href: "/artists" },
-  { num: "07", label: "Label List", href: "/labels" },
+  { label: "Artist List", href: "/artists" },
+  { label: "Label List", href: "/labels" },
 ];
 
 export const SIDEBAR_WIDTH = 250;
@@ -42,7 +48,10 @@ export default function Sidebar() {
   const [totalReleases, setTotalReleases] = useState(null);
   const [khacLabel, setKhacLabel] = useState(DEFAULT_KHAC_LABEL);
   const showArNav = profile?.segment === "AR" || profile?.role === "dev";
-  const navItems = [...NAV, { num: "05", label: khacLabel, href: KHAC_HREF }, ...(showArNav ? AR_NAV : [])];
+  // Khác goes last, after AR_NAV — see the comment above AR_NAV/KHAC_HREF.
+  const navItems = [...NAV, ...(showArNav ? AR_NAV : []), { label: khacLabel, href: KHAC_HREF }].map(
+    (item, i) => ({ ...item, num: String(i + 1).padStart(2, "0") })
+  );
 
   useEffect(() => {
     if (!supabase) return;

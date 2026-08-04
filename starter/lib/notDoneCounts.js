@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { isExecutorSegment } from "./teamTypes";
 
 // Terminal statuses for the shared English vocab (REQUESTED/PROCESS/
 // COMPLETE/REFUND/CANCELED). REFUND is terminal from the executor's side
@@ -23,12 +24,28 @@ const DUAL_VIEW_EXECUTOR_TEAM = {
   report_conflict: "OPS",
   artist_profile: "OPS",
   pitching_info: "AR",
+  // Pitching now also has a dedicated ticket page (app/tickets/pitching)
+  // in addition to the OPS-only Pitching Workstation — same dual view as
+  // every other generic type: OPS executes, AR requests.
+  pitching: "OPS",
+  // New Data Request / Legal Request sub-tickets — matches
+  // executorTeam in lib/ticketConfigs.js for each.
+  co_trong_net_youtube: "OPS",
+  pre_order_itunes: "OPS",
+  priority_sync_lyric: "OPS",
+  mv_spotify: "OPS",
+  discovery_mode_spotify: "OPS",
+  sony_publish: "OPS",
+  split_share: "Legal",
+  phu_luc_mg: "Legal",
+  phu_luc_publishing: "Legal",
+  phu_luc_truyen_thong: "Legal",
 };
 
 function isExecutorView(typeKey, profile) {
   const team = DUAL_VIEW_EXECUTOR_TEAM[typeKey];
   if (!team) return true; // no dual view for this type — always "executor" rules
-  return profile?.role === "dev" || profile?.segment === team;
+  return profile?.role === "dev" || isExecutorSegment(profile?.segment, team);
 }
 
 async function ticketNotDoneCount(typeKey, profile) {

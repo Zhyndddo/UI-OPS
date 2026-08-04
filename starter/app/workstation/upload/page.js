@@ -5,6 +5,8 @@ import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, uploadPercent } from "../../../lib/helpers";
+import SonyPublishLockRow from "../../../lib/SonyPublishLockRow";
+import { useSonyPublishDids } from "../../../lib/useSonyPublishDids";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import StatusCounter from "../../../lib/StatusCounter";
@@ -32,6 +34,7 @@ export default function UploadWorkstation() {
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
   const [notePopup, setNotePopup] = useState(null); // { release, kind: "product" | "linkshare" } | null
+  const sonyPublishDids = useSonyPublishDids();
 
   useEffect(() => {
     if (!supabase) return;
@@ -169,26 +172,38 @@ export default function UploadWorkstation() {
                   <th>Link LBM</th>
                   <th>Link Share</th>
                   <th>Smartlink</th>
-                  <th>Pre-order</th>
-                  <th>Note</th>
+                  {/* Pre-order column removed — Link Preorder is now edited
+                      from the Pre-order Itunes ticket popup instead (see
+                      app/tickets/pre-order-itunes/page.js), same real
+                      releases.link_preorder column, one editing surface. */}
+                  {/* Renamed from plain "Note" — this is the existing
+                      brief-backed popup (product note + linkshare timing),
+                      distinct from the independent Note columns added to
+                      Pitching/Confirm/Pre-release/Booking. Label change
+                      only, no behavior change. */}
+                  <th>Upload Note</th>
                   <SortableTh label="Upload Status" sortKey="upload_status" sort={sort} onToggle={toggleSort} />
                   <th title={defaultPic ? `Default: ${profiles.find((p) => p.id === defaultPic)?.name}` : "No default set"}>PIC</th>
                 </tr>
               </thead>
               <tbody>
-                {pagedReleases.map((r) => (
-                  <UploadRow
-                    key={r.id}
-                    release={r}
-                    pic={assignments[r.id] ?? defaultPic}
-                    isOverride={assignments[r.id] != null}
-                    profiles={profiles}
-                    highlight={isThisWeekOrNext(r.release_date)}
-                    onUpdateField={updateField}
-                    onUpdatePic={updatePic}
-                    onOpenNote={(kind) => setNotePopup({ release: r, kind })}
-                  />
-                ))}
+                {pagedReleases.map((r) =>
+                  sonyPublishDids.has(r.did) ? (
+                    <SonyPublishLockRow key={r.id} colSpan={7} />
+                  ) : (
+                    <UploadRow
+                      key={r.id}
+                      release={r}
+                      pic={assignments[r.id] ?? defaultPic}
+                      isOverride={assignments[r.id] != null}
+                      profiles={profiles}
+                      highlight={isThisWeekOrNext(r.release_date)}
+                      onUpdateField={updateField}
+                      onUpdatePic={updatePic}
+                      onOpenNote={(kind) => setNotePopup({ release: r, kind })}
+                    />
+                  )
+                )}
               </tbody>
             </table>
             </div>
@@ -211,7 +226,7 @@ export default function UploadWorkstation() {
 }
 
 function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateField, onUpdatePic, onOpenNote }) {
-  const URL_KEYS = ["drive_link", "link_lbm", "link_share", "smartlink", "link_preorder"];
+  const URL_KEYS = ["drive_link", "link_lbm", "link_share", "smartlink"];
   const [drafts, setDrafts] = useState(() => {
     const initial = {};
     URL_KEYS.forEach((k) => (initial[k] = release[k] || ""));
@@ -261,15 +276,12 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateFiel
           disabledTitle={PRIORITY_MODE_WARNING}
         />
       </td>
-      <td style={{ minWidth: 180 }}>
-        <UrlField styles={styles} value={drafts.link_preorder} onChange={(v) => setDrafts((d) => ({ ...d, link_preorder: v }))} onBlur={() => onUpdateField(release, "link_preorder", drafts.link_preorder)} />
-      </td>
       <td>
         <div style={{ display: "flex", gap: 8 }}>
           <button
             type="button"
             onClick={() => onOpenNote("product")}
-            title="Note — Link Drive, Smartlink, UPC, etc."
+            title="Upload Note — Link Drive, Smartlink, UPC, etc."
             style={{ background: "none", border: "none", color: "var(--accent-soft)", cursor: "pointer", fontSize: 16, padding: 0 }}
           >
             📝

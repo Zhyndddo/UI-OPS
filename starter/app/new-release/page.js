@@ -4,7 +4,9 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
-import { GateFields, GateToggle, GateGrid, PROJECT_PROPOSAL_FIELD } from "../../lib/GateFields";
+import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS } from "../../lib/GateFields";
+import { MV_TYPE_OPTIONS } from "../../lib/pickerOptions";
+import PickSelect from "../../lib/PickSelect";
 import QuickCreate from "../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../lib/ReferenceInputs";
 import { buildLinkshareNote, defaultLinkshareFacebookTiming, defaultLinkshareTiktokTiming, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS } from "../../lib/releaseNotes";
@@ -66,6 +68,7 @@ const EMPTY_FORM = {
   meta_working_files: "false",
   meta_lyric: "false",
   meta_mv: "false",
+  canva_status: "", // MV type (Full/Lyric/Visualization) — same field the Pre-release Workstation edits, revealed under Metadata Checklist's MV toggle
   meta_doc: "false",
   gate_pitching: "false",
   // TBU by default — every release starts in BRIEF & DATA, which is
@@ -97,6 +100,11 @@ const META_ITEMS = [
   { key: "meta_mv", label: "MV" },
   { key: "meta_doc", label: "Metadata" },
 ];
+
+// Must match REQUIRED_META_KEYS in app/releases/[id]/page.js exactly —
+// the "4 required" metadata items Sony Publish's auto-create gate checks
+// (see performInsert()'s gate_sony_publish block below).
+const REQUIRED_META_KEYS = ["meta_audio", "meta_artwork", "meta_lyric", "meta_doc"];
 
 export default function NewReleasePage() {
   const router = useRouter();
@@ -320,6 +328,89 @@ export default function NewReleasePage() {
           requester_segment: form.requester_segment || null,
         });
       }
+    }
+
+    // gate_pre_order = "true" means a Pre-order Itunes ticket should exist
+    // for this release — auto-created at New Release creation, per
+    // explicit request, same "tick Yes here -> ticket appears" pattern as
+    // Pitching/Artist Profile above. Fields left blank (DID + Note only,
+    // per the ticket type's own config) — LBM url and Link Preorder are
+    // filled in later from the ticket's own popup, not collected here.
+    if (form.gate_pre_order === "true") {
+      const { data: poTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pre_order_itunes").single();
+      if (poTab) {
+        await supabase.from("tickets").insert({
+          tab_id: poTab.id,
+          data: { releaseId: data.did },
+          status: poTab.default_status,
+          status_log: { [poTab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+
+    // gate_lyric_musixmatch = "true" means a Priority Sync Lyric ticket
+    // should exist for this release — same auto-create-on-Yes pattern as
+    // Pre-order Itunes above, per explicit request.
+    if (form.gate_lyric_musixmatch === "true") {
+      const { data: pslTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "priority_sync_lyric").single();
+      if (pslTab) {
+        await supabase.from("tickets").insert({
+          tab_id: pslTab.id,
+          data: { releaseId: data.did },
+          status: pslTab.default_status,
+          status_log: { [pslTab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+
+    // gate_mv_spotify = "true" means a Music Video on Spotify ticket
+    // should exist for this release — same auto-create-on-Yes pattern.
+    if (form.gate_mv_spotify === "true") {
+      const { data: mvTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "mv_spotify").single();
+      if (mvTab) {
+        await supabase.from("tickets").insert({
+          tab_id: mvTab.id,
+          data: { releaseId: data.did },
+          status: mvTab.default_status,
+          status_log: { [mvTab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+
+    // gate_sony_publish = "true" is special-cased, unlike every other gate
+    // ticket above — per explicit request it only auto-creates once the 4
+    // required metadata fields (Audio/Artwork/Lyric/Metadata doc) are ALL
+    // ticked. At creation time that's rarely already true (the checklist
+    // is usually filled in afterward on the release detail page), so this
+    // will usually be a no-op here — app/releases/[id]/page.js's saveTab()
+    // re-checks the same condition on every save afterward, so it still
+    // fires the moment the checklist catches up. When it DOES fire here,
+    // it also sends the release straight to the Upload workstation (same
+    // effect as SEND UPLOAD — a newrelease_upload ticket + requested:true)
+    // since a brand-new release can't have been sent there any other way
+    // yet.
+    if (form.gate_sony_publish === "true" && REQUIRED_META_KEYS.every((k) => form[k] === "true")) {
+      const { data: spTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "sony_publish").single();
+      if (spTab) {
+        await supabase.from("tickets").insert({
+          tab_id: spTab.id,
+          data: { releaseId: data.did },
+          status: spTab.default_status,
+          status_log: { [spTab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+      const { data: uploadTab } = await supabase.from("ticket_tabs").select("id").eq("key", "newrelease_upload").single();
+      if (uploadTab) {
+        await supabase.from("tickets").insert({
+          tab_id: uploadTab.id,
+          data: { releaseId: data.did, project: form.title, artist: form.main_artist, label: form.label },
+        });
+      }
+      await supabase.from("releases").update({ requested: true }).eq("id", data.id);
     }
 
     if (form.single_album_ep !== "Single" && trackRows && trackRows.length > 0) {
@@ -664,12 +755,24 @@ export default function NewReleasePage() {
               <div key={m.key} className={styles.field} style={{ marginBottom: 0 }}>
                 <label className={styles.fieldLabel}>{m.label}</label>
                 <GateToggle value={form[m.key] || "false"} onChange={(v) => update(m.key, v)} />
+                {/* MV type — same field the Pre-release Workstation already
+                    edits (releases.canva_status, labeled "MV" there), just
+                    surfaced here too once the MV checklist item is ticked
+                    Yes, per explicit request. */}
+                {m.key === "meta_mv" && form.meta_mv === "true" && (
+                  <div style={{ marginTop: 6 }}>
+                    <PickSelect styles={styles} opts={MV_TYPE_OPTIONS} value={form.canva_status} onChange={(v) => update("canva_status", v)} placeholder="— MV type —" />
+                  </div>
+                )}
               </div>
             ))}
           </div>
-          {/* Project Proposal — separated from the request groups below,
-              rendered right under Metadata Checklist per the regroup. */}
-          <GateGrid styles={styles} fields={PROJECT_PROPOSAL_FIELD} form={form} update={update} />
+          {/* Marketing Checklist — rendered directly under Metadata
+              Checklist (not inside GateFields) per follow-up feedback: the
+              whole group belongs here, not split with Project Proposal
+              alone up here and Artist Info/Artist Photo left below. */}
+          <div className={styles.subheading}>Marketing Checklist</div>
+          <GateGrid styles={styles} fields={MARKETING_CHECKLIST_FIELDS} form={form} update={update} />
 
           <GateFields
             styles={styles}

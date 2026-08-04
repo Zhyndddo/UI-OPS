@@ -116,6 +116,10 @@ export const TICKET_CONFIGS = {
   },
   artist_profile: {
     label: "Artist Profile",
+    // Also auto-created from gate_artist_profile at New Release creation
+    // and from the release detail page's Save — see oneTicketPerRelease's
+    // comment on the Data Request sub-tickets below for what this flag does.
+    oneTicketPerRelease: true,
     requesterTeam: "AR",
     executorTeam: "OPS",
     bothEditable: [],
@@ -139,6 +143,157 @@ export const TICKET_CONFIGS = {
       { key: "platform", label: "Platform", type: "text", required: true },
       { key: "metric", label: "Metric", type: "text" },
       { key: "value", label: "Value", type: "text" },
+    ],
+  },
+  // ── Data Request / Legal Request sub-tickets ────────────────────────────
+  // One ticket type per gate field on the release detail page's Data
+  // Request / Marketing Request / Legal Request groups (lib/GateFields.js),
+  // per the "every request tick gets a related ticket" wave. Deliberately
+  // minimal ("leave blank" per explicit request) — just enough to exist,
+  // link back to the originating release, and carry a note. Each is
+  // triggered from the release page (see the "Send Ticket"/"Open Ticket"
+  // affordance added to GateGrid) once its gate field is ticked "Yes", but
+  // can also be created standalone here via the generic /new form, same as
+  // Stream Update. Flesh out fields on each one individually as follow-up
+  // rounds cover them — this round is the placeholder/plumbing pass only.
+  co_trong_net_youtube: {
+    releaseFieldMap: { attachTo: "releaseId", map: { releaseId: "did" } },
+    label: "Có Trong Net YouTube",
+    oneTicketPerRelease: true,
+    requesterTeam: "AR",
+    executorTeam: "OPS",
+    bothEditable: ["note"],
+    fields: [
+      { key: "releaseId", label: "DID", type: "text", required: true },
+      { key: "note", label: "Note", type: "textarea" },
+    ],
+  },
+  pre_order_itunes: {
+    releaseFieldMap: { attachTo: "releaseId", map: { releaseId: "did" } },
+    label: "Pre-order Itunes",
+    oneTicketPerRelease: true,
+    requesterTeam: "AR",
+    executorTeam: "OPS",
+    bothEditable: ["note"],
+    fields: [
+      { key: "releaseId", label: "DID", type: "text", required: true },
+      { key: "note", label: "Note", type: "textarea" },
+    ],
+  },
+  priority_sync_lyric: {
+    releaseFieldMap: { attachTo: "releaseId", map: { releaseId: "did" } },
+    label: "Priority Sync Lyric",
+    oneTicketPerRelease: true,
+    requesterTeam: "AR",
+    executorTeam: "OPS",
+    bothEditable: ["note"],
+    fields: [
+      { key: "releaseId", label: "DID", type: "text", required: true },
+      { key: "note", label: "Note", type: "textarea" },
+    ],
+  },
+  mv_spotify: {
+    releaseFieldMap: { attachTo: "releaseId", map: { releaseId: "did" } },
+    label: "Music Video on Spotify",
+    oneTicketPerRelease: true,
+    requesterTeam: "AR",
+    executorTeam: "OPS",
+    bothEditable: ["note"],
+    fields: [
+      { key: "releaseId", label: "DID", type: "text", required: true },
+      { key: "note", label: "Note", type: "textarea" },
+    ],
+  },
+  discovery_mode_spotify: {
+    releaseFieldMap: { attachTo: "releaseId", map: { releaseId: "did" } },
+    label: "Discovery Mode on Spotify",
+    oneTicketPerRelease: true,
+    requesterTeam: "AR",
+    executorTeam: "OPS",
+    bothEditable: ["note"],
+    fields: [
+      { key: "releaseId", label: "DID", type: "text", required: true },
+      { key: "note", label: "Note", type: "textarea" },
+    ],
+  },
+  // This config block only backs the generic manual "New Ticket" form
+  // (app/tickets/sony-publish/new) — the real list view is fully bespoke
+  // (app/tickets/sony-publish/page.js), same as Music Video on
+  // Spotify/Pre-order Itunes/Priority Sync Lyric. Sony Publish's real
+  // auto-creation is special-cased (not the generic "Yes -> ticket"
+  // pattern every other type here uses): it only fires once the 4
+  // required Metadata Checklist fields are all filled, and creating it
+  // also sends the release to the Upload workstation — see
+  // app/new-release/page.js's performInsert() and app/releases/[id]/
+  // page.js's saveTab() for that logic, and SonyPublishLockRow.js /
+  // useSonyPublishDids.js for the Upload/Pre-release Workstation row
+  // lock that kicks in once this ticket exists.
+  sony_publish: {
+    releaseFieldMap: { attachTo: "releaseId", map: { releaseId: "did" } },
+    label: "Sony Publish",
+    oneTicketPerRelease: true,
+    requesterTeam: "AR",
+    executorTeam: "OPS",
+    bothEditable: ["note"],
+    fields: [
+      { key: "releaseId", label: "DID", type: "text", required: true },
+      { key: "note", label: "Note", type: "textarea" },
+    ],
+  },
+  split_share: {
+    // Distinct from releases.split_share_entries (the inline % / Shared
+    // Label / Scope editor already on the Legal Request group) — that
+    // editor is untouched. This ticket is the new Legal-team tracking
+    // surface for the request itself, not a replacement for the entries.
+    releaseFieldMap: { attachTo: "releaseId", map: { releaseId: "did" } },
+    label: "Splitshare",
+    oneTicketPerRelease: true,
+    requesterTeam: "AR",
+    executorTeam: "Legal",
+    bothEditable: ["note"],
+    fields: [
+      { key: "releaseId", label: "DID", type: "text", required: true },
+      { key: "note", label: "Note", type: "textarea" },
+    ],
+  },
+  phu_luc_mg: {
+    releaseFieldMap: { attachTo: "releaseId", map: { releaseId: "did" } },
+    label: "Phụ Lục MG",
+    oneTicketPerRelease: true,
+    requesterTeam: "AR",
+    executorTeam: "Legal",
+    bothEditable: ["note"],
+    fields: [
+      { key: "releaseId", label: "DID", type: "text", required: true },
+      { key: "note", label: "Note", type: "textarea" },
+    ],
+  },
+  phu_luc_publishing: {
+    releaseFieldMap: { attachTo: "releaseId", map: { releaseId: "did" } },
+    label: "Phụ Lục Publishing",
+    oneTicketPerRelease: true,
+    requesterTeam: "AR",
+    executorTeam: "Legal",
+    bothEditable: ["note"],
+    fields: [
+      { key: "releaseId", label: "DID", type: "text", required: true },
+      { key: "note", label: "Note", type: "textarea" },
+    ],
+  },
+  phu_luc_truyen_thong: {
+    // Mirrors gate_phu_luc_truyen_thong, which is a read-only auto-computed
+    // badge (see lib/GateFields.js ReadOnlyGateBadge) — this ticket is still
+    // manually sendable once that badge is "Yes", same "Send Ticket" button
+    // idiom as every other field here, just not gated behind a hand-toggle.
+    releaseFieldMap: { attachTo: "releaseId", map: { releaseId: "did" } },
+    label: "Phụ Lục Truyền Thông",
+    oneTicketPerRelease: true,
+    requesterTeam: "AR",
+    executorTeam: "Legal",
+    bothEditable: ["note"],
+    fields: [
+      { key: "releaseId", label: "DID", type: "text", required: true },
+      { key: "note", label: "Note", type: "textarea" },
     ],
   },
   khac: {

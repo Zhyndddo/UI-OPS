@@ -11,7 +11,12 @@ const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
 // "Remarketing"), hardcoded directly in the New Release form and release
 // detail page — not admin-configurable via lookup_options anymore.
 const ROLES = ["exc", "admin", "dev"];
-const TEAMS = ["AR", "Marketing", "OPS", "Design"];
+// "OPS" split into Youtube/Publishing/Operation per explicit request — OPS
+// itself is intentionally excluded here (hidden from the profile create/
+// reassign dropdown), it's now a hidden aggregate elsewhere in the app
+// (see lib/teamTypes.js's OPS_SUB_TEAMS/isOpsTeam/resolveTeamKey). Must
+// match lib/teamTypes.js's TEAMS export — see that file's header comment.
+const TEAMS = ["AR", "Marketing", "Design", "Youtube", "Publishing", "Operation", "Legal"];
 
 export default function ConfigPage() {
   const { profile } = useAuth();

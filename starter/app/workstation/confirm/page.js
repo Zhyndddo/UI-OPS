@@ -24,7 +24,7 @@ import styles from "../../shared.module.css";
 // like the release detail popup, not a tri-state gate.
 const DSP_CHECK_FIELDS = ["confirm_spotify_correct", "confirm_apple_correct", "confirm_zing_correct", "confirm_nct_correct", "confirm_fb_correct", "confirm_ytb_correct"];
 
-const SELECT_FIELDS = "id, did, title, main_artist, release_date, release_time, link_lbm, release_category, project_type, smartlink, confirm_insta_sound, confirm_tiktok_sound_updated, confirm_smartlink_updated, confirm_tag, needs_update, " + DSP_CHECK_FIELDS.join(", ");
+const SELECT_FIELDS = "id, did, title, main_artist, release_date, release_time, link_lbm, release_category, project_type, smartlink, confirm_insta_sound, confirm_tiktok_sound_updated, confirm_smartlink_updated, confirm_tag, needs_update, confirm_note, " + DSP_CHECK_FIELDS.join(", ");
 
 export default function ConfirmWorkstation() {
   const [phase, setPhase] = useState("confirm_phase1");
@@ -153,6 +153,7 @@ export default function ConfirmWorkstation() {
                   <th>Tag Confirm</th>
                   <SortableTh label="Product Type" sortKey="project_type" sort={sort} onToggle={toggleSort} />
                   <th>PIC</th>
+                  <th>Note</th>
                 </tr>
               </thead>
               <tbody>
@@ -175,6 +176,9 @@ export default function ConfirmWorkstation() {
                         <option value="">— Unassigned —</option>
                         {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
+                    </td>
+                    <td>
+                      <input className={styles.input} style={{ minWidth: 140 }} defaultValue={r.confirm_note || ""} onBlur={(e) => updateField(r, "confirm_note", e.target.value)} />
                     </td>
                   </tr>
                 ))}
@@ -203,6 +207,7 @@ export default function ConfirmWorkstation() {
                   <th>Sound Instagram</th>
                   <th>Sound TikTok</th>
                   <th>PIC</th>
+                  <th>Note</th>
                 </tr>
               </thead>
               <tbody>
@@ -232,6 +237,9 @@ export default function ConfirmWorkstation() {
                         <option value="">— Unassigned —</option>
                         {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
+                    </td>
+                    <td>
+                      <input className={styles.input} style={{ minWidth: 140 }} defaultValue={r.confirm_note || ""} onBlur={(e) => updateField(r, "confirm_note", e.target.value)} />
                     </td>
                   </tr>
                 ))}

@@ -19,15 +19,32 @@ export default function NewPhuLucTicket() {
   const [deadline, setDeadline] = useState("");
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [excludeIds, setExcludeIds] = useState(new Set());
 
   useEffect(() => {
     if (!supabase) return;
     supabase.from("releases").select("id, did, title, main_artist").order("title").then(({ data }) => setReleases(data || []));
   }, []);
 
-  const selected = releases.find((r) => r.id === releaseId);
+  // This ticket is normally auto-created from the pick-package magic link
+  // flow (data.releaseId stored as the release's UUID here, unlike most
+  // other ticket types which store the DID) — filter out releases that
+  // already have a non-deleted Phụ Lục ticket so this manual/backfill form
+  // can't accidentally create a second one for the same release.
+  useEffect(() => {
+    if (!supabase) return;
+    (async () => {
+      const { data: tabRow } = await supabase.from("ticket_tabs").select("id").eq("key", "phu_luc").single();
+      if (!tabRow) return;
+      const { data: existing } = await supabase.from("tickets").select("data").eq("tab_id", tabRow.id).is("deleted_at", null);
+      setExcludeIds(new Set((existing || []).map((t) => t.data?.releaseId).filter(Boolean)));
+    })();
+  }, []);
+
+  const selectableReleases = excludeIds.size > 0 ? releases.filter((r) => !excludeIds.has(r.id)) : releases;
+  const selected = selectableReleases.find((r) => r.id === releaseId);
   const matches = search.trim()
-    ? releases.filter((r) => `${r.title} ${r.main_artist} ${r.did}`.toLowerCase().includes(search.trim().toLowerCase())).slice(0, 8)
+    ? selectableReleases.filter((r) => `${r.title} ${r.main_artist} ${r.did}`.toLowerCase().includes(search.trim().toLowerCase())).slice(0, 8)
     : [];
 
   async function handleSubmit(e) {
@@ -42,6 +59,20 @@ export default function NewPhuLucTicket() {
     if (tabErr || !tab) {
       setSubmitting(false);
       setError("Couldn't find the Phụ Lục ticket type — did schema.sql get redeployed?");
+      return;
+    }
+    // Belt-and-suspenders re-check right before insert, same pattern as
+    // Media Booking and the generic engine's oneTicketPerRelease types.
+    const { data: dupe } = await supabase
+      .from("tickets")
+      .select("id")
+      .eq("tab_id", tab.id)
+      .is("deleted_at", null)
+      .contains("data", { releaseId })
+      .maybeSingle();
+    if (dupe) {
+      setSubmitting(false);
+      setError("A Phụ Lục ticket for this release already exists — only one is allowed per release.");
       return;
     }
     const { error: insertErr } = await supabase.from("tickets").insert({

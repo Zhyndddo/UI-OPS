@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { isTicketDone } from "../../lib/helpers";
 import { useAuth } from "../../lib/AuthContext";
-import { TEAMS, TEAM_TICKET_TYPES, TICKET_TYPE_LABELS, SHARED_TICKET_TYPES } from "../../lib/teamTypes";
+import { REPORTING_TEAMS, TEAM_TICKET_TYPES, TICKET_TYPE_LABELS, SHARED_TICKET_TYPES, resolveTeamKey } from "../../lib/teamTypes";
 import styles from "../shared.module.css";
 
 // New Release "done" logic, per the agreed exceptions:
@@ -79,7 +79,10 @@ export default function SummaryPage() {
     // dev-only catch-all tab) still shows every type; picking one team
     // narrows to just that team's types, same as a real admin/exc sees
     // for their own team below.
-    const visibleTypes = effectiveTeam === "All" ? ticketTabs.map((t) => t.key) : [...(TEAM_TICKET_TYPES[effectiveTeam] || []), ...SHARED_TICKET_TYPES];
+    // resolveTeamKey folds a real Youtube/Publishing/Operation profile's
+    // segment onto TEAM_TICKET_TYPES's "OPS" entry — that mapping is still
+    // keyed by the aggregate, not by the three sub-teams individually.
+    const visibleTypes = effectiveTeam === "All" ? ticketTabs.map((t) => t.key) : [...(TEAM_TICKET_TYPES[resolveTeamKey(effectiveTeam)] || []), ...SHARED_TICKET_TYPES];
 
     return visibleTypes.map((key) => {
       const typeTickets = tickets.filter((t) => tabById[t.tab_id] === key);
@@ -107,7 +110,11 @@ export default function SummaryPage() {
         {isDev ? (
           <>
             <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
-              {["All", ...TEAMS].map((t) => (
+              {/* OPS shown as ONE combined tab here (REPORTING_TEAMS, not
+                  the real assignable TEAMS list) — per explicit request,
+                  it's "the name to represent the other 3 in any counting
+                  and reporting and summarizing," not three separate tabs. */}
+              {["All", ...REPORTING_TEAMS].map((t) => (
                 <button
                   key={t}
                   onClick={() => setViewTeam(t)}
