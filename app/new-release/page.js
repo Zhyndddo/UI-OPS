@@ -4,7 +4,7 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
-import { GateFields, GateToggle, GateGrid, PROJECT_PROPOSAL_FIELD } from "../../lib/GateFields";
+import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS } from "../../lib/GateFields";
 import QuickCreate from "../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../lib/ReferenceInputs";
 import { buildLinkshareNote, defaultLinkshareFacebookTiming, defaultLinkshareTiktokTiming, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS } from "../../lib/releaseNotes";
@@ -667,9 +667,12 @@ export default function NewReleasePage() {
               </div>
             ))}
           </div>
-          {/* Project Proposal — separated from the request groups below,
-              rendered right under Metadata Checklist per the regroup. */}
-          <GateGrid styles={styles} fields={PROJECT_PROPOSAL_FIELD} form={form} update={update} />
+          {/* Marketing Checklist — rendered directly under Metadata
+              Checklist (not inside GateFields) per follow-up feedback: the
+              whole group belongs here, not split with Project Proposal
+              alone up here and Artist Info/Artist Photo left below. */}
+          <div className={styles.subheading}>Marketing Checklist</div>
+          <GateGrid styles={styles} fields={MARKETING_CHECKLIST_FIELDS} form={form} update={update} />
 
           <GateFields
             styles={styles}

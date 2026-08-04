@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, formatDetailText } from "../../../lib/helpers";
-import { GateFields, GateToggle, GateGrid, PROJECT_PROPOSAL_FIELD } from "../../../lib/GateFields";
+import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS } from "../../../lib/GateFields";
 import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import UrlField from "../../../lib/UrlField";
@@ -993,9 +993,12 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         * Required for Send Upload (Audio, Artwork, Lyric, Metadata). Working Files and MV are tracked here but don't block the ticket. TBU counts the same as No for gating — it's not done yet.
       </p>
 
-      {/* Project Proposal — separated from the request groups below,
-          rendered right under Metadata Checklist per the regroup. */}
-      <GateGrid styles={styles} fields={PROJECT_PROPOSAL_FIELD} form={form} update={update} />
+      {/* Marketing Checklist — rendered directly under Metadata Checklist
+          (not inside GateFields) per follow-up feedback: the whole group
+          belongs here, not split with Project Proposal alone up here and
+          Artist Info/Artist Photo left below in the request section. */}
+      <div className={styles.subheading}>Marketing Checklist</div>
+      <GateGrid styles={styles} fields={MARKETING_CHECKLIST_FIELDS} form={form} update={update} />
 
       {/* "Other Checklist" (Sony Publish/Publishing/Splitshare/Request Phụ
           Lục as plain Yes/No) removed — it duplicated fields that now live

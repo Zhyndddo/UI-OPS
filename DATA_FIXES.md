@@ -2278,3 +2278,27 @@ Migration delivered separately: `add-label-contract-signed-and-artist-portfolio-
 folded into `schema.sql` for fresh installs). Verified with
 `tsc --jsx react --allowJs --checkJs false` against all 5 touched files
 before sending — zero syntax errors.
+
+## 2026-08-04 (18) — Follow-up: Marketing Checklist placement + Marketing Request order
+
+Two small corrections to round 17's regroup, from screenshots:
+
+**Marketing Checklist placement.** Round 17 pulled Project Proposal out
+of the Marketing Checklist group on its own, rendering it right under
+Metadata Checklist while Artist Info/Artist Photo stayed further down
+next to Data Request — a literal read of the original "Project Proposal
+-> move this to right under metadata checklist" line, but not what was
+meant. Corrected: Project Proposal is back inside
+`MARKETING_CHECKLIST_FIELDS` (`lib/GateFields.js`), and the whole
+Marketing Checklist group (all 3 fields, with its own subheading) now
+renders directly under Metadata Checklist on both `app/new-release/page.js`
+and `app/releases/[id]/page.js`, no longer inside `<GateFields>` at all —
+`<GateFields>` now starts straight with Data Request. Removed the
+now-unnecessary `PROJECT_PROPOSAL_FIELD` single-field export.
+
+**Marketing Request order.** Design and Gói Hỗ Trợ Truyền Thông swapped —
+Design now renders first, matching the originally-intended listing order.
+Pure display-order change in `MARKETING_REQUEST_FIELDS`, no logic touched.
+
+Verified with `tsc --jsx react --allowJs --checkJs false` against all 3
+touched files before sending — zero syntax errors.
