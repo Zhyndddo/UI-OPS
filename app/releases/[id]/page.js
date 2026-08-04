@@ -11,7 +11,7 @@ import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import UrlField from "../../../lib/UrlField";
 import { validateLabelNameEdit } from "../../../lib/labelHelpers";
-import { TICKET_TYPE_LABELS } from "../../../lib/teamTypes";
+import { TICKET_TYPE_LABELS, TEAMS } from "../../../lib/teamTypes";
 import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
 
@@ -614,40 +614,46 @@ export default function ReleaseDetailPage() {
           ← Back to New Release
         </Link>
 
-        <div style={{ marginBottom: 20 }}>
-          <div className={styles.eyebrow}>{form.did || "—"}</div>
-          {firstUrl(form.link_lbm) ? (
-            <a
-              href={firstUrl(form.link_lbm)}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ display: "block", textDecoration: "none" }}
-              title={firstUrl(form.link_lbm)}
-            >
-              <h1 className={styles.title} style={{ marginBottom: 4, color: "inherit" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20, alignItems: "start", marginBottom: 20 }}>
+          <div>
+            <div className={styles.eyebrow}>{form.did || "—"}</div>
+            {firstUrl(form.link_lbm) ? (
+              <a
+                href={firstUrl(form.link_lbm)}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: "block", textDecoration: "none" }}
+                title={firstUrl(form.link_lbm)}
+              >
+                <h1 className={styles.title} style={{ marginBottom: 4, color: "inherit" }}>
+                  {form.title} — {form.main_artist}
+                </h1>
+              </a>
+            ) : (
+              <h1 className={styles.title} style={{ marginBottom: 4 }}>
                 {form.title} — {form.main_artist}
               </h1>
-            </a>
-          ) : (
-            <h1 className={styles.title} style={{ marginBottom: 4 }}>
-              {form.title} — {form.main_artist}
-            </h1>
-          )}
-          <div style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: form.upc ? 4 : 14 }}>
-            {form.release_date} {form.release_time}
-          </div>
-          {form.upc && (
-            <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 14 }}>
-              UPC: <span style={{ color: "var(--text-faint)" }}>{form.upc}</span>
+            )}
+            <div style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: form.upc ? 4 : 14 }}>
+              {form.release_date} {form.release_time}
             </div>
-          )}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <LinkPill label="Link Drive" href={firstUrl(form.drive_link)} />
-            <span style={{ color: "#444" }}>|</span>
-            <LinkPill label="Smartlink" href={firstUrl(form.smartlink)} />
-            <span style={{ color: "#444" }}>|</span>
-            <LinkPill label="Magic Link" href={magicLinkUrl} />
+            {form.upc && (
+              <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 14 }}>
+                UPC: <span style={{ color: "var(--text-faint)" }}>{form.upc}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <LinkPill label="Link Drive" href={firstUrl(form.drive_link)} />
+              <span style={{ color: "#444" }}>|</span>
+              <LinkPill label="Smartlink" href={firstUrl(form.smartlink)} />
+              <span style={{ color: "#444" }}>|</span>
+              <LinkPill label="Magic Link" href={magicLinkUrl} />
+              <span style={{ color: "#444" }}>|</span>
+              <LinkPill label="Promotion Package" href={firstUrl(form.promotion_package_url)} />
+            </div>
           </div>
+
+          <ReleaseNotePanel note={form.brief} />
         </div>
 
         {error && <div className={styles.errorBox}>{error}</div>}
@@ -696,6 +702,9 @@ export default function ReleaseDetailPage() {
         {tab === "media_booking" && (
           <MediaBookingTab
             form={form}
+            update={update}
+            onSave={saveTab}
+            saving={saving}
             entries={bookingEntries}
             categories={bookingCategories}
             packageItems={packageItems}
@@ -763,6 +772,58 @@ function LinkPill({ label, href }) {
       {dot}
       {label}
     </a>
+  );
+}
+
+// Top-right note panel, sitting next to the header — same two-pane shape
+// as the notification bell dropdown (lib/NotificationBell.js: fixed-width
+// list on the left, content on the right). Per explicit decision, the note
+// itself is a SINGLE shared field (releases.brief — same "Next Step Note"
+// edited at the bottom of the Overview tab, see PreReleaseTab/OverviewTab)
+// rather than one note per team, so clicking a different team here doesn't
+// change what's shown — it's just which team's "view" you're browsing
+// from, matching every team seeing the same note today. Read-only here;
+// editing happens via the Next Step Note field near Save on Overview.
+// "possibly the ticket in the future too" (per the original request) is a
+// noted extension point, not built yet — there's no per-ticket note source
+// to pull from at the moment.
+function ReleaseNotePanel({ note }) {
+  const [selectedTeam, setSelectedTeam] = useState(TEAMS[0]);
+  return (
+    <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden", height: 140 }}>
+      <div style={{ width: 100, flexShrink: 0, borderRight: "1px solid var(--border)", overflowY: "auto", background: "var(--bg-card)" }}>
+        {TEAMS.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setSelectedTeam(t)}
+            style={{
+              display: "block",
+              width: "100%",
+              textAlign: "left",
+              padding: "8px 10px",
+              fontSize: 11,
+              fontWeight: selectedTeam === t ? 700 : 400,
+              border: "none",
+              cursor: "pointer",
+              background: selectedTeam === t ? "var(--bg-hover)" : "transparent",
+              color: selectedTeam === t ? "var(--accent)" : "var(--text-muted)",
+              borderLeft: selectedTeam === t ? "2px solid var(--accent)" : "2px solid transparent",
+            }}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      <div style={{ flex: 1, minWidth: 0, padding: 10, overflowY: "auto" }}>
+        <div style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>
+          {selectedTeam} — NOTE
+        </div>
+        <div style={{ fontSize: 12, color: note ? "var(--text-muted)" : "var(--text-faint)", whiteSpace: "pre-wrap" }}>
+          {note || "No note yet — edit it from the Next Step Note field on Overview."}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1123,6 +1184,14 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           onSendPitchingInfoTicket={onSendPitchingInfoTicket}
         />
 
+        {/* Moved here from the old "Pre-release & Note" tab, right before
+            Save, per explicit request — this is the same releases.brief
+            field shown (read-only) in the note panel next to the header. */}
+        <div className={styles.subheading}>Next Step Note</div>
+        <Field label="">
+          <textarea className={styles.textarea} value={form.brief || ""} onChange={(e) => update("brief", e.target.value)} placeholder="Tình trạng data, xác nhận gói HTTT..." />
+        </Field>
+
         <SaveBar onSave={onSave} saving={saving} />
       </div>
     </div>
@@ -1220,6 +1289,11 @@ function UrlTab({ form, update, onSave, saving, did, releaseId }) {
     ["artist_photo_url", "Artist Photo URL"],
     ["project_proposal_url", "Project Proposal URL"],
     ["drive_link", "Link Drive"],
+    // Taken from / linked with the same column edited on the Pre-release
+    // Workstation (app/workstation/pre-release/page.js) — that page still
+    // has its own edit surface too; this is an added edit surface on the
+    // detail page's URL tab, not a move.
+    ["musixmatch_link", "Musixmatch URL"],
   ];
   const plStatus = phuLucStatusClient(form);
   return (
@@ -1415,7 +1489,7 @@ function resolveBookingRound(form) {
   return null;
 }
 
-function MediaBookingTab({ form, entries, categories, packageItems, mediaBookingTicket, sectionRef }) {
+function MediaBookingTab({ form, update, onSave, saving, entries, categories, packageItems, mediaBookingTicket, sectionRef }) {
   const round = resolveBookingRound(form);
   const roundEntries = round ? entries.filter((e) => e.booking_round === round) : [];
   const feedbackText = mediaBookingTicket?.data?.feedback?.text;
@@ -1521,6 +1595,25 @@ function MediaBookingTab({ form, entries, categories, packageItems, mediaBooking
           Booking links will show here once a package is picked (or, for Chỉ Phát Hành, once an INT MEDIA follow-up is sent).
         </p>
       )}
+
+      {/* Moved here from the old "Pre-release & Note" tab — Phụ Lục is a
+          Booking-side deliverable, this tab is where it belongs. */}
+      <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+        <div className={styles.subheading} style={{ marginTop: 0 }}>Phụ Lục (Booking)</div>
+        <div className={styles.grid2}>
+          <Field label="Ngày Gửi">
+            <input type="date" className={styles.input} value={form.phu_luc_ngay_gui || ""} onChange={(e) => update("phu_luc_ngay_gui", e.target.value)} />
+          </Field>
+          <Field label="Ngày Ký">
+            <input type="date" className={styles.input} value={form.phu_luc_ngay_ky || ""} onChange={(e) => update("phu_luc_ngay_ky", e.target.value)} />
+          </Field>
+        </div>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -8, marginBottom: 0 }}>
+          Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{phuLucStatusClient(form)}</span>
+          {" — "}{phuLucNextStep(form)}
+        </p>
+        <SaveBar onSave={onSave} saving={saving} />
+      </div>
     </div>
   );
 }
@@ -1621,24 +1714,9 @@ function PreReleaseTab({ form, update, onSave, saving }) {
         <ReadOnlyField label="NCT Lyric" value={form.nct_lyric} />
       </div>
 
-      <div className={styles.subheading}>Phụ Lục (Booking)</div>
-      <div className={styles.grid2}>
-        <Field label="Ngày Gửi">
-          <input type="date" className={styles.input} value={form.phu_luc_ngay_gui || ""} onChange={(e) => update("phu_luc_ngay_gui", e.target.value)} />
-        </Field>
-        <Field label="Ngày Ký">
-          <input type="date" className={styles.input} value={form.phu_luc_ngay_ky || ""} onChange={(e) => update("phu_luc_ngay_ky", e.target.value)} />
-        </Field>
-      </div>
-      <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
-        Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{phuLucStatusClient(form)}</span>
-        {" — "}{phuLucNextStep(form)}
-      </p>
-
-      <div className={styles.subheading}>Next Step Note</div>
-      <Field label="">
-        <textarea className={styles.textarea} value={form.brief || ""} onChange={(e) => update("brief", e.target.value)} placeholder="Tình trạng data, xác nhận gói HTTT..." />
-      </Field>
+      {/* Phụ Lục (Booking) moved to the Media Booking tab, and Next Step
+          Note moved to the bottom of Overview (right before Save) — both
+          per explicit request. */}
 
       <div className={styles.subheading}>Linkshare Note</div>
       <div className={styles.grid2}>

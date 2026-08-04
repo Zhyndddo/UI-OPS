@@ -55,7 +55,7 @@ export default function PitchingWorkstation() {
     if (dids.length > 0) {
       const { data: rels } = await supabase
         .from("releases")
-        .select("id, did, title, main_artist, release_date, release_time, upc, priority_pitching, isrc, apple_id, pitching_status_spotify, pitching_status_nct, pitching_status_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo")
+        .select("id, did, title, main_artist, release_date, release_time, upc, priority_pitching, isrc, apple_id, pitching_status_spotify, pitching_status_nct, pitching_status_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo, pitching_note")
         .in("did", dids);
       (rels || []).forEach((r) => (releaseMap[r.did] = r));
     }
@@ -170,6 +170,7 @@ export default function PitchingWorkstation() {
                   </SortableTh>
                   <th>Requested</th>
                   <th>PIC</th>
+                  <th>Note</th>
                 </tr>
               </thead>
               <tbody>
@@ -207,6 +208,18 @@ export default function PitchingWorkstation() {
                           <option value="">— Unassigned —</option>
                           {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                         </select>
+                      </td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        {row.release ? (
+                          <input
+                            className={styles.input}
+                            style={{ minWidth: 140 }}
+                            defaultValue={row.release.pitching_note || ""}
+                            onBlur={(e) => updateRelease(row.release, "pitching_note", e.target.value)}
+                          />
+                        ) : (
+                          <span style={{ color: "var(--text-faint)" }}>—</span>
+                        )}
                       </td>
                     </tr>
                   );

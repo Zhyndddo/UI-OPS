@@ -69,7 +69,7 @@ export default function PreReleaseWorkstation() {
     setLoading(true);
     const { data: rels } = await supabase
       .from("releases")
-      .select("id, did, title, main_artist, release_date, release_time, canva_mv_status, canva_status, artist_pick_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric");
+      .select("id, did, title, main_artist, release_date, release_time, canva_mv_status, canva_status, artist_pick_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric, pre_release_note");
     setReleases(rels || []);
 
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
@@ -161,6 +161,7 @@ export default function PreReleaseWorkstation() {
                   <th style={{ borderLeft: "1px solid var(--border)" }}>NCT Lyric</th>
                   <th>Zing Lyric</th>
                   <th>PIC</th>
+                  <th>Note</th>
                 </tr>
               </thead>
               <tbody>
@@ -222,6 +223,9 @@ function PreReleaseRow({ release, pic, isOverride, profiles, onUpdateField, onUp
           <option value="">— Unassigned —</option>
           {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
+      </td>
+      <td>
+        <input className={styles.input} style={{ minWidth: 140 }} defaultValue={release.pre_release_note || ""} onBlur={(e) => onUpdateField(release, "pre_release_note", e.target.value)} />
       </td>
     </tr>
   );

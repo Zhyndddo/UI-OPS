@@ -2302,3 +2302,77 @@ Pure display-order change in `MARKETING_REQUEST_FIELDS`, no logic touched.
 
 Verified with `tsc --jsx react --allowJs --checkJs false` against all 3
 touched files before sending — zero syntax errors.
+
+## 2026-08-04 (19) — Sidebar order fix, header additions, tab reshuffle, per-workstation notes
+
+Five separate requests.
+
+**1. Khác sidebar position.** Turned out to be real, once pinned down —
+`lib/Sidebar.js`'s `navItems` spliced Khác in at a fixed position
+(`num: "05"`) BEFORE `AR_NAV` (Artist List/Label List, "06"/"07"), so for
+AR users/dev it sat above the artist/label reference shortcuts instead of
+below everything. Fixed: `navItems` now builds `[...NAV, ...(showArNav ?
+AR_NAV : []), khacItem]` — Khác always last regardless of whether AR_NAV
+renders — and every item's `num` is now assigned by final array position
+(`String(i + 1).padStart(2, "0")`) instead of being hardcoded per item, so
+this stays correct if the nav ever grows. (Tickets index page's ordering,
+`app/tickets/page.js`, was already correct — `SHARED_TICKET_TYPES`
+appended last — no change needed there.)
+
+**2a. Promotion Package header link.** Added a `LinkPill` for
+`form.promotion_package_url` (an existing column, already editable on the
+URL tab) next to Link Drive/Smartlink/Magic Link in the release detail
+page's header.
+
+**2b. Note panel next to the header.** New `ReleaseNotePanel` component,
+same two-pane shape as the notification bell dropdown
+(`lib/NotificationBell.js`: fixed-width list left, content right) — left
+pane lists all 4 teams (`TEAMS` from `lib/teamTypes.js`), click to
+highlight; right pane shows the note. Per explicit decision, this is a
+**single shared note** (`releases.brief` — the same field edited at the
+bottom of Overview, see below) rather than one note per team, so which
+team is selected only changes the highlighted pill, not the content
+shown — every team already sees the same note today. Read-only here;
+editing happens via Next Step Note on Overview. The header itself is now
+a `2fr 1fr` grid: existing header content on the left, this panel on the
+right.
+
+**3. Pre-release & Note tab reshuffle.**
+- Phụ Lục (Ngày Gửi/Ngày Ký date pair + status line) moved from
+  `PreReleaseTab` to `MediaBookingTab` — it's a Booking-side deliverable,
+  that tab is where it belongs. `MediaBookingTab` didn't have
+  `update`/`onSave`/`saving` wired in before (it was 100% read-only) —
+  added those props plus a `SaveBar`, both at the component and its call
+  site.
+- Next Step Note (`releases.brief` textarea) moved from `PreReleaseTab`
+  to the very bottom of `OverviewTab`, right before its `SaveBar` — same
+  field shown read-only in the new header note panel (2b above).
+
+**4. Musixmatch URL on the URL tab.** Added `["musixmatch_link",
+"Musixmatch URL"]` to `UrlTab`'s `urlFields` array — same `UrlField`
+pattern as every other URL there. This is a genuinely new edit surface on
+the detail page (the field was previously only editable on the
+Pre-release Workstation, and shown read-only in Pre-release & Note) — the
+Workstation's own edit surface is untouched.
+
+**5. Note column per workstation.** Added an independent (not shared
+with any other field) Note column to Pitching (`pitching_note`), Confirm
+(`confirm_note` — same field, shown in both Phase 1 and Phase 2 tables),
+Pre-release (`pre_release_note`), and Booking Board (`booking_note`, a
+fixed column next to Result so it doesn't shift around with the
+Hạng-Mục-dependent dynamic columns). Deliberately **not** touched:
+- **Upload** already has a Note affordance (the 📝 button bound to
+  `releases.brief`, same field as Next Step Note) — left as-is rather
+  than converted, since that popup also edits linkshare timing and
+  rebuilding it risked regressing that unrelated feature.
+- **Stream** already has its own note column
+  (`release_stream_metrics.stream_note`, pre-existing) — nothing to add.
+- **Milestone** has no per-release row table to attach a note to (its
+  tables are keyed by chart entry, not by release) — skipped.
+- **Package Price** is still an unbuilt placeholder page — skipped.
+
+Migration delivered separately: `add-round19-notes-and-header-fields.sql`
+(adds `releases.pitching_note`/`confirm_note`/`pre_release_note`/
+`booking_note`; also folded into `schema.sql`). Verified with
+`tsc --jsx react --allowJs --checkJs false` against all 6 touched files
+before sending — zero syntax errors.

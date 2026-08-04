@@ -142,7 +142,7 @@ export default function BookingBoard() {
     setLoading(true);
     const { data: rels } = await supabase
       .from("releases")
-      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked")
+      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note")
       .order("release_date", { ascending: false });
     const { data: ents } = await supabase.from("media_booking_entries").select("*");
     const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
@@ -160,6 +160,11 @@ export default function BookingBoard() {
     setDot2ReleaseIds(new Set((targets || []).map((t) => t.release_id)));
     setBookingChannels(chans || []);
     setLoading(false);
+  }
+
+  async function updateReleaseNote(release, value) {
+    setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, booking_note: value } : r)));
+    await supabase.from("releases").update({ booking_note: value }).eq("id", release.id);
   }
 
   // Mirrors phu_luc_status() in schema.sql
@@ -586,6 +591,10 @@ export default function BookingBoard() {
                 <th style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288 }}>Release</th>
                 <th style={{ borderRight: "2px solid var(--accent)", width: 154, minWidth: 154, maxWidth: 154 }}>Package</th>
                 <th style={{ borderRight: "2px solid var(--accent)" }}>Result</th>
+                {/* Fixed column, next to Result — kept out of the dynamic
+                    per-Hạng-Mục column set below so it stays in the same
+                    place regardless of which filter is active. */}
+                <th style={{ borderRight: "2px solid var(--accent)", width: 140, minWidth: 140 }}>Note</th>
                 {columns.map((c, i) => {
                   const prev = columns[i - 1];
                   const isGroupStart = prev && prev.categoryName !== c.categoryName;
@@ -634,6 +643,14 @@ export default function BookingBoard() {
                   </td>
                   <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)" }}>
                     <ResultCell release={r} categories={categories} bookedFor={bookedFor} entries={roundEntries} categoryIdByName={categoryIdByName} />
+                  </td>
+                  <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 140, minWidth: 140 }}>
+                    <input
+                      className={styles.input}
+                      style={{ width: "100%", boxSizing: "border-box" }}
+                      defaultValue={r.booking_note || ""}
+                      onBlur={(e) => updateReleaseNote(r, e.target.value)}
+                    />
                   </td>
                   {columns.map((c, i) => {
                     const prev = columns[i - 1];
