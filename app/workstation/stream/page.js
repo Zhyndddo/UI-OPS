@@ -6,6 +6,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
+import { buildStreamNote } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
 
 // The real v1 "Stream" component (STREAM_COLS_DEF in app.js) — manually
@@ -331,7 +332,14 @@ function StreamTable({ rows, onUpdate, onRemove, onLink, manual }) {
                 </td>
               ))}
               <td style={{ minWidth: 140, padding: "3px 4px" }}>
-                <input className={styles.input} style={{ padding: "3px 6px", fontSize: 11 }} defaultValue={row.metrics.stream_note || ""} onBlur={(e) => onUpdate(row, "stream_note", e.target.value)} />
+                {/* stream_note itself stays free text — this is a
+                    DIFFERENT thing, per explicit feedback: a live-computed
+                    preview built from this row's own metric columns (same
+                    formula as the team's Google Sheet, see
+                    lib/releaseNotes.js's buildStreamNote), offered as
+                    something to copy in rather than silently overwriting
+                    whatever's already been typed. */}
+                <StreamNoteCell row={row} onUpdate={onUpdate} />
               </td>
               {manual && (
                 <td>
@@ -342,6 +350,51 @@ function StreamTable({ rows, onUpdate, onRemove, onLink, manual }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// stream_note stays a plain free-text input (unchanged), edited on blur
+// same as every other cell here. Underneath it, a small "Auto note"
+// button reveals the live-computed buildStreamNote() text for this row —
+// click "Use this" to fill it into the field above (overwrites whatever
+// was there), or just leave it as reference and keep typing manually.
+// Never auto-fills on its own — the metrics can be edited before a real
+// note is wanted, and nothing here should silently clobber a manual note.
+function StreamNoteCell({ row, onUpdate }) {
+  const [open, setOpen] = useState(false);
+  const generated = buildStreamNote(row.metrics);
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        className={styles.input}
+        style={{ padding: "3px 6px", fontSize: 11 }}
+        defaultValue={row.metrics.stream_note || ""}
+        onBlur={(e) => onUpdate(row, "stream_note", e.target.value)}
+      />
+      {generated && (
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          style={{ background: "none", border: "none", color: "var(--accent-soft)", fontSize: 10, cursor: "pointer", padding: "2px 0" }}
+        >
+          {open ? "▾" : "▸"} Auto note
+        </button>
+      )}
+      {open && generated && (
+        <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 5, width: 220, background: "var(--bg-hover)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: 8 }}>
+          <pre style={{ margin: 0, fontSize: 11, color: "var(--text-muted)", whiteSpace: "pre-wrap" }}>{generated}</pre>
+          <button
+            type="button"
+            className={styles.btnSmall}
+            style={{ marginTop: 6, width: "100%" }}
+            onClick={() => { onUpdate(row, "stream_note", generated); setOpen(false); }}
+          >
+            Use this
+          </button>
+        </div>
+      )}
     </div>
   );
 }

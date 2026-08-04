@@ -2376,3 +2376,40 @@ Migration delivered separately: `add-round19-notes-and-header-fields.sql`
 `booking_note`; also folded into `schema.sql`). Verified with
 `tsc --jsx react --allowJs --checkJs false` against all 6 touched files
 before sending — zero syntax errors.
+
+## 2026-08-04 (20) — Follow-up: Upload Note relabel + Streaming's real auto-composed note
+
+Two corrections to round 19's item 5, from explicit feedback.
+
+**Upload Note relabel.** The existing Upload workstation note (📝 button,
+bound to `releases.brief`) is deliberately different from the new
+independent Note columns — per feedback, just needed a clearer label so
+it doesn't read as the same thing. `app/workstation/upload/page.js`'s
+table header changed from "Note" to "Upload Note", and the button's hover
+title from "Note — ..." to "Upload Note — ...". No behavior change.
+
+**Streaming's real note.** Turns out `stream_note` (the plain free-text
+field already on `release_stream_metrics`) isn't what was meant by
+"streaming note" at all — the team has a Google Sheets formula that
+*computes* a note straight from a row's own metric columns (Spotify/
+Tiktok views+creations/Youtube/Youtube Music/Zing/NCT), formatted with
+K/M/B suffixes. Ported that formula literally into a new
+`buildStreamNote(m)` in `lib/releaseNotes.js` (full LET/LAMBDA source
+kept in a comment above it for reference) — same K/M/B rounding, same
+line order, same "blank if all 6 current-metrics are zero" gate, and the
+same quirk where the Tiktok creations suffix still appends even if the
+Tiktok views line itself is blank (kept exactly as the sheet computes it,
+not "fixed").
+
+This is offered as a **preview**, not an auto-fill — `stream_note` itself
+stays exactly as it was (plain input, edited on blur, never touched by
+this). `StreamTable`'s Note cell in `app/workstation/stream/page.js` now
+has a small "▸ Auto note" toggle underneath the input; opening it shows
+the live-computed text for that row with a "Use this" button that copies
+it into the field. Nothing fires automatically — a manually-typed note
+is never silently overwritten by a metrics change.
+
+No schema change this round (`buildStreamNote` is pure computation over
+already-loaded metric columns). Verified with
+`tsc --jsx react --allowJs --checkJs false` against all 3 touched files
+before sending — zero syntax errors.

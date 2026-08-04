@@ -170,7 +170,12 @@ export default function UploadWorkstation() {
                   <th>Link Share</th>
                   <th>Smartlink</th>
                   <th>Pre-order</th>
-                  <th>Note</th>
+                  {/* Renamed from plain "Note" — this is the existing
+                      brief-backed popup (product note + linkshare timing),
+                      distinct from the independent Note columns added to
+                      Pitching/Confirm/Pre-release/Booking. Label change
+                      only, no behavior change. */}
+                  <th>Upload Note</th>
                   <SortableTh label="Upload Status" sortKey="upload_status" sort={sort} onToggle={toggleSort} />
                   <th title={defaultPic ? `Default: ${profiles.find((p) => p.id === defaultPic)?.name}` : "No default set"}>PIC</th>
                 </tr>
@@ -269,7 +274,7 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateFiel
           <button
             type="button"
             onClick={() => onOpenNote("product")}
-            title="Note — Link Drive, Smartlink, UPC, etc."
+            title="Upload Note — Link Drive, Smartlink, UPC, etc."
             style={{ background: "none", border: "none", color: "var(--accent-soft)", cursor: "pointer", fontSize: 16, padding: 0 }}
           >
             📝
