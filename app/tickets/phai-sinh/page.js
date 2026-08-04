@@ -6,6 +6,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
+import { isOpsTeam } from "../../../lib/teamTypes";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import LinkOrEditCell from "../../../lib/LinkOrEditCell";
 import { usePagination } from "../../../lib/usePagination";
@@ -28,7 +29,7 @@ export default function PhaiSinhList() {
   const [statusFilter, setStatusFilter] = useState(null);
   const [relatedReleases, setRelatedReleases] = useState({}); // did -> release (gate_split_share/gate_phu_luc_publishing only)
 
-  const isExecutorView = !profile?.segment || profile.segment === "OPS";
+  const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
 
   useEffect(() => {
     if (!supabase) return;

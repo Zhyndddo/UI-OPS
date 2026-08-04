@@ -14,6 +14,8 @@ import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import { MV_TYPE_OPTIONS } from "../../../lib/pickerOptions";
+import SonyPublishLockRow from "../../../lib/SonyPublishLockRow";
+import { useSonyPublishDids } from "../../../lib/useSonyPublishDids";
 import styles from "../../shared.module.css";
 
 // Field labels swapped per the redesign: the column that used to show as
@@ -60,6 +62,7 @@ export default function PreReleaseWorkstation() {
   const [assignments, setAssignments] = useState({});
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
+  const sonyPublishDids = useSonyPublishDids();
 
   useEffect(() => {
     if (!supabase) return;
@@ -166,17 +169,21 @@ export default function PreReleaseWorkstation() {
                 </tr>
               </thead>
               <tbody>
-                {pagedReleases.map((r) => (
-                  <PreReleaseRow
-                    key={r.id}
-                    release={r}
-                    pic={assignments[r.id] ?? defaultPic}
-                    isOverride={assignments[r.id] != null}
-                    profiles={profiles}
-                    onUpdateField={updateField}
-                    onUpdatePic={updatePic}
-                  />
-                ))}
+                {pagedReleases.map((r) =>
+                  sonyPublishDids.has(r.did) ? (
+                    <SonyPublishLockRow key={r.id} colSpan={10} />
+                  ) : (
+                    <PreReleaseRow
+                      key={r.id}
+                      release={r}
+                      pic={assignments[r.id] ?? defaultPic}
+                      isOverride={assignments[r.id] != null}
+                      profiles={profiles}
+                      onUpdateField={updateField}
+                      onUpdatePic={updatePic}
+                    />
+                  )
+                )}
               </tbody>
             </table>
             </div>
@@ -195,8 +202,14 @@ function PreReleaseRow({ release, pic, isOverride, profiles, onUpdateField, onUp
   return (
     <tr>
       <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}>
-        <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
-        <div style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{release.main_artist} · {release.did} · {fmtDate(release.release_date)} {release.release_time}</div>
+        {/* Explicit 3-line layout per explicit request — Name / Artist &
+            DID / Release date + time — instead of one run-on line, for
+            clarity and so each line stays short enough to not wrap. */}
+        <div style={{ whiteSpace: "nowrap" }}>
+          <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{release.main_artist} · {release.did}</div>
+        <div style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{fmtDate(release.release_date)} {release.release_time}</div>
       </td>
       <td>
         <PickSelect styles={styles} opts={CANVA_OPTS} value={release.canva_mv_status} onChange={(v) => onUpdateField(release, "canva_mv_status", v)} />

@@ -5,6 +5,8 @@ import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, uploadPercent } from "../../../lib/helpers";
+import SonyPublishLockRow from "../../../lib/SonyPublishLockRow";
+import { useSonyPublishDids } from "../../../lib/useSonyPublishDids";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import StatusCounter from "../../../lib/StatusCounter";
@@ -32,6 +34,7 @@ export default function UploadWorkstation() {
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
   const [notePopup, setNotePopup] = useState(null); // { release, kind: "product" | "linkshare" } | null
+  const sonyPublishDids = useSonyPublishDids();
 
   useEffect(() => {
     if (!supabase) return;
@@ -184,19 +187,23 @@ export default function UploadWorkstation() {
                 </tr>
               </thead>
               <tbody>
-                {pagedReleases.map((r) => (
-                  <UploadRow
-                    key={r.id}
-                    release={r}
-                    pic={assignments[r.id] ?? defaultPic}
-                    isOverride={assignments[r.id] != null}
-                    profiles={profiles}
-                    highlight={isThisWeekOrNext(r.release_date)}
-                    onUpdateField={updateField}
-                    onUpdatePic={updatePic}
-                    onOpenNote={(kind) => setNotePopup({ release: r, kind })}
-                  />
-                ))}
+                {pagedReleases.map((r) =>
+                  sonyPublishDids.has(r.did) ? (
+                    <SonyPublishLockRow key={r.id} colSpan={7} />
+                  ) : (
+                    <UploadRow
+                      key={r.id}
+                      release={r}
+                      pic={assignments[r.id] ?? defaultPic}
+                      isOverride={assignments[r.id] != null}
+                      profiles={profiles}
+                      highlight={isThisWeekOrNext(r.release_date)}
+                      onUpdateField={updateField}
+                      onUpdatePic={updatePic}
+                      onOpenNote={(kind) => setNotePopup({ release: r, kind })}
+                    />
+                  )
+                )}
               </tbody>
             </table>
             </div>

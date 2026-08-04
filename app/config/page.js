@@ -11,7 +11,12 @@ const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
 // "Remarketing"), hardcoded directly in the New Release form and release
 // detail page — not admin-configurable via lookup_options anymore.
 const ROLES = ["exc", "admin", "dev"];
-const TEAMS = ["AR", "Marketing", "OPS", "Design", "Legal"];
+// "OPS" split into Youtube/Publishing/Operation per explicit request — OPS
+// itself is intentionally excluded here (hidden from the profile create/
+// reassign dropdown), it's now a hidden aggregate elsewhere in the app
+// (see lib/teamTypes.js's OPS_SUB_TEAMS/isOpsTeam/resolveTeamKey). Must
+// match lib/teamTypes.js's TEAMS export — see that file's header comment.
+const TEAMS = ["AR", "Marketing", "Design", "Youtube", "Publishing", "Operation", "Legal"];
 
 export default function ConfigPage() {
   const { profile } = useAuth();
@@ -34,6 +39,7 @@ export default function ConfigPage() {
               ["platforms", "Platforms"],
               ["designTypes", "Design Types"],
               ["sizes", "Sizes"],
+              ["artistProfileLinks", "Artist Profile Links"],
               ...(isDev ? [["notifications", "Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
             ].map(([key, label]) => (
               <button
@@ -54,6 +60,7 @@ export default function ConfigPage() {
           {section === "platforms" && <PlatformsSection />}
           {section === "designTypes" && <DesignTypesSection />}
           {section === "sizes" && <SizesSection />}
+          {section === "artistProfileLinks" && <ArtistProfileLinksSection />}
           {section === "notifications" && isDev && <NotificationsSection />}
           {section === "sessions" && isDev && <SessionsSection />}
           {section === "sidebarLabel" && isDev && <SidebarLabelSection />}
@@ -1082,6 +1089,61 @@ function SessionsSection() {
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+// Not dev-only (unlike the sections below it) — these two URLs are
+// exactly the kind of thing an exc/admin needs to fix on short notice
+// (per explicit request: "3rd party sometime change their url"), not
+// something that should need a dev around to update. Read by the Artist
+// Profile ticket page's two external-link buttons (app/tickets/
+// artist-profile/page.js) via app_settings key "artist_profile_links",
+// shape { spotify: string, apple: string }.
+function ArtistProfileLinksSection() {
+  const [spotify, setSpotify] = useState("");
+  const [apple, setApple] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.from("app_settings").select("value").eq("key", "artist_profile_links").maybeSingle().then(({ data }) => {
+      setSpotify(data?.value?.spotify || "");
+      setApple(data?.value?.apple || "");
+      setLoading(false);
+    });
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    await supabase.from("app_settings").upsert({ key: "artist_profile_links", value: { spotify: spotify.trim(), apple: apple.trim() } });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div style={{ maxWidth: 480 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
+        Destinations for the two buttons on the Artist Profile ticket page — editable here since the 3rd party
+        sometimes changes their URL and this shouldn't need a code change.
+      </p>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Spotify for Artists URL</label>
+        <input className={styles.input} value={spotify} onChange={(e) => setSpotify(e.target.value)} placeholder="https://artists.spotify.com/…" />
+      </div>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Apple Music for Artists URL</label>
+        <input className={styles.input} value={apple} onChange={(e) => setApple(e.target.value)} placeholder="https://artists.apple.com/…" />
+      </div>
+      <button className={styles.btnPrimary} onClick={save} disabled={saving}>
+        {saving ? "Saving…" : "Save"}
+      </button>
+      {saved && <span style={{ marginLeft: 10, color: "var(--success-fg)", fontSize: 12 }}>Saved</span>}
     </div>
   );
 }

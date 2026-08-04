@@ -51,6 +51,7 @@ export default function ReleaseDetailPage() {
   const [pitchingTicket, setPitchingTicket] = useState(null);
   const [pitchingTypesDraft, setPitchingTypesDraft] = useState({ priority: false, spotify: false, nct: false, zing: false });
   const [artistProfileTicket, setArtistProfileTicket] = useState(null);
+  const [artistProfileTypesDraft, setArtistProfileTypesDraft] = useState({ spotify: false, tiktok: false, apple: false });
   const [tab, setTab] = useState("overview");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -72,6 +73,11 @@ export default function ReleaseDetailPage() {
   // keyed by ticket TYPE key (e.g. "co_trong_net_youtube"), not gate field
   // key, so it can be handed straight to <GateFields ticketMap=.../>.
   const [gateTicketMap, setGateTicketMap] = useState({});
+  // ticket_tabs row (id + default_status) per GATE_TICKET_TYPES ticket
+  // type, keyed by ticket TYPE key — fetched once on load alongside
+  // gateTicketMap above, so saveTab() below can create any missing gate
+  // tickets without an extra read per type on every single save.
+  const [gateTabsMap, setGateTabsMap] = useState({});
   const searchParams = useSearchParams();
   const mediaBookingSectionRef = useRef(null);
   const [autoScrolled, setAutoScrolled] = useState(false);
@@ -130,7 +136,9 @@ export default function ReleaseDetailPage() {
             .eq("data->>releaseId", data.did)
             .is("deleted_at", null)
             .limit(1);
-          setArtistProfileTicket(apTix?.[0] || null);
+          const foundAp = apTix?.[0] || null;
+          setArtistProfileTicket(foundAp);
+          if (foundAp) setArtistProfileTypesDraft({ spotify: false, tiktok: false, apple: false, ...foundAp.data });
         }
         // The real gate for "Send Package Ticket" — whether a Media
         // Booking ticket for this release ACTUALLY exists right now, not
@@ -154,10 +162,15 @@ export default function ReleaseDetailPage() {
         // GATE_TICKET_TYPES in lib/GateFields.js), rather than 10 separate
         // round trips like the older per-field fetches above.
         const gateTicketTypeKeys = [...new Set(Object.values(GATE_TICKET_TYPES))];
-        const { data: gateTabs } = await supabase.from("ticket_tabs").select("id, key").in("key", gateTicketTypeKeys);
+        const { data: gateTabs } = await supabase.from("ticket_tabs").select("id, key, default_status").in("key", gateTicketTypeKeys);
         if (gateTabs && gateTabs.length > 0) {
           const tabIdToKey = {};
-          gateTabs.forEach((t) => (tabIdToKey[t.id] = t.key));
+          const tabsMap = {};
+          gateTabs.forEach((t) => {
+            tabIdToKey[t.id] = t.key;
+            tabsMap[t.key] = { id: t.id, default_status: t.default_status };
+          });
+          setGateTabsMap(tabsMap);
           const { data: gateTix } = await supabase
             .from("tickets")
             .select("*")
@@ -295,7 +308,28 @@ export default function ReleaseDetailPage() {
   async function saveTab() {
     setSaving(true);
     setError(null);
-    const { error: err } = await supabase.from("releases").update(form).eq("id", id);
+
+    // Sony Publish is special-cased ahead of the write: unlike every
+    // other gate-linked ticket, per explicit request it only auto-creates
+    // once the 4 required metadata fields (REQUIRED_META_KEYS) are ALL
+    // filled in — until then, ticking "Yes" and saving just saves the
+    // gate field itself, with no ticket, same "loop until ready" idea as
+    // the generic gate tickets below but gated on metadata instead of
+    // just existence. The moment it IS ready, creating the ticket also
+    // sends the release to the Upload workstation (same effect as the
+    // SEND UPLOAD button — a newrelease_upload ticket + requested=true —
+    // deliberately NOT the Priority Pitching shortcut or Media Booking
+    // cascade, neither of which Sony Publish asked for), if it hasn't
+    // already gone out via the normal button. Computed here (against the
+    // in-memory form, not yet-saved DB state) so the requested:true flag
+    // can ride the same release write below instead of a second round
+    // trip.
+    const sonyPublishReady =
+      form.gate_sony_publish === "true" && !gateTicketMap.sony_publish && REQUIRED_META_KEYS.every((k) => form[k] === "true");
+    const sonyPublishSendsUpload = sonyPublishReady && !form.requested;
+    const releasePatch = sonyPublishSendsUpload ? { ...form, requested: true } : form;
+
+    const { error: err } = await supabase.from("releases").update(releasePatch).eq("id", id);
     if (err) {
       setSaving(false);
       setError(err.message);
@@ -328,26 +362,127 @@ export default function ReleaseDetailPage() {
       }
     }
 
-    if (form.gate_artist_profile === "true" && !artistProfileTicket) {
-      const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
-      if (tab) {
-        const { data: created } = await supabase
+    if (form.gate_artist_profile === "true") {
+      if (artistProfileTicket) {
+        // Same "only write if the draft actually changed" idea as
+        // Pitching just above — the Spotify/Tiktok/Apple picker only
+        // ever touches this ticket's data, so a plain JSON compare is
+        // enough to know whether a write is needed.
+        if (JSON.stringify(artistProfileTicket.data) !== JSON.stringify({ ...artistProfileTicket.data, ...artistProfileTypesDraft })) {
+          const newData = { ...artistProfileTicket.data, ...artistProfileTypesDraft };
+          await supabase.from("tickets").update({ data: newData }).eq("id", artistProfileTicket.id);
+          setArtistProfileTicket((t) => ({ ...t, data: newData }));
+        }
+      } else {
+        const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
+        if (tab) {
+          const { data: created } = await supabase
+            .from("tickets")
+            .insert({
+              tab_id: tab.id,
+              data: { releaseId: form.did, artistName: form.main_artist, email: "", ...artistProfileTypesDraft },
+              status: tab.default_status,
+              status_log: { [tab.default_status]: new Date().toISOString() },
+              requester_segment: form.requester_segment || null,
+            })
+            .select()
+            .single();
+          if (created) setArtistProfileTicket(created);
+        }
+      }
+    }
+
+    // Data Request / Marketing Request / Legal Request sub-tickets (see
+    // GATE_TICKET_TYPES in lib/GateFields.js) — folded into Save instead of
+    // a separate manual "Send Ticket" click, same idempotent-on-save
+    // pattern as Pitching/Artist Profile just above. This also closes a
+    // real bug the manual button had: it read live off local form state, so
+    // clicking it before Save created a ticket referencing a gate field
+    // that hadn't actually been persisted yet. Uses gateTabsMap (fetched
+    // once on load, alongside gateTicketMap) instead of a fresh
+    // ticket_tabs lookup per type, so this adds zero extra reads per save —
+    // only a write for whichever types are newly "Yes" and don't have a
+    // ticket yet.
+    // gate_sony_publish is excluded here — it has its own metadata-gated
+    // block right below instead of the unconditional "Yes + no ticket yet"
+    // rule every other gate type follows. gate_phu_luc_truyen_thong is
+    // also excluded — it maps to the existing "phu_luc" ticket type for
+    // DISPLAY purposes only (see GATE_TICKET_TYPES's comment in
+    // lib/GateFields.js); that ticket is created by the pick-package
+    // magic-link flow with real required data, never auto-created from
+    // here.
+    const missingGateEntries = Object.entries(GATE_TICKET_TYPES).filter(
+      ([gateKey, ticketType]) =>
+        gateKey !== "gate_sony_publish" &&
+        gateKey !== "gate_phu_luc_truyen_thong" &&
+        form[gateKey] === "true" &&
+        !gateTicketMap[ticketType] &&
+        gateTabsMap[ticketType]
+    );
+    if (missingGateEntries.length > 0) {
+      const created = await Promise.all(
+        missingGateEntries.map(async ([, ticketType]) => {
+          const tab = gateTabsMap[ticketType];
+          const { data: row } = await supabase
+            .from("tickets")
+            .insert({
+              tab_id: tab.id,
+              data: { releaseId: form.did },
+              status: tab.default_status,
+              status_log: { [tab.default_status]: new Date().toISOString() },
+              requester_segment: form.requester_segment || null,
+            })
+            .select()
+            .single();
+          return row ? [ticketType, row] : null;
+        })
+      );
+      const newlyCreated = created.filter(Boolean);
+      if (newlyCreated.length > 0) {
+        setGateTicketMap((m) => {
+          const next = { ...m };
+          newlyCreated.forEach(([ticketType, row]) => (next[ticketType] = row));
+          return next;
+        });
+      }
+    }
+
+    // Sony Publish — fires only when sonyPublishReady (computed above,
+    // before the write) was true. Creates the ticket, then — the "special"
+    // part — also sends the release to the Upload workstation exactly
+    // like the SEND UPLOAD button would (newrelease_upload ticket +
+    // requested=true, the latter already folded into releasePatch above)
+    // if it hasn't already been sent some other way.
+    if (sonyPublishReady) {
+      const spTab = gateTabsMap.sony_publish;
+      if (spTab) {
+        const { data: spCreated } = await supabase
           .from("tickets")
           .insert({
-            tab_id: tab.id,
-            data: { releaseId: form.did, artistName: form.main_artist, email: "" },
-            status: tab.default_status,
-            status_log: { [tab.default_status]: new Date().toISOString() },
+            tab_id: spTab.id,
+            data: { releaseId: form.did },
+            status: spTab.default_status,
+            status_log: { [spTab.default_status]: new Date().toISOString() },
             requester_segment: form.requester_segment || null,
           })
           .select()
           .single();
-        if (created) setArtistProfileTicket(created);
+        if (spCreated) setGateTicketMap((m) => ({ ...m, sony_publish: spCreated }));
+      }
+      if (sonyPublishSendsUpload) {
+        const { data: uploadTab } = await supabase.from("ticket_tabs").select("id").eq("key", "newrelease_upload").single();
+        if (uploadTab) {
+          await supabase.from("tickets").insert({
+            tab_id: uploadTab.id,
+            data: { releaseId: form.did, project: form.title, artist: form.main_artist, label: form.label },
+          });
+        }
       }
     }
 
     setSaving(false);
-    setRelease(form);
+    setForm(releasePatch);
+    setRelease(releasePatch);
     setSaved(true);
   }
 
@@ -537,31 +672,12 @@ export default function ReleaseDetailPage() {
     if (created) setPitchingInfoTicket(created);
   }
 
-  // Generic "Send Ticket" handler for the Data Request/Marketing
+  // The standalone "Send Ticket" click for Data Request/Marketing
   // Request/Legal Request sub-tickets (see GATE_TICKET_TYPES in
-  // lib/GateFields.js) — idempotent, same shape as sendPitchingInfoTicket
-  // above, just parameterized by ticket type instead of hardcoded to one.
-  // Fields deliberately left blank per explicit request — just the
-  // releaseId link + requester attribution; note field stays empty until
-  // someone fills it in from the ticket list.
-  async function sendGateTicket(ticketType) {
-    if (gateTicketMap[ticketType]) return;
-    const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", ticketType).single();
-    if (!tab) return;
-    const { data: created } = await supabase
-      .from("tickets")
-      .insert({
-        tab_id: tab.id,
-        data: { releaseId: form.did },
-        status: tab.default_status,
-        status_log: { [tab.default_status]: new Date().toISOString() },
-        requester_segment: form.requester_segment || null,
-      })
-      .select()
-      .single();
-    if (created) setGateTicketMap((m) => ({ ...m, [ticketType]: created }));
-  }
-
+  // lib/GateFields.js) is gone — folded into saveTab() above instead, same
+  // idempotent-on-save pattern as Pitching/Artist Profile. GateTicketLink
+  // now only ever displays state (sent vs. not yet), never triggers a
+  // write itself.
 
   // Magic link generation moved to Marketing's package spec builder (not
   // built yet) — this page only reads/displays an existing link now,
@@ -750,8 +866,9 @@ export default function ReleaseDetailPage() {
             onPitchingToggle={handlePitchingToggle}
             pitchingInfoTicket={pitchingInfoTicket}
             onSendPitchingInfoTicket={sendPitchingInfoTicket}
+            artistProfileTypesDraft={artistProfileTypesDraft}
+            onArtistProfileToggle={(key, checked) => setArtistProfileTypesDraft((p) => ({ ...p, [key]: checked }))}
             gateTicketMap={gateTicketMap}
-            onSendGateTicket={sendGateTicket}
             setTab={setTab}
           />
         )}
@@ -963,7 +1080,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, gateTicketMap, onSendGateTicket, setTab }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, gateTicketMap, setTab }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -1279,8 +1396,10 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           onPitchingToggle={onPitchingToggle}
           pitchingInfoTicket={pitchingInfoTicket}
           onSendPitchingInfoTicket={onSendPitchingInfoTicket}
+          artistProfileTypes={artistProfileTypesDraft}
+          onArtistProfileToggle={onArtistProfileToggle}
           ticketMap={gateTicketMap}
-          onSendTicket={onSendGateTicket}
+          sonyPublishMetaReady={requiredMetaDoneLive === REQUIRED_META_KEYS.length}
         />
 
         {/* Moved here from the old "Pre-release & Note" tab, right before

@@ -2780,3 +2780,179 @@ Migration delivered separately:
 `tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
 brace/paren/bracket balance check against all 3 touched files before
 sending — zero errors.
+
+## 2026-08-05 (28) — Pre-release Workstation: explicit 3-line Release info
+
+The sticky "Release info" column now renders as three explicit lines —
+Name / Artist & DID / Release date + time — instead of the title plus one
+run-on line combining artist, DID, date, and time. Same 260px column
+width from round 26, just split so each line is short and never wraps.
+
+App-layer only, no schema change. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
+brace/paren/bracket balance check before sending — zero errors.
+
+## 2026-08-05 (29) — Filter out already-ticketed releases from manual "New Ticket" forms
+
+Since a lot of ticket types can now be auto-created from the New Release
+dashboard (ticking a gate field "Yes") AND also created manually from the
+ticket page's own "New Ticket" form, it was possible to accidentally create
+a second ticket for a release that already had one. Per explicit request,
+went with "filter out" over "hide the button" — the release just doesn't
+show up as a pickable option once it already has a ticket of that type.
+
+- New `oneTicketPerRelease: true` flag added to `lib/ticketConfigs.js` on
+  every type that can be both auto-created and manually created: Artist
+  Profile, Có Trong Net YouTube, Pre-order Itunes, Priority Sync Lyric,
+  Music Video on Spotify, Discovery Mode on Spotify, Sony Publish,
+  Splitshare, Phụ Lục MG, Phụ Lục Publishing, Phụ Lục Truyền Thông.
+  (Note: Artist Profile's manual form has no release-picker field at all —
+  its fields are artist name/email/etc, not tied to a specific release —
+  so the flag is inert there for now; flagging in case Artist Profile's
+  form is later given a release field.)
+- `lib/NewTicketPage.js` (the generic create-form engine) now reads that
+  flag: when set, it fetches every non-deleted ticket of that type's
+  `data.releaseId` values on load and passes them to `ReleasePicker` as
+  `excludeDids`, so an already-ticketed release simply doesn't appear in
+  the search results. Also added a belt-and-suspenders re-check right
+  before insert (same pattern Media Booking already used) that blocks the
+  submit with a clear error if a duplicate slipped in via a race (e.g. an
+  auto-ticket landing in the gap between the form loading and submitting).
+- `app/tickets/phu-luc/new/page.js` (Phụ Lục's own bespoke form — not on
+  the generic engine, and normally auto-created from the pick-package
+  magic link flow) got the equivalent treatment by hand: releases with an
+  existing non-deleted Phụ Lục ticket are filtered out of its own inline
+  search, plus the same pre-insert re-check. Note Phụ Lục stores
+  `data.releaseId` as the release's UUID (a pre-existing convention
+  difference from every other type here, which stores the DID) — the
+  filter logic matches that, not the DID-based one.
+- Media Booking's `/new` page already had this exact pattern from before —
+  untouched, no regressions there.
+
+App-layer only, no schema change. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a
+brace/paren/bracket balance check on all three edited files before
+sending — zero errors.
+
+## 2026-08-05 (30) — Gate tickets auto-send on Save, OPS split into 3 sub-teams, Sony Publish built out
+
+Three bundled changes this round.
+
+**Gate tickets fold into Save, no more manual "Send Ticket" click.** The Data Request/Marketing Request/Legal
+Request sub-tickets (Có Trong Net YouTube, Pre-order Itunes, Priority Sync Lyric, Music Video on Spotify,
+Discovery Mode on Spotify, Sony Publish, Splitshare, Phụ Lục MG/Publishing/Truyền Thông) used to need a
+separate "Send Ticket" click after ticking a gate field to "Yes" and saving. That button read straight off
+local (unsaved) form state, so clicking it before Save created a ticket referencing a gate field that hadn't
+actually been persisted yet — a real bug. Now `saveTab()` in `app/releases/[id]/page.js` creates any missing
+gate ticket the moment the release write itself succeeds — same idempotent-on-save pattern Pitching/Artist
+Profile already used. Uses a new `gateTabsMap` state (ticket_tabs id/default_status per type, fetched once on
+load alongside the existing `gateTicketMap`) instead of a fresh `ticket_tabs` lookup per type, so this adds
+**zero extra reads per save** — only a write for whichever types are newly "Yes" and don't have a ticket yet,
+addressing the read/write-rate concern raised before implementing. `lib/GateFields.js`'s `GateTicketLink` is
+now display-only — green "✓ Ticket Sent — View" once a ticket exists, otherwise a muted "Ticket sends on Save"
+hint instead of a clickable button.
+
+**OPS split into Youtube/Publishing/Operation.** New team list: AR, Marketing, Design, Youtube, Publishing,
+Operation, Legal — OPS itself is hidden from the config page's profile create/reassign dropdown and the dev
+"View As" switcher, per explicit request. It still exists everywhere else (ticketConfigs.js's `executorTeam`,
+`TEAM_TICKET_TYPES`/`TEAM_WORKSTATION_TYPES`, `notDoneCounts.js`, `ticket_tabs.executor_team`) as a hidden
+aggregate representing the union of the three real sub-teams — used for ticket-type ownership/routing and for
+counting/reporting/summarizing (Summary page's dev tab picker shows one combined "OPS" tab via the new
+`REPORTING_TEAMS` export, not three separate ones). New `lib/teamTypes.js` exports: `OPS_SUB_TEAMS`,
+`isOpsTeam()`, `resolveTeamKey()`, `isExecutorSegment()`, `REPORTING_TEAMS`. Every place that used to compare
+`segment === "OPS"` directly now goes through one of these — `lib/TicketListPage.js`'s dual-view check,
+`lib/notDoneCounts.js`'s dual-view check, `lib/workstationHelpers.js`'s `filterProfilesByTeam` (used by all 4
+OPS-team PIC dropdowns), `lib/teamTypes.js`'s `typesForTeam` (sidebar/switcher visibility), and the 6 bespoke
+ticket pages' own `isExecutorView` checks (Pitching, Phái Sinh, Music Video on Spotify, Manual Claim,
+Pre-order Itunes, Priority Sync Lyric — plus the new Sony Publish page uses it from the start). Legal is
+completely untouched, per explicit confirmation. Migration: `update profiles set segment = 'Operation' where
+segment = 'OPS'` — every existing OPS profile migrates to Operation as a one-time default; reassign anyone who
+should actually be Youtube or Publishing by hand afterward. **Flagged risk, not fixable from here:** if a
+DB-side trigger or the `fanout_notification()` RPC (neither is defined in `schema.sql` — same gap flagged back
+in round 24) resolves "notify team OPS" by literally matching `profiles.segment = 'OPS'`, those notifications
+could silently stop reaching anyone once this migration runs, since no profile will have that literal value
+anymore. Please verify against the real function/trigger definition in production.
+
+**Sony Publish built out.** Special-cased, unlike every other gate-linked type: it only auto-creates once the
+4 required Metadata Checklist fields (Audio/Artwork/Lyric/Metadata doc) are ALL filled in — both at New
+Release creation (`app/new-release/page.js`, rarely satisfied that early since the checklist is usually filled
+in afterward) and on every subsequent Save on the release detail page (same "loop until ready" idea as the
+generic gate tickets, just gated on metadata instead of just existence). The moment it fires, it ALSO sends
+the release to the Upload workstation — a `newrelease_upload` ticket + `requested: true` — same effect as the
+SEND UPLOAD button, deliberately without the Priority Pitching shortcut or Media Booking cascade (neither was
+asked for). Before it's ready, the release detail page shows a warning ("⚠ Not enough data to upload yet…")
+instead of the generic "Ticket sends on Save" hint. The ticket's own list page (`app/tickets/sony-publish`,
+fully bespoke) is laid out like the Upload Workstation: Release info / Link LBM / UPC / ISRC (releases.isrc
+already existed as a column — Priority Pitching's supplement field — but had no editable UI anywhere until
+now) / PIC / Status, all editable from here. Once a release has a Sony Publish ticket, its Upload Workstation
+and Pre-release Workstation rows lock — per explicit confirmation, this means the fields actually become
+non-interactive, not just visually greyed. Implemented as a new shared `lib/SonyPublishLockRow.js` (a single
+spanning cell replaces the row's normal content — a true absolutely-positioned overlay would fight with these
+tables' sticky first column) + `lib/useSonyPublishDids.js` (one batched fetch, not per-row) used by both
+workstations. Clicking the grey watermark banner ("Sony Publish — no task here required for this product")
+opens the Sony Publish ticket. Migration: `ticket_tabs.sony_publish` narrowed to the same 4 statuses
+(REQUESTED/PROCESS/COMPLETE/REFUND) every other Data Request sub-ticket type uses.
+
+Migration: `add-round30-ops-sub-teams-and-sony-publish.sql`. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a brace/paren/bracket balance check across
+every edited/new file before sending — zero errors.
+
+## 2026-08-05 (31) — Artist Profile revised, Splitshare/Phụ Lục MG/Phụ Lục Publishing built out, Phụ Lục Truyền Thông rename
+
+**Phụ Lục Truyền Thông retired, merged into the real Phụ Lục.** Confirmed with the user: it was never a
+separate ticket type, it IS the existing Phụ Lục ticket (auto-created from the pick-package magic-link flow).
+`ticket_tabs.phu_luc.label` relabeled to "Phụ Lục Truyền Thông" (route/data/behavior otherwise untouched); the
+`phu_luc_truyen_thong` placeholder type from round 24 — its config block, `/tickets/phu-luc-truyen-thong`
+wrapper pages, `TICKET_TYPE_LABELS`/`TICKET_ROUTES`/`TEAM_TICKET_TYPES` entries — is fully removed.
+`gate_phu_luc_truyen_thong`'s "Send Ticket" affordance (`GATE_TICKET_TYPES` in `lib/GateFields.js`) now points
+at the real `phu_luc` ticket type for display purposes only — it's excluded from the round-30 generic
+auto-create-on-Save loop (same exclusion mechanism as Sony Publish, different reason): Phụ Lục tickets need
+real data from the magic-link flow, an empty auto-created placeholder would be wrong. Legal's ticket switcher
+gains `phu_luc` (it had `phu_luc_truyen_thong` before, this keeps that visibility under the real name).
+Migration soft-deletes any tickets that may already exist under the retired `phu_luc_truyen_thong` key —
+flagged as a real possibility since round 30's generic gate-ticket-on-Save logic would have started
+auto-creating them the moment `gate_phu_luc_truyen_thong` next flipped "Yes" (which happens automatically,
+not by hand) on any Save, in the window between round 30 shipping and this round retargeting it.
+
+**Splitshare, Phụ Lục MG, Phụ Lục Publishing built out.** All three: auto-created at New Release creation now
+(added matching blocks to `app/new-release/page.js`'s `performInsert()` — previously only reachable via the
+release detail page's manual Send Ticket/Save flow), Legal-executor/AR-requester dual view with the same 4
+statuses (REQUESTED/PROCESS/COMPLETE/REFUND) as every other Data/Legal Request sub-ticket. Splitshare
+(`app/tickets/split-share/page.js`, bespoke) has its own short field set per explicit request — Release / PIC
+/ Status / Ngày Set (hand-edited date) / Ngày Hoàn Thành (NOT hand-edited — `updateStatus()` stamps today's
+date the moment status becomes COMPLETE, and clears it back to null the moment it's taken back out of
+COMPLETE). Phụ Lục MG and Phụ Lục Publishing share a new `lib/PhuLucStyleTicketList.js` component — "reuse the
+current Phụ Lục template, just add the name next to each column to differentiate them" — same columns as the
+original Phụ Lục ticket (Ngày Order / Release / Giá Trị PL / Mã PL / PIC / Status / PL Status / Link Phụ Lục /
+Ngày Gửi / Ngày Ký, PL Status computed the same way), labels suffixed "(MG)"/"(Publishing)", plus the dual-view
++ 4-status-tab layer the original Phụ Lục never had. Unlike the original (which owns real `releases` columns
+for link/ngày Gửi/ngày Ký), these two store everything in `tickets.data` — they don't have dedicated release
+columns of their own.
+
+**Artist Profile revised** (`app/tickets/artist-profile/page.js` — converted to a bespoke page; the generic
+`TicketListPage` engine only ever renders the first 4 `config.fields` as columns and has no concept of a
+view-only field, neither works for what this round needed):
+- Bài Hát Phát Hành Gần Nhất is now view-only in the table — "computed, not an input field" — no input
+  rendered for it at all (still whatever value the ticket already has, just never editable from here).
+- New Note column, placed before Deadline.
+- New "set up on which platforms" Spotify/Tiktok/Apple picker — "show to pick like the pitching field," same
+  checkbox-group idiom as Pitching's "Which pitching?" block. Lives in `lib/GateFields.js` as
+  `ARTIST_PROFILE_PLATFORMS`, rendered in `GateFields` right after Pitching's own block (both the New Release
+  dashboard and the release detail page — `artistProfileTypes`/`onArtistProfileToggle` threaded through both,
+  same `*TypesDraft` pattern Pitching already used), and shown as checkboxes in the ticket table itself
+  (executor-editable, view-only badges for the requester side).
+- Two new external-link buttons — Spotify for Artists / Apple Music for Artists — reading their URLs from a
+  new Config page section ("Artist Profile Links" tab, **not** dev-only since "3rd party sometime change their
+  url" is exactly the kind of thing an exc/admin needs to fix without a dev around), stored in `app_settings`
+  key `artist_profile_links`. Buttons simply don't render until someone fills the URLs in once.
+- **Simplification flagged:** the manual "New Ticket" form (`app/tickets/artist-profile/new`, generic
+  `NewTicketPage`) was NOT extended with the platform picker — that engine has no checkbox-field type, and the
+  picker's primary path is the New Release dashboard/release detail page anyway. Add it by hand later on that
+  specific release if a ticket was created without it.
+
+No schema changes beyond the two `ticket_tabs` updates (label + status_options) and the retirement cleanup —
+every new field (Ngày Set, Ngày Hoàn Thành, Giá Trị PL, Mã PL, Link Phụ Lục, Ngày Gửi, Ngày Ký, the Artist
+Profile platform picker, Note) lives in `tickets.data` jsonb. Migration:
+`add-round31-phu-luc-rename-and-legal-tickets.sql`. Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a brace/paren/bracket balance check across
+every edited/new file before sending — zero errors.

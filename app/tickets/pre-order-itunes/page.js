@@ -6,6 +6,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
+import { isOpsTeam } from "../../../lib/teamTypes";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import { usePagination } from "../../../lib/usePagination";
@@ -30,7 +31,7 @@ export default function PreOrderItunesTicketList() {
   const [statusFilter, setStatusFilter] = useState(null);
   const [openRow, setOpenRow] = useState(null); // { ticket, release } | null
 
-  const isExecutorView = !profile?.segment || profile.segment === "OPS";
+  const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
 
   useEffect(() => {
     if (!supabase) return;
