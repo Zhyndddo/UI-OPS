@@ -129,7 +129,7 @@ export default function ManualClaimList() {
           ) : visibleTickets.length === 0 ? (
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (
-            <div style={{ overflowX: "auto", overflowY: "hidden" }}>
+            <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
             <table className={styles.table} style={{ minWidth: 1100 }}>
               <thead>
                 <tr>
@@ -153,8 +153,8 @@ export default function ManualClaimList() {
                 ))}
               </tbody>
             </table>
-            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </div>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
           )}
         </div>
       </div>

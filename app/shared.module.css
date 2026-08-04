@@ -104,49 +104,96 @@
      reported as making the row look entirely blank until this table was
      switched off border-collapse: collapse above).
 
-     IMPORTANT — this sticky-top only works if .table's own scrolling
-     wrapper div doesn't ALSO scroll vertically. Every page wraps its
-     table in <div style={{ overflowX: "auto" }}> for horizontal
-     scrolling on narrow screens — setting overflow-x alone forces the
-     browser to compute overflow-y as "auto" too (a CSS spec quirk: you
-     can't have one axis scroll and the other stay "visible"), which
-     makes THAT DIV the nearest scrolling ancestor for position:sticky's
-     purposes instead of the page/viewport. Since the div itself never
-     grows a real vertical scrollbar (it's sized to its content, and the
-     PAGE scrolls instead), its own scroll offset never moves — so from
-     this th's perspective, "the nearest scrolling ancestor" never
-     scrolls, and sticky never engages at all (not a z-index or overlap
-     problem — the header just never floats).
+     THIRD ATTEMPT — the first two both shipped and both turned out to be
+     wrong, kept here (with the reasoning) so the same mistake doesn't get
+     made a third time.
 
-     CORRECTION (this fix went through two attempts — the first one below
-     didn't actually work, kept here so the mistake doesn't get repeated):
-     the first attempt paired overflowX: "auto" with an EXPLICIT
-     overflowY: "visible" on the wrapper div, on the theory that setting
-     it back to "visible" by hand would opt back out of the coercion
-     above. It doesn't — the CSS spec rule is "if one axis is non-visible
-     and the other is visible, the visible one computes to auto"
-     REGARDLESS of whether that "visible" was the initial value or
-     explicitly written — so overflowY: "visible" next to overflowX:
-     "auto" still computes to overflow-y: auto, and sticky still never
-     engages. That's why the header kept failing to stick even after that
-     first fix shipped. The actual fix: set overflowY: "hidden" instead of
-     "visible". "hidden" is not "visible", so BOTH axes are now
-     non-visible and the coercion rule never triggers — no forced auto,
-     no accidental vertical scroll container. It's safe here specifically
-     because the wrapper div's height is always sized to its content
-     (never height-constrained), so there is nothing for overflow-y:
-     hidden to ever actually clip — it's a no-op vertically and only
-     changes what the spec computes the property to, which is exactly
-     what's needed to keep the page itself as the true scrolling context.
-     Every page's table wrapper div must use overflowX: "auto", overflowY:
-     "hidden" together — not overflowY: "visible", and not omitting
-     overflowY entirely (same bug, since the initial value of overflow-y
-     IS "visible"). */
+     Attempt 1: every page wraps its table in a horizontally-scrolling
+     <div style={{ overflowX: "auto" }}> (needed so wide tables don't
+     break the layout on narrow screens). The theory was that setting
+     overflow-x alone forces the browser to compute overflow-y as "auto"
+     too (a real CSS spec quirk — one axis can't stay "visible" while the
+     other scrolls), and THAT accidentally-auto overflow-y is what makes
+     the div a scroll container. Fix attempted: explicitly set overflowY:
+     "visible" on the div to opt back out.
+
+     Attempt 2 (the "correction" that used to be documented here): attempt
+     1 didn't work, because the spec rule applies regardless of whether
+     "visible" was the initial value or explicitly written — overflowY:
+     "visible" next to overflowX: "auto" still computes to overflow-y:
+     auto. So attempt 2 set overflowY: "hidden" instead, on the theory
+     that since neither axis is "visible" anymore, the div wouldn't
+     become a scroll container at all.
+
+     That was ALSO wrong, and this is the part worth actually
+     understanding: per the CSS Positioned Layout spec (and MDN's own
+     wording), position:sticky sticks to the nearest ancestor with ANY
+     "scrolling mechanism" — and a scrolling mechanism is created by
+     overflow being hidden, scroll, auto, OR overlay. "hidden" 100%
+     qualifies. So setting overflowX: "auto" (needed for the horizontal
+     scroll) makes this div a scroll container no matter what overflow-y
+     is set to — auto, hidden, scroll, all equally qualify; only "visible"
+     doesn't. Since the div's own content is always sized to fit it
+     (nothing ever asks IT to scroll — the page was meant to scroll
+     around it), its internal scroll offset never moves, so sticky
+     computes its position relative to a container that's permanently at
+     scroll-offset zero. The header doesn't overlap wrong, doesn't have a
+     z-index problem — it just never has anywhere to "stick" to, so it
+     stays in normal document flow and scrolls away with everything else.
+     This is true of EVERY value pairing here — there is no overflowY
+     value that both (a) coexists with overflowX: "auto" and (b) keeps
+     this div from being sticky's scroll container. The two axes can't be
+     split apart that way.
+
+     THE ACTUAL FIX: stop trying to make the page be the scroll context
+     and instead make this div's OWN scrolling the real thing sticky
+     sticks to. The div now gets a bounded height (maxHeight, see the
+     page-level inline style) and a genuine overflowY: "auto" — so when a
+     long table's rows push past that height, THIS div scrolls internally
+     (a real, visible scrollbar), and its <th> sticks to `top: 0` — the
+     top of ITS OWN scrollport, not an offset borrowed from the page-level
+     TopBar. That's also why `top` changed from `var(--topbar-height)` to
+     `0` below: the TopBar sits above this div in the outer page, not
+     inside its scrollport, so there's nothing to offset by anymore —
+     "0" already means "the top edge of the region that's actually
+     scrolling," which is exactly where the header should land.
+     Trade-off worth knowing about: each table is now its own scrollable
+     panel (like a spreadsheet) instead of the whole page scrolling one
+     continuous document — Pagination controls were moved outside this
+     div in every page so they stay visible below the table instead of
+     scrolling out of view with it.
+
+     IMPORTANT — this `top` value (var(--topbar-height)) is the DEFAULT,
+     correct for every page that renders <table className={styles.table}>
+     with NO wrapper div at all (Summary, Releases dashboard, release
+     detail, Design/Media Booking/Phụ Lục/Newrelease Upload tickets,
+     Labels, Milestone, Pitching Info, the public pick-package page —
+     there are more of these than you'd think). Those tables stick to the
+     real page scroll, so their header needs to land just below the real
+     TopBar, hence the topbar-height offset. The 9 tables that DO have the
+     bounded-height/overflowY:auto scroll-box wrapper (see their page
+     files) are the exception — their `<div>` wrapper also carries the
+     .scrollBox class below, whose `.scrollBox .table th { top: 0 }`
+     override wins for just those tables, since their header sticks to
+     the top of their OWN internal scrollport, not the page. Don't flip
+     this rule's own `top` back to 0 "to match" — that breaks every table
+     in the first group instead. */
   position: sticky;
   top: var(--topbar-height);
   z-index: 20;
   background: var(--bg);
   box-shadow: 0 4px 6px -4px rgba(0, 0, 0, 0.35);
+}
+
+/* Scopes the `top: 0` override to just the tables that sit inside a
+   bounded-height, internally-scrolling wrapper (see the long comment on
+   .table th above) — every one of those wrapper <div>s carries this
+   class alongside its inline overflow/maxHeight style. Needs `.table` in
+   the selector too so its specificity (2 classes + element) beats the
+   plain `.table th` rule above (1 class + element) — without that, which
+   one wins would depend on source order instead of being deliberate. */
+.scrollBox .table th {
+  top: 0;
 }
 
 .table td {

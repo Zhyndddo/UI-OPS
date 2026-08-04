@@ -2088,3 +2088,84 @@ of branching on `isDev` at all — clicking AR/Marketing/OPS/Design now
 narrows the ticket table to that team's types (matching what a real
 admin/exc of that team sees) and hides New Release when Design is
 selected; the "All" tab keeps showing everything, same as before.
+
+## 2026-08-03 (14) — Sticky header: the real fix, after two wrong ones
+
+Both previous "fixes" (round 6's `overflowY: "visible"` and round 8's
+`overflowY: "hidden"`) were wrong, and this time it was confirmed with
+your own DevTools screenshots, not just source review — the CSS was
+correctly deployed exactly as described, `top` correctly resolved to
+`44px`, nothing was overriding the rule, and it still didn't stick. That
+ruled out every deploy/cache explanation and left only one possibility:
+the underlying reasoning about the CSS itself was wrong.
+
+It was. Per the CSS Positioned Layout spec (and MDN's own wording),
+`position: sticky` sticks to the nearest ancestor with **any** scrolling
+mechanism — and `hidden`, `scroll`, and `auto` **all** create one, not
+just `auto`. So `overflowX: "auto"` on the table's wrapper `<div>` makes
+that div a scroll container no matter what `overflow-y` is set to.
+`hidden` doesn't dodge that the way round 8 assumed — there's no
+`overflow-y` value that both keeps the horizontal scroll working and
+avoids making that div sticky's scroll context. Since the div's own
+content is always sized to fit it exactly (nothing was ever asking IT to
+scroll — the page was meant to scroll around it), its internal scroll
+offset never moves, so the header computes its "stuck" position relative
+to a container that's permanently sitting at scroll-offset zero. Not a
+z-index problem, not a caching problem — the header genuinely had no
+scroll context to stick to.
+
+**The actual fix:** stop fighting that and use it. Every table wrapper
+now gets a bounded height (`maxHeight: "70vh"`) and a real, functioning
+`overflowY: "auto"` — so once a table's rows exceed that height, the
+wrapper itself scrolls internally (a genuine scrollbar), and the header
+sticks to `top: 0` — the top of that div's own scrollport, not an offset
+borrowed from the page-level TopBar height. `.table th`'s `top` changed
+from `var(--topbar-height)` to `0` in `shared.module.css` to match — the
+TopBar isn't inside this scrolling region anymore, so there's nothing to
+offset by.
+
+**Trade-off worth knowing about:** each table is now its own scrollable
+panel (closer to a spreadsheet) instead of the whole page scrolling as
+one continuous document. `Pagination` controls were moved to sit right
+below each table's scroll box (outside it) in every affected file, so
+they stay visible instead of scrolling out of view along with the rows.
+
+Applied across all 9 tables that had this pattern: `app/booking/page.js`,
+`app/workstation/{upload,pitching,confirm,pre-release,stream}/page.js`,
+`app/artists/page.js`, `app/tickets/{phai-sinh,manual-claim}/page.js`.
+`shared.module.css`'s comment above `.table th` was rewritten a third
+time with the full history (both wrong attempts, the actual spec
+reasoning, and the real fix) so this doesn't get re-broken by a future
+"cleanup" of what looks like a stray `maxHeight`.
+
+Thanks for pushing through all the DevTools checks on this one — the
+Styles-panel screenshot showing a perfectly correct, unoverridden rule
+that still didn't work was what actually cracked it; without that, the
+wrong theory would have kept getting reinforced instead of questioned.
+
+## 2026-08-03 (15) — Follow-up: round 14 would have broken every OTHER table
+
+You asked whether the New Release dashboard uses the same sticky
+mechanism, since it works there — good question, and it caught a real
+regression before it shipped anywhere. The Releases dashboard renders
+its `<table>` with **no wrapper `<div>` at all** — it always stuck to the
+real page scroll, which is exactly why it always worked and never needed
+any of this. Same story for 10 other pages: Summary, the release detail
+page, Design/Media Booking/Phụ Lục/Newrelease Upload tickets, Labels,
+Milestone, Pitching Info, and the public pick-package page all use the
+shared `.table` class with no overflow wrapper either.
+
+Round 14 changed `.table th`'s `top` globally from `var(--topbar-height)`
+to `0` — correct for the 9 tables with the new bounded scroll-box
+wrapper, but wrong for all 11 of these, since their header sticks to the
+real page/TopBar, not an internal scrollport starting at 0. That would
+have tucked their sticky header right under (behind) the orange TopBar
+instead of below it.
+
+Fixed by scoping the override instead of changing the shared default:
+`.table th`'s `top` is back to `var(--topbar-height)` (correct default
+for the 11 no-wrapper pages), and a new `.scrollBox .table th { top: 0 }`
+rule overrides it just for the 9 tables that have the bounded
+scroll-box wrapper — each of those `<div>`s now carries a `scrollBox`
+class alongside its inline overflow/maxHeight style specifically so this
+selector can target them.
