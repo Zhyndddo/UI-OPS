@@ -196,8 +196,8 @@ export default function BatchPhaiSinhDetail() {
                   <th style={{ minWidth: 130 }}>Ngày Hoàn Thành</th>
                   <th style={{ minWidth: 140 }}>Tác Quyền</th>
                   <th style={{ minWidth: 100 }}>Type</th>
-                  <th style={{ minWidth: 160 }}>Link Labelmaster</th>
                   <th style={{ minWidth: 140 }}>Note</th>
+                  <th style={{ minWidth: 160 }}>Link Labelmaster</th>
                   <th style={{ minWidth: 130 }}>PIC</th>
                   <th style={{ minWidth: 120 }}>Deadline</th>
                   <th style={{ minWidth: 120 }}>Status</th>
@@ -234,8 +234,8 @@ export default function BatchPhaiSinhDetail() {
                           <option value="Original">Original</option>
                         </select>
                       </td>
-                      <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.link_labelmaster || ""} onBlur={(e) => updateItem(item, { link_labelmaster: e.target.value })} /></td>
                       <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.note || ""} onBlur={(e) => updateItem(item, { note: e.target.value })} /></td>
+                      <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.link_labelmaster || ""} onBlur={(e) => updateItem(item, { link_labelmaster: e.target.value })} /></td>
                       <td>
                         {isExecutorView ? (
                           <select className={styles.select} style={{ padding: "4px 6px", fontSize: 11 }} value={item.pic_profile_id || ""} onChange={(e) => updatePic(item, e.target.value)}>
