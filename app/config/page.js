@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
+import { DEFAULT_DESIGN_NOTIFICATION_TEMPLATES } from "../../lib/designFlow";
 import styles from "../shared.module.css";
 
 const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
@@ -40,7 +41,7 @@ export default function ConfigPage() {
               ["designTypes", "Design Types"],
               ["sizes", "Sizes"],
               ["artistProfileLinks", "External Tool Links"],
-              ...(isDev ? [["notifications", "Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
+              ...(isDev ? [["notifications", "Notifications"], ["designNotifications", "Design Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
             ].map(([key, label]) => (
               <button
                 key={key}
@@ -62,6 +63,7 @@ export default function ConfigPage() {
           {section === "sizes" && <SizesSection />}
           {section === "artistProfileLinks" && <ArtistProfileLinksSection />}
           {section === "notifications" && isDev && <NotificationsSection />}
+          {section === "designNotifications" && isDev && <DesignNotificationsSection />}
           {section === "sessions" && isDev && <SessionsSection />}
           {section === "sidebarLabel" && isDev && <SidebarLabelSection />}
         </div>
@@ -1155,6 +1157,73 @@ function ArtistProfileLinksSection() {
         <label className={styles.fieldLabel}>Discovery Mode Clip Tool URL</label>
         <input className={styles.input} value={discoveryMode} onChange={(e) => setDiscoveryMode(e.target.value)} placeholder="Team is still confirming which tool to use — leave blank for now" />
       </div>
+      <button className={styles.btnPrimary} onClick={save} disabled={saving}>
+        {saving ? "Saving…" : "Save"}
+      </button>
+      {saved && <span style={{ marginLeft: 10, color: "var(--success-fg)", fontSize: 12 }}>Saved</span>}
+    </div>
+  );
+}
+
+// Round 34 — "add the text/html style to be configurable in the config by
+// dev (I can check and edit without us doing another round on it)". These
+// 5 strings are read by the app (urgent-creation, round 34 item 3f) and by
+// the scheduled SQL functions in add-round34-design-flow-and-ops-notes.sql
+// (reminder/late/pendingRevise/overload — see that file's pg_cron setup),
+// stored in app_settings.design_notification_templates, {count}/{task}/
+// {deadline} placeholders substituted at send time. Editing here needs no
+// deploy — same idea as ArtistProfileLinksSection above.
+const DESIGN_NOTIF_FIELDS = [
+  { key: "urgentCreation", label: "Urgent request created (to dev)", placeholders: "{task}, {deadline}" },
+  { key: "reminder", label: "Reminder — requests waiting (every 4h, 10am-8pm weekday, to Design + anh.duong@vieent.vn)", placeholders: "{count}" },
+  { key: "late", label: "Late — past expected deadline (10am weekday, to Design + anh.duong@vieent.vn)", placeholders: "{count}" },
+  { key: "pendingRevise", label: "Pending/Revise count (10am weekday, to AR team)", placeholders: "{count}" },
+  { key: "overload", label: "Design Team Status overload (Design Team Status >= 11, to anh.duong@vieent.vn)", placeholders: "{count}" },
+];
+
+function DesignNotificationsSection() {
+  const [values, setValues] = useState(DEFAULT_DESIGN_NOTIFICATION_TEMPLATES);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.from("app_settings").select("value").eq("key", "design_notification_templates").maybeSingle().then(({ data }) => {
+      setValues({ ...DEFAULT_DESIGN_NOTIFICATION_TEMPLATES, ...(data?.value || {}) });
+      setLoading(false);
+    });
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    await supabase.from("app_settings").upsert({ key: "design_notification_templates", value: values });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
+        Text for Design's automatic notifications (round 34) — edit here instead of a code round. The scheduled
+        ones (reminder/late/pendingRevise/overload) require pg_cron to actually fire on Supabase; see
+        add-round34-design-flow-and-ops-notes.sql's header comment for the exact schedule() calls to run.
+      </p>
+      {DESIGN_NOTIF_FIELDS.map((f) => (
+        <div className={styles.field} key={f.key}>
+          <label className={styles.fieldLabel}>{f.label}</label>
+          <textarea
+            className={styles.textarea}
+            style={{ minHeight: 44 }}
+            value={values[f.key] || ""}
+            onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+          />
+          <p style={{ fontSize: 10, color: "var(--text-faint)", margin: "2px 0 0" }}>Placeholders: {f.placeholders}</p>
+        </div>
+      ))}
       <button className={styles.btnPrimary} onClick={save} disabled={saving}>
         {saving ? "Saving…" : "Save"}
       </button>

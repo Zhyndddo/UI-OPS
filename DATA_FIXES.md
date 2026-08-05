@@ -3029,3 +3029,207 @@ Migration: `add-round32-co-trong-net-youtube-and-discovery-mode.sql` (just the t
 narrowings — every new field lives in `tickets.data` jsonb or reuses the existing `artist_profile_links`
 `app_settings` row). Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck` (zero errors)
 across every edited/new file before sending.
+
+## 2026-08-05 (33) — Phái Sinh (Batch): bulk derivative-tracklist requests without notification spam
+
+New ticket type, `batch_phai_sinh`, built from a real design discussion rather than a spec dropped in whole —
+the problem was: AR sometimes requests a big sum of derivative tracks in one go, and importing/generating one
+Phái Sinh ticket per song (discussed and rejected first) would mean e.g. 100 individual notifications for one
+request, with no way to tell which song belonged to which batch. Landed on: one ticket = one batch, one
+notification, with the individual songs living in a new child table instead of as their own tickets.
+
+**Data model.** New table `phai_sinh_batch_items` (schema.sql + `add-round33-batch-phai-sinh.sql`) —
+`batch_ticket_id` references the parent `tickets` row (tab key `batch_phai_sinh`, same default 5-status
+vocabulary as plain Phái Sinh — REQUESTED/PROCESS/COMPLETE/REFUND/CANCELED), one row per song. Field set
+mirrors the uploaded "NHẠC SỐ Nguyễn Văn Chung x VIEENT — TRACKING LIST" example sheet's KHO NHẠC tab
+column-for-column (Tên Bài/Version/Thể Loại/Artist/Composer/Producer/Mixer/Release Date/UPC/ISRC/Link
+Audio/Link Artwork/Lyrics/Smartlink/Ngày Nhận/Ngày Hoàn Thành/Tác Quyền/Type/Note), plus the app's usual
+pic_profile_id/deadline/status/status_log/soft-delete scaffolding. Two things flagged from reading that sheet:
+its Status column only ever held ✅Hoàn thành/❌Đã huỷ/blank, mapped onto this app's usual
+REQUESTED/PROCESS/COMPLETE/CANCELED vocabulary (PROCESS added as the normal in-between state even though the
+sheet itself never used one); and its column U had no real header (the header cell held an unrelated
+instructional note) but DID have a real per-row labelmaster.app product URL in every row — kept as
+`link_labelmaster`, named for what the data actually was.
+
+**"Treat each children row a workload row aka N item rather 1 item per batch"** per explicit decision —
+`lib/notDoneCounts.js` gained a bespoke count path for `batch_phai_sinh` that counts `phai_sinh_batch_items`
+rows directly (not the parent tickets), same as how workstations already have bespoke done-rules.
+
+**Notifications — decided explicitly, not guessed:**
+- Batch created: no new trigger needed at all — inserting the one parent ticket row already fires the
+  existing `notify_on_ticket_insert` DB trigger exactly once, same as any other ticket type.
+- Batch fully complete: also rides an EXISTING trigger (`notify_on_ticket_complete`, fires when a ticket's
+  `status` becomes `'COMPLETE'`) rather than new DB logic — `lib/batchPhaiSinhStatus.js`'s
+  `recomputeBatchStatus()` just flips the parent ticket's own `status` to `COMPLETE` the moment every child
+  item is COMPLETE/CANCELED (and back to `PROCESS` if one gets reopened afterward), called after every item
+  status change on the batch detail page.
+- Item overdue: genuinely new — nothing fires on its own when a deadline silently passes. New SQL function
+  `flag_overdue_batch_items()` (schema.sql + the migration) scans for open, overdue items and inserts
+  `notifications` rows, addressed to the item's PIC if set, else every OPS profile. **This function does not
+  run itself** — needs `pg_cron` enabled in Supabase (exact `cron.schedule(...)` call is in the migration
+  file's comment) or an external scheduled call; that setup step is outside what I can do from here.
+- Manual "Ping": new `lib/pingNotification.js`, a button on both the batch list row and each item in the
+  expanded table — inserts directly into the existing `notifications` table a person decides to send, rather
+  than any status change automatically cascading into one. **Flagged limitation:** `tickets` has no
+  `requester_profile_id` column (only free-text `requester_name`/`requester_segment`), so a Ping can only
+  target the assigned PIC (or all of OPS, if unassigned) — not a specific AR requester by name. Worth a real
+  column later if per-person requester pings turn out to matter.
+
+**UI — 3 new pages under `app/tickets/batch-phai-sinh/`:**
+- `page.js` — the list, one row per BATCH (not per song): batch label/artist, progress (`done/total`
+  resolved), PIC, status, "Open Batch ↗" (opens the expanded table in a new tab, per explicit "to another
+  browser tab for clarity"), and a Ping button.
+- `new/page.js` — batch label + main artist, then a paste box (`lib/phaiSinhBatchParse.js`, shared with the
+  detail page's own "+ Add Via Paste") — copy a range out of a sheet built like the example and paste
+  straight in; a header row is auto-detected and skipped; live "N songs parsed" count before submitting.
+  Creates the one parent ticket, then bulk-inserts every parsed row as a child.
+- `[id]/page.js` — the actual "expand into a full-size table" view: every song in the batch as its own
+  editable row (all 19 sheet-derived fields plus PIC/Deadline/Status/Ping), dual view via `isOpsTeam` (same
+  OPS-executes/AR-requests split as plain Phái Sinh), "+ Add Via Paste" to bulk-add more songs into an
+  existing batch.
+
+**Simplification flagged:** date parsing on pasted cells is lenient (`YYYY-MM-DD` as-is, otherwise
+`Date.parse` reformatted) rather than locale-aware — a date pasted in an unusual format may parse wrong or
+blank instead of erroring loudly; worth re-checking imported dates after a big paste until this proves
+reliable in practice.
+
+Migration: `add-round33-batch-phai-sinh.sql` (creates `phai_sinh_batch_items`, seeds the `batch_phai_sinh`
+ticket_tabs row, creates `flag_overdue_batch_items()` — none of it destructive, safe to re-run). Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` (zero errors) across every new/edited file before
+sending.
+
+## 2026-08-05 (34)
+
+### Item 1 — Batch Phái Sinh: lock the deadline column once work has started
+
+`app/tickets/batch-phai-sinh/[id]/page.js`'s per-item Deadline `<input>` is now `disabled` once
+`item.status !== "REQUESTED"`, unless the viewer's `profile.role` is `"dev"` or `"admin"`. Matches
+the exact wording of the request ("only Allow dev and admin to change the column from that stage on").
+
+### Item 2 — New Release dashboard: OPS note tabs merged into one
+
+`app/releases/[id]/page.js`'s `NOTE_PANEL_TEAMS` (feeding the Note panel on the release detail page)
+switched from `TEAMS.filter(t => t !== "Design")` (which listed Youtube/Publishing/Operation as 3
+separate tabs) to `REPORTING_TEAMS.filter(t => t !== "Design")` — `REPORTING_TEAMS` (already exported
+from `lib/teamTypes.js`, same list the Summary page's dev tab picker uses) folds those three into one
+combined "OPS" tab. One-line change, no migration needed. The Tasklist tab's own team grouping (a
+different `TEAMS.map(...)` a bit further down the same file) was checked and does NOT need this same
+fix — every item fed into it is already tagged literally `"OPS"`, never split into sub-teams, so
+Youtube/Publishing/Operation groups there were always empty already.
+
+### Item 3 — Design ticket flow redesign
+
+The biggest piece this round. New status vocabulary, new transition rules, a reworked form, 4 new/
+changed counter boxes, and 5 notification triggers — see `lib/designFlow.js` for the concentrated
+business logic (transition rules, business-day/urgency deadline math, counter-comment thresholds).
+
+**Status vocabulary** — `REQUESTED/PROCESS/COMPLETE/REFUND/CANCELED` → `REQUEST/PROCESS/PENDING/
+REVISE/COMPLETE/CANCEL`, Design-only (no other ticket type touched). Existing `design` tickets (if any)
+are migrated by `add-round34-design-flow-and-ops-notes.sql`: `REQUESTED→REQUEST`, `CANCELED→CANCEL`,
+`PROCESS`/`COMPLETE` unchanged, and **`REFUND→PENDING`** — REFUND doesn't map 1:1 onto the new PENDING/
+REVISE split, PENDING was picked as the safer landing spot (keeps the ticket visibly actionable rather
+than silently reading as "in review"). Flag this if that's not the mapping you'd have picked — trivial
+to re-run a one-off `UPDATE` afterward.
+
+**Transition rules** (`lib/designFlow.js`'s `statusOptionsFor`):
+- REQUEST → PROCESS is gated by a confirm modal requiring Expected Deadline + PIC (both get written to
+  the ticket at that moment, not just validated). Requester can only self-move REQUEST → CANCEL.
+- PROCESS → PENDING or REVISE (both require a Note first) or straight to COMPLETE, or CANCEL.
+- REVISE → COMPLETE (feedback accepted) or CANCEL. **Assumption, not explicit in the request**: also
+  allowed back to PROCESS, since otherwise REVISE would be a dead end whenever the feedback means more
+  work is needed rather than acceptance. Flagging in case you want REVISE to be COMPLETE/CANCEL-only.
+- PENDING → bounces back to whichever status it was in right before PENDING (stored in
+  `data.returnStatus` the moment the transition into PENDING happens), triggerable by either side —
+  matches "AR change the status back to previous status based on the last timestamp log."
+- Every transition still stamps `status_log[newStatus] = now()` (same shared pattern as every other
+  ticket type) — this satisfies every "log the timestamp" instruction in the request. One known,
+  pre-existing limitation shared with every other ticket type: `status_log` is keyed by status name, so
+  a SECOND visit to the same status (e.g. PENDING → PROCESS → PENDING again) overwrites the first
+  timestamp rather than keeping full history.
+
+**Form/columns** (item 3d): Priority field/column removed entirely. Expected Deadline sits where
+Priority used to (first field row, paired with Request Type); Project now shares a row with Artist;
+a new "Proposed PIC" field shares Requested By's row. In the list table, "Proposed PIC" is a real
+column but only ever shows a value while the ticket is in REQUEST status (blank afterward) — a full
+table can't literally hide/show a whole column per-row, so this is "blank beyond REQUEST," not
+"column disappears," which should read the same in practice.
+
+**Urgent rule** (item 3d bullet 2) — computed at creation time, three independent triggers, any one
+marks the ticket urgent:
+1. Expected Deadline is today, or earlier than the minimum non-urgent date (2 week-days out, or — if
+   created after 18:00 on a Friday — the next Tuesday).
+2. The requester's own team already has 2+ Design requests created today (picked "only in request" —
+   the simplest of the three options the request explicitly offered — a straightforward count query at
+   submit time; nothing blocks the 3rd+ request outright, it's just auto-marked urgent).
+An urgent request shows a confirm popup summarizing the rule before it can be submitted, per request.
+Urgent rows are locked for status changes until a `dev`-role profile clicks the row's "Confirm" button
+(visible only to dev) — implemented as `data.urgent` / `data.urgentConfirmed` on the ticket.
+
+**Design Team Status comment thresholds** — the request gave overlapping boundaries (`<5`, `5-10`,
+`10-15`, `>15`); resolved to non-overlapping buckets `<5 / 5-9 / 10-14 / ≥15` so every count lands in
+exactly one bucket. Flagging in case a different boundary resolution (e.g. `10` counting as "Bình ổn"
+instead of "Quá tải") was intended.
+
+**Counter boxes** (item 3e) — all computed client-side from the already-loaded ticket list, no schema
+changes needed: Design Team Status (`comment && count` of PROCESS+REVISE), "Đang chờ nhận" (REQUEST
+count, excluding not-yet-confirmed urgent rows per explicit exclusion), "Đang thực hiện" (PROCESS+REVISE
+split into a small box per PIC), "Urgent Task" (urgent-and-not-COMPLETE, split confirmed/not-confirmed).
+
+**Notifications** (item 3f) — "creation: send 1" already happens for free: `ticket_tabs.executor_team =
+'Design'` already drives the existing (production-only, invisible to this codebase — see prior rounds'
+notes on `notify_on_ticket_insert`) DB trigger, unchanged. What's new:
+- **Urgent creation → dev**: app-side, right after insert, targeted at every `role='dev'` profile.
+- **Reminder** (every 4h, 10am–8pm weekday) + **Late** (10am weekday) + **Pending/Revise count → AR**
+  (10am weekday, merged with Late per explicit permission) are all scheduled, via a new
+  `design_scheduled_sweep(p_include_late boolean)` SQL function (mirrors `flag_overdue_batch_items()`'s
+  "nothing fires this on its own, you must set up pg_cron yourself" pattern from round 33) — see
+  `add-round34-design-flow-and-ops-notes.sql`'s header comment for the exact `cron.schedule(...)` calls
+  to run. "Every 4h 10am-8pm" was read as firing AT 10/14/18h (3 checks spanning the window) rather than
+  continuing to a 4th firing at 10pm (which would fall outside "-8pm") — flagged in case a literal
+  10/14/18/22 cadence was actually intended.
+- **Overload** (Design Team Status counter reaches 11, to `anh.duong@vieent.vn` only) is event-driven,
+  not time-driven, so it's triggered app-side at the moment a status change crosses the threshold
+  (`app/tickets/design/page.js`'s `maybeNotifyOverload`), de-duplicated per day via a new
+  `app_settings.design_overload_alert_state` row (`{ active, date }`, same shape as the pre-existing
+  `design_overload` soft-lock row but deliberately separate — different semantics, not reused).
+- All 5 notification bodies are text-templated via a new `app_settings.design_notification_templates`
+  row, dev-editable from **Config → Design Notifications** (no code round needed to reword them) — per
+  the request's explicit closing ask. `lib/designFlow.js`'s `DEFAULT_DESIGN_NOTIFICATION_TEMPLATES` is
+  what the app/functions fall back to if that row or a specific key is ever missing.
+- Targeting "anh.duong@vieent.vn" and "AR team" both go through direct `notifications` inserts (new
+  helpers in `lib/pingNotification.js`: `resolveProfilesByEmail`/`resolveProfilesByRole`/
+  `resolveProfilesBySegment`) — same "app/function writes directly, not a DB trigger" category as
+  Batch Phái Sinh's Ping buttons and overdue sweep, since none of this has a natural home on an
+  existing trigger either.
+
+**Elsewhere touched**: `lib/helpers.js`'s `statusColor`/`isTicketDone` extended with the new
+REQUEST/PENDING/REVISE/CANCEL literals (design-only vocabulary, additive, nothing else affected).
+`lib/notDoneCounts.js` needed a Design-specific terminal-status branch (`TERMINAL_DESIGN = ["COMPLETE",
+"CANCEL"]`) — the generic `TERMINAL_EXECUTOR`/`TERMINAL_REQUESTER` constants check for the literal
+`"CANCELED"` (with a D) and treat `"REFUND"` as executor-terminal, neither of which exists in Design's
+new vocabulary anymore, and PENDING/REVISE are active work states for both sides (no REFUND-style
+asymmetry), so without this branch Design's "not done" counts everywhere in the app (Summary, sidebar
+badges) would have silently over/under-counted.
+
+Migration: `add-round34-design-flow-and-ops-notes.sql` (updates the `design` ticket_tabs row's status
+vocabulary, migrates any existing `design` ticket rows, upserts the 2 new `app_settings` rows, creates
+`design_scheduled_sweep()` — none of it destructive, safe to re-run; the pg_cron `cron.schedule(...)`
+calls in its header comment are NOT run automatically, do those manually once). Verified with
+`tsc --jsx react --allowJs --checkJs false --skipLibCheck` (zero errors) across every new/edited file
+before sending.
+
+## 2026-08-05 (35)
+
+### Quick edit — real "Change Password" in the account Info dropdown
+
+`lib/TopBar.js`'s Info panel used to say "Change password doesn't apply — this app uses magic-link
+sign-in, no password exists." Replaced with an actual working control: a "Change Password" button
+opens a small inline form (new password, confirm password, Save/Cancel), calling Supabase Auth's
+`supabase.auth.updateUser({ password })` on the current session.
+
+This **sets** a password on the account — it does not disable or replace magic-link sign-in, which
+still works exactly as before. After setting a password, the user can sign in either way (magic-link
+or password), assuming the login page ever grows a password field — it currently only has the
+magic-link flow, so for now this is mainly useful for anyone who wants a password ready for later, or
+for any other app/tool that authenticates against the same Supabase Auth project. No schema/migration
+needed — this is pure Supabase Auth, not the `profiles` table.

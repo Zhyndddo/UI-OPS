@@ -13,7 +13,7 @@ import UrlField from "../../../lib/UrlField";
 import { validateLabelNameEdit } from "../../../lib/labelHelpers";
 import { MV_TYPE_OPTIONS } from "../../../lib/pickerOptions";
 import PickSelect from "../../../lib/PickSelect";
-import { TICKET_TYPE_LABELS, TEAMS } from "../../../lib/teamTypes";
+import { TICKET_TYPE_LABELS, TEAMS, REPORTING_TEAMS } from "../../../lib/teamTypes";
 import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
 
@@ -1012,7 +1012,12 @@ function LinkPill({ label, href }) {
 // don't really note anything for the product") — Design still exists as a
 // real team everywhere else (its own ticket type, TEAMS, etc.), this is
 // just a display-only filter local to the note panel.
-const NOTE_PANEL_TEAMS = TEAMS.filter((t) => t !== "Design");
+// Round 34 item 2: was TEAMS.filter(...), which listed Youtube/Publishing/
+// Operation as 3 separate note tabs. REPORTING_TEAMS already folds those
+// into one combined "OPS" entry (same list the Summary page's dev tab
+// picker uses), so switching to it compiles the note panel down to one
+// OPS tab instead of three.
+const NOTE_PANEL_TEAMS = REPORTING_TEAMS.filter((t) => t !== "Design");
 
 function ReleaseNotePanel({ note }) {
   const [selectedTeam, setSelectedTeam] = useState(NOTE_PANEL_TEAMS[0]);
