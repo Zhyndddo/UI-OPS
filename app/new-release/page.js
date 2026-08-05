@@ -4,7 +4,7 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
-import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS } from "../../lib/GateFields";
+import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, CO_TRONG_NET_DRAFT_DEFAULTS } from "../../lib/GateFields";
 import { MV_TYPE_OPTIONS } from "../../lib/pickerOptions";
 import PickSelect from "../../lib/PickSelect";
 import QuickCreate from "../../lib/QuickCreate";
@@ -112,6 +112,7 @@ export default function NewReleasePage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [pitchingTypes, setPitchingTypes] = useState(EMPTY_PITCHING_TYPES);
   const [artistProfileTypes, setArtistProfileTypes] = useState(EMPTY_ARTIST_PROFILE_TYPES);
+  const [coTrongNetDraft, setCoTrongNetDraft] = useState(CO_TRONG_NET_DRAFT_DEFAULTS);
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -378,6 +379,41 @@ export default function NewReleasePage() {
           data: { releaseId: data.did },
           status: mvTab.default_status,
           status_log: { [mvTab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+
+    // gate_co_trong_net_youtube = "true" — same auto-create-on-Yes pattern
+    // as Music Video on Spotify above, but carries the Teaser/Official/
+    // Short/Mô Tả draft collected in this form's own GateFields panel
+    // instead of the generic {releaseId}-only body.
+    if (form.gate_co_trong_net_youtube === "true") {
+      const { data: ctnTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "co_trong_net_youtube").single();
+      if (ctnTab) {
+        await supabase.from("tickets").insert({
+          tab_id: ctnTab.id,
+          data: { releaseId: data.did, ...coTrongNetDraft },
+          status: ctnTab.default_status,
+          status_log: { [ctnTab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+
+    // gate_discovery_mode_spotify = "true" — same auto-create-on-Yes
+    // pattern as Music Video on Spotify above. No extra data collected
+    // here: url LBM/name/artist/release date all live on the release
+    // itself and the ticket list reads them live via releaseId, same
+    // "map directly back" idiom as Sony Publish's Link LBM/UPC/ISRC.
+    if (form.gate_discovery_mode_spotify === "true") {
+      const { data: dmTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "discovery_mode_spotify").single();
+      if (dmTab) {
+        await supabase.from("tickets").insert({
+          tab_id: dmTab.id,
+          data: { releaseId: data.did },
+          status: dmTab.default_status,
+          status_log: { [dmTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
         });
       }
@@ -827,6 +863,8 @@ export default function NewReleasePage() {
             onPitchingToggle={(key, checked) => setPitchingTypes((p) => ({ ...p, [key]: checked }))}
             artistProfileTypes={artistProfileTypes}
             onArtistProfileToggle={(key, checked) => setArtistProfileTypes((p) => ({ ...p, [key]: checked }))}
+            coTrongNetDraft={coTrongNetDraft}
+            onCoTrongNetChange={(key, value) => setCoTrongNetDraft((p) => ({ ...p, [key]: value }))}
             suppressUrlFor={["gate_pre_order"]}
           />
 
@@ -841,6 +879,7 @@ export default function NewReleasePage() {
                 setForm(EMPTY_FORM);
                 setPitchingTypes(EMPTY_PITCHING_TYPES);
                 setArtistProfileTypes(EMPTY_ARTIST_PROFILE_TYPES);
+                setCoTrongNetDraft(CO_TRONG_NET_DRAFT_DEFAULTS);
                 setError(null);
                 setCreatedDid(null);
                 setLabelTouched(false);

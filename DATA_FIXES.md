@@ -2956,3 +2956,76 @@ Profile platform picker, Note) lives in `tickets.data` jsonb. Migration:
 `add-round31-phu-luc-rename-and-legal-tickets.sql`. Verified with
 `tsc --jsx react --allowJs --checkJs false --skipLibCheck` plus a brace/paren/bracket balance check across
 every edited/new file before sending — zero errors.
+
+## 2026-08-05 (32) — Có Trong Net YouTube and Discovery Mode on Spotify built out
+
+Re-sent the round 31 request text arrived bundled with 2 genuinely new items this round — items 1-5 (Artist
+Profile / Splitshare / Phụ Lục MG / Phụ Lục Publishing / Phụ Lục Truyền Thông) were confirmed already fully
+delivered in round 31 (checked `lib/ticketConfigs.js`, `lib/teamTypes.js`, `app/tickets/artist-profile/page.js`
+against the round-31 spec — all matched, no changes made). Only items 6 (Có Trong Net YouTube) and 7 (Discovery
+Mode on Spotify) were new work.
+
+**Có Trong Net YouTube** — was previously just a placeholder type (DID + Note, generic `TicketListPage`/
+`NewTicketPage`, from the round-24 "every request tick gets a related ticket" wave) with no auto-create wired
+up at New Release creation time at all (only the release detail page's generic gate-ticket-on-Save loop could
+create one, added round 30). Built out fully per explicit spec:
+- New shared draft shape `CO_TRONG_NET_DRAFT_DEFAULTS` (`lib/GateFields.js`) — `teaser`/`official` (single
+  date+time each), `shortFrom`/`shortTo` (a PERIOD, date-only, no time, per explicit "no time require for this
+  field"), `moTa` (free text).
+- New `CoTrongNetYoutubePanel` in `lib/GateFields.js`, shown once `gate_co_trong_net_youtube` is "Yes" — same
+  "background card under the grid" placement as Pitching's/Artist Profile's own panels. Teaser/Official are
+  `<input type="datetime-local">`; Short is two `<input type="date">`s; Mô Tả is a small button ("+ Mô Tả" /
+  "✓ Mô Tả (edit)") that opens `MoTaPopup` — a small modal holding just the textarea — per the request's own
+  explicitly preferred alternative ("or better yet, just add the button Mô tả… for greater UX and view")
+  instead of a cramped inline single-line box. Threaded through both the release detail page
+  (`coTrongNetDraft` state, seeded once from the existing ticket's data when the page's batched gate-ticket
+  fetch resolves) and the New Release create form (local `coTrongNetDraft` state, reset on Hủy), same
+  `*Draft`/`on*Change` pattern Pitching/Artist Profile already established.
+- Auto-creation on tick-Yes now fires at BOTH New Release creation (`performInsert()` gained a dedicated block
+  — it had no block at all before this round, unlike Pre-order Itunes/Priority Sync Lyric/Music Video on
+  Spotify, which is why it silently never auto-created there previously) and on every Save on the release
+  detail page (`saveTab()` — excluded from the generic `missingGateEntries` loop, given its own block right
+  above it, mirroring Artist Profile's "create if missing else write-if-changed" shape exactly, just carrying
+  `coTrongNetDraft` instead of the platform picker's data).
+- Manual creation form (`app/tickets/co-trong-net-youtube/new/page.js`) converted to bespoke — DID search via
+  the existing `ReleasePicker` component (autofills Tên/Artist/Label, shown read-only for confirmation) plus
+  the same 4 fields/Mô Tả popup as the panel above.
+- Ticket list (`app/tickets/co-trong-net-youtube/page.js`) converted to bespoke — Dự Án Info / Thời Gian Đăng
+  (3 lines: Teaser/Official/Short, per explicit "each row has 3 different line composed by the ticket or from
+  the new release dashboard") / Mô Tả (view/edit popup button) / Ytb Page (free text input) / Link YTB (3
+  lines: Link Teaser/Link Official/Link Short, "to match the date") / PIC / Status, dual view via `isOpsTeam`
+  ("Youtube executive" resolves through the same OPS aggregate every other OPS-executed type uses).
+- `ticket_tabs.co_trong_net_youtube` narrowed from the 5-status table default to the same 4 statuses
+  (REQUESTED/PROCESS/COMPLETE/REFUND) every other Data Request sub-ticket uses — it had never been explicitly
+  narrowed before this round.
+- `lib/ticketConfigs.js`'s `co_trong_net_youtube` block is no longer read by anything (kept as a record only,
+  same treatment as Sony Publish's/Music Video on Spotify's config blocks).
+
+**Discovery Mode on Spotify** — same starting point (placeholder-only, generic pages, no dedicated New
+Release auto-create block) and same treatment:
+- `performInsert()` gained a dedicated block (previously missing, same gap as Có Trong Net YouTube above) —
+  plain `{releaseId}` body, no extra draft needed since url LBM/name/artist/release date all live on the
+  release itself, same "map directly back" idiom Sony Publish/Music Video on Spotify already use.
+- Manual creation form (`app/tickets/discovery-mode-spotify/new/page.js`) converted to bespoke — DID search via
+  `ReleasePicker`, then Url LBM (editable, writes straight to `releases.link_lbm`) / Name Of Product / Artist /
+  Release Date (all three read-only, shown for confirmation) per explicit "only have 5 fields."
+- Ticket list (`app/tickets/discovery-mode-spotify/page.js`) converted to bespoke — Dự Án Info / Url LBM
+  (view-only hyperlink) / Discovery Clip Url (new `tickets.data` field, editable) / Clip Status (single-choice
+  dropdown — new `DISCOVERY_CLIP_STATUS_OPTIONS` export in `lib/GateFields.js`: No clip / Clip uploaded / Clip
+  published) / PIC / Status.
+- New external-tool button next to "+ New Ticket," per explicit "just make the button, I'll send the url
+  later, the team is confirming which to use" — renders now, disabled/greyed until a URL is configured.
+  Reused the existing Artist Profile Links config section instead of adding a near-duplicate one: that
+  section (`app/config/page.js`) gained a third field ("Discovery Mode Clip Tool URL") and was retitled
+  "External Tool Links" (tab key unchanged — `artistProfileLinks` — to avoid touching anything else), all
+  three URLs sharing the one `app_settings` row (key `artist_profile_links`, shape now
+  `{ spotify, apple, discoveryMode }`). Starts blank; button flips live once someone fills it in, no code
+  change needed when the team decides on a tool.
+- `ticket_tabs.discovery_mode_spotify` narrowed to the same 4 statuses, same reason as Có Trong Net YouTube.
+- `lib/ticketConfigs.js`'s `discovery_mode_spotify` block is likewise no longer read by anything, kept as a
+  record only.
+
+Migration: `add-round32-co-trong-net-youtube-and-discovery-mode.sql` (just the two `ticket_tabs` status
+narrowings — every new field lives in `tickets.data` jsonb or reuses the existing `artist_profile_links`
+`app_settings` row). Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck` (zero errors)
+across every edited/new file before sending.

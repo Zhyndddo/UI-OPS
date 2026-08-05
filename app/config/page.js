@@ -39,7 +39,7 @@ export default function ConfigPage() {
               ["platforms", "Platforms"],
               ["designTypes", "Design Types"],
               ["sizes", "Sizes"],
-              ["artistProfileLinks", "Artist Profile Links"],
+              ["artistProfileLinks", "External Tool Links"],
               ...(isDev ? [["notifications", "Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
             ].map(([key, label]) => (
               <button
@@ -1093,16 +1093,23 @@ function SessionsSection() {
   );
 }
 
-// Not dev-only (unlike the sections below it) — these two URLs are
-// exactly the kind of thing an exc/admin needs to fix on short notice
-// (per explicit request: "3rd party sometime change their url"), not
+// Not dev-only (unlike the sections below it) — these URLs are exactly
+// the kind of thing an exc/admin needs to fix on short notice (per
+// explicit request: "3rd party sometime change their url"), not
 // something that should need a dev around to update. Read by the Artist
 // Profile ticket page's two external-link buttons (app/tickets/
-// artist-profile/page.js) via app_settings key "artist_profile_links",
-// shape { spotify: string, apple: string }.
+// artist-profile/page.js) and, since round 32, the Discovery Mode on
+// Spotify ticket page's single external-link button (app/tickets/
+// discovery-mode-spotify/page.js) — all three share the one app_settings
+// row (key "artist_profile_links") rather than adding a second
+// near-identical row, shape { spotify, apple, discoveryMode }. Discovery
+// Mode's URL starts blank per explicit request ("just make the button,
+// I'll send the url later, the team is confirming which to use") — its
+// button renders disabled/greyed until this is filled in.
 function ArtistProfileLinksSection() {
   const [spotify, setSpotify] = useState("");
   const [apple, setApple] = useState("");
+  const [discoveryMode, setDiscoveryMode] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1112,13 +1119,17 @@ function ArtistProfileLinksSection() {
     supabase.from("app_settings").select("value").eq("key", "artist_profile_links").maybeSingle().then(({ data }) => {
       setSpotify(data?.value?.spotify || "");
       setApple(data?.value?.apple || "");
+      setDiscoveryMode(data?.value?.discoveryMode || "");
       setLoading(false);
     });
   }, []);
 
   async function save() {
     setSaving(true);
-    await supabase.from("app_settings").upsert({ key: "artist_profile_links", value: { spotify: spotify.trim(), apple: apple.trim() } });
+    await supabase.from("app_settings").upsert({
+      key: "artist_profile_links",
+      value: { spotify: spotify.trim(), apple: apple.trim(), discoveryMode: discoveryMode.trim() },
+    });
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
@@ -1129,7 +1140,7 @@ function ArtistProfileLinksSection() {
   return (
     <div style={{ maxWidth: 480 }}>
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
-        Destinations for the two buttons on the Artist Profile ticket page — editable here since the 3rd party
+        Destinations for external-tool buttons across a few ticket pages — editable here since the 3rd party
         sometimes changes their URL and this shouldn't need a code change.
       </p>
       <div className={styles.field}>
@@ -1139,6 +1150,10 @@ function ArtistProfileLinksSection() {
       <div className={styles.field}>
         <label className={styles.fieldLabel}>Apple Music for Artists URL</label>
         <input className={styles.input} value={apple} onChange={(e) => setApple(e.target.value)} placeholder="https://artists.apple.com/…" />
+      </div>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Discovery Mode Clip Tool URL</label>
+        <input className={styles.input} value={discoveryMode} onChange={(e) => setDiscoveryMode(e.target.value)} placeholder="Team is still confirming which tool to use — leave blank for now" />
       </div>
       <button className={styles.btnPrimary} onClick={save} disabled={saving}>
         {saving ? "Saving…" : "Save"}

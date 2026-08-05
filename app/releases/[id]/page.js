@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, formatDetailText } from "../../../lib/helpers";
-import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, GATE_TICKET_TYPES } from "../../../lib/GateFields";
+import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, GATE_TICKET_TYPES, CO_TRONG_NET_DRAFT_DEFAULTS } from "../../../lib/GateFields";
 import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import UrlField from "../../../lib/UrlField";
@@ -78,6 +78,12 @@ export default function ReleaseDetailPage() {
   // gateTicketMap above, so saveTab() below can create any missing gate
   // tickets without an extra read per type on every single save.
   const [gateTabsMap, setGateTabsMap] = useState({});
+  // Có Trong Net YouTube's own draft (Teaser/Official/Short from-to/Mô Tả)
+  // — same "local draft state, only written on Save" pattern as
+  // pitchingTypesDraft/artistProfileTypesDraft above, seeded once from the
+  // existing ticket's data (if any) once the batched gate-ticket fetch
+  // below resolves.
+  const [coTrongNetDraft, setCoTrongNetDraft] = useState(CO_TRONG_NET_DRAFT_DEFAULTS);
   const searchParams = useSearchParams();
   const mediaBookingSectionRef = useRef(null);
   const [autoScrolled, setAutoScrolled] = useState(false);
@@ -184,6 +190,9 @@ export default function ReleaseDetailPage() {
             if (key && (!map[key] || new Date(t.created_at) > new Date(map[key].created_at))) map[key] = t;
           });
           setGateTicketMap(map);
+          if (map.co_trong_net_youtube) {
+            setCoTrongNetDraft({ ...CO_TRONG_NET_DRAFT_DEFAULTS, ...map.co_trong_net_youtube.data });
+          }
         }
       });
     supabase
@@ -392,6 +401,37 @@ export default function ReleaseDetailPage() {
       }
     }
 
+    // Có Trong Net YouTube — same "create if missing, else write-if-
+    // changed" idea as Pitching/Artist Profile above, carrying its own
+    // Teaser/Official/Short/Mô Tả draft instead of the generic {releaseId}
+    // only body the loop below uses for every other type.
+    if (form.gate_co_trong_net_youtube === "true") {
+      const ctnTicket = gateTicketMap.co_trong_net_youtube;
+      if (ctnTicket) {
+        const newData = { ...ctnTicket.data, ...coTrongNetDraft };
+        if (JSON.stringify(ctnTicket.data) !== JSON.stringify(newData)) {
+          await supabase.from("tickets").update({ data: newData }).eq("id", ctnTicket.id);
+          setGateTicketMap((m) => ({ ...m, co_trong_net_youtube: { ...ctnTicket, data: newData } }));
+        }
+      } else {
+        const tab = gateTabsMap.co_trong_net_youtube;
+        if (tab) {
+          const { data: created } = await supabase
+            .from("tickets")
+            .insert({
+              tab_id: tab.id,
+              data: { releaseId: form.did, ...coTrongNetDraft },
+              status: tab.default_status,
+              status_log: { [tab.default_status]: new Date().toISOString() },
+              requester_segment: form.requester_segment || null,
+            })
+            .select()
+            .single();
+          if (created) setGateTicketMap((m) => ({ ...m, co_trong_net_youtube: created }));
+        }
+      }
+    }
+
     // Data Request / Marketing Request / Legal Request sub-tickets (see
     // GATE_TICKET_TYPES in lib/GateFields.js) — folded into Save instead of
     // a separate manual "Send Ticket" click, same idempotent-on-save
@@ -411,10 +451,15 @@ export default function ReleaseDetailPage() {
     // lib/GateFields.js); that ticket is created by the pick-package
     // magic-link flow with real required data, never auto-created from
     // here.
+    // gate_co_trong_net_youtube is also excluded from the generic loop
+    // below — it carries its own Teaser/Official/Short/Mô Tả draft (see
+    // coTrongNetDraft above), handled by its own block right after, same
+    // reason Pitching/Artist Profile aren't in this generic loop either.
     const missingGateEntries = Object.entries(GATE_TICKET_TYPES).filter(
       ([gateKey, ticketType]) =>
         gateKey !== "gate_sony_publish" &&
         gateKey !== "gate_phu_luc_truyen_thong" &&
+        gateKey !== "gate_co_trong_net_youtube" &&
         form[gateKey] === "true" &&
         !gateTicketMap[ticketType] &&
         gateTabsMap[ticketType]
@@ -868,6 +913,8 @@ export default function ReleaseDetailPage() {
             onSendPitchingInfoTicket={sendPitchingInfoTicket}
             artistProfileTypesDraft={artistProfileTypesDraft}
             onArtistProfileToggle={(key, checked) => setArtistProfileTypesDraft((p) => ({ ...p, [key]: checked }))}
+            coTrongNetDraft={coTrongNetDraft}
+            onCoTrongNetChange={(key, value) => setCoTrongNetDraft((p) => ({ ...p, [key]: value }))}
             gateTicketMap={gateTicketMap}
             setTab={setTab}
           />
@@ -1080,7 +1127,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, gateTicketMap, setTab }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, coTrongNetDraft, onCoTrongNetChange, gateTicketMap, setTab }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -1398,6 +1445,8 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           onSendPitchingInfoTicket={onSendPitchingInfoTicket}
           artistProfileTypes={artistProfileTypesDraft}
           onArtistProfileToggle={onArtistProfileToggle}
+          coTrongNetDraft={coTrongNetDraft}
+          onCoTrongNetChange={onCoTrongNetChange}
           ticketMap={gateTicketMap}
           sonyPublishMetaReady={requiredMetaDoneLive === REQUIRED_META_KEYS.length}
         />
