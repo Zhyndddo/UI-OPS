@@ -160,13 +160,23 @@ export default function PhaiSinhList() {
                   <th style={{ minWidth: 180 }}>Label</th>
                   <th style={{ minWidth: 240 }}>Tên Bài</th>
                   <th style={{ minWidth: 240 }}>Artist</th>
-                  <th style={{ minWidth: 220 }}>Contributor</th>
+                  {/* Contributor used to be an unbounded minWidth, which let
+                      a long unbroken URL in the Mixer line (e.g. a raw
+                      Drive folder link) blow the column way past its
+                      neighbors — pinned to Artist's fixed width instead,
+                      with word-break on the cell so long links wrap onto
+                      their own line rather than stretching the column. */}
+                  <th style={{ width: 240, minWidth: 240, maxWidth: 240 }}>Contributor</th>
                   <th style={{ minWidth: 180 }}>Release</th>
                   <th>Description</th>
                   <th style={{ minWidth: 200 }}>Tác Quyền</th>
                   <th style={{ minWidth: 70 }}>URL</th>
                   <th>Note</th>
-                  <th>LBM url</th>
+                  {/* LBM url had no width cap at all, so the ellipsis
+                      truncation LinkOrEditCell already applies never had a
+                      bounded container to truncate against — capped to
+                      double the URL column's width, matching that request. */}
+                  <th style={{ minWidth: 140, maxWidth: 180 }}>LBM url</th>
                   <th style={{ minWidth: 180 }}>PIC</th>
                   <th>Status</th>
                 </tr>
@@ -285,13 +295,13 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, on
         />
       </td>
       <td style={{ fontSize: 12, whiteSpace: "pre-line" }}>{artistGroup || "—"}</td>
-      <td style={{ fontSize: 12, whiteSpace: "pre-line" }}>{contributorGroup || "—"}</td>
+      <td style={{ fontSize: 12, whiteSpace: "pre-line", width: 240, minWidth: 240, maxWidth: 240, wordBreak: "break-word", overflowWrap: "break-word" }}>{contributorGroup || "—"}</td>
       <td style={{ fontSize: 12 }}>{releaseGroup}</td>
       {textareaCell("description", d.description)}
       {textareaCell("tacQuyen", d.tacQuyen)}
       <td style={{ minWidth: 70, maxWidth: 90 }}><LinkOrEditCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v, !isExecutorView)} /></td>
       {textareaCell("note", d.note)}
-      <td style={{ minWidth: 160 }}><LinkOrEditCell styles={styles} value={d.refLink} onSave={(v) => onUpdateField(ticket, "refLink", v, !isExecutorView)} /></td>
+      <td style={{ minWidth: 140, maxWidth: 180 }}><LinkOrEditCell styles={styles} value={d.refLink} onSave={(v) => onUpdateField(ticket, "refLink", v, !isExecutorView)} /></td>
       <td>
         {isExecutorView ? (
           <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>

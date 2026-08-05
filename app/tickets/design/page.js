@@ -263,7 +263,13 @@ export default function DesignList() {
 
           {isExecutorView && (
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-              <StatBox title="Design Team Status" value={`${designTeamStatusComment(designTeamCount)} && ${designTeamCount}`} />
+              <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 140 }}>
+                <div style={{ fontSize: 11, color: "var(--text-faint)", fontWeight: 700, marginBottom: 4 }}>Design Team Status</div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                  <span style={{ fontSize: 15, fontWeight: 700 }}>{designTeamStatusComment(designTeamCount)}</span>
+                  <span style={{ fontSize: 18, fontWeight: 800 }}>{designTeamCount}</span>
+                </div>
+              </div>
               <StatBox title="Đang chờ nhận" value={waitingCount} />
               <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px" }}>
                 <div style={{ fontSize: 11, color: "var(--text-faint)", fontWeight: 700, marginBottom: 6 }}>Đang thực hiện</div>
@@ -314,7 +320,7 @@ export default function DesignList() {
             <table className={styles.table} style={{ minWidth: 1500 }}>
               <thead>
                 <tr>
-                  <th style={{ minWidth: 90 }}>Urgent</th><th>Task</th><th>Description</th><th>Platform</th><th>Design Type</th><th>Size</th>
+                  <th style={{ minWidth: 220 }}>Task</th><th>Description</th><th>Platform</th><th>Design Type</th><th>Size</th>
                   <th style={{ minWidth: 140 }}>Note</th><th>PIC</th><th>Proposed PIC</th><th style={{ minWidth: 120 }}>Expected Deadline</th><th>Status</th>
                 </tr>
               </thead>
@@ -401,23 +407,25 @@ function DesignRow({ ticket, platforms, types, sizes, profiles, isExecutorView, 
 
   return (
     <tr style={isUrgentUnconfirmed ? { boxShadow: "inset 3px 0 0 #ff4d4d", background: "rgba(255,77,77,0.06)" } : undefined}>
-      <td>
-        {ticket.data?.urgent ? (
-          <div>
-            <span style={{ color: "#ff4d4d", fontWeight: 800, fontSize: 11 }}>Urgent</span>
-            {isUrgentUnconfirmed && isDev && (
-              <button type="button" className={styles.btnSmall} style={{ display: "block", marginTop: 4, padding: "2px 6px", fontSize: 10 }} onClick={() => onConfirmUrgent(ticket)}>
-                Confirm
-              </button>
-            )}
-            {ticket.data?.urgentConfirmed && <div style={{ fontSize: 9, color: "var(--text-faint)", marginTop: 2 }}>✓ confirmed</div>}
-          </div>
-        ) : (
-          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>—</span>
-        )}
-      </td>
-      <td style={{ minWidth: 160 }}>
-        <textarea className={styles.textarea} style={{ minHeight: 44, fontSize: 12, padding: "4px 8px" }} defaultValue={ticket.data?.task || ""} onBlur={(e) => onUpdateData(ticket, { task: e.target.value })} />
+      <td style={{ minWidth: 220 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+          {ticket.data?.urgent && (
+            <div style={{ flexShrink: 0, textAlign: "center", paddingTop: 4 }}>
+              <div style={{ color: "#ff4d4d", fontWeight: 800, fontSize: 10, lineHeight: 1.1 }}>URGENT</div>
+              {isUrgentUnconfirmed && isDev && (
+                <button
+                  type="button"
+                  style={{ display: "block", marginTop: 3, padding: "2px 5px", fontSize: 9, fontWeight: 700, color: "#ff4d4d", background: "none", border: "1px solid #ff4d4d", borderRadius: 3, cursor: "pointer" }}
+                  onClick={() => onConfirmUrgent(ticket)}
+                >
+                  confirm
+                </button>
+              )}
+              {ticket.data?.urgentConfirmed && <div style={{ fontSize: 8, color: "var(--text-faint)", marginTop: 2 }}>✓</div>}
+            </div>
+          )}
+          <textarea className={styles.textarea} style={{ minHeight: 44, fontSize: 12, padding: "4px 8px", flex: 1 }} defaultValue={ticket.data?.task || ""} onBlur={(e) => onUpdateData(ticket, { task: e.target.value })} />
+        </div>
       </td>
       <td style={{ minWidth: 160 }}>
         <textarea className={styles.textarea} style={{ minHeight: 44, fontSize: 12, padding: "4px 8px" }} defaultValue={ticket.data?.description || ""} onBlur={(e) => onUpdateData(ticket, { description: e.target.value })} />

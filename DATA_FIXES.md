@@ -3233,3 +3233,80 @@ or password), assuming the login page ever grows a password field — it current
 magic-link flow, so for now this is mainly useful for anyone who wants a password ready for later, or
 for any other app/tool that authenticates against the same Supabase Auth project. No schema/migration
 needed — this is pure Supabase Auth, not the `profiles` table.
+
+## 2026-08-05 (36)
+
+### Fix — Batch Phái Sinh table's Note/Link Labelmaster columns were in the wrong order
+
+`app/tickets/batch-phai-sinh/[id]/page.js`'s table displayed `... Type, Link Labelmaster, Note, PIC`,
+but `lib/phaiSinhBatchParse.js`'s `BATCH_ITEM_COLUMNS` (what the paste importer actually expects) is
+`... Type, Status, Note, Link Labelmaster`. Anyone building a working sheet by eyeballing the on-screen
+table order (rather than the importer's real expected order) would have their Note and Link
+Labelmaster values swapped on import. Pure display fix — swapped the table's header + row cells to put
+Note before Link Labelmaster, matching the importer. No data migration needed (the two are separate
+columns; existing rows' actual `note`/`link_labelmaster` values are untouched, only which column they
+render under changes).
+
+Also delivered `batch-phai-sinh-template.xlsx` — a fill-in template locked to the importer's real
+column order, with a Legend tab (paste mechanics, Status/Type vocab, date format, the one required
+field) and one italic example row.
+
+## 2026-08-05 (37)
+
+### Fix — Batch Phái Sinh date paste bug: day/month silently swapped or dropped
+
+Real bug, found from a user-reported screenshot: `lib/phaiSinhBatchParse.js`'s `parseDateLenient`
+handed slash-separated dates straight to `new Date(v)`, which assumes US `M/D/YYYY`. Every real
+tracklist sheet writes dates Vietnamese-style, day-first (`D/M/YYYY`) — so `"25/5/2025"` (25 May) read
+as month=25, an invalid date, and silently became blank; `"2/6/2025"` (2 June) read as month=2/day=6,
+a VALID but WRONG date (6 February) since day<=12 flips silently into a plausible month. Both symptoms
+showed up in the same paste the user sent.
+
+Fixed by parsing `D/M/YYYY` / `DD/MM/YYYY` explicitly (day-first) and building the `YYYY-MM-DD` string
+directly, rather than routing through a `Date` object at all for that branch — this also sidesteps a
+separate off-by-one risk from `toISOString()`'s UTC conversion. Anything else still falls back to
+`Date.parse` as before. Affects `Ngày Phát Hành` / `Ngày nhận` / `Ngày hoàn thành` on both the batch
+creation paste and the "+ Add Via Paste" on an existing batch (same shared parser). No migration
+needed — pure parsing logic, nothing stored incorrectly needs backfilling since this was caught before
+any bad batch was actually created.
+
+## 2026-08-05 (38)
+
+### Fix — Phái Sinh (plain) ticket table: Contributor and LBM url columns blowing out way too wide
+
+`app/tickets/phai-sinh/page.js`'s table — reported via screenshot, a huge blank-looking gap under
+Contributor and an unclipped, overflowing raw URL under LBM url.
+
+- **Contributor** used to be an unbounded `minWidth: 220` with no cap — a long unbroken URL in the
+  Mixer line (contributors sometimes paste a raw Drive folder link there instead of a name) has no
+  natural wrap point, so the browser stretched the whole column to fit it on one line. Pinned to a
+  fixed `240` (matching Artist's width, per the fallback the request specifically named) and added
+  `wordBreak`/`overflowWrap` so a long link now wraps onto its own line inside the cell instead of
+  stretching the column.
+- **LBM url** had NO width constraint at all on either the header or the cell — `LinkOrEditCell`
+  already truncates a displayed link with ellipsis, but that only works once its container has a
+  bounded width to truncate against, which this column never had. Capped to `140–180`, double the URL
+  column's own `70–90`, per the request ("same as the url column or just double that side, no more").
+
+Pure `<th>`/`<td>` style changes — no data, no migration.
+
+## 2026-08-05 (39)
+
+### Fix — Design Team Status counter box: dropped the literal "&&"
+
+The round 34 spec wrote the box's content as `*comment* && count` — I'd read that as a literal string
+to render ("Rảnh nè && 2"), but per a follow-up screenshot that was just shorthand for "comment
+alongside count," not literal `&&` characters. `app/tickets/design/page.js`'s first counter box now
+shows the comment and count as two separate styled spans (comment normal weight, count bold/larger),
+same visual pattern as the box's title-then-value convention elsewhere on the page — no `&&` text.
+Pure display fix, no logic/data change.
+
+## 2026-08-05 (40)
+
+### UI tweak — Urgent flag folded into the Task cell instead of its own column
+
+Per a follow-up screenshot: the standalone "Urgent" column in `app/tickets/design/page.js` is gone —
+the red "URGENT" label + dev-only "confirm" button now render inline at the left edge of the Task
+cell itself (same idea as the small inline badge pattern used elsewhere in the app, e.g. the "✎ edited"
+indicator), instead of eating a whole separate column. Pure display change — `data.urgent` /
+`data.urgentConfirmed` still drive it exactly as before, nothing structural changed.
