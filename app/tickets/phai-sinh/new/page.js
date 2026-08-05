@@ -8,25 +8,29 @@ import { supabase } from "../../../../lib/supabaseClient";
 import { useAuth } from "../../../../lib/AuthContext";
 import { LabelInput, ArtistInput } from "../../../../lib/ReferenceInputs";
 import RelatedDidField from "../../../../lib/RelatedDidField";
+import { parseBatchPaste, BATCH_ITEM_COLUMNS } from "../../../../lib/phaiSinhBatchParse";
+import BatchFileImport from "../../../../lib/BatchFileImport";
+import { PHAI_SINH_TYPE_OPTIONS, isKhoNhacType } from "../../../../lib/phaiSinhTypes";
 import styles from "../../../shared.module.css";
 
-const TYPE_OPTIONS = ["Phái sinh", "Kho nhạc"];
-
-// Bespoke — like Design, Phái Sinh outgrew the generic form: Type +
-// Deadline share a row up top, Composer/Lyricist/Mixer default off each
-// other, Artist/Feature Artist/Label reference the same Artist/Label List
-// tables the New Release form uses (free text still allowed, matching an
-// existing row just lets you pick it).
-//
-// LBM url and Note are intentionally NOT collected here — OPS fills those
-// in after the work is actually done, from the ticket list
-// (app/tickets/phai-sinh/page.js), same as before. Nothing downstream
-// changed; the requester just isn't asked to guess at them up front.
+// Round 41 — Phái Sinh and Phái Sinh (Batch) merged into one ticket type,
+// one form. Type now drives which flow renders: "Phái sinh" is the
+// original one-song form below (unchanged); "Kho nhạc" / "Chuyển net" /
+// "Takedown" all switch to the batch flow (one parent ticket + a pasted
+// or file-imported list of songs as children in phai_sinh_batch_items —
+// same table Phái Sinh (Batch) already used, reused here instead of a
+// second one). Per explicit request, Tên Bài/Related DID/Artist/Feature
+// Artist/URL/Composer/Lyricist/Producer/Mixer/Release Date/Release Time
+// don't apply to a Kho Nhạc-family parent (that data lives per-song in
+// the children table instead) — Label/Tác Quyền/Description/Deadline
+// still do and stay in the form.
 export default function PhaiSinhNewTicket() {
   const router = useRouter();
   const { profile } = useAuth();
 
-  const [typeRequest, setTypeRequest] = useState(TYPE_OPTIONS[0]);
+  const [typeRequest, setTypeRequest] = useState(PHAI_SINH_TYPE_OPTIONS[0]);
+  const isBatch = isKhoNhacType(typeRequest);
+
   const [deadline, setDeadline] = useState("");
   const [deadlineTouched, setDeadlineTouched] = useState(false);
   const [tenBai, setTenBai] = useState("");
@@ -44,6 +48,13 @@ export default function PhaiSinhNewTicket() {
   const [tacQuyen, setTacQuyen] = useState("");
   const [description, setDescription] = useState("Full CID, FB +4 ngày, TikTok +7 ngày");
 
+  // Batch-flow-only state.
+  const [pasteText, setPasteText] = useState("");
+  const [fileRows, setFileRows] = useState(null); // { rows, skipped, fileName } | null — file import takes priority over the paste box if both are used
+  const { rows: pastedRows, skipped: pasteSkipped } = parseBatchPaste(pasteText);
+  const importedRows = fileRows ? fileRows.rows : pastedRows;
+  const importedSkipped = fileRows ? fileRows.skipped : pasteSkipped;
+
   const [artists, setArtists] = useState([]);
   const [labels, setLabels] = useState([]);
   const [error, setError] = useState(null);
@@ -58,6 +69,8 @@ export default function PhaiSinhNewTicket() {
   // Deadline defaults to Release Date until the requester picks a deadline
   // themselves — clearing it back to blank re-enables the auto-fill, so it
   // keeps tracking Release Date edits until an explicit choice is made.
+  // (Kho Nhạc-family tickets have no Release Date field, so this simply
+  // never fires for them — Deadline stays whatever's typed in directly.)
   useEffect(() => {
     if (!releaseDate || deadlineTouched) return;
     setDeadline(releaseDate);
@@ -71,12 +84,56 @@ export default function PhaiSinhNewTicket() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
-    if (!tenBai.trim() || !artist.trim() || !tacQuyen.trim()) {
-      setError("Tên Bài, Artist, and Tác Quyền required.");
-      return;
-    }
     if (!supabase) {
       setError("Supabase isn't configured — check environment variables.");
+      return;
+    }
+    if (!supabase) return;
+
+    if (isBatch) {
+      if (importedRows.length === 0) {
+        setError("Paste or import at least one song first — nothing parsed yet.");
+        return;
+      }
+      setSubmitting(true);
+      const { data: tab, error: tabErr } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "phai_sinh").single();
+      if (tabErr || !tab) {
+        setSubmitting(false);
+        setError("Couldn't find the Phái Sinh ticket type — did schema.sql get redeployed?");
+        return;
+      }
+      const { data: created, error: insertErr } = await supabase
+        .from("tickets")
+        .insert({
+          tab_id: tab.id,
+          data: { typeRequest, label, tacQuyen, description },
+          deadline: deadline || null,
+          status: tab.default_status,
+          status_log: { [tab.default_status]: new Date().toISOString() },
+          requester_segment: profile?.segment || null,
+          requester_name: profile?.name || null,
+        })
+        .select()
+        .single();
+      if (insertErr || !created) {
+        setSubmitting(false);
+        setError(insertErr?.message || "Couldn't create the ticket.");
+        return;
+      }
+      const { error: itemsErr } = await supabase.from("phai_sinh_batch_items").insert(
+        importedRows.map((r) => ({ ...r, batch_ticket_id: created.id }))
+      );
+      setSubmitting(false);
+      if (itemsErr) {
+        setError(`Ticket created, but songs failed to import: ${itemsErr.message}. Open it and use "+ Add" to retry.`);
+        return;
+      }
+      router.push(`/tickets/batch-phai-sinh/${created.id}`);
+      return;
+    }
+
+    if (!tenBai.trim() || !artist.trim() || !tacQuyen.trim()) {
+      setError("Tên Bài, Artist, and Tác Quyền required.");
       return;
     }
     setSubmitting(true);
@@ -126,7 +183,7 @@ export default function PhaiSinhNewTicket() {
   return (
     <AppShell>
       <div className={styles.page}>
-        <div className={styles.container} style={{ maxWidth: 640 }}>
+        <div className={styles.container} style={{ maxWidth: isBatch ? 760 : 640 }}>
           <Link href="/tickets/phai-sinh" className={styles.backLink}>← Back</Link>
           <div className={styles.eyebrow}>// New Ticket</div>
           <h1 className={styles.title}>Phái Sinh</h1>
@@ -138,90 +195,147 @@ export default function PhaiSinhNewTicket() {
               <div className={styles.field}>
                 <label className={styles.fieldLabel}>Type</label>
                 <select className={styles.select} value={typeRequest} onChange={(e) => setTypeRequest(e.target.value)}>
-                  {TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                  {PHAI_SINH_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
               <div className={styles.field}>
-                <label className={styles.fieldLabel}>Deadline</label>
+                <label className={styles.fieldLabel}>Deadline (Hạn Cuối)</label>
                 <input type="date" className={styles.input} value={deadline} onChange={(e) => handleDeadlineChange(e.target.value)} />
-                <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4, marginBottom: 0 }}>
-                  If not picked, defaults to taking Release Date as deadline.
-                </p>
-              </div>
-
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Tên Bài <span className={styles.required}>*</span></label>
-                <input className={styles.input} value={tenBai} onChange={(e) => setTenBai(e.target.value)} />
-              </div>
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Related DID</label>
-                <RelatedDidField styles={styles} value={relatedDid} onChange={setRelatedDid} />
-              </div>
-
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Artist <span className={styles.required}>*</span></label>
-                <ArtistInput styles={styles} value={artist} onChange={setArtist} artists={artists} placeholder="Type or pick from Artist List…" />
-              </div>
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Feature Artist</label>
-                <ArtistInput styles={styles} value={featureArtist} onChange={setFeatureArtist} artists={artists} placeholder="Feat. artist(s), if any…" />
-              </div>
-
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Label</label>
-                <LabelInput styles={styles} value={label} onChange={setLabel} labels={labels} placeholder="Type or pick from Label List…" />
-              </div>
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>URL</label>
-                <input className={styles.input} value={url} onChange={(e) => setUrl(e.target.value)} />
-              </div>
-
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Composer</label>
-                <input className={styles.input} value={composer} onChange={(e) => setComposer(e.target.value)} />
-              </div>
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Lyricist</label>
-                <input className={styles.input} value={lyricist} onChange={(e) => setLyricist(e.target.value)} />
-                <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4, marginBottom: 0 }}>
-                  If not filled, defaults to taking the same name as Composer.
-                </p>
-              </div>
-
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Producer</label>
-                <input className={styles.input} value={producer} onChange={(e) => setProducer(e.target.value)} />
-              </div>
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Mixer</label>
-                <input className={styles.input} value={mixer} onChange={(e) => setMixer(e.target.value)} />
-                <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4, marginBottom: 0 }}>
-                  If not filled, defaults to taking the same name as Composer.
-                </p>
-              </div>
-
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Release Date</label>
-                <input type="date" className={styles.input} value={releaseDate} onChange={(e) => setReleaseDate(e.target.value)} />
-              </div>
-              <div className={styles.field}>
-                <label className={styles.fieldLabel}>Release Time</label>
-                <input className={styles.input} value={releaseTime} onChange={(e) => setReleaseTime(e.target.value)} />
+                {!isBatch && (
+                  <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4, marginBottom: 0 }}>
+                    If not picked, defaults to taking Release Date as deadline.
+                  </p>
+                )}
               </div>
             </div>
 
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Tác Quyền <span className={styles.required}>*</span></label>
-              <textarea className={styles.textarea} value={tacQuyen} onChange={(e) => setTacQuyen(e.target.value)} />
-            </div>
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Description</label>
-              <textarea className={styles.textarea} value={description} onChange={(e) => setDescription(e.target.value)} />
-            </div>
+            {isBatch ? (
+              <>
+                <div className={styles.grid2}>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Label</label>
+                    <LabelInput styles={styles} value={label} onChange={setLabel} labels={labels} placeholder="Type or pick from Label List…" />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Tác Quyền</label>
+                    <input className={styles.input} value={tacQuyen} onChange={(e) => setTacQuyen(e.target.value)} />
+                  </div>
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>Description</label>
+                  <textarea className={styles.textarea} value={description} onChange={(e) => setDescription(e.target.value)} />
+                </div>
 
-            <button className={styles.btnPrimary} type="submit" disabled={submitting}>
-              {submitting ? "Creating…" : "Create Ticket"}
-            </button>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>Songs — paste or import a file</label>
+                  <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 0, marginBottom: 8 }}>
+                    Expected column order: {BATCH_ITEM_COLUMNS.join(" · ")}. A header row is auto-skipped either way.
+                    If you import a file, it takes priority over anything pasted below.
+                  </p>
+                  <BatchFileImport styles={styles} onParsed={setFileRows} />
+                  <p style={{ fontSize: 11, color: "var(--text-faint)", margin: "10px 0 4px" }}>— or paste directly —</p>
+                  <textarea
+                    className={styles.textarea}
+                    style={{ minHeight: 200, fontFamily: "monospace", fontSize: 11 }}
+                    value={pasteText}
+                    onChange={(e) => { setPasteText(e.target.value); setFileRows(null); }}
+                    placeholder="Paste tab-separated rows here…"
+                    disabled={!!fileRows}
+                  />
+                  <p style={{ fontSize: 12, marginTop: 6, color: importedRows.length > 0 ? "var(--success-fg)" : "var(--text-faint)" }}>
+                    {fileRows ? `From ${fileRows.fileName}: ` : ""}
+                    {importedRows.length} song{importedRows.length === 1 ? "" : "s"} parsed
+                    {importedSkipped > 0 ? `, ${importedSkipped} blank line${importedSkipped === 1 ? "" : "s"} skipped` : ""}.
+                    {fileRows && (
+                      <button type="button" onClick={() => setFileRows(null)} style={{ marginLeft: 8, background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11, textDecoration: "underline" }}>
+                        clear file, use paste instead
+                      </button>
+                    )}
+                  </p>
+                </div>
+
+                <button className={styles.btnPrimary} type="submit" disabled={submitting}>
+                  {submitting ? "Creating…" : `Create Ticket (${importedRows.length} song${importedRows.length === 1 ? "" : "s"})`}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className={styles.grid2}>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Tên Bài <span className={styles.required}>*</span></label>
+                    <input className={styles.input} value={tenBai} onChange={(e) => setTenBai(e.target.value)} />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Related DID</label>
+                    <RelatedDidField styles={styles} value={relatedDid} onChange={setRelatedDid} />
+                  </div>
+
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Artist <span className={styles.required}>*</span></label>
+                    <ArtistInput styles={styles} value={artist} onChange={setArtist} artists={artists} placeholder="Type or pick from Artist List…" />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Feature Artist</label>
+                    <ArtistInput styles={styles} value={featureArtist} onChange={setFeatureArtist} artists={artists} placeholder="Feat. artist(s), if any…" />
+                  </div>
+
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Label</label>
+                    <LabelInput styles={styles} value={label} onChange={setLabel} labels={labels} placeholder="Type or pick from Label List…" />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>URL</label>
+                    <input className={styles.input} value={url} onChange={(e) => setUrl(e.target.value)} />
+                  </div>
+
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Composer</label>
+                    <input className={styles.input} value={composer} onChange={(e) => setComposer(e.target.value)} />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Lyricist</label>
+                    <input className={styles.input} value={lyricist} onChange={(e) => setLyricist(e.target.value)} />
+                    <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4, marginBottom: 0 }}>
+                      If not filled, defaults to taking the same name as Composer.
+                    </p>
+                  </div>
+
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Producer</label>
+                    <input className={styles.input} value={producer} onChange={(e) => setProducer(e.target.value)} />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Mixer</label>
+                    <input className={styles.input} value={mixer} onChange={(e) => setMixer(e.target.value)} />
+                    <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4, marginBottom: 0 }}>
+                      If not filled, defaults to taking the same name as Composer.
+                    </p>
+                  </div>
+
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Release Date</label>
+                    <input type="date" className={styles.input} value={releaseDate} onChange={(e) => setReleaseDate(e.target.value)} />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.fieldLabel}>Release Time</label>
+                    <input className={styles.input} value={releaseTime} onChange={(e) => setReleaseTime(e.target.value)} />
+                  </div>
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>Tác Quyền <span className={styles.required}>*</span></label>
+                  <textarea className={styles.textarea} value={tacQuyen} onChange={(e) => setTacQuyen(e.target.value)} />
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>Description</label>
+                  <textarea className={styles.textarea} value={description} onChange={(e) => setDescription(e.target.value)} />
+                </div>
+
+                <button className={styles.btnPrimary} type="submit" disabled={submitting}>
+                  {submitting ? "Creating…" : "Create Ticket"}
+                </button>
+              </>
+            )}
           </form>
         </div>
       </div>

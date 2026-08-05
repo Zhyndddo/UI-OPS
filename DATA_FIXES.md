@@ -3310,3 +3310,96 @@ the red "URGENT" label + dev-only "confirm" button now render inline at the left
 cell itself (same idea as the small inline badge pattern used elsewhere in the app, e.g. the "✎ edited"
 indicator), instead of eating a whole separate column. Pure display change — `data.urgent` /
 `data.urgentConfirmed` still drive it exactly as before, nothing structural changed.
+
+## 2026-08-05 (41)
+
+### Feature — Phái Sinh and Phái Sinh (Batch) merged into one ticket type
+
+Per explicit request: "merge the phai sinh with the batch... when user choose type phái sinh, normal
+phái sinh input, if they choose kho nhạc, switch to the batch." Phái Sinh's Type field is no longer
+free text — it's a real 4-option select (**Phái sinh** / **Kho nhạc** / **Chuyển net** / **Takedown**),
+and that one field now decides the whole ticket's behavior. Chuyển net and Takedown "count as kho nhạc"
+per explicit instruction — all three share one predicate, `isKhoNhacType()` in the new
+`lib/phaiSinhTypes.js`, which is the single source of truth everywhere this distinction matters.
+
+**Architecture decision:** reuse everything Phái Sinh (Batch) already had rather than build anything
+new — the `phai_sinh_batch_items` table, and the expanded per-song table at
+`app/tickets/batch-phai-sinh/[id]/page.js`, are both unchanged and now serve as the Kho Nhạc-family
+flow for `phai_sinh` tickets too (that detail page was already tab-agnostic — it only ever looked up
+by ticket id, never by which tab the parent belonged to). The standalone Phái Sinh (Batch) tab
+(`/tickets/batch-phai-sinh` and its `/new`) is retired: both are now redirect stubs into the Phái Sinh
+equivalents, and `batch_phai_sinh` is removed from `lib/teamTypes.js`'s `TEAM_TICKET_TYPES` so it no
+longer shows as its own TypeSwitcher tab. Its `ticket_tabs` seed row is left in place (never
+hard-deleted, same precedent as the earlier `phu_luc_truyen_thong` retirement).
+
+**Per-item changes (2a–2e from the request):**
+
+- **2a — Type options.** `Phái sinh` (original single-song flow, unchanged) / `Kho nhạc` (existing) /
+  `Chuyển net` (new) / `Takedown` (new). The latter two behave identically to Kho nhạc.
+- **2b — Grey out single-song fields.** On the parent list (`app/tickets/phai-sinh/page.js`), the
+  Tên Bài, Artist, Contributor, Release, and LBM url cells dim (`opacity: 0.4`) and disable their
+  inputs for Kho Nhạc-family rows — that data now lives per-song in the children table instead.
+- **2c — URL → Open Batch.** For Kho Nhạc-family rows, the URL cell is replaced with an "Open Batch ↗"
+  link into the same `/tickets/batch-phai-sinh/[id]` table (new tab), instead of the plain-song
+  link-or-edit cell.
+- **2d — Counter dashboard.** Added a new "Kho Nhạc Progress" column on the parent list, populated only
+  for Kho Nhạc-family rows, computed live from that ticket's `phai_sinh_batch_items` children:
+  **Confirm Metadata** (N/total children with every field in `CONFIRM_METADATA_FIELDS` filled —
+  `ten_bai, version, the_loai, artist, composer, producer, mixer, release_date, link_audio,
+  link_artwork, lyrics`, flagged in the request as "may change in the future"), **Uploading /
+  Delivery / Rechecking / Complete** (straight counts of children at each of those statuses), and
+  **Takedown Bên Cũ** (count of children with the new `takedown_ban_cu` flag set). UI choice (left
+  explicitly open — "this is your call on how to UI them here"): a row of small pill badges, one per
+  counter, rather than 6 separate table columns — keeps the parent list from getting unreadably wide
+  while still surfacing every number at a glance. The 3 new child statuses (Uploading/Delivery/
+  Rechecking) were added to `ITEM_STATUSES` on the children table
+  (`app/tickets/batch-phai-sinh/[id]/page.js`, now imported from `CHILD_ITEM_STATUSES` in
+  `lib/phaiSinhTypes.js`) alongside the pre-existing Requested/Process/Complete/Canceled — colors for
+  the 3 new ones added to `statusColor()` in `lib/helpers.js`. "Recheck Takedown Bên Cũ" is a new
+  Yes/No select column on the children table itself, backed by a new `takedown_ban_cu boolean`
+  column on `phai_sinh_batch_items` (see migration below) — every other Confirm-Metadata field and
+  every status counter already existed as real columns on that table from round 33, so no other
+  schema change was needed.
+- **2e — Hạn Cuối.** Real date-picker column on the parent list, bound to `tickets.deadline` (already
+  a real column, no schema change needed there). Locked for the `exc` role per explicit request — only
+  `dev`/`admin` can edit it, same lock pattern already used for Batch Phái Sinh's per-item deadline and
+  Design's deadline lock (round 34).
+
+**File import (mid-turn addition):** "also make the import so they can import the data via template
+file" — added a real file-upload alternative to the existing paste-a-TSV-block textarea, via the new
+`lib/BatchFileImport.js` component (SheetJS/`xlsx` package, added to `package.json`, dynamically
+imported so it doesn't bloat the initial bundle). Reads `.xlsx`/`.xls`/`.csv` entirely client-side —
+nothing is uploaded anywhere else, the file never leaves the browser before being turned into rows and
+inserted through the normal Supabase client, same as a paste. `lib/phaiSinhBatchParse.js` was
+refactored so both the paste path and the file path share one `cellsToItem()`/`isHeaderRow()` mapping
+(new `parseBatchRows()` export takes an array-of-arrays, as SheetJS's `sheet_to_json(sheet, {header:
+1})` produces) — the round 36/37 D/M/YYYY date-parsing fix and column order live in exactly one place
+either way. Wired into both the create form (`app/tickets/phai-sinh/new/page.js` — Kho Nhạc-family
+Type shows Label/Tác Quyền/Description + the file import + the paste textarea, file takes priority if
+both are used) and the existing batch table's "+ Add" (`app/tickets/batch-phai-sinh/[id]/page.js`).
+Delivered a matching `batch-phai-sinh-template.xlsx` (Legend tab + one example row) for the requester
+side.
+
+**Other files touched:** `lib/notDoneCounts.js` — the `batch_phai_sinh`-specific "not done" branch
+replaced with a `phai_sinh`-aware one: plain Phái sinh tickets count 1 each (normal terminal-status
+rule), Kho Nhạc-family tickets count their children instead (same "each song is its own workload item"
+rule the batch type always had, just keyed off `isKhoNhacType()` now instead of a separate tab).
+`schema.sql` — `takedown_ban_cu boolean not null default false` added to the `phai_sinh_batch_items`
+table definition (fresh installs); the `batch_phai_sinh` `ticket_tabs` seed row's comment updated to
+explain the retirement.
+
+**Migrations delivered separately** (not zipped with `starter/`, per convention):
+
+- `add-round41-merge-phai-sinh-batch.sql` — adds `takedown_ban_cu` to `phai_sinh_batch_items` (idempotent,
+  `if not exists`), and moves any tickets still sitting on the retired `batch_phai_sinh` tab onto
+  `phai_sinh` (tagged `typeRequest: "Kho nhạc"`, backfilling `data.label` from the old `data.batchLabel`
+  if `label` isn't already set). The `batch_phai_sinh` `ticket_tabs` row itself is left in place, never
+  deleted.
+- `remove-test-batch-phai-sinh-ticket.sql` — the standalone cleanup requested in item 3: deletes the
+  one test Phái Sinh (Batch) ticket (and its `phai_sinh_batch_items` children) created while trying the
+  old flow, so nothing stale is left once the merge migration runs. Includes a commented-out `SELECT`
+  to review what will be deleted first, in case more than one test ticket exists.
+
+**Assumption flagged:** the 6-counter cell's exact visual treatment (pill badges vs. dedicated columns)
+was explicitly left as an implementation choice in the request — flag if a different layout (e.g. 6
+separate sortable columns) was actually wanted.

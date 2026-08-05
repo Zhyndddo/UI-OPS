@@ -11,9 +11,13 @@ import { isOpsTeam } from "../../../../lib/teamTypes";
 import { parseBatchPaste, BATCH_ITEM_COLUMNS } from "../../../../lib/phaiSinhBatchParse";
 import { recomputeBatchStatus, batchProgress } from "../../../../lib/batchPhaiSinhStatus";
 import { sendPing, resolvePingTargets } from "../../../../lib/pingNotification";
+import { CHILD_ITEM_STATUSES } from "../../../../lib/phaiSinhTypes";
+import BatchFileImport from "../../../../lib/BatchFileImport";
 import styles from "../../../shared.module.css";
 
-const ITEM_STATUSES = ["REQUESTED", "PROCESS", "COMPLETE", "CANCELED"];
+// Round 41 — extended with the Kho Nhạc workflow's own stages
+// (UPLOADING/DELIVERY/RECHECKING), see lib/phaiSinhTypes.js.
+const ITEM_STATUSES = CHILD_ITEM_STATUSES;
 
 // The "expand into a full-size table" view per explicit request — this is
 // what the batch row on the list page opens into (new tab, "for
@@ -117,6 +121,22 @@ export default function BatchPhaiSinhDetail() {
     void skipped;
   }
 
+  // Round 41 — file-upload alternative to the paste textarea, per explicit
+  // request ("also make the import so they can import the data via
+  // template file"). Same insert as the paste path, just a different
+  // source of parsed rows.
+  async function handleAddFile({ rows, skipped }) {
+    setPasteError(null);
+    const { error } = await supabase.from("phai_sinh_batch_items").insert(rows.map((r) => ({ ...r, batch_ticket_id: id })));
+    if (error) {
+      setPasteError(error.message);
+      return;
+    }
+    setPasteOpen(false);
+    await load();
+    void skipped;
+  }
+
   if (loading) {
     return <AppShell><div className={styles.page}><div className={styles.container}><div className={styles.emptyState}>Loading…</div></div></div></AppShell>;
   }
@@ -153,6 +173,9 @@ export default function BatchPhaiSinhDetail() {
               <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 0, marginBottom: 6 }}>
                 Same column order as batch creation: {BATCH_ITEM_COLUMNS.join(" · ")}
               </p>
+              <div style={{ marginBottom: 10 }}>
+                <BatchFileImport styles={styles} onParsed={handleAddFile} />
+              </div>
               <textarea
                 className={styles.textarea}
                 style={{ minHeight: 140, fontFamily: "monospace", fontSize: 11 }}
@@ -175,7 +198,7 @@ export default function BatchPhaiSinhDetail() {
             <div className={styles.emptyState}>No songs in this batch yet — use "+ Add Via Paste" above.</div>
           ) : (
             <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
-            <table className={styles.table} style={{ minWidth: 2400 }}>
+            <table className={styles.table} style={{ minWidth: 2550 }}>
               <thead>
                 <tr>
                   <th style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", minWidth: 200 }}>Tên Bài</th>
@@ -201,6 +224,10 @@ export default function BatchPhaiSinhDetail() {
                   <th style={{ minWidth: 130 }}>PIC</th>
                   <th style={{ minWidth: 120 }}>Deadline</th>
                   <th style={{ minWidth: 120 }}>Status</th>
+                  {/* Round 41 item 2d — "recheck takedown bên cũ", single-
+                      choice Yes/No, counted (if yes) on the parent list's
+                      mini dashboard. */}
+                  <th style={{ minWidth: 130 }}>Takedown Bên Cũ</th>
                   <th style={{ minWidth: 70 }}>Ping</th>
                 </tr>
               </thead>
@@ -270,6 +297,17 @@ export default function BatchPhaiSinhDetail() {
                         ) : (
                           <span className={styles.statusBadge} style={{ background: color.bg, color: color.fg }}>{item.status}</span>
                         )}
+                      </td>
+                      <td>
+                        <select
+                          className={styles.select}
+                          style={{ padding: "4px 6px", fontSize: 11 }}
+                          value={item.takedown_ban_cu ? "yes" : "no"}
+                          onChange={(e) => updateItem(item, { takedown_ban_cu: e.target.value === "yes" })}
+                        >
+                          <option value="no">No</option>
+                          <option value="yes">Yes</option>
+                        </select>
                       </td>
                       <td>
                         <button type="button" className={styles.btnSmall} style={{ padding: "3px 6px", fontSize: 10 }} onClick={() => pingItem(item)}>
