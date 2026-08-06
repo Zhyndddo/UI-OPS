@@ -31,6 +31,7 @@ export default function BookingChannelsPage() {
   const [editingId, setEditingId] = useState(null);
   const [editValues, setEditValues] = useState(null);
   const [saveError, setSaveError] = useState(null);
+  const [typeFilter, setTypeFilter] = useState(null); // "Direct" | "Partner" | null
 
   useEffect(() => { if (supabase) load(); }, []);
 
@@ -56,9 +57,18 @@ export default function BookingChannelsPage() {
   // Imported reference channels (~140 from the "LIST KÊNH VIEENT & ENVI"
   // sheet) made this list too long to scan by eye — filters by name,
   // brand, or note, same as the Add Link popup's own search.
-  const visibleChannels = search.trim()
+  const searchedChannels = search.trim()
     ? channels.filter((c) => `${c.name} ${c.brand || ""} ${c.note || ""}`.toLowerCase().includes(search.trim().toLowerCase()))
     : channels;
+
+  // Hạng Mục counter/filter row — same click-to-filter pattern as the New
+  // Release dashboard's stat cards (StatCard below), counted off the
+  // search-filtered set so the numbers stay consistent with what's on
+  // screen.
+  const typeCounts = { Direct: 0, Partner: 0 };
+  searchedChannels.forEach((c) => { if (typeCounts[c.channel_type] !== undefined) typeCounts[c.channel_type]++; });
+
+  const visibleChannels = typeFilter ? searchedChannels.filter((c) => c.channel_type === typeFilter) : searchedChannels;
 
   async function remove(c) {
     await supabase.from("booking_channels").delete().eq("id", c.id);
@@ -174,6 +184,23 @@ export default function BookingChannelsPage() {
           <button className={styles.btnPrimary} type="submit">+ Add</button>
         </form>
 
+        <div className={styles.statRow} style={{ marginBottom: 20, maxWidth: 400 }}>
+          <StatCard
+            label="Direct"
+            value={typeCounts.Direct}
+            active={typeFilter === "Direct"}
+            onClick={() => setTypeFilter((f) => (f === "Direct" ? null : "Direct"))}
+            onClear={() => setTypeFilter(null)}
+          />
+          <StatCard
+            label="Partner"
+            value={typeCounts.Partner}
+            active={typeFilter === "Partner"}
+            onClick={() => setTypeFilter((f) => (f === "Partner" ? null : "Partner"))}
+            onClear={() => setTypeFilter(null)}
+          />
+        </div>
+
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 20, flexWrap: "wrap" }}>
           <div className={styles.field} style={{ maxWidth: 320, marginBottom: 0, flex: 1 }}>
             <input
@@ -191,10 +218,27 @@ export default function BookingChannelsPage() {
         {loading ? (
           <div className={styles.emptyState}>Loading…</div>
         ) : visibleChannels.length === 0 ? (
-          <div className={styles.emptyState}>{channels.length === 0 ? "No channels yet." : "No channels match that search."}</div>
+          <div className={styles.emptyState}>{channels.length === 0 ? "No channels yet." : "No channels match that search/filter."}</div>
         ) : (
-          BOOKING_PLATFORMS.map((p) => {
-            const group = visibleChannels.filter((c) => c.platform === p);
+          // Grouped by Brand first, then by Platform within each brand —
+          // per explicit request (was Platform-only before). Channels with
+          // no brand set land in a "— No Brand —" bucket at the end so
+          // they're not silently dropped from the list.
+          Object.entries(
+            visibleChannels.reduce((acc, c) => {
+              const b = c.brand || "— No Brand —";
+              (acc[b] = acc[b] || []).push(c);
+              return acc;
+            }, {})
+          )
+            .sort(([a], [b]) => (a === "— No Brand —" ? 1 : b === "— No Brand —" ? -1 : a.localeCompare(b)))
+            .map(([brand, brandChannels]) => (
+          <div key={brand} style={{ marginBottom: 28 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text)", marginBottom: 10, paddingBottom: 6, borderBottom: "1px solid var(--border)" }}>
+              {brand} <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>({brandChannels.length})</span>
+            </div>
+          {BOOKING_PLATFORMS.map((p) => {
+            const group = brandChannels.filter((c) => c.platform === p);
             if (group.length === 0) return null;
             return (
               <div key={p} style={{ marginBottom: 20 }}>
@@ -275,10 +319,39 @@ export default function BookingChannelsPage() {
                 </div>
               </div>
             );
-          })
+          })}
+          </div>
+            ))
         )}
       </div>
     </div>
     </AppShell>
+  );
+}
+
+function StatCard({ label, value, active, onClick, onClear }) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        position: "relative",
+        cursor: "pointer",
+        background: active ? "rgba(255,107,26,0.08)" : undefined,
+        border: active ? "1px solid var(--accent)" : undefined,
+        borderRadius: active ? 8 : undefined,
+      }}
+      className={active ? undefined : styles.statCard}
+    >
+      {active && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onClear(); }}
+          style={{ position: "absolute", top: 6, right: 6, background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 12, padding: 0 }}
+        >
+          ✕
+        </button>
+      )}
+      <div className={styles.statLabel} style={active ? { padding: "16px 16px 0" } : undefined}>{label}</div>
+      <div className={styles.statValue} style={active ? { padding: "0 16px 16px" } : undefined}>{value}</div>
+    </div>
   );
 }

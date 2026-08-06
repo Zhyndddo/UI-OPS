@@ -13,6 +13,18 @@ import styles from "../shared.module.css";
 // Every Hạng Mục here uses the same 2-layer pattern: pick a sub-filter
 // (a brand, or a brand group), and THAT determines the columns shown.
 // CATEGORY_SUBFILTERS is layer 1 — MUST stay in sync with the equivalent
+// Per explicit request — highlight rows releasing today, so they're easy
+// to spot while scanning the board. release_date is a plain `date` column
+// (YYYY-MM-DD, no time), so a string-prefix compare against a local
+// YYYY-MM-DD avoids any UTC/local timezone drift a Date-object compare
+// could introduce.
+function isReleasingToday(release) {
+  if (!release?.release_date) return false;
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return String(release.release_date).slice(0, 10) === todayStr;
+}
+
 // brand constants in app/tickets/media-booking/page.js (BRANDS,
 // COMMUNITY_BRANDS, TIKTOK_GROUPS, ADS_BRANDS).
 const CATEGORY_SUBFILTERS = {
@@ -112,12 +124,21 @@ export default function BookingBoard() {
   const [expandedCell, setExpandedCell] = useState(null); // `${releaseId}:${categoryName}:${brand}` or null
   const [packagePreview, setPackagePreview] = useState(null); // release being previewed, or null
   const [unrequestedOnly, setUnrequestedOnly] = useState(false); // only relevant once a specific Hạng Mục is picked (not "All") — see below
+  // Mirror of unrequestedOnly, per explicit request: "only the product that
+  // has a requested number show up" — e.g. Hạng Mục Community -> Brand PAGE
+  // BOLERO/MT -> only releases that actually have a booked target for that
+  // brand (via the package builder OR the historical-data import). A
+  // release counts as "requested" if ANY currently-shown brand/column has a
+  // booked target — mirrors unrequestedOnly's "every column empty" check
+  // with "at least one column filled" instead.
+  const [requestedOnly, setRequestedOnly] = useState(false);
   const [bookingChannels, setBookingChannels] = useState([]); // booking_channels reference table — see BrandCell's Add Link popup
 
   useEffect(() => {
     const options = CATEGORY_SUBFILTERS[hangMucFilter];
     setSubFilter(options ? options[0] : null);
     setUnrequestedOnly(false);
+    setRequestedOnly(false);
   }, [hangMucFilter]);
 
   // tiktokBrandFilter tracks whichever group subFilter is currently picked
@@ -344,9 +365,15 @@ export default function BookingBoard() {
         const allNull = columns.every((c) => bookedFor(r, c.categoryName, c.brand) == null);
         if (!allNull) return false;
       }
+      // "requested number filled" — at least one currently-shown column has
+      // a booked target, i.e. the opposite of unrequestedOnly's check.
+      if (requestedOnly && hangMucFilter !== "All" && columns.length > 0) {
+        const anyFilled = columns.some((c) => bookedFor(r, c.categoryName, c.brand) != null);
+        if (!anyFilled) return false;
+      }
       return true;
     });
-  }, [roundFilteredReleases, search, month, typeFilter, labelFilter, unrequestedOnly, hangMucFilter, columns, packageByRelease]);
+  }, [roundFilteredReleases, search, month, typeFilter, labelFilter, unrequestedOnly, requestedOnly, hangMucFilter, columns, packageByRelease]);
 
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(filteredReleases);
 
@@ -567,6 +594,16 @@ export default function BookingBoard() {
               Chưa có yêu cầu
             </button>
           )}
+          {hangMucFilter !== "All" && (
+            <button
+              onClick={() => setRequestedOnly((v) => !v)}
+              className={styles.btnSmall}
+              style={requestedOnly ? { borderColor: "#ff6b1a", color: "#ff6b1a", background: "rgba(255,107,26,0.1)" } : undefined}
+              title="Only show releases that have a requested number for this Hạng Mục/Brand — at least one column shown has a booked target (from the package builder or an import)."
+            >
+              Đã có yêu cầu
+            </button>
+          )}
           <select className={styles.select} style={{ maxWidth: 170 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
             <option value="">Type — all</option>
             {[...new Set(releases.map((r) => r.project_type).filter(Boolean))].map((t) => <option key={t} value={t}>{t}</option>)}
@@ -575,11 +612,11 @@ export default function BookingBoard() {
             <option value="">Label — all</option>
             {[...new Set(releases.map((r) => r.label).filter(Boolean))].map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
-          {(search || month || typeFilter || labelFilter || unrequestedOnly) && (
+          {(search || month || typeFilter || labelFilter || unrequestedOnly || requestedOnly) && (
             <button
               className={styles.btnSmall}
               style={{ borderColor: "#c0392b", color: "#e57373" }}
-              onClick={() => { setSearch(""); setMonth(""); setTypeFilter(""); setLabelFilter(""); setUnrequestedOnly(false); }}
+              onClick={() => { setSearch(""); setMonth(""); setTypeFilter(""); setLabelFilter(""); setUnrequestedOnly(false); setRequestedOnly(false); }}
             >
               ✕ Clear
             </button>
@@ -636,11 +673,16 @@ export default function BookingBoard() {
               </tr>
             </thead>
             <tbody>
-              {pagedReleases.map((r) => (
-                <tr key={r.id}>
-                  <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288, overflow: "hidden", textOverflow: "ellipsis" }}>
+              {pagedReleases.map((r) => {
+                const releasingToday = isReleasingToday(r);
+                return (
+                <tr key={r.id} style={releasingToday ? { background: "rgba(255,107,26,0.08)" } : undefined}>
+                  <td style={{ position: "sticky", left: 0, zIndex: 1, background: releasingToday ? "#2a1c0f" : "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288, overflow: "hidden", textOverflow: "ellipsis" }}>
                     <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
-                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                      {r.main_artist} · {r.did} · {fmtDate(r.release_date)}
+                      {releasingToday && <span style={{ color: "#ff6b1a", fontWeight: 700, marginLeft: 6 }}>· TODAY</span>}
+                    </div>
                     {hangMucFilter === "TikTok Channel" && subFilter === "Partner" && (
                       <span
                         className={styles.statusBadge}
@@ -702,7 +744,8 @@ export default function BookingBoard() {
                     );
                   })}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           </div>

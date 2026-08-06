@@ -1473,7 +1473,13 @@ function PackagesPanel({
             </div>
           )}
 
-          <div style={{ flex: 1, overflowY: "auto", marginBottom: 14 }}>
+          {/* className={styles.scrollBox} — without it, the table's sticky
+              <th> offsets by --topbar-height (the rule meant for tables
+              that scroll with the real page), but this panel has its own
+              small internal scrollport with no topbar above it, so the
+              header floated too low and hovered over the first data
+              row(s) instead of sitting flush above them. */}
+          <div className={styles.scrollBox} style={{ flex: 1, overflowY: "auto", marginBottom: 14 }}>
             {!activePackage ? (
               <div className={styles.emptyState}>No package yet — click "Create Package" above.</div>
             ) : (activePackage.media_booking_package_lines || []).length === 0 ? (

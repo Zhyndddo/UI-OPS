@@ -3509,3 +3509,71 @@ combined file would have been ~10,000+ lines.
 no per-row brand signal) and the numeric `"…BOOKING"` target columns / the 2 TikTok cost-ledger
 sheets — per your direction, these are waiting on a small simulator that mimics the app's own
 package-build logic instead of a blind bulk insert into `media_booking_package_lines`.
+
+## 2026-08-06 (48)
+
+### Data fix — dedup New Release rows duplicated by round 43's import
+
+Round 43's New Release import (441 rows) turned out to have needed to be an UPDATE against
+existing releases (same as the Upload Workstation round), but ran as a plain INSERT — so every
+release that already existed under the same title/main_artist/release_date now has a duplicate: a
+"BRIEF & DATA" stub created that round, alongside the real pre-existing release.
+
+Delivered `add-round48-dedup-new-release-duplicates.sql` (not zipped, per convention) — a
+verify-first STEP 1 (lists every duplicate group, which row it'd keep vs. delete, and a ticket/
+booking-entry count on each) then a STEP 2 delete. Match key: title + main_artist + release_date.
+Keep rule: prefer the row whose `project_type` has moved past a named package (`'BRIEF & DATA'` /
+`'DEALING'`), tie-broken by older `created_at` (every round-43 row was inserted the same day).
+Every table with a real foreign key to `releases(id)` is `on delete cascade`, so deleting the loser
+also cleans up anything that accidentally landed on it — including round 47's Booking Board import,
+which matched releases by title+main_artist and would have written the same links to both copies
+of a duplicate pair if one already existed when it ran. `tickets` is the one exception (references
+releases via a free-text DID in `data`, not a real FK) — STEP 1 checks that explicitly before
+anything is deleted.
+
+**Run this between rounds 43–46 (New Release imports) and round 47 (Booking Board import)** — see
+the updated `RUNBOOK-round43-to-47.md`.
+
+## 2026-08-06 (49)
+
+### Quick fixes batch
+
+1. **New Release dashboard's "Today" stat/filter** — was filtering by `created_at` (when the row
+   was entered into the app), inconsistent with "This Week"/"This Month" right next to it which
+   already filter by `release_date`. Now filters by `release_date` too, per explicit request.
+   `app/releases/page.js`.
+
+2. **Media Booking ticket's "Build Package" panel — header row overlapping the first data row.**
+   Root cause: the panel's package-lines table scrolls inside its own small internal box, but that
+   box wasn't wearing the `.scrollBox` class the app's own sticky-header convention requires —
+   without it, the `<th>` offset by `--topbar-height` (meant for tables that scroll with the real
+   page) instead of `0` (this panel's own scrollport has no topbar above it), so the header floated
+   too low and sat on top of row 1. Fixed by adding `className={styles.scrollBox}` to that wrapper
+   div. `app/tickets/media-booking/page.js`.
+
+3. **Booking Channels reference list** — per explicit request: added a Direct/Partner counter row
+   (click-to-filter, same pattern as the New Release dashboard's stat cards), and regrouped the
+   list from Platform-only to Brand first, then Platform within each brand (channels with no brand
+   land in a "— No Brand —" bucket at the end). `app/booking-channels/page.js`.
+
+4. **Booking Board — new "Đã có yêu cầu" filter button**, mirroring the existing "Chưa có yêu cầu"
+   button: only relevant once a specific Hạng Mục (and Brand, where applicable) is picked, shows
+   only releases that DO have a requested/booked number for at least one of the columns currently
+   shown — the opposite check from "Chưa có yêu cầu"'s "every column empty." Works against whatever
+   set a number, whether from the package builder or a historical-data import (e.g. round 47's
+   Booking Board import). `app/booking/page.js`.
+
+5. **Booking Board — highlight releases releasing today.** Row background tinted, sticky first
+   column tinted to match, and a small "· TODAY" tag next to the date, using a plain
+   YYYY-MM-DD string compare against `release_date` (not a Date-object compare) to avoid any
+   timezone drift. `app/booking/page.js`.
+
+6. **"Chưa có yêu cầu" — not stale, working as designed.** You asked what this does: it's the
+   filter added earlier for "only show releases with no requested/booked number at all for the
+   currently picked Hạng Mục" — every brand/column shown reads "—". Not a leftover from an earlier
+   round; (4) above adds its direct opposite ("Đã có yêu cầu") right next to it.
+
+7. **Media Booking ticket list — already sorted by release date.** Checked
+   `app/tickets/media-booking/page.js`: `byReleaseDate()` already sorts both the requester view and
+   the executor (per-status) view by release date, soonest first, with tickets missing a matched
+   release sorted last — no change needed here, this was already in place from an earlier round.

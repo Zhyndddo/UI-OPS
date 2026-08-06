@@ -118,9 +118,17 @@ export default function ReleasesDashboard() {
     let today = 0, thisWeek = 0, thisMonth = 0, preRelease = 0, released = 0, postRelease = 0;
     const byChannel = { VIEENT: 0, ENVI: 0 };
 
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setDate(startOfToday.getDate() + 1);
+
     releases.forEach((r) => {
-      const created = new Date(r.created_at);
-      if (created >= startOfToday) today++;
+      // "Today" means releasing today — same reasoning as This Week/This
+      // Month below: release_date is what the team tracks against, not
+      // created_at (when the row happened to be entered into the app).
+      if (r.release_date) {
+        const rdt = new Date(r.release_date);
+        if (rdt >= startOfToday && rdt < startOfTomorrow) today++;
+      }
       // "This Week" means releasing this week (Sunday through the following
       // Sunday), not created this week — same reasoning/fix as "This Month"
       // below: release_date is what the team actually cares about tracking
@@ -182,10 +190,18 @@ export default function ReleasesDashboard() {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setDate(startOfToday.getDate() + 1);
+
     return releases.filter((r) => {
       if (createdFilter) {
-        const created = new Date(r.created_at);
-        if (createdFilter === "today" && !(created >= startOfToday)) return false;
+        if (createdFilter === "today") {
+          // Filters by release_date, not created_at — same fix as the stat
+          // card above.
+          if (!r.release_date) return false;
+          const rdt = new Date(r.release_date);
+          if (!(rdt >= startOfToday && rdt < startOfTomorrow)) return false;
+        }
         if (createdFilter === "week") {
           // Same fix as the stat card above — "This Week" filters by
           // release_date (releasing Sunday through the following Sunday),
