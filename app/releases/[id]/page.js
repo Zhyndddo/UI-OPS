@@ -1566,6 +1566,9 @@ function UrlTab({ form, update, onSave, saving, did, releaseId }) {
     // has its own edit surface too; this is an added edit surface on the
     // detail page's URL tab, not a move.
     ["musixmatch_link", "Musixmatch URL"],
+    // Round 46 — old-system "LINK GÓI TT" from the legacy booking board
+    // data, kept for backup/reference only. Not tied to any V2 workflow.
+    ["link_goi_tt_legacy", "Link Gói TT (Legacy)"],
   ];
   const plStatus = phuLucStatusClient(form);
   return (

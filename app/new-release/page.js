@@ -128,8 +128,21 @@ export default function NewReleasePage() {
   // Soft-lock duplicate warning — set when a same-prefix DID already
   // exists; holds the duplicate release plus the already-built payload/
   // tracks so "Confirm New Creation" can just resume the insert without
-  // re-validating the form.
+  // re-validating the form. navMode travels with it so the confirm button
+  // still does the right thing afterward (go to detail page vs. reset for
+  // another entry) — see performInsert()'s navMode param.
   const [duplicateWarning, setDuplicateWarning] = useState(null);
+
+  // Quick Create (⚡️) — a stripped-down modal for the common case of just
+  // wanting a placeholder release to exist (Label/Title/Main Artist) with
+  // everything else filled in later on the release's own detail page.
+  // release_date is NOT NULL in the DB and isn't collected here, so it's
+  // defaulted to today — same as how the full form defaults release_time
+  // to "19:00" without asking.
+  const [quickCreateOpen, setQuickCreateOpen] = useState(false);
+  const [quickForm, setQuickForm] = useState({ label: "", title: "", main_artist: "" });
+  const [quickError, setQuickError] = useState(null);
+  const [quickSubmitting, setQuickSubmitting] = useState(false);
 
   // Linkshare timing defaults — Facebook depends on how much lead time
   // this release actually has (today vs. Release Date), so it recomputes
@@ -213,7 +226,10 @@ export default function NewReleasePage() {
     }
   }
 
-  async function handleSubmit(e) {
+  // navMode: 'detail' (normal Tạo Release button — always land on the new
+  // release's own detail page afterward) or 'stay' (Save and Create
+  // another — insert, then reset straight back to a fresh blank form).
+  async function handleSubmit(e, navMode = "detail") {
     e.preventDefault();
     setError(null);
     setCreatedDid(null);
@@ -251,15 +267,26 @@ export default function NewReleasePage() {
         .like("did", `${prefix}-%`)
         .limit(1);
       if (existing && existing.length > 0) {
-        setDuplicateWarning({ existing: existing[0], payload, trackRows });
+        setDuplicateWarning({ existing: existing[0], payload, trackRows, navMode });
         return;
       }
     }
 
-    await performInsert(payload, trackRows);
+    await performInsert(payload, trackRows, navMode);
   }
 
-  async function performInsert(payload, trackRows) {
+  function resetFormForAnother() {
+    setForm(EMPTY_FORM);
+    setPitchingTypes(EMPTY_PITCHING_TYPES);
+    setArtistProfileTypes(EMPTY_ARTIST_PROFILE_TYPES);
+    setCoTrongNetDraft(CO_TRONG_NET_DRAFT_DEFAULTS);
+    setLabelTouched(false);
+    setAutofillNote(null);
+    setTiktokTimingTouched(false);
+    setFacebookTimingTouched(false);
+  }
+
+  async function performInsert(payload, trackRows, navMode = "detail") {
     setSubmitting(true);
 
     const { data, error: insertError } = await supabase
@@ -502,15 +529,88 @@ export default function NewReleasePage() {
       );
     }
 
-    router.push("/releases");
+    if (navMode === "stay") {
+      // Save and Create another — stay on this page, cleared and ready
+      // for the next entry. Success banner (createdDid) confirms the one
+      // that just went through.
+      resetFormForAnother();
+      setCreatedDid(data.did);
+    } else {
+      router.push(`/releases/${data.id}`);
+    }
+  }
+
+  // Quick Create (⚡️) — minimal Label/Title/Main Artist, release_date
+  // defaulted to today. Runs the same duplicate-prefix soft-lock as the
+  // full form, then always lands on the new release's detail page (same
+  // as the normal button) so the rest can be filled in there.
+  async function handleQuickSubmit(e) {
+    e.preventDefault();
+    setQuickError(null);
+
+    if (!quickForm.label.trim() || !quickForm.title.trim() || !quickForm.main_artist.trim()) {
+      setQuickError("Label, Title, and Main Artist are required.");
+      return;
+    }
+    if (!supabase) {
+      setQuickError("Supabase isn't configured — check environment variables.");
+      return;
+    }
+
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const payload = {
+      ...EMPTY_FORM,
+      tracks: undefined,
+      label: quickForm.label.trim(),
+      title: quickForm.title.trim(),
+      main_artist: quickForm.main_artist.trim(),
+      release_date: todayIso,
+    };
+    delete payload.tracks;
+
+    const prefix = didPrefixFor(payload.title, payload.main_artist, payload.release_date);
+    if (prefix) {
+      const { data: existing } = await supabase
+        .from("releases")
+        .select("id, did, title, main_artist, release_date")
+        .like("did", `${prefix}-%`)
+        .limit(1);
+      if (existing && existing.length > 0) {
+        setQuickCreateOpen(false);
+        setDuplicateWarning({ existing: existing[0], payload, trackRows: [], navMode: "detail" });
+        return;
+      }
+    }
+
+    setQuickSubmitting(true);
+    await performInsert(payload, [], "detail");
+    setQuickSubmitting(false);
+    setQuickCreateOpen(false);
+    setQuickForm({ label: "", title: "", main_artist: "" });
   }
 
   return (
     <AppShell>
     <div className={styles.page}>
       <div className={styles.container}>
-        <div className={styles.eyebrow}>// New Release</div>
-        <h1 className={styles.title}>New Release</h1>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <div className={styles.eyebrow}>// New Release</div>
+            <h1 className={styles.title}>New Release</h1>
+          </div>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            title="Quick Create — Label / Title / Main Artist only"
+            onClick={() => {
+              setQuickError(null);
+              setQuickForm({ label: "", title: "", main_artist: "" });
+              setQuickCreateOpen(true);
+            }}
+          >
+            ⚡️ Quick Create
+          </button>
+        </div>
 
         <div className={styles.didBox}>
           <div className={styles.didLabel}>// Release ID (DID)</div>
@@ -538,7 +638,7 @@ export default function NewReleasePage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={(e) => handleSubmit(e, "detail")}>
           <div className={styles.grid}>
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Trạng Thái Gói (Loại Dự Án)</label>
@@ -874,6 +974,14 @@ export default function NewReleasePage() {
             </button>
             <button
               type="button"
+              className={styles.btnPrimary}
+              disabled={submitting}
+              onClick={(e) => handleSubmit(e, "stay")}
+            >
+              {submitting ? "Đang tạo…" : "Save and Create another"}
+            </button>
+            <button
+              type="button"
               className={styles.btnSecondary}
               onClick={() => {
                 setForm(EMPTY_FORM);
@@ -890,6 +998,64 @@ export default function NewReleasePage() {
             </button>
           </div>
         </form>
+
+        {quickCreateOpen && (
+          <div
+            style={{
+              position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+              display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+            }}
+          >
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 24, maxWidth: 440, width: "100%" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-muted)", marginBottom: 4 }}>
+                ⚡️ Quick Create
+              </div>
+              <p style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 16 }}>
+                Creates a placeholder release with just these 3 fields — Release Date defaults to today, everything else you fill in on the release's detail page afterward.
+              </p>
+              {quickError && <div className={styles.errorBox} style={{ marginBottom: 12 }}>{quickError}</div>}
+              <form onSubmit={handleQuickSubmit}>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>Hãng Đĩa <span className={styles.required}>*</span></label>
+                  <LabelInput
+                    styles={styles}
+                    value={quickForm.label}
+                    onChange={(v) => setQuickForm((f) => ({ ...f, label: v }))}
+                    labels={labels}
+                    placeholder="Tên label"
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>Tên bài hát <span className={styles.required}>*</span></label>
+                  <input
+                    className={styles.input}
+                    placeholder="Nhập tên dự án"
+                    value={quickForm.title}
+                    onChange={(e) => setQuickForm((f) => ({ ...f, title: e.target.value }))}
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>Main Artist <span className={styles.required}>*</span></label>
+                  <ArtistInput
+                    styles={styles}
+                    value={quickForm.main_artist}
+                    onChange={(v) => setQuickForm((f) => ({ ...f, main_artist: v }))}
+                    artists={artists}
+                    placeholder="Tên nghệ sĩ chính"
+                  />
+                </div>
+                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+                  <button type="button" className={styles.btnSecondary} onClick={() => setQuickCreateOpen(false)}>
+                    Cancel
+                  </button>
+                  <button type="submit" className={styles.btnPrimary} disabled={quickSubmitting}>
+                    {quickSubmitting ? "Đang tạo…" : "Create"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {duplicateWarning && (
           <div
@@ -919,9 +1085,9 @@ export default function NewReleasePage() {
                   type="button"
                   className={styles.btnPrimary}
                   onClick={async () => {
-                    const { payload, trackRows } = duplicateWarning;
+                    const { payload, trackRows, navMode } = duplicateWarning;
                     setDuplicateWarning(null);
-                    await performInsert(payload, trackRows);
+                    await performInsert(payload, trackRows, navMode);
                   }}
                 >
                   Confirm New Creation

@@ -3435,3 +3435,77 @@ pull the real one. Reconstructed by running `schema.sql`'s 9 seed rows plus
 `data/booking-channels-import.json` through `scripts/import-booking-channels.js`'s exact matching/dedup
 logic (142 rows). Flagged clearly to the user that this reflects the seed + import script's result, not
 necessarily the live table if it's been hand-edited in the app since that import ran.
+
+## 2026-08-06 (45)
+
+### Data fix — 2 New Release rows' Media Channel corrected
+
+Per your corrected `round43newreleaseimportreport.md`: row 314 → ENVI, row 321 → ALL. Delivered as
+`add-round45-fix-media-channel.sql` (not zipped, per convention) — matched by label+title+main_artist
+since these round-43-inserted rows carry no other identifier.
+
+## 2026-08-06 (46)
+
+### Data fix — 31 held-back New Release rows imported with placeholder date
+
+Per explicit request ("set 31/12/2026 20:00 to all of those 31 lines. They are really blank"): the 31
+rows round 43 held back for missing `release_date` are now inserted with `release_date = 2026-12-31`,
+`release_time = 20:00` as a placeholder — update these individually once real dates are known. Delivered
+as `add-round46-import-held-back-31.sql` (not zipped, per convention), re-derived from the same
+"New Release" sheet in `vieentopstemplates.xlsx` using the same column mapping as round 43's import.
+
+Two of the 31 rows needed a manual correction to locate in the sheet, since their Main Artist cell was
+wrong/blank there:
+- **HTM Entertainment / "Anh Muốn Em Biết Anh Nhớ Em"** — the sheet's Main Artist cell had the title
+  text copy-pasted into it instead of an artist name. Used "Lâm Chấn Huy" (from the original held-back
+  report) instead.
+- **EEZO / "Lặng Nhìn Yêu Thương"** — the sheet's Main Artist cell was blank. Used "EEZO" (per your
+  correction on the resent report, row 477).
+
+Flag if either substitution isn't right — I didn't have a live DB to cross-check against.
+
+### Feature — New Release form: Quick Create, always-redirect-to-detail, Save and Create another
+
+Per explicit request, in `app/new-release/page.js`:
+
+- **"⚡️ Quick Create" button** — top-right of the form, opens a small modal asking only for Hãng Đĩa
+  (Label) / Tên bài hát (Title) / Main Artist. `release_date` isn't collected there (the DB column is
+  `NOT NULL`) — defaulted to today's date, `release_time` stays the normal default (19:00). Runs the
+  same DID-prefix duplicate-warning check as the full form. On success, lands on the new release's
+  detail page, same as the normal button — the idea being everything else gets filled in there.
+- **Normal "Tạo Release" button** — now always navigates to the new release's own detail page
+  (`/releases/[id]`) after creating it, instead of the release list (`/releases`) as before.
+- **New "Save and Create another" button**, next to "Tạo Release" — saves using the full form (same
+  validation, same duplicate check), then resets straight back to a blank creation form instead of
+  navigating away. Shows a small "Release created — DID …" confirmation banner (this reused the
+  `createdDid` state that already existed in the file but was never actually wired up to anything).
+
+**Assumption flagged:** Quick Create landing on the detail page (rather than also offering "stay and
+create another") wasn't explicitly specified — flag if a different flow was intended there.
+
+## 2026-08-06 (46b) — schema: Link Gói TT (Legacy)
+
+Added `releases.link_goi_tt_legacy` (URL tab, backup/reference only, not tied to any workflow) —
+schema.sql updated, migration delivered separately as `add-round46-link-goi-tt-legacy.sql`. Wired
+into `app/releases/[id]/page.js`'s `UrlTab` field list. Part of the same zip as (46) above.
+
+## 2026-08-06 (47)
+
+### Data import — Booking Board (6 of the 11 `booking_board_data.xlsx` sheets)
+
+Per your mapping answers, imported SOCIAL ENVI, SOCIAL VIEENT, PAGETIKTOK INDIE/BOLERO/VPOP, and
+CAPCUT — 287 releases matched (title+main_artist parsed from each row's `THÔNG TIN` block,
+cross-checked against the New Release import), 7,608 links written into `media_booking_entries`,
+plus `booking_note`/`link_goi_tt_legacy`/`link_lbm`/`link_ugc`/`drive_link`/`legacy_id` backfilled
+on the matched releases (all via `coalesce`, never overwriting an existing value). 20 rows across
+these sheets had no matchable data (blank `THÔNG TIN`) and were skipped — listed in
+`round47-booking-board-import-report.md`.
+
+Delivered as 6 separate SQL files (not zipped, per convention — see
+`RUNBOOK-round43-to-47.md` for the full run order across rounds 43–47), one per sheet since a
+combined file would have been ~10,000+ lines.
+
+**Deliberately not done this round:** the `EXT TIKTOK` sheet (pooled across 4 Partner brands with
+no per-row brand signal) and the numeric `"…BOOKING"` target columns / the 2 TikTok cost-ledger
+sheets — per your direction, these are waiting on a small simulator that mimics the app's own
+package-build logic instead of a blind bulk insert into `media_booking_package_lines`.
