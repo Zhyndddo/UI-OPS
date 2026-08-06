@@ -65,6 +65,26 @@ export default function BookingChannelsPage() {
     load();
   }
 
+  // Exports whatever's currently on screen (respects the search filter,
+  // same convention as the Booking Board's own "⇩ Export CSV" button) —
+  // "Platform" and "Brand" keep their column names, "Channel Type" is
+  // exported as "Hạng Mục" to match the relabeled UI, even though the
+  // underlying field/column is still channel_type.
+  function exportCsv() {
+    const rows = [["Platform", "Hạng Mục", "Brand", "Name", "URL", "Follower Count", "Note"]];
+    visibleChannels.forEach((c) => {
+      rows.push([c.platform || "", c.channel_type || "", c.brand || "", c.name || "", c.url || "", c.follower_count != null ? c.follower_count : "", c.note || ""]);
+    });
+    const csv = rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" }); // BOM so Excel opens Vietnamese text correctly
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "booking-channels.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function startEdit(c) {
     setEditingId(c.id);
     setEditValues(editStateFor(c));
@@ -138,7 +158,7 @@ export default function BookingChannelsPage() {
             </select>
           </div>
           <div className={styles.field} style={{ marginBottom: 0, minWidth: 120 }}>
-            <label className={styles.fieldLabel}>Channel Type</label>
+            <label className={styles.fieldLabel}>Hạng Mục</label>
             <select className={styles.select} value={channelType} onChange={(e) => setChannelType(e.target.value)}>
               {BOOKING_CHANNEL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
@@ -154,13 +174,18 @@ export default function BookingChannelsPage() {
           <button className={styles.btnPrimary} type="submit">+ Add</button>
         </form>
 
-        <div className={styles.field} style={{ maxWidth: 320, marginBottom: 20 }}>
-          <input
-            className={styles.input}
-            placeholder="Search by name, brand, or tag…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 20, flexWrap: "wrap" }}>
+          <div className={styles.field} style={{ maxWidth: 320, marginBottom: 0, flex: 1 }}>
+            <input
+              className={styles.input}
+              placeholder="Search by name, brand, or tag…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <button type="button" className={styles.btnSecondary} onClick={exportCsv} disabled={visibleChannels.length === 0}>
+            ⇩ Export CSV
+          </button>
         </div>
 
         {loading ? (
@@ -192,7 +217,7 @@ export default function BookingChannelsPage() {
                               </select>
                             </div>
                             <div className={styles.field} style={{ marginBottom: 0, minWidth: 120 }}>
-                              <label className={styles.fieldLabel}>Channel Type</label>
+                              <label className={styles.fieldLabel}>Hạng Mục</label>
                               <select className={styles.select} value={editValues.channel_type} onChange={(e) => updateEditField("channel_type", e.target.value)}>
                                 {BOOKING_CHANNEL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                               </select>

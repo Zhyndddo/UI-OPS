@@ -3403,3 +3403,35 @@ explain the retirement.
 **Assumption flagged:** the 6-counter cell's exact visual treatment (pill badges vs. dedicated columns)
 was explicitly left as an implementation choice in the request — flag if a different layout (e.g. 6
 separate sortable columns) was actually wanted.
+
+## 2026-08-05 (42, reverted)
+
+### Reverted — Booking Board "Smart Import"
+
+Round 42 added an in-app "⚡ Smart Import" button (auto-split a pasted mixed-platform URL pile by
+domain, insert straight into `media_booking_entries`). Reverted per explicit request — the actual need
+is a downloadable template + offline import (this round's actual (43) below), not a live in-app paste
+feature. `lib/socialUrlDetect.js` removed; `app/booking/page.js`'s `SmartImportButton`/`addSmartRows`
+and the import removed — back to the pre-round-42 per-column Add Link / Bulk Add flow.
+
+## 2026-08-06 (44)
+
+### UI tweak — Booking Channels: "Channel Type" relabeled "Hạng Mục", added CSV export
+
+Per explicit request. `app/booking-channels/page.js`'s two "Channel Type" field labels (the Add form
+and the inline edit form) now read "Hạng Mục" — display-only, the underlying field/column is still
+`channel_type` and its Direct/Partner values are unchanged, so nothing else in the app (Booking Board's
+`channel_type` matching, the DB column, `BOOKING_CHANNEL_TYPES`) needed to change. Platform and Brand
+labels are untouched per the request ("keep").
+
+Added a "⇩ Export CSV" button next to the search box — exports whatever's currently on screen (respects
+the search filter, same convention as the Booking Board's own export button): Platform, Hạng Mục,
+Brand, Name, URL, Follower Count, Note. UTF-8 BOM included so Excel opens the Vietnamese text correctly
+instead of mangling it.
+
+Also delivered (not part of the zip): `booking-channels-reconstructed.csv` /
+`.xlsx` — an actual export of "the current list," since this session has no live database access to
+pull the real one. Reconstructed by running `schema.sql`'s 9 seed rows plus
+`data/booking-channels-import.json` through `scripts/import-booking-channels.js`'s exact matching/dedup
+logic (142 rows). Flagged clearly to the user that this reflects the seed + import script's result, not
+necessarily the live table if it's been hand-edited in the app since that import ran.
