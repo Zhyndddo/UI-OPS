@@ -124,6 +124,12 @@ export default function PickPackagePage() {
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [streamMetrics, setStreamMetrics] = useState(null); // release_stream_metrics row, or null
   const [milestones, setMilestones] = useState([]); // milestone_chart_entries, matched by DID
+  // Confirm button now opens a warning popup instead of committing
+  // directly — per explicit request, to prevent a misclick locking in the
+  // wrong package (Cancel here just closes the popup, the earlier
+  // selection is untouched; Confirm inside it is what actually calls
+  // confirmChoice()).
+  const [showConfirmWarning, setShowConfirmWarning] = useState(false);
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -389,12 +395,25 @@ export default function PickPackagePage() {
   return (
     <div className={styles.page}>
       <div className={styles.container} style={{ maxWidth: 1320 }}>
-        <div className={styles.eyebrow}>// chọn gói hỗ trợ truyền thông</div>
-        <h1 className={styles.title} style={{ marginBottom: 4 }}>
-          {release?.title}
-        </h1>
-        <div style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: 20 }}>
-          {release?.main_artist} · {release?.release_date} {release?.release_time}
+        {/* Per explicit request (picture 1) — "Quyền Lợi Dành Cho Đơn Vị
+            Truyền Thông" moves to the very top, split side-by-side with
+            the product info instead of living further down the page.
+            "Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT" (the big
+            partner-benefits table) is untouched, still further down via
+            PartnerBenefits(). */}
+        <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap", marginBottom: 20 }}>
+          <div style={{ flex: "1 1 320px" }}>
+            <div className={styles.eyebrow}>// chọn gói hỗ trợ truyền thông</div>
+            <h1 className={styles.title} style={{ marginBottom: 4 }}>
+              {release?.title}
+            </h1>
+            <div style={{ color: "var(--text-faint)", fontSize: 13 }}>
+              {release?.main_artist} · {release?.release_date} {release?.release_time}
+            </div>
+          </div>
+          <div style={{ flex: "1 1 360px" }}>
+            <MediaPartnerNote />
+          </div>
         </div>
 
         {isLocked && (
@@ -513,6 +532,26 @@ export default function PickPackagePage() {
                     <TermsText text={sharedTerms.b} baseStyle={{ fontSize: 10, color: "var(--text-faint)", lineHeight: 1.5 }} />
                   </div>
                 )}
+                {/* Explicit "Chọn Gói Này" button — per explicit request,
+                    clearer than relying on the whole header area being
+                    clickable (that click-to-select still works too, this
+                    is additive). */}
+                {!isLocked && (
+                  <div style={{ borderTop: "1px solid var(--border)", padding: 12 }}>
+                    <button
+                      onClick={() => selectPackage(c.value)}
+                      disabled={picking}
+                      style={{
+                        width: "100%", padding: "10px 0", fontSize: 13, fontWeight: 800, borderRadius: 6, cursor: "pointer",
+                        border: selected ? "1px solid #ff6b1a" : "1px solid var(--border-strong)",
+                        background: selected ? "#ff6b1a" : "var(--bg-hover)",
+                        color: selected ? "#0a0a0a" : "var(--text-muted)",
+                      }}
+                    >
+                      {selected ? "✓ Đã Chọn Gói Này" : "Chọn Gói Này"}
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -558,7 +597,7 @@ export default function PickPackagePage() {
 
         {!isLocked && selectedValue && (
           <button
-            onClick={confirmChoice}
+            onClick={() => setShowConfirmWarning(true)}
             disabled={picking || confirmed}
             style={{
               marginTop: 20,
@@ -576,6 +615,37 @@ export default function PickPackagePage() {
           >
             {picking ? "Confirming…" : confirmed ? "✓ Package Confirmed" : "Xác Nhận Gói Đã Chọn"}
           </button>
+        )}
+
+        {/* Confirm warning popup — per explicit request, to prevent a
+            misclick locking in the wrong package. Cancel just closes this
+            (selection is untouched, nothing committed); Confirm is the
+            only path that actually calls confirmChoice(). */}
+        {showConfirmWarning && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 24, maxWidth: 440, width: "100%" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#ff9d5c", marginBottom: 12 }}>⚠ Xác nhận lựa chọn</div>
+              <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 20, lineHeight: 1.5 }}>
+                Bấm nút confirm bên dưới sẽ khóa tính năng chọn gói hỗ trợ truyền thông, vui lòng kiểm tra lại lựa chọn của bạn.
+              </p>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button type="button" className={styles.btnSecondary} onClick={() => setShowConfirmWarning(false)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  disabled={picking}
+                  onClick={async () => {
+                    setShowConfirmWarning(false);
+                    await confirmChoice();
+                  }}
+                >
+                  {picking ? "Confirming…" : "Confirm"}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Feed Back — the alternative to confirming a pick. Sends a note
@@ -597,13 +667,6 @@ export default function PickPackagePage() {
                   style={{ width: "100%", resize: "vertical", fontSize: 13, marginBottom: 8 }}
                 />
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    className={styles.btnSmall}
-                    onClick={() => setFeedbackText((t) => (t ? t + "\n" : "") + "Text in Zalo/Telegram")}
-                  >
-                    + Text in Zalo/Telegram
-                  </button>
                   <button
                     type="button"
                     className={styles.btnPrimary}
@@ -778,8 +841,18 @@ function PartnerBenefits() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
 
-      <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase", marginTop: 20 }}>
+// "Quyền Lợi Dành Cho Đơn Vị Truyền Thông" — split out from PartnerBenefits
+// so it can render at the top of the page (next to the product info)
+// instead of down with the rest of the partner-benefits content. Same
+// content/styling as before, just its own component now.
+function MediaPartnerNote() {
+  return (
+    <div>
+      <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase" }}>
         Quyền Lợi Dành Cho Đơn Vị Truyền Thông
       </div>
       <div style={{ border: "1px solid var(--border)", borderTop: "none", padding: "12px 14px", fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>

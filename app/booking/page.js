@@ -80,6 +80,18 @@ const ADS_METRICS = {
   "Spotify Ads": ["HPTO", "In-Stream Audio", "In-Stream Video", "In-Feed Display", "In-Feed Video"],
 };
 
+// Ads results are a metric COUNT, not a posted URL — per explicit request,
+// Ads cells take a quantity + a run-status instead of the Add Link popup
+// every other Hạng Mục uses. Own vocabulary/colors, distinct from the
+// link-status colors (Chưa Booking/Đã Gửi/Done) used everywhere else.
+const ADS_STATUS_OPTIONS = ["Chưa Chạy", "Đang Chạy", "Đã Chạy", "Pending"];
+const ADS_STATUS_COLORS = {
+  "Chưa Chạy": "var(--text-faint)",
+  "Đang Chạy": "#ffca4d",
+  "Đã Chạy": "#7ee6a8",
+  "Pending": "#ff9d5c",
+};
+
 const ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
 
 // Soft brand matching between this Board's own column brand names (e.g.
@@ -222,13 +234,18 @@ export default function BookingBoard() {
 
   function addedFor(release, categoryName, brand, platform, subchannelType, entryPool) {
     const categoryId = categoryIdByName[categoryName];
-    return entryPool.filter((e) =>
+    const matching = entryPool.filter((e) =>
       e.release_id === release.id &&
       e.category_id === categoryId &&
       (brand === null || (e.channel_name || "") === (brand || "")) &&
       (platform == null || (e.platform || "") === platform) &&
       (subchannelType == null || (e.subchannel_type || "") === subchannelType)
-    ).length;
+    );
+    // Ads — sum the quantity number(s) instead of counting rows (there's
+    // normally exactly one row per brand/metric, but this sums cleanly
+    // either way, including the "All"/aggregate view where brand is null).
+    if (categoryName === "Ads") return matching.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
+    return matching.length;
   }
 
   // Round is still an entry-level tag (which "phase" a given link belongs
@@ -440,6 +457,29 @@ export default function BookingBoard() {
     setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, status: next } : e)));
   }
 
+  // Ads quantity + status — upserts by finding the one existing row for
+  // this exact (release, round, Ads category, brand, metric) combo first
+  // (there's no DB-level unique constraint, this is app-level), rather
+  // than always inserting a new row like addEntry/addEntries do for links.
+  async function saveAdsQuantity(releaseId, brand, platform, quantity, status, existingEntry) {
+    if (existingEntry) {
+      const { error } = await supabase.from("media_booking_entries").update({ quantity, status }).eq("id", existingEntry.id);
+      if (!error) setEntries((prev) => prev.map((e) => (e.id === existingEntry.id ? { ...e, quantity, status } : e)));
+      return { error };
+    }
+    const { data, error } = await supabase
+      .from("media_booking_entries")
+      .insert({
+        release_id: releaseId, booking_round: round, channel_type: null,
+        category_id: categoryIdByName["Ads"] || null, channel_name: brand || null,
+        platform: platform || null, subchannel_type: null, link: null, quantity, status,
+      })
+      .select()
+      .single();
+    if (!error && data) setEntries((prev) => [...prev, data]);
+    return { error };
+  }
+
   function exportCsv() {
     const rows = [["DID", "Title", "Artist", ...columns.flatMap((c) => [`${c.label} Added`, `${c.label} Booked`])]];
     filteredReleases.forEach((r) => {
@@ -645,8 +685,14 @@ export default function BookingBoard() {
                 return (
                 <tr key={r.id} style={releasingToday ? { background: "rgba(255,107,26,0.08)" } : undefined}>
                   <td style={{ position: "sticky", left: 0, zIndex: 1, background: releasingToday ? "#2a1c0f" : "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288, overflow: "hidden", textOverflow: "ellipsis" }}>
-                    <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
-                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                    {/* .rowLink is `color: inherit` — on a light theme that
+                        inherited color is dark (meant for a light card),
+                        so against this cell's near-black highlight bg it
+                        went almost unreadable. Force white/orange here
+                        instead of relying on inherit, same fix on both the
+                        title link and the faint sub-text line. */}
+                    <Link href={`/releases/${r.id}`} className={styles.rowLink} style={releasingToday ? { color: "#ffffff" } : undefined}>{r.title}</Link>
+                    <div style={{ fontSize: 11, color: releasingToday ? "#ffcb9a" : "var(--text-faint)" }}>
                       {r.main_artist} · {r.did} · {fmtDate(r.release_date)}
                       {releasingToday && <span style={{ color: "#ff6b1a", fontWeight: 700, marginLeft: 6 }}>· TODAY</span>}
                     </div>
@@ -686,19 +732,34 @@ export default function BookingBoard() {
                   {columns.map((c, i) => {
                     const prev = columns[i - 1];
                     const isGroupStart = prev && prev.categoryName !== c.categoryName;
+                    const cellEntries = roundEntries.filter((e) =>
+                      e.release_id === r.id &&
+                      e.category_id === categoryIdByName[c.categoryName] &&
+                      (c.brand === null || (e.channel_name || "") === (c.brand || "")) &&
+                      (c.platform == null || (e.platform || "") === c.platform) &&
+                      (c.subchannelType == null || (e.subchannel_type || "") === c.subchannelType)
+                    );
+                    if (c.categoryName === "Ads") {
+                      return (
+                        <AdsCell
+                          key={c.key}
+                          column={c}
+                          booked={bookedFor(r, c.categoryName, c.brand)}
+                          added={addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries)}
+                          existingEntry={cellEntries[0] || null}
+                          canEdit={hangMucFilter !== "All"}
+                          cellBorderLeft={isGroupStart ? "2px solid #555" : "1px solid var(--border)"}
+                          onSave={(quantity, status) => saveAdsQuantity(r.id, c.brand, c.platform, quantity, status, cellEntries[0] || null)}
+                        />
+                      );
+                    }
                     return (
                       <BrandCell
                         key={c.key}
                         release={r}
                         column={c}
                         booked={bookedFor(r, c.categoryName, c.brand)}
-                        cellEntries={roundEntries.filter((e) =>
-                          e.release_id === r.id &&
-                          e.category_id === categoryIdByName[c.categoryName] &&
-                          (c.brand === null || (e.channel_name || "") === (c.brand || "")) &&
-                          (c.platform == null || (e.platform || "") === c.platform) &&
-                          (c.subchannelType == null || (e.subchannel_type || "") === c.subchannelType)
-                        )}
+                        cellEntries={cellEntries}
                         expanded={expandedCell === `${r.id}:${c.key}`}
                         onToggle={() => setExpandedCell(expandedCell === `${r.id}:${c.key}` ? null : `${r.id}:${c.key}`)}
                         onAdd={(platform, link) => addEntry(r.id, c.categoryName, c.brand, c.platform || platform, link, c.subchannelType)}
@@ -747,7 +808,12 @@ function ResultCell({ release, categories, bookedFor, entries, categoryIdByName 
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 10, rowGap: 3 }}>
       {categories.map((c) => {
         const booked = bookedFor(release, c.name, null);
-        const added = entries.filter((e) => e.release_id === release.id && e.category_id === categoryIdByName[c.name]).length;
+        const matchingEntries = entries.filter((e) => e.release_id === release.id && e.category_id === categoryIdByName[c.name]);
+        // Ads sums quantity instead of counting rows — same fix as
+        // addedFor above.
+        const added = c.name === "Ads"
+          ? matchingEntries.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0)
+          : matchingEntries.length;
         let color = "#444"; // grey — not booked at all
         if (booked != null && booked > 0) {
           color = added >= booked ? "#7ee6a8" : "#ffca4d";
@@ -1140,6 +1206,113 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
             >
               Done
             </button>
+          </div>
+        </>
+      )}
+    </td>
+  );
+}
+
+// Ads Hạng Mục cell — quantity + status instead of BrandCell's Add
+// Link/URL flow, per explicit request ("the booking package is also
+// number of different unit not number of url"). Click opens a small popup
+// with a "Số lượng" number field and a 4-way status switch; the main cell
+// shows the number itself colored by status (not the cell background).
+function AdsCell({ column, booked, added, existingEntry, canEdit, cellBorderLeft, onSave }) {
+  const [open, setOpen] = useState(false);
+  const [quantity, setQuantity] = useState(existingEntry?.quantity ?? "");
+  const [status, setStatus] = useState(existingEntry?.status || ADS_STATUS_OPTIONS[0]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setQuantity(existingEntry?.quantity ?? "");
+    setStatus(existingEntry?.status || ADS_STATUS_OPTIONS[0]);
+  }, [existingEntry]);
+
+  const isDone = booked != null && booked > 0 && added >= booked;
+  const numColor = existingEntry ? ADS_STATUS_COLORS[existingEntry.status] || "var(--text-muted)" : "var(--text-faint)";
+
+  async function handleSave() {
+    setSaving(true);
+    const q = quantity === "" ? null : Number(quantity);
+    await onSave(q, status);
+    setSaving(false);
+    setOpen(false);
+  }
+
+  return (
+    <td
+      style={{
+        verticalAlign: "top", minWidth: 130, position: "relative",
+        borderLeft: cellBorderLeft || "1px solid var(--border)",
+        boxShadow: open ? "inset 0 0 0 2px var(--accent)" : "none",
+      }}
+    >
+      <div
+        onClick={() => canEdit && setOpen(true)}
+        style={{ cursor: canEdit ? "pointer" : "default", fontSize: 17, textAlign: "center", fontWeight: isDone ? 800 : 600 }}
+        title={existingEntry ? `${existingEntry.status}${existingEntry.quantity != null ? ` — ${existingEntry.quantity}` : ""}` : "Chưa nhập số lượng"}
+      >
+        {isDone ? (
+          <span style={{ color: "#7ee6a8" }}>DONE</span>
+        ) : booked != null ? (
+          <span style={{ color: numColor }}>{added} / {booked}</span>
+        ) : (
+          <span style={{ color: numColor }}>{added} / —</span>
+        )}
+      </div>
+
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "absolute", top: 0, left: "100%", marginLeft: 6, zIndex: 300, width: 240,
+              background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, padding: 12,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 10 }}>
+              {column.label}
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Số lượng</label>
+              <input
+                type="number"
+                className={styles.input}
+                style={{ width: "100%", boxSizing: "border-box" }}
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Status</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {ADS_STATUS_OPTIONS.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setStatus(s)}
+                    style={{
+                      padding: "5px 8px", fontSize: 11, fontWeight: 700, borderRadius: 5, cursor: "pointer",
+                      border: `1px solid ${ADS_STATUS_COLORS[s]}`,
+                      background: status === s ? ADS_STATUS_COLORS[s] : "transparent",
+                      color: status === s ? "#0a0a0a" : ADS_STATUS_COLORS[s],
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className={styles.btnPrimary} style={{ flex: 1 }} onClick={handleSave} disabled={saving}>
+                {saving ? "Đang lưu…" : "Save"}
+              </button>
+              <button className={styles.btnSmall} onClick={() => setOpen(false)}>Cancel</button>
+            </div>
           </div>
         </>
       )}

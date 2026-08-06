@@ -3595,3 +3595,76 @@ Round 49 added release-date sorting (soonest first) — per clarification, the a
 opposite: farthest-out release date first (e.g. 31/12/2026 before 01/01/2026). Flipped the compare
 in `byReleaseDate()`; tickets with no matched release still always sort last regardless of
 direction. `app/tickets/media-booking/page.js`.
+
+## 2026-08-06 (51)
+
+### Fix — Booking Board's "today" highlight: unreadable text on light theme
+
+Per your screenshot: the title/artist/DID/date text on a "releasing today" row was nearly
+invisible — `.rowLink`'s `color: inherit` and the sub-text's `var(--text-faint)` both resolve to
+a dark color meant for a light card background, but the highlight itself is a near-black
+(`#2a1c0f`). Forced white for the title and a light orange (`#ffcb9a`) for the artist/DID/date
+line specifically when the row is highlighted, so it reads clearly regardless of theme. The
+"· TODAY" tag's orange was already fine. `app/booking/page.js`.
+
+## 2026-08-06 (52)
+
+### 1. Booking Board — Ads Hạng Mục switches to quantity + status
+
+Per explicit request: Ads results are a metric count (e.g. "Lượt tiếp cận: 12,000"), not a posted
+URL like every other Hạng Mục, so the old "Add Link" popup didn't fit. Ads cells now open a small
+popup with a "Số lượng" number field and a 4-way status switch (Chưa Chạy / Đang Chạy / Đã Chạy /
+Pending, each its own color) instead. The main cell shows the number itself colored by status (not
+the cell background, per explicit request), and the number still counts toward the booking
+package's target the same way link counts always did. New `media_booking_entries.quantity` column
+(migration: `add-round52-ads-quantity.sql`) — Ads rows use it instead of `link`; one row per
+(release, round, Ads category, ad brand, metric), upserted rather than appended. `app/booking/page.js`
+(new `AdsCell` component, `addedFor()`/`ResultCell`'s dot-color calc both updated to sum `quantity`
+for Ads instead of counting rows).
+
+### 2. Notification product names — needs something from you first
+
+I looked into this and hit a wall I can't get past without your help: the notifications everyone
+actually sees day-to-day fire from two Postgres trigger functions (`notify_on_ticket_insert` /
+`notify_on_ticket_complete`) that live directly in the database — they were created before this
+session's migration history starts, so I don't have their current source anywhere in the files I'm
+working from (same situation as the gate_* columns flagged back in round 24). I don't want to
+blindly `CREATE OR REPLACE` something I can't see, in case it does something I'd accidentally undo.
+
+Could you run this in the Supabase SQL editor and send me back what it returns?
+```sql
+select pg_get_functiondef('notify_on_ticket_insert'::regproc);
+select pg_get_functiondef('notify_on_ticket_complete'::regproc);
+```
+Once I can see the real function bodies I can add the release title/artist into the notification
+text safely. (Two notifications I could already confirm: `flag_overdue_batch_items()` already
+includes the song name in its body; `design_scheduled_sweep()`'s reminders are aggregate counts
+across many tickets, not about one release, so "product name" doesn't apply there the same way —
+flag if you want those reworded too.)
+
+### 3. Magic link page — "Quyền Lợi Dành Cho Đơn Vị Truyền Thông" moved to the top
+
+Per your screenshot: this block now renders at the very top of the page, split side-by-side with
+the product info (title/artist/date on the left, this block on the right) instead of further down
+the page. "Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT" (the big partner-benefits table) is
+untouched, still in its original spot. `app/pick-package/[token]/page.js`.
+
+### 4. Magic link page — explicit "Chọn Gói Này" button + confirm warning popup
+
+Each package card now has its own clearly-labeled "Chọn Gói Này" / "✓ Đã Chọn Gói Này" button at
+the bottom (the old click-anywhere-on-the-header behavior still works too, this is additive, not a
+replacement). The big bottom "Xác Nhận Gói Đã Chọn" button no longer commits directly — it opens a
+warning popup first ("Bấm nút confirm bên dưới sẽ khóa tính năng chọn gói hỗ trợ truyền thông, vui
+lòng kiểm tra lại lựa chọn của bạn.") with Cancel (closes the popup, selection untouched, nothing
+committed) and Confirm (actually locks it in) buttons, to guard against a misclick. Confirmed
+locking already hides the Feed Back button afterward — that was already driven by
+`release.package_locked`/`isLocked`, no separate change needed there. `app/pick-package/[token]/page.js`.
+
+### 5. Magic link page — removed "Text in Zalo/Telegram" quick-fill button
+
+Per the team's confirmed decision, removed from the Feed Back textarea's button row — free text
+only now. **Where this page shows up:** `/pick-package/[token]` is the public magic-link page sent
+externally to the artist/label/media partner — it's not part of the internal app's normal
+navigation, nobody on the internal team reaches it by browsing around; it only opens via the
+specific token link generated for a release (Media Booking ticket's "Generate Link" action).
+`app/pick-package/[token]/page.js`.
