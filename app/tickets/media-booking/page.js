@@ -78,21 +78,26 @@ export default function MediaBookingList() {
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
-  // Auto-sort by release date (soonest first) instead of the query's
-  // default created_at desc — for a booking execution queue, "which
-  // release is coming up next" is the priority signal, not "which ticket
-  // was made most recently." Tickets with no matching release (releaseId
-  // missing, or the release wasn't found in releasesByDid) sort last
-  // rather than being pulled to the top by a missing/undefined date.
-  // "for now" per your ask — a real column-picker sort can replace this
-  // later if release date isn't always the right axis.
+  // Auto-sort by release date, farthest-out first (descending — per
+  // explicit request, e.g. 31/12/2026 before 01/01/2026) instead of the
+  // query's default created_at desc. Tickets with no matching release
+  // (releaseId missing, or the release wasn't found in releasesByDid) sort
+  // last regardless of direction, rather than being pulled to the top by a
+  // missing/undefined date. "for now" per your ask — a real column-picker
+  // sort can replace this later if release date isn't always the right
+  // axis.
   function byReleaseDate(a, b) {
     const da = releasesByDid[a.data?.releaseId]?.release_date;
     const db = releasesByDid[b.data?.releaseId]?.release_date;
     if (!da && !db) return 0;
+    // Missing dates always sort last, in EITHER direction — a ticket with
+    // no matched release shouldn't jump to the top just because "no date"
+    // technically sorts high in a descending compare.
     if (!da) return 1;
     if (!db) return -1;
-    return da.localeCompare(db);
+    // Descending — farthest-out release date first (e.g. 31/12/2026 before
+    // 01/01/2026), per explicit request.
+    return db.localeCompare(da);
   }
 
   const visibleTickets = useMemo(() => {

@@ -123,22 +123,11 @@ export default function BookingBoard() {
   const [labelFilter, setLabelFilter] = useState("");
   const [expandedCell, setExpandedCell] = useState(null); // `${releaseId}:${categoryName}:${brand}` or null
   const [packagePreview, setPackagePreview] = useState(null); // release being previewed, or null
-  const [unrequestedOnly, setUnrequestedOnly] = useState(false); // only relevant once a specific Hạng Mục is picked (not "All") — see below
-  // Mirror of unrequestedOnly, per explicit request: "only the product that
-  // has a requested number show up" — e.g. Hạng Mục Community -> Brand PAGE
-  // BOLERO/MT -> only releases that actually have a booked target for that
-  // brand (via the package builder OR the historical-data import). A
-  // release counts as "requested" if ANY currently-shown brand/column has a
-  // booked target — mirrors unrequestedOnly's "every column empty" check
-  // with "at least one column filled" instead.
-  const [requestedOnly, setRequestedOnly] = useState(false);
   const [bookingChannels, setBookingChannels] = useState([]); // booking_channels reference table — see BrandCell's Add Link popup
 
   useEffect(() => {
     const options = CATEGORY_SUBFILTERS[hangMucFilter];
     setSubFilter(options ? options[0] : null);
-    setUnrequestedOnly(false);
-    setRequestedOnly(false);
   }, [hangMucFilter]);
 
   // tiktokBrandFilter tracks whichever group subFilter is currently picked
@@ -288,8 +277,9 @@ export default function BookingBoard() {
   //    to the one brand picked in subFilter.
   //  - Ads: columns = that ad brand's own fixed metric list (the metric
   //    name doubles as the "platform" value on media_booking_entries).
-  // Declared before filteredReleases below since the "Chưa có yêu cầu"
-  // filter needs to know the current columns to check.
+  // Declared before filteredReleases below since the always-on
+  // "has a requested number" filter needs to know the current columns
+  // to check against.
   const columns = useMemo(() => {
     if (hangMucFilter === "All") {
       return categories.map((c) => ({ key: c.name, label: c.name, categoryName: c.name, brand: null, platform: null, subchannelType: null }));
@@ -355,25 +345,22 @@ export default function BookingBoard() {
       }
       if (typeFilter && r.project_type !== typeFilter) return false;
       if (labelFilter && r.label !== labelFilter) return false;
-      // "Chưa có yêu cầu" — only meaningful once a specific Hạng Mục is
-      // picked (columns is empty for "All", so this can't apply there).
-      // A release only counts as "no request" if EVERY currently-shown
-      // brand/column under this Hạng Mục has no booked target at all
-      // (bookedFor returns null when there's no package line for that
-      // brand) — not just some of them.
-      if (unrequestedOnly && hangMucFilter !== "All" && columns.length > 0) {
-        const allNull = columns.every((c) => bookedFor(r, c.categoryName, c.brand) == null);
-        if (!allNull) return false;
-      }
-      // "requested number filled" — at least one currently-shown column has
-      // a booked target, i.e. the opposite of unrequestedOnly's check.
-      if (requestedOnly && hangMucFilter !== "All" && columns.length > 0) {
+      // Per the team's confirmed default: once a specific Hạng Mục (and
+      // Brand, where applicable) path is picked, ALWAYS show only releases
+      // that actually have a requested/booked number for at least one of
+      // the columns currently shown — no toggle, this is just how the
+      // filtered path works now. (Replaces the earlier "Chưa có yêu cầu" /
+      // "Đã có yêu cầu" toggle buttons — the team decided the "has a
+      // number" behavior should be the only, always-on behavior rather
+      // than something to switch on and off.) Doesn't apply to "All" (no
+      // columns to check against).
+      if (hangMucFilter !== "All" && columns.length > 0) {
         const anyFilled = columns.some((c) => bookedFor(r, c.categoryName, c.brand) != null);
         if (!anyFilled) return false;
       }
       return true;
     });
-  }, [roundFilteredReleases, search, month, typeFilter, labelFilter, unrequestedOnly, requestedOnly, hangMucFilter, columns, packageByRelease]);
+  }, [roundFilteredReleases, search, month, typeFilter, labelFilter, hangMucFilter, columns, packageByRelease]);
 
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(filteredReleases);
 
@@ -584,26 +571,6 @@ export default function BookingBoard() {
               ))}
             </div>
           )}
-          {hangMucFilter !== "All" && (
-            <button
-              onClick={() => setUnrequestedOnly((v) => !v)}
-              className={styles.btnSmall}
-              style={unrequestedOnly ? { borderColor: "#ff6b1a", color: "#ff6b1a", background: "rgba(255,107,26,0.1)" } : undefined}
-              title="Only show releases with no requested number at all for this Hạng Mục — every brand/column shown is empty (—), nothing booked."
-            >
-              Chưa có yêu cầu
-            </button>
-          )}
-          {hangMucFilter !== "All" && (
-            <button
-              onClick={() => setRequestedOnly((v) => !v)}
-              className={styles.btnSmall}
-              style={requestedOnly ? { borderColor: "#ff6b1a", color: "#ff6b1a", background: "rgba(255,107,26,0.1)" } : undefined}
-              title="Only show releases that have a requested number for this Hạng Mục/Brand — at least one column shown has a booked target (from the package builder or an import)."
-            >
-              Đã có yêu cầu
-            </button>
-          )}
           <select className={styles.select} style={{ maxWidth: 170 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
             <option value="">Type — all</option>
             {[...new Set(releases.map((r) => r.project_type).filter(Boolean))].map((t) => <option key={t} value={t}>{t}</option>)}
@@ -612,11 +579,11 @@ export default function BookingBoard() {
             <option value="">Label — all</option>
             {[...new Set(releases.map((r) => r.label).filter(Boolean))].map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
-          {(search || month || typeFilter || labelFilter || unrequestedOnly || requestedOnly) && (
+          {(search || month || typeFilter || labelFilter) && (
             <button
               className={styles.btnSmall}
               style={{ borderColor: "#c0392b", color: "#e57373" }}
-              onClick={() => { setSearch(""); setMonth(""); setTypeFilter(""); setLabelFilter(""); setUnrequestedOnly(false); setRequestedOnly(false); }}
+              onClick={() => { setSearch(""); setMonth(""); setTypeFilter(""); setLabelFilter(""); }}
             >
               ✕ Clear
             </button>

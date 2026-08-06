@@ -3577,3 +3577,21 @@ the updated `RUNBOOK-round43-to-47.md`.
    `app/tickets/media-booking/page.js`: `byReleaseDate()` already sorts both the requester view and
    the executor (per-status) view by release date, soonest first, with tickets missing a matched
    release sorted last — no change needed here, this was already in place from an earlier round.
+
+## 2026-08-06 (50)
+
+### Booking Board — team decided: always-on filter, not a toggle
+
+Per the team's confirmed default: removed both "Chưa có yêu cầu" and "Đã có yêu cầu" (round 49's
+new button) entirely. In their place, whenever a specific Hạng Mục (and Brand, where applicable)
+path is picked, the board now ALWAYS shows only releases that have a requested/booked number for
+at least one of the currently-shown columns — no button, no toggle, that's just how a filtered
+path works now (matches "Đã có yêu cầu"'s old behavior, just unconditional). Doesn't apply to
+"All" — no columns to check against there. `app/booking/page.js`.
+
+### Media Booking ticket list — sort direction flipped to descending
+
+Round 49 added release-date sorting (soonest first) — per clarification, the actual want was the
+opposite: farthest-out release date first (e.g. 31/12/2026 before 01/01/2026). Flipped the compare
+in `byReleaseDate()`; tickets with no matched release still always sort last regardless of
+direction. `app/tickets/media-booking/page.js`.
