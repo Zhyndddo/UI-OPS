@@ -16,6 +16,53 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
+// Display-only thousand-separator (no currency suffix) — for showing
+// inside an editable Đơn Giá input between edits. The value that's
+// actually typed/parsed/saved stays a clean plain number (no dots or
+// commas); this only formats what's shown once the field isn't focused.
+function fmtThousands(n) {
+  if (n === null || n === undefined || n === "") return "";
+  const num = typeof n === "number" ? n : parseFloat(n);
+  if (Number.isNaN(num)) return "";
+  return new Intl.NumberFormat("vi-VN").format(num);
+}
+
+// Round 64 — item 1: a numeric input that shows a thousand-separated
+// value while not focused, and the raw plain-digit value (no separators)
+// while the user is actively typing, so editing stays "clean" per the
+// request. Uncontrolled-feeling (mirrors the existing defaultValue/onBlur
+// pattern used elsewhere in this file) but needs local state to swap the
+// displayed text between the two modes.
+function ThousandInput({ value, onCommit, style, className }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(() => fmtThousands(value));
+
+  useEffect(() => {
+    if (!editing) setText(fmtThousands(value));
+  }, [value, editing]);
+
+  return (
+    <input
+      type={editing ? "number" : "text"}
+      className={className}
+      style={style}
+      value={text}
+      onFocus={() => {
+        setEditing(true);
+        setText(value === null || value === undefined ? "" : String(value));
+      }}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={(e) => {
+        setEditing(false);
+        const raw = e.target.value.trim();
+        const parsed = raw === "" ? null : parseFloat(raw);
+        onCommit(Number.isNaN(parsed) ? null : parsed);
+        setText(fmtThousands(Number.isNaN(parsed) ? null : parsed));
+      }}
+    />
+  );
+}
+
 // This IS the package-building tool (the "workstation" it was briefly
 // pulled out into moved back in here) — clicking a row opens the builder:
 // pick a template, edit the itemized numbers live, generate the magic
@@ -1070,12 +1117,11 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                                     />
                                   </td>
                                   <td>
-                                    <input
-                                      type="number"
+                                    <ThousandInput
                                       className={styles.input}
                                       style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
-                                      defaultValue={entry.unit_price || 0}
-                                      onBlur={(e) => updateEntryCount(entry, "unit_price", parseFloat(e.target.value) || 0)}
+                                      value={entry.unit_price || 0}
+                                      onCommit={(n) => updateEntryCount(entry, "unit_price", n ?? 0)}
                                     />
                                   </td>
                                   <td style={{ fontSize: 12, fontWeight: 700 }}>{fmtVnd((entry.count_posts || 0) * (entry.unit_price || 0))}</td>
@@ -1240,33 +1286,10 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   })()}
                 </div>
 
-                {summarizedCategoryIds.has(selectedCategoryId) && (
-                  <CategoryCountsPopup
-                    isTikTokChannel={isTikTokChannel}
-                    isAds={isAds}
-                    brandList={brandList}
-                    currentBrand={currentBrand}
-                    categoryTotals={categoryTotals}
-                    tiktokBrandTotals={tiktokBrandTotals}
-                    tiktokBrand={tiktokBrand}
-                  />
-                )}
-
-                {summary && !isTikTokChannel && !isAds && (
-                  <table className={styles.table} style={{ marginTop: 14 }}>
-                    <thead><tr><th>DSP</th><th>Số Lượng Bài Đăng</th><th>Số Lượng Kênh</th></tr></thead>
-                    <tbody>
-                      {summary.map((row) => (
-                        <tr key={row.platform}>
-                          <td style={{ fontSize: 12 }}>{row.platform}</td>
-                          <td>{row.totalPosts}</td>
-                          <td>{row.channelCount}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-
+                {/* Round 63 — swapped these two blocks' order per explicit
+                    request ("not align on the same side as in picture 1") —
+                    Brand Comparison now renders above the EXTERNAL/INTERNAL
+                    summarize totals table instead of below it. */}
                 {isTikTokChannel && Object.values(tiktokBrandTotals).some((v) => v > 0) && (
                   <div style={{ marginTop: 14, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
@@ -1295,6 +1318,33 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                       ))}
                     </div>
                   </div>
+                )}
+
+                {summarizedCategoryIds.has(selectedCategoryId) && (
+                  <CategoryCountsPopup
+                    isTikTokChannel={isTikTokChannel}
+                    isAds={isAds}
+                    brandList={brandList}
+                    currentBrand={currentBrand}
+                    categoryTotals={categoryTotals}
+                    tiktokBrandTotals={tiktokBrandTotals}
+                    tiktokBrand={tiktokBrand}
+                  />
+                )}
+
+                {summary && !isTikTokChannel && !isAds && (
+                  <table className={styles.table} style={{ marginTop: 14 }}>
+                    <thead><tr><th>DSP</th><th>Số Lượng Bài Đăng</th><th>Số Lượng Kênh</th></tr></thead>
+                    <tbody>
+                      {summary.map((row) => (
+                        <tr key={row.platform}>
+                          <td style={{ fontSize: 12 }}>{row.platform}</td>
+                          <td>{row.totalPosts}</td>
+                          <td>{row.channelCount}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 )}
 
                 {/* Artist/label Feed Back, submitted via the magic-link page
@@ -1714,7 +1764,13 @@ function PackagesPanel({
                             left data tool, this just mirrors it live. */}
                         <td style={{ fontSize: 12, color: "var(--text-muted)" }}>
                           {isAdsLine ? (
-                            <span style={{ color: "var(--text-faint)" }}>—</span>
+                            // Round 64 — item 2: Ads never carries a real
+                            // quantity at the package-line level (it's
+                            // priced per-entry, then summed into one lump
+                            // amount per brand), so there's nothing real to
+                            // show here — display a fixed "1 Gói" so the
+                            // column isn't just a blank dash.
+                            <span>1 Gói</span>
                           ) : line.is_package_priced ? (
                             <span>{line.package_count ?? "—"} Gói</span>
                           ) : (
@@ -1736,14 +1792,20 @@ function PackagesPanel({
                             of being read-only-only on this side. */}
                         <td>
                           {isAdsLine ? (
-                            <span style={{ color: "var(--text-faint)" }}>—</span>
+                            // Round 64 — item 2: pairs with the "1 Gói"
+                            // shown in the quantity column — since Số
+                            // Lượng is being displayed as 1, the "default"
+                            // Đơn Giá for that one package is just the
+                            // line's own total amount. Read-only (not a
+                            // real editable per-unit price — Ads pricing
+                            // stays per-entry on the left grid).
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{fmtVnd(line.amount)}</span>
                           ) : (
-                            <input
-                              type="number"
+                            <ThousandInput
                               className={styles.input}
                               style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
-                              defaultValue={line.unit_price ?? ""}
-                              onBlur={(e) => updateLine(line, { unit_price: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                              value={line.unit_price ?? ""}
+                              onCommit={(n) => updateLine(line, { unit_price: n })}
                             />
                           )}
                         </td>

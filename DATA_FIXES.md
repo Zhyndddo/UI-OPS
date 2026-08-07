@@ -4124,3 +4124,45 @@ fails — I'll iterate immediately if so.
 
 No schema changes, and no other page has the same gap (checked every `useSearchParams()` usage in
 the app — `/releases/[id]` is the only other one, and it's unaffected for the reason above).
+
+## Round 63 — quick fix: swapped Brand Comparison / summarize table order
+
+Per your screenshot: in the Package Builder's TikTok Channel Hạng Mục, the EXTERNAL/INTERNAL
+summarize totals table and the "Brand Comparison" panel below it were in the wrong order versus
+your reference layout. Swapped — Brand Comparison now renders first, the summarize totals table
+below it. No other layout/spacing changes; both blocks already carry their own top margin so
+nothing needed adjusting there.
+
+No schema changes.
+
+## Round 64 — quick fixes: Đơn Giá thousand separator + Ads package-line display
+
+**1. Thousand separator on Đơn Giá inputs (display only)**
+
+Both editable Đơn Giá fields in the Package Builder (`app/tickets/media-booking/page.js`) now
+show a thousand-separated value (e.g. `1.000.000`) once you click away from the field, same
+style as the existing `fmtVnd()` money formatting elsewhere in the app. While the field is
+focused for editing, it shows the plain number with no separators, so typing stays exactly as
+clean as before — nothing changes about what gets parsed/saved, only how the resting value is
+displayed. Covers both spots:
+- the Ads Hạng Mục's left DSP-grid Đơn Giá column (per platform row)
+- the right-side Packages panel's Đơn Giá column (non-Ads lines)
+
+New shared bits added for this: `fmtThousands()` (a display-only formatter, no `đ` suffix) and a
+small `ThousandInput` component that swaps between the formatted and raw display on
+focus/blur. Both are local to `app/tickets/media-booking/page.js` — no other file uses them yet.
+
+**2. Ads Hạng Mục — package-line display in the right panel**
+
+In the right-side Packages panel, an Ads line's "Tổng Số Bài Đăng / Số Gói" and "Đơn Giá"
+columns used to just show a dash (`—`) — Ads has never carried a real per-line quantity or unit
+price there (it's priced per-entry on the left grid, then summed into one lump amount per
+brand), so there was nothing to show. Per your request, now shows:
+- Số Lượng column: a fixed `1 Gói`
+- Đơn Giá column: the line's own total amount (so Đơn Giá × 1 Gói lines up with what's shown as
+  Thành Tiền) — read-only, since Ads doesn't have one real per-unit price to edit at this level
+
+Nothing here changes what's actually stored — `unit`/`quantity`/`unit_price` stay `null` on Ads
+package lines same as before; this is display-only, same spirit as item 1.
+
+No schema changes.
