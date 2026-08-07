@@ -3915,3 +3915,51 @@ The button was wrapping wherever the browser felt like breaking the text inside 
 (sometimes mid-word), which looked broken. Forced a clean 2-line break instead: "Open" / "Batch ↗".
 
 Changed file: `app/tickets/phai-sinh/page.js`. No schema change.
+
+## Round 58 — Package Runner
+
+New tool, `/package-runner` (sidebar link only shown to those who can use it): fast-tracks a
+release straight to a locked package without waiting on the artist-facing magic link — for the
+case you flagged, where Marketing has already evaluated a release and knows it's going to be Chỉ
+Phát Hành regardless, so there's no reason to sit on the normal round trip.
+
+**What it actually does under the hood:** runs the exact same commit that
+`app/pick-package/[token]/page.js`'s `confirmChoice()` runs when an artist clicks "Confirm" on
+their own magic link — same 3 writes to the release (`project_type`, `package_locked: true`,
+`package_total_value: null`), same "if this release was still sitting in BRIEF & DATA/DEALING,
+auto-create the Phụ Lục ticket" side effect. That's the reason it can't break anything downstream
+— it's not a shortcut that skips state, it's the same state-transition code path triggered
+directly instead of waiting on a click from the artist's side.
+
+**Confirmed with you:** Chỉ Phát Hành genuinely has nothing to attach (no `release_package_items`
+rows get seeded — matches how the real magic-link flow already treats it as a "simple" pick with
+no itemized breakdown, since only actual built packages via the Package Builder popup have real
+line items to seed).
+
+**Access:** admin role + Marketing segment, or dev — not every admin, since this touches
+Marketing's own release data rather than an org-wide setting (matches the round-57 principle that
+Config-org-management and hands-on operational tools are different kinds of access). New
+`canRunPackageSimulator()` in `lib/permissions.js`.
+
+**Single Release mode** (what admins get, and dev's default): DID (required, looked up against
+`releases.did`), Legacy DID (dev-only, optional — only written if the release doesn't already have
+one, never overwrites), Package (locked to "Chỉ Phát Hành" for admin; a real dropdown of every
+`contract_type` lookup option for dev). Click Run.
+
+**Batch mode** (dev-only): paste a CSV (`did,legacy_did,contract_type` — header optional, the
+latter two columns optional per row, `contract_type` defaults to Chỉ Phát Hành when blank),
+Run Batch, get a per-row result table. Batch mode never overwrites an already-locked release —
+those rows show as skipped with the reason, re-run them one at a time in Single Release if the
+override is actually intended.
+
+**Safety net:** if the target release already has `package_locked: true`, the tool refuses to
+touch it by default (won't silently clobber a real decision someone already made — whether via the
+artist's own pick or a previous run of this tool). Dev sees an explicit "overwrite anyway"
+checkbox when this happens; admin just gets the blocked message (no override available at that
+tier — this is the one judgment call I made without asking: felt like the same kind of guardrail
+as teamlead's role-assignment ceiling in round 57, easy to loosen if you want admin to have it
+too).
+
+No schema changes — every column this reads/writes already existed. New file
+`app/package-runner/page.js`, `lib/permissions.js` (`canRunPackageSimulator`), `lib/Sidebar.js`
+(conditional nav entry).
