@@ -110,16 +110,34 @@ export default function ReleasesDashboard() {
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay());
     startOfWeek.setHours(0, 0, 0, 0);
+    const startOfNextWeek = new Date(startOfWeek);
+    startOfNextWeek.setDate(startOfWeek.getDate() + 7);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
     let today = 0, thisWeek = 0, thisMonth = 0, preRelease = 0, released = 0, postRelease = 0;
     const byChannel = { VIEENT: 0, ENVI: 0 };
 
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setDate(startOfToday.getDate() + 1);
+
     releases.forEach((r) => {
-      const created = new Date(r.created_at);
-      if (created >= startOfToday) today++;
-      if (created >= startOfWeek) thisWeek++;
+      // "Today" means releasing today — same reasoning as This Week/This
+      // Month below: release_date is what the team tracks against, not
+      // created_at (when the row happened to be entered into the app).
+      if (r.release_date) {
+        const rdt = new Date(r.release_date);
+        if (rdt >= startOfToday && rdt < startOfTomorrow) today++;
+      }
+      // "This Week" means releasing this week (Sunday through the following
+      // Sunday), not created this week — same reasoning/fix as "This Month"
+      // below: release_date is what the team actually cares about tracking
+      // here, and it can be set well after (or, for backfilled data, well
+      // before) created_at.
+      if (r.release_date) {
+        const rdw = new Date(r.release_date);
+        if (rdw >= startOfWeek && rdw < startOfNextWeek) thisWeek++;
+      }
       // "This Month" means releasing this month, not created this month —
       // reads release_date, with an upper bound too (release_date can be
       // months/years in the future, unlike created_at).
@@ -167,14 +185,31 @@ export default function ReleasesDashboard() {
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay());
     startOfWeek.setHours(0, 0, 0, 0);
+    const startOfNextWeek = new Date(startOfWeek);
+    startOfNextWeek.setDate(startOfWeek.getDate() + 7);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setDate(startOfToday.getDate() + 1);
+
     return releases.filter((r) => {
       if (createdFilter) {
-        const created = new Date(r.created_at);
-        if (createdFilter === "today" && !(created >= startOfToday)) return false;
-        if (createdFilter === "week" && !(created >= startOfWeek)) return false;
+        if (createdFilter === "today") {
+          // Filters by release_date, not created_at — same fix as the stat
+          // card above.
+          if (!r.release_date) return false;
+          const rdt = new Date(r.release_date);
+          if (!(rdt >= startOfToday && rdt < startOfTomorrow)) return false;
+        }
+        if (createdFilter === "week") {
+          // Same fix as the stat card above — "This Week" filters by
+          // release_date (releasing Sunday through the following Sunday),
+          // not created_at.
+          if (!r.release_date) return false;
+          const rdw = new Date(r.release_date);
+          if (!(rdw >= startOfWeek && rdw < startOfNextWeek)) return false;
+        }
         if (createdFilter === "month") {
           // Same fix as the stat card above — "This Month" filters by
           // release_date (releasing this month), not created_at.
@@ -323,9 +358,24 @@ export default function ReleasesDashboard() {
                         value={r.requester_segment || ""}
                         disabled={savingChannel === r.id}
                         onChange={(e) => updateChannel(r, e.target.value)}
+                        title={
+                          r.requester_segment && !CHANNELS.includes(r.requester_segment)
+                            ? `Imported value doesn't match VIEENT/ENVI exactly — pick one to fix it`
+                            : undefined
+                        }
                       >
                         <option value="">—</option>
                         {CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
+                        {/* An imported/legacy value that isn't exactly "VIEENT" or "ENVI"
+                            (different casing, a typo, a different word entirely from the
+                            source sheet) used to just render blank here — the data was
+                            really in requester_segment, this <select> just had no <option>
+                            for it. Surfacing it as its own option instead of silently
+                            dropping it — see scripts/audit-release-channel.js to find every
+                            release affected this way. */}
+                        {r.requester_segment && !CHANNELS.includes(r.requester_segment) && (
+                          <option value={r.requester_segment}>{r.requester_segment} (unrecognized — pick to fix)</option>
+                        )}
                       </select>
                     </td>
                     <td style={{ maxWidth: 260, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -342,6 +392,21 @@ export default function ReleasesDashboard() {
                     <td>{fmtDate(r.release_date)}</td>
                     <td>
                       <span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.12)", color: "#ff9d5c" }}>{r.status}</span>
+                      {/* Round 54 — item B.1: surfaces the Booking Board's
+                          "Convert Media Report" state here on the New
+                          Release Dashboard too, per "add tab booking status
+                          (NEW RELEASE DASHBOARD): Đã có media report" — the
+                          board itself is where Convert/Send Artist actually
+                          happen (fixed "Media Report" column), this is just
+                          the read-only marker showing up here as well. */}
+                      {r.media_report_status && (
+                        <span
+                          className={styles.statusBadge}
+                          style={{ display: "block", marginTop: 4, background: r.media_report_status === "sent" ? "rgba(126,230,168,0.14)" : "rgba(255,202,77,0.14)", color: r.media_report_status === "sent" ? "#7ee6a8" : "#ffca4d" }}
+                        >
+                          {r.media_report_status === "sent" ? "Media Report — Artist Sent" : "Đã có media report"}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <span

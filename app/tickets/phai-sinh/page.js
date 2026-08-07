@@ -6,10 +6,12 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
+import { isOpsTeam } from "../../../lib/teamTypes";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import LinkOrEditCell from "../../../lib/LinkOrEditCell";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import { PHAI_SINH_TYPE_OPTIONS, isKhoNhacType, isMetadataConfirmed, CHILD_STATUS_COUNTERS } from "../../../lib/phaiSinhTypes";
 import styles from "../../shared.module.css";
 
 // Rebuilt bespoke to match v1's real Phái Sinh table exactly — it shows
@@ -17,6 +19,14 @@ import styles from "../../shared.module.css";
 // v1's computed group columns (Artist+Composer, Producer+Mixer,
 // Release Date+Time combined) and the link-or-edit URL pattern. PIC and
 // Deadline are v2 additions layered on top, not in v1.
+//
+// Round 41 — merged with Phái Sinh (Batch): Type now decides the row's
+// behavior (isKhoNhacType). Kho Nhạc-family rows (Kho nhạc / Chuyển net /
+// Takedown) grey out the single-song-only fields, repurpose the URL cell
+// into an "Open Batch" link into the same children table Batch Phái Sinh
+// already used (app/tickets/batch-phai-sinh/[id]/page.js, unchanged —
+// tab-agnostic), and get a mini counter dashboard computed from their
+// phai_sinh_batch_items children.
 const REFUND_LIKE = ["REFUND"];
 
 export default function PhaiSinhList() {
@@ -26,8 +36,12 @@ export default function PhaiSinhList() {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
+  const [relatedReleases, setRelatedReleases] = useState({}); // did -> release (gate_split_share/gate_phu_luc_publishing only)
+  const [itemsByBatch, setItemsByBatch] = useState({}); // ticket id -> phai_sinh_batch_items rows, Kho Nhạc-family only
 
-  const isExecutorView = !profile?.segment || profile.segment === "OPS";
+  const canEditDeadline = profile?.role === "dev" || profile?.role === "admin";
+
+  const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
 
   useEffect(() => {
     if (!supabase) return;
@@ -43,7 +57,38 @@ export default function PhaiSinhList() {
     if (!statusFilter) setStatusFilter(tabRow.status_options[0]);
     const { data } = await supabase.from("tickets").select("*, profiles(name)").eq("tab_id", tabRow.id).is("deleted_at", null).order("created_at", { ascending: false });
     setTickets(data || []);
+    // Related DID's own product — looked up so the Publishing/Splitshare
+    // pill tags under Type can reflect that release's own gate fields
+    // (gate_phu_luc_publishing / gate_split_share), per explicit request.
+    const relatedDids = [...new Set((data || []).map((t) => t.data?.relatedDid).filter(Boolean))];
+    if (relatedDids.length > 0) {
+      const { data: rels } = await supabase.from("releases").select("did, gate_split_share, gate_phu_luc_publishing").in("did", relatedDids);
+      const map = {};
+      (rels || []).forEach((r) => (map[r.did] = r));
+      setRelatedReleases(map);
+    } else {
+      setRelatedReleases({});
+    }
+
+    // Round 41 — Kho Nhạc-family tickets' mini counter dashboard is
+    // computed from their children, same source table Batch Phái Sinh's
+    // list page already grouped (app/tickets/batch-phai-sinh/page.js).
+    const batchTicketIds = (data || []).filter((t) => isKhoNhacType(t.data?.typeRequest)).map((t) => t.id);
+    if (batchTicketIds.length > 0) {
+      const { data: items } = await supabase.from("phai_sinh_batch_items").select("*").in("batch_ticket_id", batchTicketIds).is("deleted_at", null);
+      const grouped = {};
+      (items || []).forEach((i) => { (grouped[i.batch_ticket_id] = grouped[i.batch_ticket_id] || []).push(i); });
+      setItemsByBatch(grouped);
+    } else {
+      setItemsByBatch({});
+    }
     setLoading(false);
+  }
+
+  async function updateDeadline(t, value) {
+    const patch = { deadline: value || null };
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
+    await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
   // typeRequest/label/tenBai/relatedDid used to be locked read-only text
@@ -130,13 +175,43 @@ export default function PhaiSinhList() {
           ) : visibleTickets.length === 0 ? (
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-            <table className={styles.table} style={{ minWidth: 1700 }}>
+            <>
+            <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
+            <table className={styles.table} style={{ minWidth: 2000 }}>
               <thead>
                 <tr>
-                  <th>Type</th><th>Label</th><th>Tên Bài</th><th>Related DID</th><th>Artist</th><th>Contributor</th>
-                  <th>Release</th><th>Description</th><th>Tác Quyền</th><th>URL</th><th>Note</th><th>LBM url</th>
-                  <th>PIC</th><th>Status</th>
+                  {/* Related DID no longer has its own column — moved into
+                      the Tên Bài cell (see PhaiSinhRow) since each row is
+                      already several lines tall, freeing up a column for
+                      width instead. Widths tuned per explicit request:
+                      Type/Label/Tên Bài/Artist/Contributor/Release/PIC
+                      greatly widened, Tác Quyền a little, URL greatly
+                      narrowed. */}
+                  <th style={{ minWidth: 180 }}>Type</th>
+                  <th style={{ minWidth: 180 }}>Label</th>
+                  <th style={{ minWidth: 240 }}>Tên Bài</th>
+                  <th style={{ minWidth: 240 }}>Artist</th>
+                  {/* Contributor used to be an unbounded minWidth, which let
+                      a long unbroken URL in the Mixer line (e.g. a raw
+                      Drive folder link) blow the column way past its
+                      neighbors — pinned to Artist's fixed width instead,
+                      with word-break on the cell so long links wrap onto
+                      their own line rather than stretching the column. */}
+                  <th style={{ width: 240, minWidth: 240, maxWidth: 240 }}>Contributor</th>
+                  <th style={{ minWidth: 180 }}>Release</th>
+                  <th>Description</th>
+                  <th style={{ minWidth: 200 }}>Tác Quyền</th>
+                  <th style={{ minWidth: 70 }}>URL</th>
+                  <th>Note</th>
+                  {/* LBM url had no width cap at all, so the ellipsis
+                      truncation LinkOrEditCell already applies never had a
+                      bounded container to truncate against — capped to
+                      double the URL column's width, matching that request. */}
+                  <th style={{ minWidth: 140, maxWidth: 180 }}>LBM url</th>
+                  <th style={{ minWidth: 130 }}>Hạn Cuối</th>
+                  <th style={{ minWidth: 180 }}>PIC</th>
+                  <th>Status</th>
+                  <th style={{ minWidth: 220 }}>Kho Nhạc Progress</th>
                 </tr>
               </thead>
               <tbody>
@@ -147,16 +222,21 @@ export default function PhaiSinhList() {
                     tab={tab}
                     profiles={profiles}
                     isExecutorView={isExecutorView}
+                    relatedRelease={relatedReleases[t.data?.relatedDid]}
+                    batchItems={itemsByBatch[t.id] || []}
+                    canEditDeadline={canEditDeadline}
                     onUpdateField={updateField}
                     onUpdateStatus={updateStatus}
                     onUpdatePic={updatePic}
                     onAcknowledgeEdit={acknowledgeEdit}
+                    onUpdateDeadline={updateDeadline}
                   />
                 ))}
               </tbody>
             </table>
-            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </div>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+            </>
           )}
         </div>
       </div>
@@ -164,7 +244,7 @@ export default function PhaiSinhList() {
   );
 }
 
-function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePic, onAcknowledgeEdit }) {
+function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, batchItems, canEditDeadline, onUpdateField, onUpdateStatus, onUpdatePic, onAcknowledgeEdit, onUpdateDeadline }) {
   const d = ticket.data || {};
   const color = statusColor(ticket.status);
   const isRefundLike = REFUND_LIKE.includes(ticket.status);
@@ -173,6 +253,9 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onU
     ? tab?.status_options || []
     : [ticket.status, tab?.default_status, "REFUND", "CANCELED"].filter((v, i, a) => v && a.indexOf(v) === i);
   const showEditedHighlight = isExecutorView && !!d.__requesterEdited;
+  // Round 41 — Type now decides single-song vs Kho Nhạc/batch behavior.
+  const isBatch = isKhoNhacType(d.typeRequest);
+  const greyedStyle = isBatch ? { opacity: 0.4, pointerEvents: "none" } : undefined;
 
   // Every field here is now editable from both sides — a requester's edit
   // just gets flagged (see showEditedHighlight) instead of the field
@@ -203,10 +286,33 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onU
     + (composerLyricist ? `\nComposer/Lyricist: ${composerLyricist}` : "");
   const contributorGroup = [d.producer ? `Producer: ${d.producer}` : "", mixerDisplay ? `Mixer: ${mixerDisplay}` : ""].filter(Boolean).join("\n");
 
+  // Publishing/Splitshare pill tags — shown under Type when the related
+  // DID's own release has that gate field ticked "Yes". Assumption:
+  // "Publishing" maps to gate_phu_luc_publishing (the Legal Request field
+  // literally labeled "Phụ Lục Publishing" on the release detail page) and
+  // "Splitshare" maps to gate_split_share — flag if a different field was
+  // meant.
+  const relatedTags = [
+    relatedRelease?.gate_phu_luc_publishing === "true" ? "Publishing" : null,
+    relatedRelease?.gate_split_share === "true" ? "Splitshare" : null,
+  ].filter(Boolean);
+
   return (
     <tr style={showEditedHighlight ? { boxShadow: "inset 3px 0 0 var(--accent)", background: "rgba(255,107,26,0.06)" } : undefined}>
       <td style={{ verticalAlign: "top" }}>
-        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={d.typeRequest || ""} onBlur={(e) => onUpdateField(ticket, "typeRequest", e.target.value, !isExecutorView)} />
+        {/* Round 41 — free-text Type replaced with the real 4-option
+            select (Phái sinh / Kho nhạc / Chuyển net / Takedown) — the one
+            switch that decides which flow the whole row uses. */}
+        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={d.typeRequest || PHAI_SINH_TYPE_OPTIONS[0]} onChange={(e) => onUpdateField(ticket, "typeRequest", e.target.value, !isExecutorView)}>
+          {PHAI_SINH_TYPE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+        {relatedTags.length > 0 && (
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+            {relatedTags.map((tag) => (
+              <span key={tag} className={styles.pill}>{tag}</span>
+            ))}
+          </div>
+        )}
         {showEditedHighlight && (
           <div
             title={`Edited by ${d.__requesterEditedBy || "requester"} — click to clear`}
@@ -218,16 +324,59 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onU
         )}
       </td>
       {textCell("label", d.label)}
-      {textCell("tenBai", d.tenBai)}
-      {textCell("relatedDid", d.relatedDid)}
-      <td style={{ fontSize: 12, whiteSpace: "pre-line" }}>{artistGroup || "—"}</td>
-      <td style={{ fontSize: 12, whiteSpace: "pre-line" }}>{contributorGroup || "—"}</td>
-      <td style={{ fontSize: 12 }}>{releaseGroup}</td>
+      {/* Round 41 — Tên Bài/Related DID, Artist, Contributor, Release grey
+          out (per explicit request "grey out if the row is not phái sinh
+          type") for Kho Nhạc-family rows; that data lives per-song in the
+          children table instead. */}
+      <td style={{ verticalAlign: "top", ...greyedStyle }}>
+        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, marginBottom: 4 }} defaultValue={d.tenBai || ""} onBlur={(e) => onUpdateField(ticket, "tenBai", e.target.value, !isExecutorView)} disabled={isBatch} />
+        {/* Related DID moved here from its own column, per explicit
+            request — the row is already several lines tall (Artist/
+            Contributor groups below), so this uses that height instead of
+            costing a whole extra column. */}
+        <input
+          className={styles.input}
+          style={{ padding: "4px 8px", fontSize: 11, opacity: 0.85 }}
+          placeholder="Related DID…"
+          defaultValue={d.relatedDid || ""}
+          onBlur={(e) => onUpdateField(ticket, "relatedDid", e.target.value, !isExecutorView)}
+          disabled={isBatch}
+        />
+      </td>
+      <td style={{ fontSize: 12, whiteSpace: "pre-line", ...greyedStyle }}>{artistGroup || "—"}</td>
+      <td style={{ fontSize: 12, whiteSpace: "pre-line", width: 240, minWidth: 240, maxWidth: 240, wordBreak: "break-word", overflowWrap: "break-word", ...greyedStyle }}>{contributorGroup || "—"}</td>
+      <td style={{ fontSize: 12, ...greyedStyle }}>{releaseGroup}</td>
       {textareaCell("description", d.description)}
       {textareaCell("tacQuyen", d.tacQuyen)}
-      <td style={{ minWidth: 160 }}><LinkOrEditCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v, !isExecutorView)} /></td>
+      {/* URL repurposed into "Open Batch" for Kho Nhạc-family rows, per
+          explicit request ("when choosing kho nhạc, change to the open
+          the children table") — routes into the same expanded table Batch
+          Phái Sinh already used (tab-agnostic, reused unchanged). */}
+      <td style={{ minWidth: 70, maxWidth: isBatch ? 130 : 90 }}>
+        {isBatch ? (
+          <Link href={`/tickets/batch-phai-sinh/${ticket.id}`} target="_blank" rel="noopener noreferrer" className={styles.btnSmall}>
+            Open Batch ↗
+          </Link>
+        ) : (
+          <LinkOrEditCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v, !isExecutorView)} />
+        )}
+      </td>
       {textareaCell("note", d.note)}
-      <td style={{ minWidth: 160 }}><LinkOrEditCell styles={styles} value={d.refLink} onSave={(v) => onUpdateField(ticket, "refLink", v, !isExecutorView)} /></td>
+      <td style={{ minWidth: 140, maxWidth: 180, ...greyedStyle }}><LinkOrEditCell styles={styles} value={d.refLink} onSave={(v) => onUpdateField(ticket, "refLink", v, !isExecutorView)} /></td>
+      {/* Round 41 — Hạn Cuối: real deadline date picker, locked for `exc`
+          role per explicit request ("lock for exc role") — only dev/admin
+          can edit, same lock pattern as Batch Phái Sinh's item deadline. */}
+      <td>
+        <input
+          type="date"
+          className={styles.input}
+          style={{ padding: "4px 6px", fontSize: 11 }}
+          defaultValue={ticket.deadline ? ticket.deadline.slice(0, 10) : ""}
+          disabled={!canEditDeadline}
+          title={!canEditDeadline ? "Only dev/admin can change the deadline." : undefined}
+          onBlur={(e) => onUpdateDeadline(ticket, e.target.value || null)}
+        />
+      </td>
       <td>
         {isExecutorView ? (
           <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
@@ -245,6 +394,29 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onU
           </select>
         ) : (
           <span className={styles.statusBadge} style={{ background: color.bg, color: color.fg }}>{ticket.status}</span>
+        )}
+      </td>
+      {/* Round 41 item 2d — mini counter dashboard, computed live from
+          this ticket's phai_sinh_batch_items children. Confirm Metadata +
+          Takedown Bên Cũ are boolean-style counts; Uploading/Delivery/
+          Rechecking/Complete are straight status counts
+          (CHILD_STATUS_COUNTERS). Left blank for plain Phái Sinh rows —
+          they have no children. */}
+      <td style={{ fontSize: 10 }}>
+        {isBatch ? (
+          batchItems.length === 0 ? (
+            <span style={{ color: "var(--text-faint)" }}>No songs added</span>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              <span className={styles.pill}>Metadata {batchItems.filter(isMetadataConfirmed).length}/{batchItems.length}</span>
+              {CHILD_STATUS_COUNTERS.map((s) => (
+                <span key={s} className={styles.pill}>{s.charAt(0) + s.slice(1).toLowerCase()} {batchItems.filter((i) => i.status === s).length}</span>
+              ))}
+              <span className={styles.pill}>Takedown Bên Cũ {batchItems.filter((i) => i.takedown_ban_cu).length}</span>
+            </div>
+          )
+        ) : (
+          <span style={{ color: "var(--text-faint)" }}>—</span>
         )}
       </td>
     </tr>

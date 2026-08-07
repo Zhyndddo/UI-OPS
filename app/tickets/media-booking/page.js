@@ -78,11 +78,36 @@ export default function MediaBookingList() {
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
+  // Auto-sort by release date, farthest-out first (descending — per
+  // explicit request, e.g. 31/12/2026 before 01/01/2026) instead of the
+  // query's default created_at desc. Tickets with no matching release
+  // (releaseId missing, or the release wasn't found in releasesByDid) sort
+  // last regardless of direction, rather than being pulled to the top by a
+  // missing/undefined date. "for now" per your ask — a real column-picker
+  // sort can replace this later if release date isn't always the right
+  // axis.
+  function byReleaseDate(a, b) {
+    const da = releasesByDid[a.data?.releaseId]?.release_date;
+    const db = releasesByDid[b.data?.releaseId]?.release_date;
+    if (!da && !db) return 0;
+    // Missing dates always sort last, in EITHER direction — a ticket with
+    // no matched release shouldn't jump to the top just because "no date"
+    // technically sorts high in a descending compare.
+    if (!da) return 1;
+    if (!db) return -1;
+    // Descending — farthest-out release date first (e.g. 31/12/2026 before
+    // 01/01/2026), per explicit request.
+    return db.localeCompare(da);
+  }
+
   const visibleTickets = useMemo(() => {
     if (!tab) return [];
-    if (isExecutorView) return tickets.filter((t) => t.status === statusFilter);
-    return [...tickets].sort((a, b) => (a.status === "REFUND" ? 0 : 1) - (b.status === "REFUND" ? 0 : 1));
-  }, [tickets, tab, isExecutorView, statusFilter]);
+    if (isExecutorView) return tickets.filter((t) => t.status === statusFilter).sort(byReleaseDate);
+    // Sort by release date first, then a STABLE re-sort pulling REFUND
+    // tickets to the top — Array.sort is stable, so the release-date
+    // order survives within each of the two groups.
+    return [...tickets].sort(byReleaseDate).sort((a, b) => (a.status === "REFUND" ? 0 : 1) - (b.status === "REFUND" ? 0 : 1));
+  }, [tickets, tab, isExecutorView, statusFilter, releasesByDid]);
 
   const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
 
@@ -352,6 +377,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const [referenceTiers, setReferenceTiers] = useState([]);
   const [namePopup, setNamePopup] = useState(null); // null | "create" | "clone"
   const [generatingLink, setGeneratingLink] = useState(false);
+  const [priceDefaults, setPriceDefaults] = useState(DEFAULT_UNIT_PRICES); // overridden by Config → Media Booking Pricing once saved there
 
   const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
   const isSocial = selectedCategory?.name === "Social";
@@ -374,6 +400,19 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       const { data: cats } = await supabase.from("package_categories").select("*").order("sort_order");
       setCategories(cats || []);
       if (cats && cats.length > 0) setSelectedCategoryId(cats[0].id);
+
+      // Round 54 — Config-editable default Đơn Giá (falls back to
+      // DEFAULT_UNIT_PRICES above if never saved, or if global_settings
+      // itself doesn't have this key yet).
+      const { data: priceSetting } = await supabase.from("global_settings").select("value").eq("key", UNIT_PRICE_DEFAULTS_SETTING_KEY).maybeSingle();
+      if (priceSetting?.value) {
+        try {
+          const parsed = JSON.parse(priceSetting.value);
+          setPriceDefaults({ categories: { ...DEFAULT_UNIT_PRICES.categories, ...(parsed.categories || {}) }, ads: { ...DEFAULT_UNIT_PRICES.ads, ...(parsed.ads || {}) } });
+        } catch {
+          // malformed value — keep the hardcoded fallback rather than crash
+        }
+      }
       if (rel) {
         const [{ data: rollups }, { data: pkgs }, { data: tiers }, { data: link }] = await Promise.all([
           supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", rel.id),
@@ -403,9 +442,10 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // package-building data always reflect the latest Summarize, without a
   // full-page reload.
   async function refreshSummarizedRows() {
-    if (!release) return;
+    if (!release) return [];
     const { data: rollups } = await supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", release.id);
     setSummarizedRows(rollups || []);
+    return rollups || [];
   }
 
   useEffect(() => {
@@ -463,9 +503,15 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // not from a single selected-brand state like every other category.
   async function addRow(platform, brandOverride) {
     const rowBrand = brandOverride ?? (isSocial ? brand : isCommunity ? communityBrand : isTikTokChannel ? tiktokBrand : "");
+    // Round 54 — Ads rows seed their Đơn Giá from the configured default
+    // for this (ad brand, metric) pair instead of starting at 0, so
+    // whoever's filling this in doesn't have to look the price up and
+    // type it in by hand every time. Still freely editable afterward —
+    // this is only what a brand-new row starts at.
+    const defaultUnitPrice = isAds ? priceDefaults.ads[rowBrand]?.[platform] ?? null : null;
     const { data } = await supabase
       .from("media_booking_content_entries")
-      .insert({ release_id: release.id, category_id: selectedCategoryId, platform, brand: rowBrand, sort_order: entries.length })
+      .insert({ release_id: release.id, category_id: selectedCategoryId, platform, brand: rowBrand, unit_price: defaultUnitPrice, sort_order: entries.length })
       .select()
       .single();
     if (data) setEntries((prev) => [...prev, data]);
@@ -510,7 +556,13 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       setTiktokBrandTotals((prev) => ({ ...prev, [tiktokBrand]: brandTotal }));
       setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
       setSkippedCategoryIds((prev) => { const next = new Set(prev); next.delete(selectedCategoryId); return next; });
-      await refreshSummarizedRows();
+      // Sync into the active package with the CUMULATIVE total across every
+      // sub-brand summarized so far (not just this one), same total the
+      // old manual "Add to Package" button used — mushed across all 8
+      // TikTok Channel sub-brands into one package line.
+      const freshRows = await refreshSummarizedRows();
+      const freshGroup = groupSummarizedRows(freshRows).find((g) => g.categoryId === selectedCategoryId);
+      await syncPackageLine(freshGroup);
       return;
     }
 
@@ -531,13 +583,20 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         const brandRows = rows.filter((r) => r.brand === adsBrandKey);
         const totalMoney = brandRows.reduce((sum, r) => sum + r.amount, 0);
         const totalQty = brandRows.reduce((sum, r) => sum + (r.count_posts || 0), 0);
-        const detailText = brandRows.filter((r) => (r.count_posts || 0) > 0).map((r) => `SL ${r.platform}`).join("; ");
+        // Round 54 — item A.5: include the actual số lượng in each piece,
+        // not just the metric name, so the right-panel Chi Tiết reads
+        // "SL 30 Lượt tiếp cận; SL 300 Lượt tương tác" instead of just
+        // naming which metrics were filled in.
+        const detailText = brandRows.filter((r) => (r.count_posts || 0) > 0).map((r) => `SL ${r.count_posts} ${r.platform}`).join("; ");
         if (brandRows.length === 0 || (totalQty === 0 && !detailText)) continue;
         totalsByBrand[adsBrandKey] = totalQty;
         await supabase.from("media_booking_package_categories").upsert(
           { release_id: release.id, category_id: selectedCategoryId, brand: adsBrandKey, total_posts: totalQty, total_money: totalMoney, detail_text: detailText || null, skipped: false, updated_at: new Date().toISOString() },
           { onConflict: "release_id,category_id,brand" }
         );
+        // Ads never mushes brands together — sync this brand's own line
+        // straight in, using the numbers just computed (no refetch needed).
+        await syncPackageLine({ key: `${selectedCategoryId}::${adsBrandKey}`, categoryId: selectedCategoryId, categoryName: "Ads", isAds: true, brand: adsBrandKey, totalMoney, detailText });
       }
       setCategoryTotals((prev) => ({ ...prev, ...totalsByBrand }));
       setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
@@ -568,7 +627,13 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     setCategoryTotals((prev) => ({ ...prev, [rollupBrand]: totalPosts }));
     setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
     setSkippedCategoryIds((prev) => { const next = new Set(prev); next.delete(selectedCategoryId); return next; });
-    await refreshSummarizedRows();
+    // Social/Community mush every brand bracket together into ONE package
+    // line, same as TikTok Channel above — sync with the cumulative total
+    // across every brand summarized so far for this Hạng Mục, not just the
+    // one just saved.
+    const freshRows = await refreshSummarizedRows();
+    const freshGroup = groupSummarizedRows(freshRows).find((g) => g.categoryId === selectedCategoryId);
+    await syncPackageLine(freshGroup);
   }
 
   // "Skip" — marks a Hạng Mục as intentionally not applicable, satisfying
@@ -667,46 +732,67 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   }
 
   // The group matching whatever Hạng Mục/brand is currently selected in the
-  // DSP grid — this is what the "Add to Package"/"Remove" button (next to
-  // Summarize/Skip) acts on. null until that Hạng Mục has been summarized
-  // at least once (nothing to add yet).
+  // DSP grid. null until that Hạng Mục has been summarized at least once
+  // (nothing to sync into a package yet).
   function currentGroup() {
     const groups = groupSummarizedRows(summarizedRows);
     if (isAds) return groups.find((g) => g.categoryId === selectedCategoryId && g.brand === adsBrand) || null;
     return groups.find((g) => g.categoryId === selectedCategoryId) || null;
   }
 
-  // Adding/removing writes to the DB immediately — no separate save step.
-  async function toggleLine(group, checked) {
-    if (!activePackage) return;
-    if (checked) {
-      const categoryName = group.categoryName;
+  // Round 54 — item A.3: Summarize now syncs straight into whichever
+  // package tab is active, instead of requiring a separate "Add to
+  // Package" click. If there's no active package yet (nobody's clicked
+  // "Create Package" for this release), this is a no-op — Summarize just
+  // records the rollup in media_booking_package_categories as before, and
+  // nothing gets added anywhere until a package actually exists.
+  //
+  // Upserts rather than always inserting: re-Summarizing the same Hạng
+  // Mục/brand after editing numbers updates the existing line's
+  // quantity/detail/amount in place rather than creating a duplicate.
+  // Đơn Giá is only ever SET on first insert (from the configured
+  // default) — an update never touches unit_price, so re-Summarizing
+  // can't clobber an edit someone already made in the building panel.
+  async function syncPackageLine(group) {
+    if (!activePackage || !group) return;
+    const existing = lineFor(group.categoryId, group.brand);
+    if (group.isAds) {
       // Ads mushes into one line PER BRAND with a pre-computed Chi Tiết +
       // Thành Tiền straight from Summarize's per-brand pricing — no unit/
       // quantity, no reference-template lookup, nothing to compute later.
-      const insertPayload = group.isAds
-        ? {
-            package_id: activePackage.id, category_id: group.categoryId, brand: group.brand,
-            unit: null, quantity: null, detail: group.detailText || null, amount: group.totalMoney ?? null,
-            sort_order: (activePackage.media_booking_package_lines || []).length,
-          }
-        : {
-            package_id: activePackage.id, category_id: group.categoryId, brand: "",
-            unit: referenceDetailFor(referenceTiers, categoryName)?.unit || "Bài Đăng",
-            quantity: group.totalPosts, detail: referenceDetailFor(referenceTiers, categoryName)?.detail || null, amount: null,
-            sort_order: (activePackage.media_booking_package_lines || []).length,
-          };
-      const { data: line } = await supabase
-        .from("media_booking_package_lines")
-        .insert(insertPayload)
-        .select()
-        .single();
-      if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
+      if (existing) {
+        const patch = { detail: group.detailText || null, amount: group.totalMoney ?? null };
+        await supabase.from("media_booking_package_lines").update(patch).eq("id", existing.id);
+        setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === existing.id ? { ...l, ...patch } : l)) })));
+      } else {
+        const insertPayload = {
+          package_id: activePackage.id, category_id: group.categoryId, brand: group.brand,
+          unit: null, quantity: null, detail: group.detailText || null, amount: group.totalMoney ?? null,
+          sort_order: (activePackage.media_booking_package_lines || []).length,
+        };
+        const { data: line } = await supabase.from("media_booking_package_lines").insert(insertPayload).select().single();
+        if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
+      }
+      return;
+    }
+    const categoryName = group.categoryName;
+    if (existing) {
+      const patch = { quantity: group.totalPosts };
+      const amount = computeLineAmount({ ...existing, ...patch });
+      const fullPatch = { ...patch, amount };
+      await supabase.from("media_booking_package_lines").update(fullPatch).eq("id", existing.id);
+      setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === existing.id ? { ...l, ...fullPatch } : l)) })));
     } else {
-      const existing = lineFor(group.categoryId, group.brand);
-      if (!existing) return;
-      await supabase.from("media_booking_package_lines").delete().eq("id", existing.id);
-      setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.filter((l) => l.id !== existing.id) })));
+      const unitPrice = priceDefaults.categories[categoryName] ?? null;
+      const insertPayload = {
+        package_id: activePackage.id, category_id: group.categoryId, brand: "",
+        unit: referenceDetailFor(referenceTiers, categoryName)?.unit || "Bài Đăng",
+        quantity: group.totalPosts, detail: referenceDetailFor(referenceTiers, categoryName)?.detail || null,
+        unit_price: unitPrice, amount: unitPrice != null ? unitPrice * (group.totalPosts || 0) : null,
+        sort_order: (activePackage.media_booking_package_lines || []).length,
+      };
+      const { data: line } = await supabase.from("media_booking_package_lines").insert(insertPayload).select().single();
+      if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
     }
   }
 
@@ -754,6 +840,15 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.filter((l) => l.id !== line.id) })));
   }
 
+  // Round 54 — item A.4: drag-to-reorder Hạng Mục rows in the Packages
+  // panel. Takes the FULL line array already in its new order (the caller —
+  // PackagesPanel's drag handlers — does the array move) and just persists
+  // fresh 0..n-1 sort_order values against that order.
+  async function reorderLines(orderedLines) {
+    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: orderedLines.map((l, i) => ({ ...l, sort_order: i })) })));
+    await Promise.all(orderedLines.map((l, i) => supabase.from("media_booking_package_lines").update({ sort_order: i }).eq("id", l.id)));
+  }
+
   async function handleGenerateLink() {
     if (!release) return;
     setGeneratingLink(true);
@@ -773,14 +868,15 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, maxWidth: showBuildPopup ? 1400 : 900, width: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, maxWidth: showBuildPopup ? 1600 : 900, width: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
         {loading ? (
           <div className={styles.emptyState} style={{ padding: 24 }}>Loading…</div>
         ) : (
           <>
             <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-              {/* LEFT — Hạng Mục picker */}
-              <div style={{ width: 190, borderRight: "1px solid var(--border)", flexShrink: 0, padding: 16, overflowY: "auto" }}>
+              {/* LEFT — Hạng Mục picker. Narrowed a bit (was 190) when the
+                  Packages panel is open, to give that panel more room. */}
+              <div style={{ width: showBuildPopup ? 160 : 190, borderRight: "1px solid var(--border)", flexShrink: 0, padding: 16, overflowY: "auto" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>Hạng Mục</div>
                 {categories.map((c) => {
                   const done = summarizedCategoryIds.has(c.id);
@@ -1091,22 +1187,20 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   >
                     Skip
                   </button>
-                  {/* Slots the current Hạng Mục/brand straight into whichever
-                      package tab is active on the right — this IS "Add to
-                      Package", right where the numbers are edited, instead
-                      of a separate picker elsewhere. */}
+                  {/* Round 54 — no separate "Add to Package"/"Remove" button
+                      anymore: Summarize itself syncs straight into whichever
+                      package tab is active (see syncPackageLine). This just
+                      shows a quiet confirmation once that's happened, so
+                      it's still obvious the numbers landed in the package. */}
                   {activePackage && (() => {
                     const group = currentGroup();
                     if (!group) return null;
                     const line = lineFor(group.categoryId, group.brand);
+                    if (!line) return null;
                     return (
-                      <button
-                        className={styles.btnSmall}
-                        onClick={() => toggleLine(group, !line)}
-                        style={{ marginLeft: "auto", border: line ? "1px solid var(--accent)" : undefined, color: line ? "var(--accent-soft)" : undefined }}
-                      >
-                        {line ? `− Remove from "${activePackage.name}"` : `+ Add to "${activePackage.name}"`}
-                      </button>
+                      <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--success-fg)" }}>
+                        ✓ In "{activePackage.name}"
+                      </span>
                     );
                   })()}
                 </div>
@@ -1167,6 +1261,28 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                     </div>
                   </div>
                 )}
+
+                {/* Artist/label Feed Back, submitted via the magic-link page
+                    (tickets.data.feedback = {text, submittedAt}). Shown as
+                    its own panel below the main DSP-grid content so whoever
+                    is building the package can see it without leaving this
+                    popup — previously this was invisible anywhere in the
+                    internal ticket UI. */}
+                {ticket.data?.feedback?.text && (
+                  <div style={{ marginTop: 14, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase" }}>
+                        Feed Back Từ Đối Tác
+                      </div>
+                      {ticket.data.feedback.submittedAt && (
+                        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                          {new Date(ticket.data.feedback.submittedAt).toLocaleString("vi-VN")}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 13, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{ticket.data.feedback.text}</div>
+                  </div>
+                )}
               </div>
 
               {/* THIRD — Packages panel. Sits right next to the DSP grid
@@ -1188,6 +1304,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   deletePackage={deletePackage}
                   addPrebuiltLine={addPrebuiltLine}
                   deleteLine={deleteLine}
+                  reorderLines={reorderLines}
                   updateLine={updateLine}
                   magicLinkUrl={magicLinkUrl}
                   generatingLink={generatingLink}
@@ -1314,7 +1431,35 @@ const PREBUILT_ADDONS = [
   { name: "Design", unit: "Gói", detail: "Hỗ trợ thiết kế ảnh social, resize từ Key visual" },
   { name: "Discovery Mode on Spotify", unit: "Gói", detail: "Đề xuất & triển khai Discovery Mode theo chu kỳ hàng tháng" },
   { name: "Priority Pitching Spotify Homepage Banner", unit: "Gói", detail: "Banner Trang Chủ Spotify tháng 6 hoặc tháng 7" },
+  // Round 54 — 3 more, straight off the "Quyền Lợi Dành Riêng Cho Đối Tác
+  // Phát Hành VIEENT" reference sheet (same source PartnerBenefits() on the
+  // magic-link page renders from).
+  { name: "Recording Studio", unit: "Gói", detail: "Thu âm miễn phí tại VIEENT Studio" },
+  { name: "19 Creative Space", unit: "Gói", detail: "Không gian miễn phí để thực hiện quay phỏng vấn, live session, MV ..." },
+  { name: "Pitching Playlist/Banner", unit: "Gói", detail: "Nền Tảng: Zingmp3, NCT, Spotify, Apple Music\nKết quả Pitching sẽ được cập nhật sau khi nền tảng trả kết quả về" },
 ];
+
+// Round 54 — item A.1: default Đơn Giá per Hạng Mục (Social/Community/
+// TikTok Channel each mush their brand rows into one line, so they each
+// get ONE default price) and per (Ads brand, metric) — Ads keeps its own
+// per-row Đơn Giá column, seeded per metric. These are just the fallback
+// used until Config → Media Booking Pricing has real values saved (see
+// loadPriceDefaults below) — editing Config only changes what NEW rows/
+// lines default to going forward, never rewrites anything already saved.
+const DEFAULT_UNIT_PRICES = {
+  categories: {
+    "TikTok Channel": 700000,
+    "Social": 200000,
+    "Community": 200000,
+  },
+  ads: {
+    "Facebook Ads": { "Lượt tiếp cận": 30, "Lượt tương tác": 300, "Lượt truy cập (Link click)": 2000 },
+    "YouTube Ads": { "Thruplays (Views)": 55 },
+    "TikTok Ads": { "Lượt tiếp cận": 15, "Lượt xem video": 15, "Lượt theo dõi": 1500, "Lượt truy cập (Link click)": 2500 },
+    "Spotify Ads": { "HPTO": 26000, "In-Stream Audio": 26000, "In-Stream Video": 26000, "In-Feed Display": 26000, "In-Feed Video": 26000 },
+  },
+};
+const UNIT_PRICE_DEFAULTS_SETTING_KEY = "media_booking_unit_price_defaults";
 
 // Thành Tiền is always derived, never typed directly — Đơn Giá × Tổng Số
 // Bài Đăng normally, or Đơn Giá × Số Gói once "Convert to Package" is on.
@@ -1401,9 +1546,9 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
 // immediately, same for edit/delete on the right. Nothing here is staged
 // then saved — that staging model was the actual source of both the
 // "second package doesn't save" bug and the checkbox cross-talk bug.
-// Mostly presentational now — quantity/Số Gói is edited from the DSP grid
-// above (via the "Add to Package"/"Remove" button next to Summarize/Skip
-// and the card that appears there once a line is added), and this panel
+// Mostly presentational now — quantity/Số Gói is synced from the DSP grid
+// above the moment Summarize is clicked (see syncPackageLine — round 54
+// removed the separate "Add to Package"/"Remove" step), and this panel
 // mirrors it read-only. Chi Tiết and Đơn Giá are editable in BOTH places —
 // Chi Tiết is package-specific text with no natural home in the DSP grid,
 // and Đơn Giá isn't reachable from the left tool for every line (Ads never
@@ -1412,14 +1557,28 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
 // sits beside the DSP grid instead of covering it.
 function PackagesPanel({
   release, categories, packages, activePackageId, setActivePackageId, activePackage, isIntMedia,
-  namePopup, setNamePopup, createPackage, deletePackage, addPrebuiltLine, deleteLine, updateLine,
+  namePopup, setNamePopup, createPackage, deletePackage, addPrebuiltLine, deleteLine, reorderLines, updateLine,
   magicLinkUrl, generatingLink, onGenerateLink, proposedPackage, onHide,
 }) {
   const hasSavedPackage = packages.length > 0;
+  // Round 54 — item A.4: drag-to-reorder. dragIndex tracks which row (by
+  // its position in the sorted array below) the drag started on; dropping
+  // on another row moves it there and persists via reorderLines.
+  const [dragIndex, setDragIndex] = useState(null);
+  const sortedLines = [...(activePackage?.media_booking_package_lines || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+  function handleDrop(targetIndex) {
+    if (dragIndex === null || dragIndex === targetIndex) { setDragIndex(null); return; }
+    const next = [...sortedLines];
+    const [moved] = next.splice(dragIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    setDragIndex(null);
+    reorderLines(next);
+  }
 
   return (
     <>
-      <div style={{ width: 460, flexShrink: 0, borderLeft: "1px solid var(--border)", padding: 20, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ width: 620, flexShrink: 0, borderLeft: "1px solid var(--border)", padding: 20, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
             <div>
               <div className={styles.eyebrow}>// Packages</div>
@@ -1453,11 +1612,17 @@ function PackagesPanel({
             </div>
           )}
 
-          <div style={{ flex: 1, overflowY: "auto", marginBottom: 14 }}>
+          {/* className={styles.scrollBox} — without it, the table's sticky
+              <th> offsets by --topbar-height (the rule meant for tables
+              that scroll with the real page), but this panel has its own
+              small internal scrollport with no topbar above it, so the
+              header floated too low and hovered over the first data
+              row(s) instead of sitting flush above them. */}
+          <div className={styles.scrollBox} style={{ flex: 1, overflowY: "auto", marginBottom: 14 }}>
             {!activePackage ? (
               <div className={styles.emptyState}>No package yet — click "Create Package" above.</div>
             ) : (activePackage.media_booking_package_lines || []).length === 0 ? (
-              <div className={styles.emptyState}>Pick a Hạng Mục on the left and click "+ Add to {activePackage.name}" next to Summarize.</div>
+              <div className={styles.emptyState}>Pick a Hạng Mục on the left and click Summarize — it lands here automatically.</div>
             ) : isIntMedia ? (
               // INT MEDIA — a mushed package: Hạng Mục names only, no
               // quantities, pricing, or detail at all.
@@ -1476,6 +1641,7 @@ function PackagesPanel({
               <table className={styles.table}>
                 <thead>
                   <tr>
+                    <th></th>
                     <th>Hạng Mục</th>
                     <th>Tổng Số Bài Đăng / Số Gói</th>
                     <th>Chi Tiết</th>
@@ -1485,11 +1651,29 @@ function PackagesPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {activePackage.media_booking_package_lines.map((line) => {
+                  {sortedLines.map((line, index) => {
                     const cat = categories.find((c) => c.id === line.category_id);
                     const isAdsLine = cat?.name === "Ads";
                     return (
-                      <tr key={line.id}>
+                      <tr
+                        key={line.id}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={() => handleDrop(index)}
+                        style={{ background: dragIndex === index ? "rgba(255,107,26,0.06)" : undefined }}
+                      >
+                        {/* Round 54 — item A.4: drag handle to reorder Hạng
+                            Mục rows. Draggable only on this cell (not the
+                            whole row) so it doesn't fight with selecting
+                            text in Chi Tiết/Đơn Giá. */}
+                        <td
+                          draggable
+                          onDragStart={() => setDragIndex(index)}
+                          onDragEnd={() => setDragIndex(null)}
+                          style={{ cursor: "grab", color: "var(--text-faint)", fontSize: 13, width: 20, userSelect: "none" }}
+                          title="Drag to reorder"
+                        >
+                          ⋮⋮
+                        </td>
                         <td style={{ fontSize: 12 }}>{cat?.name || line.platform || "—"}{line.brand ? ` — ${line.brand}` : ""}</td>
                         {/* Read-only now — quantity/Số Gói is edited from the
                             left data tool, this just mirrors it live. */}
@@ -1548,6 +1732,12 @@ function PackagesPanel({
                 </button>
               ) : (
                 <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
+                  {/* Round 54 — same link, 2 names: "Package Offer" until
+                      the Booking Board's "Convert Media Report" is clicked
+                      for this release, then "Media Report" from then on. */}
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>
+                    {release?.media_report_status ? "Media Report" : "Package Offer"}
+                  </div>
                   <a href={magicLinkUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", fontSize: 12, wordBreak: "break-all" }}>{magicLinkUrl}</a>
                 </div>
               )}

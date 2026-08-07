@@ -6,6 +6,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
+import { isOpsTeam } from "../../../lib/teamTypes";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import MultiLinkCell from "../../../lib/MultiLinkCell";
 import { usePagination } from "../../../lib/usePagination";
@@ -25,7 +26,7 @@ export default function ManualClaimList() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
 
-  const isExecutorView = !profile?.segment || profile.segment === "OPS";
+  const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
 
   useEffect(() => {
     if (!supabase) return;
@@ -129,7 +130,8 @@ export default function ManualClaimList() {
           ) : visibleTickets.length === 0 ? (
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
+            <>
+            <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
             <table className={styles.table} style={{ minWidth: 1100 }}>
               <thead>
                 <tr>
@@ -153,8 +155,9 @@ export default function ManualClaimList() {
                 ))}
               </tbody>
             </table>
-            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </div>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+            </>
           )}
         </div>
       </div>

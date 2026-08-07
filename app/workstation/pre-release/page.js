@@ -13,6 +13,9 @@ import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import { MV_TYPE_OPTIONS } from "../../../lib/pickerOptions";
+import SonyPublishLockRow from "../../../lib/SonyPublishLockRow";
+import { useSonyPublishDids } from "../../../lib/useSonyPublishDids";
 import styles from "../../shared.module.css";
 
 // Field labels swapped per the redesign: the column that used to show as
@@ -21,9 +24,36 @@ import styles from "../../shared.module.css";
 // converted from free text to real single-choice pickers, plus one
 // genuinely new field (Zing Lyric).
 const CANVA_OPTS = ["", "Done", "CUT", "No Vid"];
-const MV_OPTS = ["", "LYRIC", "Đã có", "Chưa có", "Không có"];
+const MV_OPTS = MV_TYPE_OPTIONS;
 const PICK_OPTS = ["", "Done", "Uneditible", "Skip"];
 const MUSIXMATCH_STATUS_OPTS = ["", "Catalog", "Added", "Sync"];
+
+// Every one of the 6 columns above is a fixed single-choice picker, but
+// import-ops-tracking.js writes whatever free text was in the source
+// sheet's STATUS/NOTE/Artist Pick columns straight into these fields —
+// nothing maps it onto one of the option lists above. A value that
+// doesn't exactly match one of them (different wording, a legacy status
+// from before the picker existed, a typo) has no matching <option>, so
+// the <select> just renders blank ("—") even though the row genuinely
+// has that value in the database — same bug class as the New Release
+// dashboard's Channel column. PickSelect below surfaces the raw value as
+// its own flagged option instead of silently hiding it, same fix as
+// there — pick one of the real options to correct it in place.
+function PickSelect({ styles, opts, value, onChange }) {
+  const unrecognized = value && !opts.includes(value) ? value : null;
+  return (
+    <select
+      className={styles.select}
+      style={{ minWidth: 100 }}
+      value={value || ""}
+      onChange={(e) => onChange(e.target.value)}
+      title={unrecognized ? "Imported value doesn't match any picker option — pick one to fix it" : undefined}
+    >
+      {opts.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+      {unrecognized && <option value={unrecognized}>{unrecognized} (unrecognized — pick to fix)</option>}
+    </select>
+  );
+}
 
 export default function PreReleaseWorkstation() {
   const [releases, setReleases] = useState([]);
@@ -32,6 +62,7 @@ export default function PreReleaseWorkstation() {
   const [assignments, setAssignments] = useState({});
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
+  const sonyPublishDids = useSonyPublishDids();
 
   useEffect(() => {
     if (!supabase) return;
@@ -42,7 +73,7 @@ export default function PreReleaseWorkstation() {
     setLoading(true);
     const { data: rels } = await supabase
       .from("releases")
-      .select("id, did, title, main_artist, release_date, release_time, canva_mv_status, canva_status, artist_pick_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric");
+      .select("id, did, title, main_artist, release_date, release_time, canva_mv_status, canva_status, artist_pick_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric, pre_release_note");
     setReleases(rels || []);
 
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
@@ -97,7 +128,7 @@ export default function PreReleaseWorkstation() {
   return (
     <AppShell>
       <div className={styles.page}>
-        <div className={styles.container} style={{ maxWidth: 1300 }}>
+        <div className={styles.container} style={{ maxWidth: 1600 }}>
           <TypeSwitcher kind="workstation" current="pre_release" />
           <div className={styles.eyebrow}>// Workstation</div>
           <h1 className={styles.title} style={{ marginBottom: 16 }}>Pre-release</h1>
@@ -113,15 +144,16 @@ export default function PreReleaseWorkstation() {
           ) : visibleReleases.length === 0 ? (
             <div className={styles.emptyState}>{releases.length === 0 ? "No releases yet." : "Nothing outstanding."}</div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-            <table className={styles.table} style={{ minWidth: 1100 }}>
+            <>
+            <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
+            <table className={styles.table} style={{ minWidth: 1300 }}>
               <thead>
                 <tr>
                   <SortableTh
                     sortKey="release_date"
                     sort={sort}
                     onToggle={toggleSort}
-                    style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}
+                    style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}
                   >
                     Release info
                   </SortableTh>
@@ -133,24 +165,30 @@ export default function PreReleaseWorkstation() {
                   <th style={{ borderLeft: "1px solid var(--border)" }}>NCT Lyric</th>
                   <th>Zing Lyric</th>
                   <th>PIC</th>
+                  <th>Note</th>
                 </tr>
               </thead>
               <tbody>
-                {pagedReleases.map((r) => (
-                  <PreReleaseRow
-                    key={r.id}
-                    release={r}
-                    pic={assignments[r.id] ?? defaultPic}
-                    isOverride={assignments[r.id] != null}
-                    profiles={profiles}
-                    onUpdateField={updateField}
-                    onUpdatePic={updatePic}
-                  />
-                ))}
+                {pagedReleases.map((r) =>
+                  sonyPublishDids.has(r.did) ? (
+                    <SonyPublishLockRow key={r.id} colSpan={10} />
+                  ) : (
+                    <PreReleaseRow
+                      key={r.id}
+                      release={r}
+                      pic={assignments[r.id] ?? defaultPic}
+                      isOverride={assignments[r.id] != null}
+                      profiles={profiles}
+                      onUpdateField={updateField}
+                      onUpdatePic={updatePic}
+                    />
+                  )
+                )}
               </tbody>
             </table>
-            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </div>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+            </>
           )}
         </div>
       </div>
@@ -163,48 +201,45 @@ function PreReleaseRow({ release, pic, isOverride, profiles, onUpdateField, onUp
 
   return (
     <tr>
-      <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>
-        <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
-        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release.main_artist} · {release.did} · {fmtDate(release.release_date)} {release.release_time}</div>
+      <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}>
+        {/* Explicit 3-line layout per explicit request — Name / Artist &
+            DID / Release date + time — instead of one run-on line, for
+            clarity and so each line stays short enough to not wrap. */}
+        <div style={{ whiteSpace: "nowrap" }}>
+          <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{release.main_artist} · {release.did}</div>
+        <div style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{fmtDate(release.release_date)} {release.release_time}</div>
       </td>
       <td>
-        <select className={styles.select} style={{ minWidth: 100 }} value={release.canva_mv_status || ""} onChange={(e) => onUpdateField(release, "canva_mv_status", e.target.value)}>
-          {CANVA_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
-        </select>
+        <PickSelect styles={styles} opts={CANVA_OPTS} value={release.canva_mv_status} onChange={(v) => onUpdateField(release, "canva_mv_status", v)} />
       </td>
       <td>
-        <select className={styles.select} style={{ minWidth: 100 }} value={release.canva_status || ""} onChange={(e) => onUpdateField(release, "canva_status", e.target.value)}>
-          {MV_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
-        </select>
+        <PickSelect styles={styles} opts={MV_OPTS} value={release.canva_status} onChange={(v) => onUpdateField(release, "canva_status", v)} />
       </td>
       <td style={{ borderLeft: "1px solid var(--border)" }}>
-        <select className={styles.select} style={{ minWidth: 100 }} value={release.artist_pick_status || ""} onChange={(e) => onUpdateField(release, "artist_pick_status", e.target.value)}>
-          {PICK_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
-        </select>
+        <PickSelect styles={styles} opts={PICK_OPTS} value={release.artist_pick_status} onChange={(v) => onUpdateField(release, "artist_pick_status", v)} />
       </td>
       <td style={{ borderLeft: "1px solid var(--border)" }}>
-        <select className={styles.select} style={{ minWidth: 100 }} value={release.musixmatch_status || ""} onChange={(e) => onUpdateField(release, "musixmatch_status", e.target.value)}>
-          {MUSIXMATCH_STATUS_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
-        </select>
+        <PickSelect styles={styles} opts={MUSIXMATCH_STATUS_OPTS} value={release.musixmatch_status} onChange={(v) => onUpdateField(release, "musixmatch_status", v)} />
       </td>
       <td style={{ minWidth: 180 }}>
         <UrlField styles={styles} value={mmLink} onChange={setMmLink} onBlur={() => onUpdateField(release, "musixmatch_link", mmLink)} />
       </td>
       <td style={{ borderLeft: "1px solid var(--border)" }}>
-        <select className={styles.select} style={{ minWidth: 100 }} value={release.nct_lyric || ""} onChange={(e) => onUpdateField(release, "nct_lyric", e.target.value)}>
-          {PICK_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
-        </select>
+        <PickSelect styles={styles} opts={PICK_OPTS} value={release.nct_lyric} onChange={(v) => onUpdateField(release, "nct_lyric", v)} />
       </td>
       <td>
-        <select className={styles.select} style={{ minWidth: 100 }} value={release.zing_lyric || ""} onChange={(e) => onUpdateField(release, "zing_lyric", e.target.value)}>
-          {PICK_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
-        </select>
+        <PickSelect styles={styles} opts={PICK_OPTS} value={release.zing_lyric} onChange={(v) => onUpdateField(release, "zing_lyric", v)} />
       </td>
       <td title={isOverride ? "Row override" : "Workstation default"}>
         <select className={styles.select} style={{ minWidth: 130 }} value={pic || ""} onChange={(e) => onUpdatePic(release.id, e.target.value)}>
           <option value="">— Unassigned —</option>
           {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
+      </td>
+      <td>
+        <input className={styles.input} style={{ minWidth: 140 }} defaultValue={release.pre_release_note || ""} onBlur={(e) => onUpdateField(release, "pre_release_note", e.target.value)} />
       </td>
     </tr>
   );

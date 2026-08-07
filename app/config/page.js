@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
+import { DEFAULT_DESIGN_NOTIFICATION_TEMPLATES } from "../../lib/designFlow";
 import styles from "../shared.module.css";
 
 const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
@@ -11,7 +12,12 @@ const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
 // "Remarketing"), hardcoded directly in the New Release form and release
 // detail page — not admin-configurable via lookup_options anymore.
 const ROLES = ["exc", "admin", "dev"];
-const TEAMS = ["AR", "Marketing", "OPS", "Design"];
+// "OPS" split into Youtube/Publishing/Operation per explicit request — OPS
+// itself is intentionally excluded here (hidden from the profile create/
+// reassign dropdown), it's now a hidden aggregate elsewhere in the app
+// (see lib/teamTypes.js's OPS_SUB_TEAMS/isOpsTeam/resolveTeamKey). Must
+// match lib/teamTypes.js's TEAMS export — see that file's header comment.
+const TEAMS = ["AR", "Marketing", "Design", "Youtube", "Publishing", "Operation", "Legal"];
 
 export default function ConfigPage() {
   const { profile } = useAuth();
@@ -31,10 +37,12 @@ export default function ConfigPage() {
               ["team", "Team"],
               ["picDefaults", "PIC Defaults"],
               ["packageTerms", "Package Terms"],
+              ["mediaBookingPricing", "Media Booking Pricing"],
               ["platforms", "Platforms"],
               ["designTypes", "Design Types"],
               ["sizes", "Sizes"],
-              ...(isDev ? [["notifications", "Notifications"], ["sessions", "Sessions"]] : []),
+              ["artistProfileLinks", "External Tool Links"],
+              ...(isDev ? [["notifications", "Notifications"], ["designNotifications", "Design Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
             ].map(([key, label]) => (
               <button
                 key={key}
@@ -51,11 +59,15 @@ export default function ConfigPage() {
           {section === "team" && <TeamSection />}
           {section === "picDefaults" && <PicDefaultsSection />}
           {section === "packageTerms" && <PackageTermsSection />}
+          {section === "mediaBookingPricing" && <MediaBookingPricingSection />}
           {section === "platforms" && <PlatformsSection />}
           {section === "designTypes" && <DesignTypesSection />}
           {section === "sizes" && <SizesSection />}
+          {section === "artistProfileLinks" && <ArtistProfileLinksSection />}
           {section === "notifications" && isDev && <NotificationsSection />}
+          {section === "designNotifications" && isDev && <DesignNotificationsSection />}
           {section === "sessions" && isDev && <SessionsSection />}
+          {section === "sidebarLabel" && isDev && <SidebarLabelSection />}
         </div>
       </div>
     </AppShell>
@@ -642,6 +654,148 @@ function PackageTermsSection() {
   );
 }
 
+// ── Media Booking Pricing ────────────────────────────────────────────────
+// Round 54 — item A.1: the Media Booking ticket's Package Builder seeds
+// Đơn Giá with these defaults (see app/tickets/media-booking/page.js's
+// DEFAULT_UNIT_PRICES/priceDefaults) — Social/Community/TikTok Channel each
+// get ONE default (their brand rows always mush into a single package
+// line), Ads gets one per (ad brand, metric) since it keeps a real Đơn Giá
+// column per row. Saved here as one JSON blob under global_settings key
+// "media_booking_unit_price_defaults" (same key/value table PackageTerms
+// above already uses). Editing here only changes what NEW rows/lines
+// default to going forward — it never rewrites unit_price on anything
+// already saved on an existing release's package.
+const MEDIA_BOOKING_PRICE_CATEGORIES = ["TikTok Channel", "Social", "Community"];
+const MEDIA_BOOKING_PRICE_ADS = {
+  "Facebook Ads": ["Lượt tiếp cận", "Lượt tương tác", "Lượt truy cập (Link click)"],
+  "YouTube Ads": ["Thruplays (Views)"],
+  "TikTok Ads": ["Lượt tiếp cận", "Lượt xem video", "Lượt theo dõi", "Lượt truy cập (Link click)"],
+  "Spotify Ads": ["HPTO", "In-Stream Audio", "In-Stream Video", "In-Feed Display", "In-Feed Video"],
+};
+const MEDIA_BOOKING_PRICE_DEFAULTS = {
+  categories: { "TikTok Channel": 700000, "Social": 200000, "Community": 200000 },
+  ads: {
+    "Facebook Ads": { "Lượt tiếp cận": 30, "Lượt tương tác": 300, "Lượt truy cập (Link click)": 2000 },
+    "YouTube Ads": { "Thruplays (Views)": 55 },
+    "TikTok Ads": { "Lượt tiếp cận": 15, "Lượt xem video": 15, "Lượt theo dõi": 1500, "Lượt truy cập (Link click)": 2500 },
+    "Spotify Ads": { "HPTO": 26000, "In-Stream Audio": 26000, "In-Stream Video": 26000, "In-Feed Display": 26000, "In-Feed Video": 26000 },
+  },
+};
+const MEDIA_BOOKING_PRICE_SETTING_KEY = "media_booking_unit_price_defaults";
+
+function MediaBookingPricingSection() {
+  const [prices, setPrices] = useState(MEDIA_BOOKING_PRICE_DEFAULTS);
+  const [loading, setLoading] = useState(true);
+  const [savedKey, setSavedKey] = useState(null);
+
+  useEffect(() => {
+    if (!supabase) return;
+    (async () => {
+      const { data } = await supabase.from("global_settings").select("value").eq("key", MEDIA_BOOKING_PRICE_SETTING_KEY).maybeSingle();
+      if (data?.value) {
+        try {
+          const parsed = JSON.parse(data.value);
+          setPrices({
+            categories: { ...MEDIA_BOOKING_PRICE_DEFAULTS.categories, ...(parsed.categories || {}) },
+            ads: { ...MEDIA_BOOKING_PRICE_DEFAULTS.ads, ...(parsed.ads || {}) },
+          });
+        } catch {
+          // malformed value in the DB — keep the hardcoded fallback
+        }
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  function flashSaved(key) {
+    setSavedKey(key);
+    setTimeout(() => setSavedKey((k) => (k === key ? null : k)), 1500);
+  }
+
+  async function saveAll(next) {
+    setPrices(next);
+    await supabase.from("global_settings").upsert(
+      { key: MEDIA_BOOKING_PRICE_SETTING_KEY, value: JSON.stringify(next), updated_at: new Date().toISOString() },
+      { onConflict: "key" }
+    );
+  }
+
+  function updateCategoryPrice(categoryName, value) {
+    const num = value === "" ? null : parseFloat(value);
+    const next = { ...prices, categories: { ...prices.categories, [categoryName]: num } };
+    saveAll(next);
+    flashSaved(`cat:${categoryName}`);
+  }
+
+  function updateAdsPrice(brand, metric, value) {
+    const num = value === "" ? null : parseFloat(value);
+    const next = { ...prices, ads: { ...prices.ads, [brand]: { ...prices.ads[brand], [metric]: num } } };
+    saveAll(next);
+    flashSaved(`ads:${brand}:${metric}`);
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20, maxWidth: 640 }}>
+        Default Đơn Giá the Media Booking ticket's Package Builder starts new rows/lines at. Still freely editable
+        per-release in the building panel same as always — changing a number here only affects packages built after
+        the change, never rewrites what's already on an existing release. Changes save immediately on blur.
+      </p>
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
+        Per Hạng Mục (mushed brand rows → one price × tổng số lượng)
+      </div>
+      <div style={{ display: "grid", gap: 10, marginBottom: 28, maxWidth: 420 }}>
+        {MEDIA_BOOKING_PRICE_CATEGORIES.map((categoryName) => (
+          <div key={categoryName} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <label className={styles.fieldLabel} style={{ fontSize: 12, margin: 0 }}>{categoryName}</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {savedKey === `cat:${categoryName}` && <span style={{ color: "var(--success-fg)", fontSize: 11 }}>Saved</span>}
+              <input
+                type="number"
+                className={styles.input}
+                style={{ width: 120 }}
+                defaultValue={prices.categories[categoryName] ?? ""}
+                onBlur={(e) => updateCategoryPrice(categoryName, e.target.value)}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
+        Ads (per ad platform × metric — Đơn Giá stays a real per-row column)
+      </div>
+      <div style={{ display: "grid", gap: 20, maxWidth: 460 }}>
+        {Object.entries(MEDIA_BOOKING_PRICE_ADS).map(([adBrand, metrics]) => (
+          <div key={adBrand}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{adBrand}</div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {metrics.map((metric) => (
+                <div key={metric} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <label className={styles.fieldLabel} style={{ fontSize: 12, margin: 0, fontWeight: 400 }}>{metric}</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {savedKey === `ads:${adBrand}:${metric}` && <span style={{ color: "var(--success-fg)", fontSize: 11 }}>Saved</span>}
+                    <input
+                      type="number"
+                      className={styles.input}
+                      style={{ width: 120 }}
+                      defaultValue={prices.ads[adBrand]?.[metric] ?? ""}
+                      onBlur={(e) => updateAdsPrice(adBrand, metric, e.target.value)}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Notifications ────────────────────────────────────────────────────────
 // Dev-only master switches for the notification system (Config item 5):
 // in-app notifications on new ticket / ticket complete (fanned out by DB
@@ -1081,6 +1235,190 @@ function SessionsSection() {
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+// Not dev-only (unlike the sections below it) — these URLs are exactly
+// the kind of thing an exc/admin needs to fix on short notice (per
+// explicit request: "3rd party sometime change their url"), not
+// something that should need a dev around to update. Read by the Artist
+// Profile ticket page's two external-link buttons (app/tickets/
+// artist-profile/page.js) and, since round 32, the Discovery Mode on
+// Spotify ticket page's single external-link button (app/tickets/
+// discovery-mode-spotify/page.js) — all three share the one app_settings
+// row (key "artist_profile_links") rather than adding a second
+// near-identical row, shape { spotify, apple, discoveryMode }. Discovery
+// Mode's URL starts blank per explicit request ("just make the button,
+// I'll send the url later, the team is confirming which to use") — its
+// button renders disabled/greyed until this is filled in.
+function ArtistProfileLinksSection() {
+  const [spotify, setSpotify] = useState("");
+  const [apple, setApple] = useState("");
+  const [discoveryMode, setDiscoveryMode] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.from("app_settings").select("value").eq("key", "artist_profile_links").maybeSingle().then(({ data }) => {
+      setSpotify(data?.value?.spotify || "");
+      setApple(data?.value?.apple || "");
+      setDiscoveryMode(data?.value?.discoveryMode || "");
+      setLoading(false);
+    });
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    await supabase.from("app_settings").upsert({
+      key: "artist_profile_links",
+      value: { spotify: spotify.trim(), apple: apple.trim(), discoveryMode: discoveryMode.trim() },
+    });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div style={{ maxWidth: 480 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
+        Destinations for external-tool buttons across a few ticket pages — editable here since the 3rd party
+        sometimes changes their URL and this shouldn't need a code change.
+      </p>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Spotify for Artists URL</label>
+        <input className={styles.input} value={spotify} onChange={(e) => setSpotify(e.target.value)} placeholder="https://artists.spotify.com/…" />
+      </div>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Apple Music for Artists URL</label>
+        <input className={styles.input} value={apple} onChange={(e) => setApple(e.target.value)} placeholder="https://artists.apple.com/…" />
+      </div>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Discovery Mode Clip Tool URL</label>
+        <input className={styles.input} value={discoveryMode} onChange={(e) => setDiscoveryMode(e.target.value)} placeholder="Team is still confirming which tool to use — leave blank for now" />
+      </div>
+      <button className={styles.btnPrimary} onClick={save} disabled={saving}>
+        {saving ? "Saving…" : "Save"}
+      </button>
+      {saved && <span style={{ marginLeft: 10, color: "var(--success-fg)", fontSize: 12 }}>Saved</span>}
+    </div>
+  );
+}
+
+// Round 34 — "add the text/html style to be configurable in the config by
+// dev (I can check and edit without us doing another round on it)". These
+// 5 strings are read by the app (urgent-creation, round 34 item 3f) and by
+// the scheduled SQL functions in add-round34-design-flow-and-ops-notes.sql
+// (reminder/late/pendingRevise/overload — see that file's pg_cron setup),
+// stored in app_settings.design_notification_templates, {count}/{task}/
+// {deadline} placeholders substituted at send time. Editing here needs no
+// deploy — same idea as ArtistProfileLinksSection above.
+const DESIGN_NOTIF_FIELDS = [
+  { key: "urgentCreation", label: "Urgent request created (to dev)", placeholders: "{task}, {deadline}" },
+  { key: "reminder", label: "Reminder — requests waiting (every 4h, 10am-8pm weekday, to Design + anh.duong@vieent.vn)", placeholders: "{count}" },
+  { key: "late", label: "Late — past expected deadline (10am weekday, to Design + anh.duong@vieent.vn)", placeholders: "{count}" },
+  { key: "pendingRevise", label: "Pending/Revise count (10am weekday, to AR team)", placeholders: "{count}" },
+  { key: "overload", label: "Design Team Status overload (Design Team Status >= 11, to anh.duong@vieent.vn)", placeholders: "{count}" },
+];
+
+function DesignNotificationsSection() {
+  const [values, setValues] = useState(DEFAULT_DESIGN_NOTIFICATION_TEMPLATES);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.from("app_settings").select("value").eq("key", "design_notification_templates").maybeSingle().then(({ data }) => {
+      setValues({ ...DEFAULT_DESIGN_NOTIFICATION_TEMPLATES, ...(data?.value || {}) });
+      setLoading(false);
+    });
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    await supabase.from("app_settings").upsert({ key: "design_notification_templates", value: values });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
+        Text for Design's automatic notifications (round 34) — edit here instead of a code round. The scheduled
+        ones (reminder/late/pendingRevise/overload) require pg_cron to actually fire on Supabase; see
+        add-round34-design-flow-and-ops-notes.sql's header comment for the exact schedule() calls to run.
+      </p>
+      {DESIGN_NOTIF_FIELDS.map((f) => (
+        <div className={styles.field} key={f.key}>
+          <label className={styles.fieldLabel}>{f.label}</label>
+          <textarea
+            className={styles.textarea}
+            style={{ minHeight: 44 }}
+            value={values[f.key] || ""}
+            onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+          />
+          <p style={{ fontSize: 10, color: "var(--text-faint)", margin: "2px 0 0" }}>Placeholders: {f.placeholders}</p>
+        </div>
+      ))}
+      <button className={styles.btnPrimary} onClick={save} disabled={saving}>
+        {saving ? "Saving…" : "Save"}
+      </button>
+      {saved && <span style={{ marginLeft: 10, color: "var(--success-fg)", fontSize: 12 }}>Saved</span>}
+    </div>
+  );
+}
+
+// Dev-only — renames the "Khác" shortcut on the main sidebar (see
+// lib/Sidebar.js, app_settings.khac_sidebar_label). Sidebar itself
+// already falls back to the joke default name if this row is ever
+// missing, so there's nothing else this needs to guard against.
+function SidebarLabelSection() {
+  const [value, setValue] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.from("app_settings").select("value").eq("key", "khac_sidebar_label").maybeSingle().then(({ data }) => {
+      setValue(typeof data?.value === "string" ? data.value : "");
+      setLoading(false);
+    });
+  }, []);
+
+  async function save() {
+    if (!value.trim()) return;
+    setSaving(true);
+    await supabase.from("app_settings").upsert({ key: "khac_sidebar_label", value: value.trim() });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div style={{ maxWidth: 420 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
+        Renames the "Khác" ticket shortcut on the main sidebar — dev only. Everyone sees whatever's saved here;
+        it just controls the label, not who can access the ticket type itself.
+      </p>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Sidebar label</label>
+        <input className={styles.input} value={value} onChange={(e) => setValue(e.target.value)} placeholder="Cứu mạng Zhyn ơi" />
+      </div>
+      <button className={styles.btnPrimary} onClick={save} disabled={saving || !value.trim()}>
+        {saving ? "Saving…" : "Save"}
+      </button>
+      {saved && <span style={{ marginLeft: 10, color: "var(--success-fg)", fontSize: 12 }}>Saved</span>}
     </div>
   );
 }

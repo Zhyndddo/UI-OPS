@@ -26,6 +26,31 @@ const TYPE_TABS = [
   ["zing", "Zing"],
 ];
 
+// "We already know which pitching should be done" — the ticket's own
+// requested-flags (priority/spotify/nct/zing) plus its overall status now
+// drive each DSP column's status automatically, per explicit request:
+//   - not requested at all      -> the DSP's own "won't do" value
+//     (Priority/Spotify: "Không thực hiện"; NCT/Zing have no exact
+//     equivalent word, closest is "Không hỗ trợ" — same CANCEL_VALUES
+//     bucket either way)
+//   - requested, ticket not yet in PROCESS -> "Chưa thực hiện"
+//   - requested, ticket IS in PROCESS -> "Đang thực hiện" for
+//     Priority/Spotify (NCT/Zing have no "in progress" option in their own
+//     vocab — STATUS_OPTS vs NCT_ZING_OPTS above — so they stay at "Chưa
+//     thực hiện" until someone picks a real NCT_ZING_OPTS value by hand)
+// Only ever touches a column that's currently blank or still one of these
+// same auto-managed "not started yet" values — a real in-progress pick or
+// a completed one ("Đã pitching"/"Có gói") is never overwritten by this.
+const PRE_WORK_VALUES = ["", "Chưa thực hiện", "Đang thực hiện", "Không thực hiện", "Không hỗ trợ"];
+const DSP_COLUMNS = { priority: "priority_pitching", spotify: "pitching_status_spotify", nct: "pitching_status_nct", zing: "pitching_status_zing" };
+const IN_PROGRESS_CAPABLE = ["priority", "spotify"];
+
+function autoTargetFor(key, requested, ticketStatus) {
+  if (!requested) return key === "priority" || key === "spotify" ? "Không thực hiện" : "Không hỗ trợ";
+  if (ticketStatus === "PROCESS" && IN_PROGRESS_CAPABLE.includes(key)) return "Đang thực hiện";
+  return "Chưa thực hiện";
+}
+
 // The Pitching ticket is just the request (which of the 4 types were
 // asked for, chosen at New Release creation) — the actual work lives on
 // the release itself. This workstation surfaces the queue and lets OPS
@@ -55,12 +80,39 @@ export default function PitchingWorkstation() {
     if (dids.length > 0) {
       const { data: rels } = await supabase
         .from("releases")
-        .select("id, did, title, main_artist, release_date, release_time, upc, priority_pitching, isrc, apple_id, pitching_status_spotify, pitching_status_nct, pitching_status_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo")
+        .select("id, did, title, main_artist, release_date, release_time, upc, priority_pitching, isrc, apple_id, pitching_status_spotify, pitching_status_nct, pitching_status_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo, pitching_note")
         .in("did", dids);
       (rels || []).forEach((r) => (releaseMap[r.did] = r));
     }
     const allRows = (tickets || []).map((t) => ({ ticket: t, release: releaseMap[t.data?.releaseId] || null }));
-    setRows(allRows.filter((row) => row.release?.upc));
+    const visibleAllRows = allRows.filter((row) => row.release?.upc);
+    setRows(visibleAllRows);
+
+    // Auto-sync each DSP's status column from the ticket's requested-flags
+    // + overall status (see autoTargetFor above) — same "auto-sync on
+    // load" pattern as the Stream Workstation's metrics rows, applied here
+    // in the background; the UI above already shows the pre-sync values so
+    // this doesn't block first paint.
+    const syncPatches = [];
+    visibleAllRows.forEach((row) => {
+      if (!row.release) return;
+      const patch = {};
+      Object.entries(DSP_COLUMNS).forEach(([key, col]) => {
+        const requested = !!row.ticket.data?.[key];
+        const current = row.release[col] || "";
+        if (!PRE_WORK_VALUES.includes(current)) return; // real progress/done — never touch
+        const target = autoTargetFor(key, requested, row.ticket.status);
+        if (current !== target) patch[col] = target;
+      });
+      if (Object.keys(patch).length > 0) syncPatches.push({ id: row.release.id, patch });
+    });
+    if (syncPatches.length > 0) {
+      await Promise.all(syncPatches.map(({ id, patch }) => supabase.from("releases").update(patch).eq("id", id)));
+      setRows((prev) => prev.map((row) => {
+        const found = syncPatches.find((p) => p.id === row.release?.id);
+        return found ? { ...row, release: { ...row.release, ...found.patch } } : row;
+      }));
+    }
 
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
@@ -155,7 +207,8 @@ export default function PitchingWorkstation() {
           ) : visibleRows.length === 0 ? (
             <div className={styles.emptyState}>{rows.length === 0 ? "No Pitching tickets with UPC filled yet." : "Nothing outstanding."}</div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
+            <>
+            <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
             <table className={styles.table} style={{ minWidth: 700 }}>
               <thead>
                 <tr>
@@ -163,12 +216,13 @@ export default function PitchingWorkstation() {
                     sortKey="release_date"
                     sort={sort}
                     onToggle={toggleSort}
-                    style={{ position: "sticky", left: 0, zIndex: 2, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}
+                    style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}
                   >
                     Release info
                   </SortableTh>
                   <th>Requested</th>
                   <th>PIC</th>
+                  <th>Note</th>
                 </tr>
               </thead>
               <tbody>
@@ -207,13 +261,26 @@ export default function PitchingWorkstation() {
                           {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                         </select>
                       </td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        {row.release ? (
+                          <input
+                            className={styles.input}
+                            style={{ minWidth: 140 }}
+                            defaultValue={row.release.pitching_note || ""}
+                            onBlur={(e) => updateRelease(row.release, "pitching_note", e.target.value)}
+                          />
+                        ) : (
+                          <span style={{ color: "var(--text-faint)" }}>—</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
-            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </div>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+            </>
           )}
         </div>
       </div>
