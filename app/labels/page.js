@@ -11,6 +11,20 @@ import styles from "../shared.module.css";
 
 const EMPTY = { label_name: "", hop_tac: [], the_loai: "", phan_loai: "", contract_signed: false };
 
+// Round 66 — item 2: syncLatestActivityYears() downloads the ENTIRE
+// releases table (label, release_date for every release ever made) every
+// single time this page loads, just to recompute one derived field. That
+// was fine when the table was small; it isn't anymore, and it was making
+// this page (and only this page, since no other page re-runs a whole-
+// table sync on every visit like this) freeze up on load — worse, it
+// re-does the full download+recompute EVERY time you come back to this
+// page, even seconds after the last visit. This throttles it to once per
+// this window, persisted in localStorage (survives closing the tab, not
+// just sessionStorage) so revisiting the page shortly after doesn't repeat
+// the expensive pass.
+const LABEL_SYNC_THROTTLE_KEY = "vieent_labels_sync_last_run";
+const LABEL_SYNC_THROTTLE_MS = 6 * 60 * 60 * 1000; // 6 hours
+
 export default function LabelsPage() {
   const [labels, setLabels] = useState([]);
   const [form, setForm] = useState(EMPTY);
@@ -44,6 +58,17 @@ export default function LabelsPage() {
   // "auto-sync on load" pattern as the Stream workstation's metrics rows.
   async function syncLatestActivityYears(labelRows) {
     if (!supabase || labelRows.length === 0) return;
+
+    // Round 66 — the throttle: skip the whole expensive pass if it's
+    // already run recently. Checked (and stamped) BEFORE the fetch, not
+    // after, so a page left open mid-fetch doesn't retrigger itself, and a
+    // failed/interrupted run still counts as "tried recently" rather than
+    // hammering again on the very next reload.
+    let lastRun = 0;
+    try { lastRun = parseInt(window.localStorage.getItem(LABEL_SYNC_THROTTLE_KEY), 10) || 0; } catch {}
+    if (Date.now() - lastRun < LABEL_SYNC_THROTTLE_MS) return;
+    try { window.localStorage.setItem(LABEL_SYNC_THROTTLE_KEY, String(Date.now())); } catch {}
+
     // Round 60 — fetchAllRows instead of a plain select(): whole-table
     // read, no filter beyond release_date not being null, subject to
     // Supabase's default 1000-row cap (see DATA_FIXES.md round 59/60). A

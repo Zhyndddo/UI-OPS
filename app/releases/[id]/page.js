@@ -863,7 +863,11 @@ export default function ReleaseDetailPage() {
               <span style={{ color: "#444" }}>|</span>
               <LinkPill label="Smartlink" href={firstUrl(form.smartlink)} />
               <span style={{ color: "#444" }}>|</span>
-              <LinkPill label="Magic Link" href={magicLinkUrl} />
+              {/* Round 66 — item 1: same "Package Offer" -> "Media Report"
+                  label swap already used below for the Link Media Report
+                  field (see form.media_report_status), applied here too —
+                  UI label only, doesn't touch what the link actually is. */}
+              <LinkPill label={form.media_report_status ? "Media Report" : "Package Offer"} href={magicLinkUrl} />
               <span style={{ color: "#444" }}>|</span>
               <LinkPill label="Promotion Package" href={firstUrl(form.promotion_package_url)} />
             </div>

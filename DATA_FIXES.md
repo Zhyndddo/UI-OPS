@@ -4215,3 +4215,41 @@ package's copied breakdown) for the same reason, even though nothing currently r
 as an ordered list — it's the same latent bug and cheap to close now.
 
 No schema changes.
+
+## Round 66 — quick fix: Magic Link pill label, + Labels page freeze throttle
+
+**1. Release detail page — Magic Link pill label**
+
+The "Magic Link" pill at the top of the release detail page now follows the same
+"Package Offer" → "Media Report" label swap the "Link Media Report" field further down already
+used (`form.media_report_status` — set once the Booking Board's "Convert Media Report" is
+clicked). UI label only, the link itself is unchanged.
+
+Checked the magic link page itself too, per your ask — it already does this correctly (both the
+browser tab title and the on-page "// package offer" / "// media report" heading), that was done
+back in round 54. Nothing to change there.
+
+**2. Labels ("Reference Table") page — the freeze on revisit**
+
+Diagnosed: `syncLatestActivityYears()` (added round 21, widened in round 60) downloads the
+*entire* `releases` table — every release ever created — every single time the Labels page loads,
+just to recompute one derived field (`latest_activity_year`). No caching, no throttling. As the
+`releases` table has grown across 65+ rounds, this full-table pass has gotten slower and heavier,
+and since it re-runs on every single visit (not just the first), revisiting the page repeats the
+same expensive pass every time — matching what you saw.
+
+**Fix:** throttled it to once per 6 hours, stamped in `localStorage`
+(`vieent_labels_sync_last_run`) so it survives closing the tab, not just the current tab session.
+Revisiting the page within that window now skips the whole-table download + recompute entirely
+and just shows the labels as already loaded — the expensive pass only actually runs again once
+every 6 hours per browser. The stamp is written *before* the fetch starts (not after it succeeds),
+so an interrupted run doesn't just retrigger itself on the next reload.
+
+**What this does NOT fix:** the Stream Workstation page has a similar-looking whole-table read
+(releases + release_stream_metrics, also from round 60), but that one's actually loading the core
+data the page needs to function — not a background sync you can just skip — so it can't be
+throttled away the same way. If that page is also freezing, it's a different problem (the table's
+just gotten big) and would need a real pagination/lazy-load redesign, not a throttle. Flagging
+this now rather than silently leaving it as a loose end.
+
+No schema changes.
