@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
-import { fmtDate } from "../../../lib/helpers";
+import { fmtDate, fetchAllRows } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { buildStreamNote } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
@@ -42,10 +42,20 @@ export default function StreamWorkstation() {
 
   async function load() {
     setLoading(true);
-    const { data: rels } = await supabase.from("releases").select("id, did, title, main_artist, release_date, upc, isrc, smartlink, label");
+    // Round 60 — fetchAllRows instead of a plain select() for both of
+    // these: whole-table reads with no filter, subject to Supabase's
+    // default 1000-row cap (see DATA_FIXES.md round 59/60). Matters extra
+    // here — a truncated `rels` or `metricRows` could make the auto-create
+    // step below think a release has no metrics row yet when it actually
+    // does, inserting a duplicate.
+    const { data: rels } = await fetchAllRows(() =>
+      supabase.from("releases").select("id, did, title, main_artist, release_date, upc, isrc, smartlink, label").order("id")
+    );
     setReleases(rels || []);
 
-    const { data: metricRows } = await supabase.from("release_stream_metrics").select("*").not("release_id", "is", null);
+    const { data: metricRows } = await fetchAllRows(() =>
+      supabase.from("release_stream_metrics").select("*").not("release_id", "is", null).order("id")
+    );
     const map = {};
     (metricRows || []).forEach((m) => (map[m.release_id] = m));
     setMetrics(map);

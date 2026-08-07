@@ -39,19 +39,34 @@ export default function TicketsIndex() {
     }
   }, [profile]);
 
+  // Round 58 fix — this used to pull EVERY non-deleted ticket's tab_id in
+  // one plain select() and bucket-count them client-side. That silently
+  // breaks once total ticket volume across the whole system passes
+  // Supabase/PostgREST's default 1000-row response cap: the query just
+  // truncates, so most types read back as 0 (or wildly undercounted)
+  // while whichever rows happened to land inside that first-1000 window
+  // still showed something — exactly the "almost everything says 0"
+  // symptom reported. Fixed by asking Postgres for the COUNT directly,
+  // per tab, via { count: "exact", head: true } (no rows returned at
+  // all, just the count) — same pattern already used for the sidebar's
+  // release total and the Workstation index (see lib/Sidebar.js,
+  // app/workstation/page.js). COUNT(*) has no row cap, so this is
+  // correct regardless of how large `tickets` ever grows.
   useEffect(() => {
     if (!supabase) return;
     (async () => {
       const { data: tabs } = await supabase.from("ticket_tabs").select("id, key");
-      const { data: tix } = await supabase.from("tickets").select("tab_id").is("deleted_at", null);
-      const tabById = {};
-      (tabs || []).forEach((t) => (tabById[t.id] = t.key));
-      const c = {};
-      (tix || []).forEach((t) => {
-        const key = tabById[t.tab_id];
-        if (key) c[key] = (c[key] || 0) + 1;
-      });
-      setCounts(c);
+      const results = await Promise.all(
+        (tabs || []).map(async (t) => {
+          const { count } = await supabase
+            .from("tickets")
+            .select("id", { count: "exact", head: true })
+            .eq("tab_id", t.id)
+            .is("deleted_at", null);
+          return [t.key, count || 0];
+        })
+      );
+      setCounts(Object.fromEntries(results));
     })();
   }, []);
 

@@ -4,7 +4,7 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
-import { fmtDate, metadataPercent, uploadPercent } from "../../lib/helpers";
+import { fmtDate, metadataPercent, uploadPercent, fetchAllRows } from "../../lib/helpers";
 import { useSortableRows } from "../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../lib/SortableTh";
 import { usePagination } from "../../lib/usePagination";
@@ -62,11 +62,20 @@ export default function ReleasesDashboard() {
   useEffect(() => {
     if (!supabase) return;
     (async () => {
-      const { data, error: err } = await supabase.from("releases").select("*").order("created_at", { ascending: false });
+      // Round 60 — the Dashboard is the one place a truncated release list
+      // would be most visible (rows just silently missing), so this reads
+      // through fetchAllRows instead of a plain select() — see DATA_FIXES.md
+      // round 59/60 for the 1000-row default cap this works around. Sort
+      // needs a unique tiebreaker (id) for .range() pagination to be stable
+      // across requests — created_at alone can collide (e.g. a bulk import
+      // where many rows share the same timestamp).
+      const { data, error: err } = await fetchAllRows(() =>
+        supabase.from("releases").select("*").order("created_at", { ascending: false }).order("id", { ascending: true })
+      );
       if (err) { setError(err.message); setLoading(false); return; }
       setReleases(data || []);
 
-      const { data: bookings } = await supabase.from("media_booking_entries").select("release_id, status");
+      const { data: bookings } = await fetchAllRows(() => supabase.from("media_booking_entries").select("release_id, status").order("id"));
       const grouped = {};
       (bookings || []).forEach((b) => {
         if (!grouped[b.release_id]) grouped[b.release_id] = { total: 0, done: 0 };

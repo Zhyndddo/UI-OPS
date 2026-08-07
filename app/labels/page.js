@@ -6,6 +6,7 @@ import { supabase } from "../../lib/supabaseClient";
 import { withLabelPrefix, stripLabelPrefix, hasLabelPrefix, LABEL_PREFIX } from "../../lib/labelHelpers";
 import { LABEL_HOP_TAC_OPTIONS, LABEL_PHAN_LOAI_OPTIONS } from "../../lib/pickerOptions";
 import PickSelect from "../../lib/PickSelect";
+import { fetchAllRows } from "../../lib/helpers";
 import styles from "../shared.module.css";
 
 const EMPTY = { label_name: "", hop_tac: [], the_loai: "", phan_loai: "", contract_signed: false };
@@ -43,7 +44,15 @@ export default function LabelsPage() {
   // "auto-sync on load" pattern as the Stream workstation's metrics rows.
   async function syncLatestActivityYears(labelRows) {
     if (!supabase || labelRows.length === 0) return;
-    const { data: rels } = await supabase.from("releases").select("label, release_date").not("release_date", "is", null);
+    // Round 60 — fetchAllRows instead of a plain select(): whole-table
+    // read, no filter beyond release_date not being null, subject to
+    // Supabase's default 1000-row cap (see DATA_FIXES.md round 59/60). A
+    // truncated read here wouldn't just under-report — the sync below
+    // would happily overwrite a label's correct latest_activity_year with
+    // a stale one it wrongly believes is newer.
+    const { data: rels } = await fetchAllRows(() =>
+      supabase.from("releases").select("label, release_date").not("release_date", "is", null).order("id")
+    );
     if (!rels) return;
     const latestByLabel = {};
     rels.forEach((r) => {

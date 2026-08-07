@@ -686,6 +686,41 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         const { data: inserted } = await supabase.from("media_booking_package_lines").insert(cloneRows).select();
         lines = inserted || [];
       }
+    } else {
+      // Round 61 — a brand-new (non-cloned) package used to start
+      // completely empty even if every Hạng Mục had already been
+      // summarized before anyone clicked "Create Package" — syncPackageLine
+      // only fires from inside handleSummarize, so with no active package
+      // to sync INTO yet, all that prior summarizing went nowhere, and
+      // building the package for the first time meant re-clicking
+      // Summarize on every Hạng Mục all over again just to trigger the
+      // sync. Now the first build pulls in whatever's already been
+      // summarized immediately — same insert shape syncPackageLine uses
+      // for a brand-new line, just computed for every group at once
+      // instead of one at a time. Skipped Hạng Mục are excluded, same as
+      // Summarize itself never syncs a Skip.
+      const groups = groupSummarizedRows(summarizedRows.filter((r) => !r.skipped));
+      const insertRows = groups.map((g, i) => {
+        if (g.isAds) {
+          return {
+            package_id: pkg.id, category_id: g.categoryId, brand: g.brand,
+            unit: null, quantity: null, detail: g.detailText || null, amount: g.totalMoney ?? null,
+            sort_order: i,
+          };
+        }
+        const unitPrice = priceDefaults.categories[g.categoryName] ?? null;
+        return {
+          package_id: pkg.id, category_id: g.categoryId, brand: "",
+          unit: referenceDetailFor(referenceTiers, g.categoryName)?.unit || "Bài Đăng",
+          quantity: g.totalPosts, detail: referenceDetailFor(referenceTiers, g.categoryName)?.detail || null,
+          unit_price: unitPrice, amount: unitPrice != null ? unitPrice * (g.totalPosts || 0) : null,
+          sort_order: i,
+        };
+      });
+      if (insertRows.length > 0) {
+        const { data: inserted } = await supabase.from("media_booking_package_lines").insert(insertRows).select();
+        lines = inserted || [];
+      }
     }
     setPackages((prev) => [...prev, { ...pkg, media_booking_package_lines: lines }]);
     setActivePackageId(pkg.id);

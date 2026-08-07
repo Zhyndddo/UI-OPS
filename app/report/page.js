@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
-import { fmtDate, isTicketDone } from "../../lib/helpers";
+import { fmtDate } from "../../lib/helpers";
 import { useAuth } from "../../lib/AuthContext";
 import { REPORTING_TEAMS, TEAM_TICKET_TYPES, TICKET_TYPE_LABELS, SHARED_TICKET_TYPES, resolveTeamKey } from "../../lib/teamTypes";
 import { canViewCrossTeam } from "../../lib/permissions";
@@ -173,7 +173,6 @@ export default function ReportPage() {
   const [tab, setTab] = useState(searchParams.get("tab") === "worklist" ? "worklist" : "overview");
   const [releases, setReleases] = useState([]);
   const [rollups, setRollups] = useState([]); // media_booking_package_categories, with category name
-  const [tickets, setTickets] = useState([]); // Team Worklist tab only
   const [ticketTabs, setTicketTabs] = useState([]); // Team Worklist tab only
   const [loading, setLoading] = useState(true);
 
@@ -195,16 +194,14 @@ export default function ReportPage() {
     // releases pulls every column (select("*")) since the Team Worklist
     // tab's isReleaseDone() needs the broad field set, not just the columns
     // Overview's charts read.
-    const [{ data: rels }, { data: rollupRows }, { data: tabs }, { data: tix }] = await Promise.all([
+    const [{ data: rels }, { data: rollupRows }, { data: tabs }] = await Promise.all([
       supabase.from("releases").select("*"),
       supabase.from("media_booking_package_categories").select("release_id, category_id, brand, skipped, package_categories(name)"),
       supabase.from("ticket_tabs").select("id, key").order("sort_order"),
-      supabase.from("tickets").select("*").is("deleted_at", null),
     ]);
     setReleases(rels || []);
     setRollups(rollupRows || []);
     setTicketTabs(tabs || []);
-    setTickets(tix || []);
     setLoading(false);
   }
 
@@ -214,17 +211,48 @@ export default function ReportPage() {
     const done = releases.filter(isReleaseDone).length;
     return { total, done, notDone: total - done };
   }, [releases]);
-  const ticketStatsByType = useMemo(() => {
-    const tabById = {};
-    ticketTabs.forEach((t) => (tabById[t.id] = t.key));
-    const visibleTypes = effectiveTeam === "All" ? ticketTabs.map((t) => t.key) : [...(TEAM_TICKET_TYPES[resolveTeamKey(effectiveTeam)] || []), ...SHARED_TICKET_TYPES];
-    return visibleTypes.map((key) => {
-      const typeTickets = tickets.filter((t) => tabById[t.tab_id] === key);
-      const total = typeTickets.length;
-      const done = typeTickets.filter((t) => isTicketDone(t.status)).length;
-      return { key, label: TICKET_TYPE_LABELS[key] || key, total, done, notDone: total - done };
-    });
-  }, [effectiveTeam, tickets, ticketTabs]);
+
+  // Round 58 fix — this used to pull EVERY non-deleted ticket's full row
+  // (select("*")) into `tickets` state and bucket-count client-side, same
+  // as the bug found and fixed on /tickets: once total ticket volume
+  // across the whole system passes Supabase/PostgREST's default 1000-row
+  // response cap, that query silently truncates and most types read back
+  // as 0/undercounted. Switched to per-type COUNT(*) queries (via
+  // { count: "exact", head: true }, same pattern as the sidebar's release
+  // total) — no row cap applies to a count. Runs whenever the visible
+  // team/type list changes (dev's team switcher) rather than once on
+  // mount, since which types are relevant depends on effectiveTeam.
+  const [ticketStatsByType, setTicketStatsByType] = useState([]);
+  const [ticketStatsLoading, setTicketStatsLoading] = useState(true);
+  useEffect(() => {
+    if (!supabase || ticketTabs.length === 0) return;
+    setTicketStatsLoading(true);
+    (async () => {
+      const tabIdByKey = {};
+      ticketTabs.forEach((t) => (tabIdByKey[t.key] = t.id));
+      const visibleTypes =
+        effectiveTeam === "All" ? ticketTabs.map((t) => t.key) : [...(TEAM_TICKET_TYPES[resolveTeamKey(effectiveTeam)] || []), ...SHARED_TICKET_TYPES];
+      const results = await Promise.all(
+        visibleTypes.map(async (key) => {
+          const tabId = tabIdByKey[key];
+          if (!tabId) return { key, label: TICKET_TYPE_LABELS[key] || key, total: 0, done: 0, notDone: 0 };
+          const [{ count: total }, { count: done }] = await Promise.all([
+            supabase.from("tickets").select("id", { count: "exact", head: true }).eq("tab_id", tabId).is("deleted_at", null),
+            // Must match lib/helpers.js's isTicketDone() status list exactly.
+            supabase
+              .from("tickets")
+              .select("id", { count: "exact", head: true })
+              .eq("tab_id", tabId)
+              .is("deleted_at", null)
+              .in("status", ["COMPLETE", "REFUND", "CANCELED", "CANCEL", "Hoàn thành", "Từ chối", "Hủy"]),
+          ]);
+          return { key, label: TICKET_TYPE_LABELS[key] || key, total: total || 0, done: done || 0, notDone: (total || 0) - (done || 0) };
+        })
+      );
+      setTicketStatsByType(results);
+      setTicketStatsLoading(false);
+    })();
+  }, [effectiveTeam, ticketTabs]);
   const showNewRelease = effectiveTeam !== "Design";
 
   const todayStr = useMemo(() => {
@@ -373,7 +401,9 @@ export default function ReportPage() {
               )}
 
               <div className={styles.subheading} style={{ marginTop: 0 }}>Ticket</div>
-              {ticketStatsByType.length === 0 ? (
+              {ticketStatsLoading ? (
+                <div className={styles.emptyState}>Loading…</div>
+              ) : ticketStatsByType.length === 0 ? (
                 <div className={styles.emptyState}>No ticket types visible for this team.</div>
               ) : (
                 <table className={styles.table}>

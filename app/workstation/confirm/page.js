@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
-import { fmtDate } from "../../../lib/helpers";
+import { fmtDate, fetchAllRows } from "../../../lib/helpers";
 import { BoolToggle } from "../../../lib/GateFields";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
@@ -42,7 +42,10 @@ export default function ConfirmWorkstation() {
 
   async function load() {
     setLoading(true);
-    const { data: rels } = await supabase.from("releases").select(SELECT_FIELDS);
+    // Round 60 — fetchAllRows instead of a plain select(): whole-table
+    // read, no filter, subject to Supabase's default 1000-row cap (see
+    // DATA_FIXES.md round 59/60).
+    const { data: rels } = await fetchAllRows(() => supabase.from("releases").select(SELECT_FIELDS).order("id"));
     setReleases(rels || []);
 
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");

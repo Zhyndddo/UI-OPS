@@ -3963,3 +3963,137 @@ too).
 No schema changes — every column this reads/writes already existed. New file
 `app/package-runner/page.js`, `lib/permissions.js` (`canRunPackageSimulator`), `lib/Sidebar.js`
 (conditional nav entry).
+
+## Round 59 — fix: Tickets page counters reading 0 despite real tickets existing
+
+**Root cause:** `app/tickets/page.js` pulled every non-deleted ticket's `tab_id` with a plain
+`select()` and bucket-counted client-side in JS. Supabase/PostgREST caps a plain `select()`
+response at 1000 rows by default and truncates silently past that — no error, just fewer rows
+back than actually exist. With total ticket volume across every type now apparently past that
+ceiling, most type counters read as 0; the couple that showed real numbers in your screenshot
+(Cò Trong Net YouTube, Sony Publish) just happened to have rows inside whatever arbitrary
+1000-row window came back. Each individual ticket type's own list page was never affected —
+those filter to one type each, nowhere near 1000 rows.
+
+**Fix:** switched to per-type `COUNT(*)` queries (`{ count: "exact", head: true }`) — same
+pattern already used for the sidebar's release total (`lib/Sidebar.js`) and the Workstation index
+(`app/workstation/page.js`). A count has no row cap regardless of table size, so this is correct
+now and stays correct as ticket volume keeps growing.
+
+**Also fixed:** the Report page's "Team Worklist" tab (`app/report/page.js`) had the identical
+bug — it pulled every ticket with `select("*")` (even worse, full rows not just `tab_id`) to
+compute the same per-type total/done/not-done breakdown. I ported that logic from the old
+Summary page in round 57 and it inherited the flaw without anyone hitting it yet. Rewritten the
+same way: per-type paired `COUNT(*)` queries (total, and total-matching-done-statuses), refetched
+whenever the visible team/type list changes instead of once on load.
+
+**Flagging a bigger pattern while I was in there — not fixed yet, need your call on priority:**
+grepping for the same shape (`select()` on `tickets` or `releases` with no scoping filter, no
+count/head, no pagination) turned up more places at the same latent risk, ranked by how visible
+breaking would be:
+
+- **`app/releases/page.js`** — the main Dashboard's release list itself (`select("*")`, no
+  filter). If total releases has also passed 1000 (very plausible — round 43 alone imported 472
+  in one batch, plus everything organic since), this would mean **releases silently missing from
+  the Dashboard**, which is a bigger deal than a counter being wrong. This one can't just switch
+  to a count query like the tickets fix, since the Dashboard needs the actual rows — it'd need
+  real pagination (fetching in batches of 1000 via `.range()` until exhausted).
+- **`lib/notDoneCounts.js`** (2 spots) — feeds the "not done" badges shown elsewhere in the app
+  (Workstation-adjacent counters). Same fix shape as the Dashboard: needs actual rows, not just a
+  count, since these compute per-release completeness — would need batched pagination too.
+- **`app/workstation/confirm/page.js`, `app/workstation/stream/page.js`, `app/labels/page.js`** —
+  same shape, lower urgency (used for the Workstation lists / Labels page, less immediately
+  "everyone sees this every day" than the Dashboard).
+
+None of these are confirmed broken the way the ticket counter was — I don't have a live Supabase
+connection to check whether `releases` has actually crossed 1000 rows yet. But the shape of the
+bug is identical, so if the Dashboard ever starts looking like it's missing recent releases, this
+list is where to look first. Say the word and I'll harden these the same round.
+
+No schema changes — both fixes are pure query-logic changes.
+
+## Round 60 — item 1: notification names, item 2: pagination-cap hardening
+
+### 1. Ticket notifications now name the actual thing, for every type
+
+Round 53 added a release-title suffix to ticket notifications ("Pitching ticket — Ngày Em Vu
+Quy"), but only for ticket types whose data carries a `releaseId` matching a real `releases.did`.
+Several of the most commonly-used types never carry that field at all, so they never got a
+suffix:
+
+- Phái Sinh / Manual Claim — now uses the song/asset's own name (`data.tenBai`).
+- Report Conflict — `data.assetTitle`.
+- Artist Profile — `data.artistName`.
+- Khác — `data.request` (the free-text request line).
+- Design — `data.project`.
+- Phụ Lục — this one's subtler: it DOES carry a `releaseId`, but unlike every other type, it's a
+  real `releases.id` (uuid), not a `releases.did` string — round 53's did-based lookup silently
+  never matched it. Fixed with its own id-based lookup, wrapped so a malformed/missing value can't
+  break ticket completion for this type (tested — see below).
+
+Now `notify_on_ticket_complete` produces exactly the format you asked for: "Phái Sinh ticket
+completed — Ngày Em Vu Quy". Applied the same fix to `notify_on_ticket_insert` for symmetry (the
+"new ticket" notification gets the same suffix now too).
+
+I actually stood up a throwaway Postgres instance and ran both trigger functions end to end
+against mocked tables for every affected type (including the deliberately-broken Phụ Lục case)
+before shipping this — all produced the right notification text, and the bad-data case degraded
+to no suffix instead of erroring.
+
+**Migration:** `add-round60-notification-item-name.sql` — run once against your database. Not
+added to schema.sql, same situation as round 53: these two functions (and — I discovered while
+tracing this — the triggers that fire them on `tickets` insert/update) predate this session's
+migration history and aren't captured in any file I have. That means **the staging database
+you just built won't fire these notifications at all** — the trigger wiring itself is missing
+there. If you want notifications working on staging too, run this on production first:
+`select tgname from pg_trigger where tgrelid = 'tickets'::regclass and not tgisinternal;` and
+send me the result — I'll write the matching `CREATE TRIGGER` statements for staging once I know
+the real names, rather than guessing and risking a duplicate trigger (which would double-fire
+every notification) if you ever run it against production too.
+
+### 2. Pagination-cap hardening — the rest of the list from round 59
+
+Fixed every place flagged last round with the same shape of bug as the Tickets counter (a plain
+`select()` with no filter, silently capped at 1000 rows by Supabase/PostgREST):
+
+- **`app/releases/page.js`** — the Dashboard's release list, plus its (previously unflagged, found
+  while in the file) `media_booking_entries` read for the booking-progress column.
+- **`lib/notDoneCounts.js`** — both spots (Re-Check / Pre-release workstation "not done" counts).
+- **`app/workstation/confirm/page.js`**, **`app/workstation/stream/page.js`** (2 queries — releases
+  and `release_stream_metrics`; a truncated read here could make the auto-create-missing-metrics-
+  row step think a release has no row yet when it does, inserting a duplicate).
+- **`app/labels/page.js`** — the `latest_activity_year` sync; a truncated read wouldn't just
+  under-report, it could overwrite a label's correct year with a stale one it wrongly believes is
+  newer.
+
+Fix is a new shared helper, `fetchAllRows()` in `lib/helpers.js` — pages through in batches of
+1000 via `.range()` until a page comes back short, instead of trusting one `select()` to return
+everything. Unit-tested the pagination loop itself against mocked data at every boundary (0, 999,
+1000, 1001, 2000, 2500 rows) before wiring it into real queries. None of these were confirmed
+broken in production the way the ticket counter was (you mentioned you likely haven't crossed
+1000 releases yet) — this is preventative, so nothing breaks later without anyone noticing.
+
+No schema changes for either item.
+
+## Round 61 — new package now auto-builds from whatever's already summarized
+
+Per your screenshot + note: creating a brand-new package (the "+ New Package" flow, not
+"Clone Package") used to start completely empty, even if every Hạng Mục had already been
+summarized before anyone clicked to create it. The reason: syncing a summarized Hạng Mục into a
+package only ever happened from inside the Summarize button's own handler — with no package to
+sync INTO yet at the time you first summarized each Hạng Mục, all of that went nowhere, and
+building the package for the first time meant going back and re-clicking Summarize on every Hạng
+Mục all over again just to trigger the sync into the newly-created package.
+
+Fixed: creating a new (non-cloned) package now immediately pulls in every already-summarized,
+non-skipped Hạng Mục as real package lines — same insert shape Summarize itself already used for
+a first-time sync, just computed for every Hạng Mục at once instead of one at a time. "Clone
+Package" is unchanged (it already copied from another package correctly).
+
+The other half of your ask — editing numbers and re-clicking Summarize updates the existing
+package line instead of duplicating it — was already true as of round 54 (Summarize upserts by
+Hạng Mục/brand, only ever setting Đơn Giá on first insert so a re-Summarize can't clobber a price
+someone already edited in the building panel). Nothing to change there; confirmed by reading
+`syncPackageLine`'s existing logic rather than assuming.
+
+No schema changes — same tables, just when the insert happens.
