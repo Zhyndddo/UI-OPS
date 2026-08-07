@@ -897,7 +897,6 @@ function PartnerBenefits({ defaultCollapsed }) {
         ))}
       </div>
       )}
-
     </div>
   );
 }
@@ -915,7 +914,6 @@ function MediaPartnerNote({ defaultCollapsed }) {
         onClick={() => setOpen((o) => !o)}
         style={{ width: "100%", textAlign: "left", background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase", border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
       >
-
         Quyền Lợi Dành Cho Đơn Vị Truyền Thông
         <span>{open ? "▾" : "▸"}</span>
       </button>

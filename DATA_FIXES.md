@@ -3719,7 +3719,7 @@ the Packages panel, wording taken straight from your screenshot (same content as
 page's own "Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT" table).
 
 **A.3 — Summarize auto-adds to the package.** The separate "+ Add to Package" / "− Remove" button
-next to Summarize is gone. Clicking Summarize now syncs straight into whichever package tab is
+next to Summarize/Skip is gone. Clicking Summarize now syncs straight into whichever package tab is
 active — inserts a new line the first time a Hạng Mục/brand is summarized, updates the existing
 line's quantity/detail/Thành Tiền on every re-Summarize after that (re-Summarizing never touches a
 Đơn Giá you've already edited by hand — only ever set once, on first insert, from the Config
@@ -3775,3 +3775,14 @@ still renders exactly as before (fully expanded, no click required).
 `app/booking/page.js`, `app/pick-package/[token]/page.js`, `app/releases/page.js`,
 `app/releases/[id]/page.js`, `schema.sql`.
 
+## Round 55 — fix: "always show only releases with a number" wasn't applying on "All"
+
+Round 50's always-on filter ("only show releases that have a requested/booked number for at least
+one column currently shown") had an explicit exception for the "All" Hạng Mục tab — it was written
+assuming "All" had no real columns to check against. That was wrong: "All" DOES have columns (one
+aggregate-per-category, brand `null` — same ones the SOCIAL/COMMUNITY/ADS/TIKTOK CHANNEL columns in
+that view show). Because of the exception, a release still sitting at BRIEF & DATA with no package
+built at all (target = null everywhere) was slipping through on the "All" tab specifically — exactly
+what your screenshot showed (rows like "Sao Em Không Thật Lòng" with a BRIEF & DATA package pill and
+0/— across every column). Removed the exception — the filter now applies the same way on every tab,
+including "All". `app/booking/page.js`.

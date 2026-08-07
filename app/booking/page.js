@@ -378,16 +378,16 @@ export default function BookingBoard() {
       }
       if (typeFilter && r.project_type !== typeFilter) return false;
       if (labelFilter && r.label !== labelFilter) return false;
-      // Per the team's confirmed default: once a specific Hạng Mục (and
-      // Brand, where applicable) path is picked, ALWAYS show only releases
-      // that actually have a requested/booked number for at least one of
-      // the columns currently shown — no toggle, this is just how the
-      // filtered path works now. (Replaces the earlier "Chưa có yêu cầu" /
-      // "Đã có yêu cầu" toggle buttons — the team decided the "has a
-      // number" behavior should be the only, always-on behavior rather
-      // than something to switch on and off.) Doesn't apply to "All" (no
-      // columns to check against).
-      if (hangMucFilter !== "All" && columns.length > 0) {
+      // Per the team's confirmed default: ALWAYS show only releases that
+      // actually have a requested/booked number for at least one of the
+      // columns currently shown — no toggle, this is just how the board
+      // works now. (Replaces the earlier "Chưa có yêu cầu" / "Đã có yêu
+      // cầu" toggle buttons.) This also applies on "All" — its columns are
+      // one aggregate-per-category entry (brand: null), so a release with
+      // no package/target anywhere (still sitting at BRIEF & DATA) has
+      // every one of those come back null and correctly gets filtered out
+      // there too, not just once you drill into a specific Hạng Mục/Brand.
+      if (columns.length > 0) {
         const anyFilled = columns.some((c) => bookedFor(r, c.categoryName, c.brand) != null);
         if (!anyFilled) return false;
       }
