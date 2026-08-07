@@ -457,14 +457,21 @@ export default function PickPackagePage() {
             "Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT" (the big
             partner-benefits table) is untouched, still further down via
             PartnerBenefits(). */}
-        <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap", marginBottom: 20 }}>
-          <div style={{ flex: "1 1 320px" }}>
-            <div className={styles.eyebrow}>// {linkName.toLowerCase()}</div>
-            <h1 className={styles.title} style={{ marginBottom: 4 }}>
+        {/* Round 69 — item 1: header text enlarged ~1.4x (eyebrow 12->17,
+            title 28->39, artist/date line 13->18) — overridden inline
+            rather than touching styles.eyebrow/.title globally, since
+            those are shared classes used across every other page. Column
+            widened (320px -> 420px min) so the bigger title still has room
+            to stay on one line instead of wrapping. */}
+        <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap", marginBottom: 10 }}>
+          <div style={{ flex: "1 1 420px" }}>
+            <div className={styles.eyebrow} style={{ fontSize: 17 }}>// {linkName.toLowerCase()}</div>
+            <h1 className={styles.title} style={{ marginBottom: 4, fontSize: 39, whiteSpace: "nowrap" }}>
               {release?.title}
             </h1>
-            <div style={{ color: "var(--text-faint)", fontSize: 13 }}>
-              {release?.main_artist} · {release?.release_date} {release?.release_time}
+            <div style={{ color: "var(--text-faint)", fontSize: 18 }}>
+              {/* Round 69 — item 2: feature artist added, "Main ft. Feature" */}
+              {release?.main_artist}{release?.feature_artist ? ` ft. ${release.feature_artist}` : ""} · {release?.release_date} {release?.release_time}
             </div>
           </div>
           <div style={{ flex: "1 1 360px" }}>
@@ -479,7 +486,7 @@ export default function PickPackagePage() {
         )}
 
         {!isLocked && isPipelineStage && (
-          <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
+          <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16, marginTop: 0 }}>
             Current stage: <span style={{ color: "#ff9d5c" }}>{release?.project_type}</span>
           </p>
         )}

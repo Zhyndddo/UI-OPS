@@ -4406,3 +4406,37 @@ confirmed the backfill correctly copied it into all 4 new columns, and confirmed
 migration is a clean no-op (doesn't clobber anything, `UPDATE 0` on the second pass).
 
 No other schema changes.
+
+## Round 69 — magic link header + light theme background
+
+**1. Header text enlarged (~1.4x)** — the "// PACKAGE OFFER" eyebrow, product title, and
+artist/date line on the magic link page are all bigger now (eyebrow 12→17px, title 28→39px,
+artist/date line 13→18px). Kept these as inline overrides on this one page rather than touching
+the shared `.eyebrow`/`.title` classes, since those are used on every other page in the app. Added
+`whiteSpace: nowrap` to the title and widened the left column so the product name stays on one
+line at the bigger size instead of wrapping.
+
+**2. Feature artist added to the artist line** — now reads `Main Artist ft. Feature Artist ·
+date time` when a feature artist is set on the release, otherwise unchanged.
+
+**3. "Picture 2 (a brand batch)" layout — not done.** Your message said "sending you picture 2"
+but only one image actually came through with that message (the header screenshot). Please resend
+the brand batch image and I'll lay it out right under the header info text as asked.
+
+**4. "Current stage: DEALING" / package section nudged up** — tightened the spacing above the
+package table (header row's bottom margin 20→10, removed the stage line's extra top margin) to
+sit closer to the "Quyền Lợi Dành Cho Đơn Vị Truyền Thông" box on the right. Note this is a
+spacing tweak, not measured pixel-for-pixel alignment between the two columns — let me know if it
+needs to be tighter/looser once you see it live.
+
+**5. Light theme background: eggshell → white.** Per your follow-up ("i mean the eggshell color
+to white i sent earlier"): the app-wide light theme body/card/input colors (`--bg`, `--bg-body`,
+`--bg-card`, `--bg-input` in `globals.css`) were a yellowish tan (`#f2ead4`/`#faf3e2`) from an
+earlier styling pass — changed to `#f7f3ee` for the page body (same color you specified for the
+magic link's package title bars in round 68) and plain white (`#ffffff`) for cards/inputs, so
+cards read as a shade lighter than the body again. This is a global variable, so it affects the
+whole app's light theme, not just the magic link page — flag it if you only meant this page.
+Text colors were left as-is (already near-black from the earlier pass, matches the `#15130c` you
+asked for on the magic link cards).
+
+No schema changes this round.

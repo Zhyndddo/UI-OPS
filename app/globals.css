@@ -35,21 +35,23 @@
 }
 
 [data-theme="light"] {
-  /* "Grey to almost-black, white to eggshell" pass — the old greys
-     (#5c5850/#8a867c/#a8a49a) read as washed-out/low-contrast against a
-     near-white background; darkened toward near-black so muted/faint text
-     actually pops instead of disappearing. The old whites (#ffffff for
-     cards/inputs, #f7f6f4 for the page body) are now a soft yellowish
-     eggshell instead of stark white, so surfaces read as dimmer/warmer —
-     --bg-card and --bg-input keep a slightly lighter eggshell than --bg so
-     cards/inputs still visually sit above the page body, same relationship
-     as before, just warmer overall. */
-  --bg: #f2ead4;
-  --bg-body: #f2ead4;
-  --bg-card: #faf3e2;
-  --bg-input: #faf3e2;
-  --bg-hover: #e8dfc4;
-  --border: #d8cca4;
+  /* Round 69 correction — the earlier "grey to almost-black, white to
+     eggshell" pass (see git history) made the page body/cards a yellowish
+     tan (#f2ead4/#faf3e2) instead of white. Per explicit correction, the
+     eggshell tone goes back to (near-)white — using the same #f7f3ee the
+     magic link's package title bars were already set to, so the page body
+     now matches those cards instead of clashing with them. Cards/inputs
+     are plain white so they still sit a shade lighter than the body, same
+     relationship as before. Greys/text stay near-black (kept from the
+     earlier pass — that part was not what this correction targeted).
+     --bg-hover is nudged to a light neutral grey to keep hover states
+     visible against the now much lighter surfaces. */
+  --bg: #f7f3ee;
+  --bg-body: #f7f3ee;
+  --bg-card: #ffffff;
+  --bg-input: #ffffff;
+  --bg-hover: #ece7de;
+  --border: #ddd6c8;
   --border-strong: #3a3527;
   --text: #14120c;
   --text-muted: #211f16;
