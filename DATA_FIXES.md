@@ -3848,3 +3848,70 @@ nothing.
 
 **Migration:** `add-round56-channel-stats-sync.sql` — run once against the existing database.
 New file `app/api/refresh-youtube-stats/route.js`, `app/booking-channels/page.js`, `schema.sql`.
+
+## Round 57 — merge Summary into Report, real 4-tier permission system
+
+### 1. Summary merged into Report
+
+You pointed out the overlap — Summary (per-team "what's not done yet") and the new Report page were
+two separate nav entries answering related questions. Merged: Report now has two tabs, **Overview**
+(round 56's KPI cards + charts) and **Team Worklist** (round-56's-predecessor Summary content —
+New Release Total/Not Done/Done, per-type ticket table, dev-only team switcher — ported over
+unchanged, just renamed and re-homed).
+
+- Sidebar: removed the standalone "Summary" entry — just "Report" now.
+- `/summary` still works as a URL — it redirects to `/report?tab=worklist` instead of 404ing, so
+  nothing that linked or bookmarked the old page breaks.
+- `app/tools/page.js`'s demo link updated to point at `/report`.
+
+New/changed files: `app/report/page.js`, `app/summary/page.js` (now a redirect), `lib/Sidebar.js`,
+`app/tools/page.js`. No schema change.
+
+### 2. Real 4-tier permission system: exc < teamlead < admin < dev
+
+Built the actual thing this time, not just a pitch. New `lib/permissions.js` is the single source of
+truth — every role check in the app now goes through it instead of comparing `profile.role` inline.
+
+**The four tiers and what each unlocks (cumulative — each tier has everything below it, plus):**
+
+| Tier | Label | Adds |
+|---|---|---|
+| `exc` | Member | Base level. Own team's tickets/releases only. No admin capability anywhere. |
+| `teamlead` | Team Lead | Can edit a locked deadline on their own team's Phái Sinh / Batch Phái Sinh / Design tickets. Can open Config → Team and manage **their own segment only** — invite/edit members, but only up to "Member" rank (cannot grant teamlead/admin/dev, cannot touch other teams). |
+| `admin` | Admin | Full Config access — every org-wide setting (Lookup Options, Package Terms, Media Booking Pricing, Platforms, Design Types, Sizes, PIC Defaults, External Tool Links). Team management across **all** segments, can grant up to "Admin" (not "Dev"). Can delete a user or change their login email. |
+| `dev` | Dev | Everything. Cross-team ticket/workstation/report visibility, "View As" impersonation, the dangerous Config tabs (Notifications, Design Notifications, Sessions, Sidebar Label), kick/restore user, the only rank that can grant "Dev" to someone else. |
+
+**A gap this closed that wasn't part of the original ask, but fell directly out of building the
+matrix:** `/config` previously had almost no role gating at all — any `exc`-level (base) user who
+found the URL could open Team management and grant themselves admin or dev, and could edit every
+org-wide setting. That's fixed now — `/config` checks what the signed-in profile is actually allowed
+to see and only shows those tabs; a `exc` user hitting `/config` now sees an access-denied message
+instead of the settings UI.
+
+**Judgment calls, flagged explicitly:**
+- Cross-team visibility (seeing other teams' tickets/workstation) and "View As" impersonation stay
+  **dev-only**, not elevated to admin. Reasoning: org/Config management and "can see everyone's
+  operational work queue" are different kinds of access — an Admin managing settings doesn't
+  automatically need to browse every other team's tickets. Easy to change if you want Admin to have
+  it too — say so and I'll move `canViewCrossTeam`/`canImpersonate` to `isAdminOrAbove`.
+- Team Leads can only invite/manage people **in their own segment**, and can only grant the "Member"
+  role — never themselves or anyone else up to Team Lead or higher. This is enforced both in the UI
+  and server-side (the invite API route re-checks segment + target role, so it's not just a hidden
+  button).
+- Admins can grant up to "Admin" but not "Dev" — only a Dev can create another Dev. No one can grant
+  a rank equal to or above their own.
+
+**No migration needed for the role tier itself** — `profiles.role` was already a plain `text` column
+with no CHECK constraint (confirmed by reading `schema.sql`), so `"teamlead"` is just a new valid
+string value at the app layer. Nothing to run in Supabase for this part.
+
+Changed files: `lib/permissions.js` (new), `app/config/page.js`, `app/api/admin/invite-user/route.js`,
+`lib/TopBar.js`, `app/tickets/phai-sinh/page.js`, `app/tickets/batch-phai-sinh/[id]/page.js`,
+`app/tickets/design/page.js`, `scripts/bulk-create-team.js`, `schema.sql` (comment only).
+
+### 3. Phái Sinh ticket page — "Open Batch" button UI fix
+
+The button was wrapping wherever the browser felt like breaking the text inside the narrow column
+(sometimes mid-word), which looked broken. Forced a clean 2-line break instead: "Open" / "Batch ↗".
+
+Changed file: `app/tickets/phai-sinh/page.js`. No schema change.

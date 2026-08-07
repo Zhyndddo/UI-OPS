@@ -13,6 +13,7 @@ import { recomputeBatchStatus, batchProgress } from "../../../../lib/batchPhaiSi
 import { sendPing, resolvePingTargets } from "../../../../lib/pingNotification";
 import { CHILD_ITEM_STATUSES } from "../../../../lib/phaiSinhTypes";
 import BatchFileImport from "../../../../lib/BatchFileImport";
+import { canEditLockedDeadline } from "../../../../lib/permissions";
 import styles from "../../../shared.module.css";
 
 // Round 41 — extended with the Kho Nhạc workflow's own stages
@@ -275,7 +276,7 @@ export default function BatchPhaiSinhDetail() {
                       </td>
                       <td>
                         {(() => {
-                          const deadlineLocked = item.status !== "REQUESTED" && profile?.role !== "dev" && profile?.role !== "admin";
+                          const deadlineLocked = item.status !== "REQUESTED" && !canEditLockedDeadline(profile); // round 57 — teamlead+
                           return (
                             <input
                               type="date"

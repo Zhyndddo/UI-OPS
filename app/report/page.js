@@ -3,17 +3,27 @@
 import AppShell from "../../lib/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
-import { fmtDate } from "../../lib/helpers";
+import { fmtDate, isTicketDone } from "../../lib/helpers";
+import { useAuth } from "../../lib/AuthContext";
+import { REPORTING_TEAMS, TEAM_TICKET_TYPES, TICKET_TYPE_LABELS, SHARED_TICKET_TYPES, resolveTeamKey } from "../../lib/teamTypes";
+import { canViewCrossTeam } from "../../lib/permissions";
 import styles from "../shared.module.css";
 
-// Round 56 — new "Report" nav item. Distinct from /summary (a live
-// per-team "what's not done yet" worklist): this reads across
-// releases/media_booking_package_categories/package value fields and
-// presents a coherent read — KPI cards, tables, and column/pie charts —
-// on 3 things the team asked for: (A) Release Pipeline Health, (B) Booking
-// Board Activity, (C) Package/Revenue Value. Everything here is a plain
-// read (no writes) computed client-side from a handful of table reads.
+// Round 56 — "Report" nav item: KPI cards, tables, and column/pie charts
+// across releases/media_booking_package_categories/package value fields —
+// (A) Release Pipeline Health, (B) Booking Board Activity, (C) Package/
+// Revenue Value. Read-only, computed client-side.
+//
+// Round 57 — merged in what used to be the separate /summary page (a live
+// per-team "what's not done yet" worklist) as a second tab, "Team
+// Worklist", per explicit request ("I forgot we have the summary item
+// already, can you merge them?"). /summary itself now just redirects here
+// — see app/summary/page.js. Kept as a second TAB rather than mixed into
+// Overview because they answer different questions (aggregate rollup vs.
+// "what does MY team still need to finish") and the worklist needs its
+// own team switcher, which doesn't make sense bolted onto Overview.
 
 // Fixed categorical color order — reused app tokens (accent orange,
 // blue, green, yellow, dark-orange, purple, red, teal), same identity-vs-
@@ -49,6 +59,25 @@ function groupCounts(rows, keyFn, capAt = 8) {
   const head = sorted.slice(0, capAt - 1);
   const otherTotal = sorted.slice(capAt - 1).reduce((s, r) => s + r.value, 0);
   return [...head, { label: "Other", value: otherTotal }];
+}
+
+// New Release "done" logic, per the agreed exceptions — ported verbatim
+// from the old /summary page:
+//   - status Đã Hủy (cancel) or Đang chờ (pending) → done regardless
+//   - Chỉ Phát Hành contract → only needs the core OPS URL fields
+//   - everything else → the broad set of tracked fields across all tabs
+function isReleaseDone(r) {
+  if (r.status === "Đã Hủy" || r.status === "Đang chờ") return true;
+  if (r.project_type === "Chỉ Phát Hành") {
+    return !!(r.smartlink && r.upc && r.link_lbm);
+  }
+  const metaChecks = [r.meta_audio, r.meta_artwork, r.meta_working_files, r.meta_lyric, r.meta_mv, r.meta_doc];
+  const checks = [
+    r.smartlink, r.upc, r.link_lbm, r.link_share,
+    r.pitching_status_spotify || r.pitching_status_nct || r.pitching_status_zing,
+    r.canva_status, r.artist_pick_status, r.musixmatch_link,
+  ];
+  return metaChecks.every((v) => v === "true") && checks.every(Boolean);
 }
 
 // ── Column (bar) chart — plain CSS bars, no SVG lib needed. singleHue=true
@@ -137,9 +166,24 @@ const PIPELINE_TYPES = ["BRIEF & DATA", "DEALING"];
 const PAYMENT_STATUS_ORDER = ["Chưa Thực Hiện", "Đã Thanh Toán Một Phần", "Đã Thanh Toán"];
 
 export default function ReportPage() {
+  const { profile } = useAuth();
+  const searchParams = useSearchParams();
+  // /summary redirects here with ?tab=worklist so old bookmarks land on
+  // the right tab instead of always defaulting to Overview.
+  const [tab, setTab] = useState(searchParams.get("tab") === "worklist" ? "worklist" : "overview");
   const [releases, setReleases] = useState([]);
   const [rollups, setRollups] = useState([]); // media_booking_package_categories, with category name
+  const [tickets, setTickets] = useState([]); // Team Worklist tab only
+  const [ticketTabs, setTicketTabs] = useState([]); // Team Worklist tab only
   const [loading, setLoading] = useState(true);
+
+  // Team Worklist's own team switcher — dev sees everyone and can browse
+  // any team; teamlead/admin/exc are fixed to their own team (their real
+  // scope, not a simulation). Same behavior /summary had, just renamed to
+  // canViewCrossTeam (still dev-only) for clarity.
+  const isCrossTeam = canViewCrossTeam(profile);
+  const [viewTeam, setViewTeam] = useState(profile?.segment || "AR");
+  const effectiveTeam = isCrossTeam ? viewTeam : profile?.segment;
 
   useEffect(() => {
     if (!supabase) return;
@@ -148,16 +192,40 @@ export default function ReportPage() {
 
   async function load() {
     setLoading(true);
-    const [{ data: rels }, { data: rollupRows }] = await Promise.all([
-      supabase
-        .from("releases")
-        .select("id, did, title, main_artist, label, release_date, project_type, status, package_locked, package_total_value, package_vieent_support, package_label_payment, package_payment_status, media_report_status, link_media_report"),
+    // releases pulls every column (select("*")) since the Team Worklist
+    // tab's isReleaseDone() needs the broad field set, not just the columns
+    // Overview's charts read.
+    const [{ data: rels }, { data: rollupRows }, { data: tabs }, { data: tix }] = await Promise.all([
+      supabase.from("releases").select("*"),
       supabase.from("media_booking_package_categories").select("release_id, category_id, brand, skipped, package_categories(name)"),
+      supabase.from("ticket_tabs").select("id, key").order("sort_order"),
+      supabase.from("tickets").select("*").is("deleted_at", null),
     ]);
     setReleases(rels || []);
     setRollups(rollupRows || []);
+    setTicketTabs(tabs || []);
+    setTickets(tix || []);
     setLoading(false);
   }
+
+  // ── Team Worklist (merged in from the old /summary page) ─────────────
+  const releaseStats = useMemo(() => {
+    const total = releases.length;
+    const done = releases.filter(isReleaseDone).length;
+    return { total, done, notDone: total - done };
+  }, [releases]);
+  const ticketStatsByType = useMemo(() => {
+    const tabById = {};
+    ticketTabs.forEach((t) => (tabById[t.id] = t.key));
+    const visibleTypes = effectiveTeam === "All" ? ticketTabs.map((t) => t.key) : [...(TEAM_TICKET_TYPES[resolveTeamKey(effectiveTeam)] || []), ...SHARED_TICKET_TYPES];
+    return visibleTypes.map((key) => {
+      const typeTickets = tickets.filter((t) => tabById[t.tab_id] === key);
+      const total = typeTickets.length;
+      const done = typeTickets.filter((t) => isTicketDone(t.status)).length;
+      return { key, label: TICKET_TYPE_LABELS[key] || key, total, done, notDone: total - done };
+    });
+  }, [effectiveTeam, tickets, ticketTabs]);
+  const showNewRelease = effectiveTeam !== "Design";
 
   const todayStr = useMemo(() => {
     const now = new Date();
@@ -233,14 +301,98 @@ export default function ReportPage() {
         <div className={styles.container}>
           <div className={styles.eyebrow}>// Report</div>
           <h1 className={styles.title}>Report</h1>
-          <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20, maxWidth: 720 }}>
+          <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16, maxWidth: 720 }}>
             A read-only rollup across releases, the Booking Board, and package value — tables and charts,
             computed live from the same data everywhere else in the app reads/writes. Nothing here is editable;
             follow a release's link to act on it.
           </p>
 
+          <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
+            {[["overview", "Overview"], ["worklist", "Team Worklist"]].map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`${styles.tabBtn} ${tab === key ? styles.tabBtnActive : ""}`}
+                style={{ border: "1px solid var(--border)", borderRadius: 6 }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
+          ) : tab === "worklist" ? (
+            <>
+              {isCrossTeam ? (
+                <>
+                  <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+                    {["All", ...REPORTING_TEAMS].map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setViewTeam(t)}
+                        className={`${styles.tabBtn} ${viewTeam === t ? styles.tabBtnActive : ""}`}
+                        style={{ border: "1px solid var(--border)", borderRadius: 6 }}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                  <p style={{ color: "var(--text-faint)", fontSize: 11, marginBottom: 24 }}>
+                    Dev — browsing any team's view. Everyone else sees only their own team's data.
+                  </p>
+                </>
+              ) : (
+                <p style={{ color: "var(--text-faint)", fontSize: 11, marginBottom: 24 }}>
+                  Showing {effectiveTeam || "—"} team's data.
+                </p>
+              )}
+
+              {showNewRelease && (
+                <>
+                  <div className={styles.subheading} style={{ marginTop: 0 }}>New Release</div>
+                  <div className={styles.statRow} style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+                    <div className={styles.statCard}>
+                      <div className={styles.statLabel}>Total</div>
+                      <div className={styles.statValue}>{releaseStats.total}</div>
+                    </div>
+                    <div className={styles.statCard}>
+                      <div className={styles.statLabel}>Not Done</div>
+                      <div className={styles.statValue} style={{ color: "var(--warn-fg)" }}>{releaseStats.notDone}</div>
+                    </div>
+                    <div className={styles.statCard}>
+                      <div className={styles.statLabel}>Done</div>
+                      <div className={styles.statValue} style={{ color: "var(--success-fg)" }}>{releaseStats.done}</div>
+                    </div>
+                  </div>
+                  <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: -16, marginBottom: 28 }}>
+                    "Done" exceptions: Đã Hủy/Đang chờ always count as done; Chỉ Phát Hành contracts only need
+                    Smartlink/UPC/Link LBM filled; everything else needs the broad field set across all tabs.
+                  </p>
+                </>
+              )}
+
+              <div className={styles.subheading} style={{ marginTop: 0 }}>Ticket</div>
+              {ticketStatsByType.length === 0 ? (
+                <div className={styles.emptyState}>No ticket types visible for this team.</div>
+              ) : (
+                <table className={styles.table}>
+                  <thead>
+                    <tr><th>Type</th><th>Total</th><th>Not Done</th><th>Done</th></tr>
+                  </thead>
+                  <tbody>
+                    {ticketStatsByType.map((t) => (
+                      <tr key={t.key}>
+                        <td>{t.label}</td>
+                        <td>{t.total}</td>
+                        <td style={{ color: "var(--warn-fg)" }}>{t.notDone}</td>
+                        <td style={{ color: "var(--success-fg)" }}>{t.done}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
           ) : (
             <>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 24 }}>

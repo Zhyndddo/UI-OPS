@@ -5,13 +5,13 @@ import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
 import { DEFAULT_DESIGN_NOTIFICATION_TEMPLATES } from "../../lib/designFlow";
+import { ROLES, ROLE_LABELS, isDev as isDevRole, isAdminOrAbove, canManageOrgConfig, canManageTeamMembers, assignableRoles, scopeableTeamMembers } from "../../lib/permissions";
 import styles from "../shared.module.css";
 
 const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
 // release_category is a fixed 2-value single choice ("New Release" /
 // "Remarketing"), hardcoded directly in the New Release form and release
 // detail page — not admin-configurable via lookup_options anymore.
-const ROLES = ["exc", "admin", "dev"];
 // "OPS" split into Youtube/Publishing/Operation per explicit request — OPS
 // itself is intentionally excluded here (hidden from the profile create/
 // reassign dropdown), it's now a hidden aggregate elsewhere in the app
@@ -21,8 +21,36 @@ const TEAMS = ["AR", "Marketing", "Design", "Youtube", "Publishing", "Operation"
 
 export default function ConfigPage() {
   const { profile } = useAuth();
-  const isDev = profile?.role === "dev";
-  const [section, setSection] = useState("lookups"); // "lookups" | "team"
+  const isDev = isDevRole(profile);
+  const canOrgConfig = canManageOrgConfig(profile); // admin+ — Lookup Options, Package Terms, Pricing, Platforms, Design Types, Sizes, PIC Defaults, External Tool Links
+  const canTeam = canManageTeamMembers(profile); // teamlead+ — Team tab, scoped to own segment for teamlead
+  // Round 57 — Config used to have almost no role gating at all: any
+  // logged-in exc-level user could reach every tab except the 4 dev-only
+  // ones, including Team (where they could grant themselves admin/dev)
+  // and every org-wide setting. Tabs are now built from what THIS profile
+  // can actually do, and a plain Member (exc) with nothing to manage sees
+  // a clear message instead of a page that quietly does nothing for them.
+  const tabs = [
+    ...(canOrgConfig ? [["lookups", "Lookup Options"]] : []),
+    ...(canTeam ? [["team", "Team"]] : []),
+    ...(canOrgConfig ? [
+      ["picDefaults", "PIC Defaults"],
+      ["packageTerms", "Package Terms"],
+      ["mediaBookingPricing", "Media Booking Pricing"],
+      ["platforms", "Platforms"],
+      ["designTypes", "Design Types"],
+      ["sizes", "Sizes"],
+      ["artistProfileLinks", "External Tool Links"],
+    ] : []),
+    ...(isDev ? [["notifications", "Notifications"], ["designNotifications", "Design Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
+  ];
+  const [section, setSection] = useState(null);
+  useEffect(() => {
+    // Default to the first tab this profile actually has, once profile
+    // has loaded — avoids landing on a tab they can't see (or an empty
+    // "lookups" default that no longer applies to them).
+    if (section === null && tabs.length > 0) setSection(tabs[0][0]);
+  }, [tabs.map((t) => t[0]).join(","), section]);
 
   return (
     <AppShell>
@@ -30,44 +58,45 @@ export default function ConfigPage() {
         <div className={styles.container}>
           <div className={styles.eyebrow}>// Config</div>
           <h1 className={styles.title}>Config</h1>
-
-          <div style={{ display: "flex", gap: 4, marginBottom: 24, flexWrap: "wrap" }}>
-            {[
-              ["lookups", "Lookup Options"],
-              ["team", "Team"],
-              ["picDefaults", "PIC Defaults"],
-              ["packageTerms", "Package Terms"],
-              ["mediaBookingPricing", "Media Booking Pricing"],
-              ["platforms", "Platforms"],
-              ["designTypes", "Design Types"],
-              ["sizes", "Sizes"],
-              ["artistProfileLinks", "External Tool Links"],
-              ...(isDev ? [["notifications", "Notifications"], ["designNotifications", "Design Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
-            ].map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setSection(key)}
-                className={`${styles.tabBtn} ${section === key ? styles.tabBtnActive : ""}`}
-                style={{ border: "1px solid var(--border)", borderRadius: 6 }}
-              >
-                {label}
-              </button>
-            ))}
+          <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 16 }}>
+            Signed in as {ROLE_LABELS[profile?.role] || profile?.role || "—"}{profile?.segment ? ` · ${profile.segment}` : ""}
           </div>
 
-          {section === "lookups" && <LookupOptionsSection />}
-          {section === "team" && <TeamSection />}
-          {section === "picDefaults" && <PicDefaultsSection />}
-          {section === "packageTerms" && <PackageTermsSection />}
-          {section === "mediaBookingPricing" && <MediaBookingPricingSection />}
-          {section === "platforms" && <PlatformsSection />}
-          {section === "designTypes" && <DesignTypesSection />}
-          {section === "sizes" && <SizesSection />}
-          {section === "artistProfileLinks" && <ArtistProfileLinksSection />}
-          {section === "notifications" && isDev && <NotificationsSection />}
-          {section === "designNotifications" && isDev && <DesignNotificationsSection />}
-          {section === "sessions" && isDev && <SessionsSection />}
-          {section === "sidebarLabel" && isDev && <SidebarLabelSection />}
+          {tabs.length === 0 ? (
+            <div className={styles.emptyState}>
+              Nothing here to manage at your access level ({ROLE_LABELS[profile?.role] || "Member"}). If you need
+              something changed here, ask your Team Lead or an Admin.
+            </div>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 4, marginBottom: 24, flexWrap: "wrap" }}>
+                {tabs.map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setSection(key)}
+                    className={`${styles.tabBtn} ${section === key ? styles.tabBtnActive : ""}`}
+                    style={{ border: "1px solid var(--border)", borderRadius: 6 }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {section === "lookups" && <LookupOptionsSection />}
+              {section === "team" && <TeamSection profile={profile} />}
+              {section === "picDefaults" && <PicDefaultsSection />}
+              {section === "packageTerms" && <PackageTermsSection />}
+              {section === "mediaBookingPricing" && <MediaBookingPricingSection />}
+              {section === "platforms" && <PlatformsSection />}
+              {section === "designTypes" && <DesignTypesSection />}
+              {section === "sizes" && <SizesSection />}
+              {section === "artistProfileLinks" && <ArtistProfileLinksSection />}
+              {section === "notifications" && isDev && <NotificationsSection />}
+              {section === "designNotifications" && isDev && <DesignNotificationsSection />}
+              {section === "sessions" && isDev && <SessionsSection />}
+              {section === "sidebarLabel" && isDev && <SidebarLabelSection />}
+            </>
+          )}
         </div>
       </div>
     </AppShell>
@@ -171,15 +200,26 @@ function LookupOptionsSection() {
 // The team roster — profiles need a row here BEFORE someone can sign in
 // successfully (AuthContext looks up profiles by email on login; no match
 // = "not on roster" screen). This is how people actually get access.
-function TeamSection() {
+//
+// Round 57 — was wide open to any logged-in user; now scoped by the
+// caller's role via lib/permissions: a Team Lead sees/manages only their
+// own segment and can only grant "exc" (no privilege escalation, no
+// reaching into other teams); Admin/Dev see and manage everyone, up to
+// their own assignableRoles ceiling (only Dev can grant "dev"). Deleting
+// an account or changing someone's LOGIN email stays Admin+ only even for
+// a Team Lead — those are account-security actions, not day-to-day roster
+// management (see canManageAccountSecurity usages below).
+function TeamSection({ profile }) {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState("exc");
-  const [segment, setSegment] = useState("AR");
+  const grantable = assignableRoles(profile); // e.g. ["exc"] for a Team Lead, all 4 for Dev
+  const [role, setRole] = useState(grantable[0] || "exc");
+  const [segment, setSegment] = useState(profile?.role === "teamlead" ? profile.segment : "AR");
   const [error, setError] = useState(null);
   const [inviteStatus, setInviteStatus] = useState(null);
+  const canManageAccountSecurity = isAdminOrAbove(profile); // delete account / change login email
 
   useEffect(() => {
     if (!supabase) return;
@@ -192,6 +232,7 @@ function TeamSection() {
     setProfiles(data || []);
     setLoading(false);
   }
+  const visibleProfiles = scopeableTeamMembers(profile, profiles);
 
   async function addProfile(e) {
     e.preventDefault();
@@ -201,13 +242,18 @@ function TeamSection() {
       setError("Name and email are required.");
       return;
     }
+    // A Team Lead's segment is fixed to their own team regardless of
+    // what's in state (the picker is hidden for them below, but this is
+    // the real guard — belt and suspenders with the server-side check in
+    // the invite route).
+    const effectiveSegment = profile?.role === "teamlead" ? profile.segment : segment;
     const { data: created, error: err } = await supabase
       .from("profiles")
       .insert({
         name: name.trim(),
         email: email.trim(),
         role,
-        segment: role === "dev" ? null : segment,
+        segment: role === "dev" ? null : effectiveSegment,
       })
       .select()
       .single();
@@ -329,29 +375,44 @@ function TeamSection() {
         <div className={styles.field} style={{ marginBottom: 0, minWidth: 100 }}>
           <label className={styles.fieldLabel}>Role</label>
           <select className={styles.select} value={role} onChange={(e) => setRole(e.target.value)}>
-            {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+            {grantable.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
           </select>
         </div>
+        {/* A Team Lead's segment is fixed (see effectiveSegment above) — no
+            picker for them, just a plain readout so it's clear who this
+            lands under. Admin/Dev keep the real picker, same as before. */}
         {role !== "dev" && (
-          <div className={styles.field} style={{ marginBottom: 0, minWidth: 130 }}>
-            <label className={styles.fieldLabel}>Team</label>
-            <select className={styles.select} value={segment} onChange={(e) => setSegment(e.target.value)}>
-              {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
+          profile?.role === "teamlead" ? (
+            <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "8px 0" }}>Team: {profile.segment}</div>
+          ) : (
+            <div className={styles.field} style={{ marginBottom: 0, minWidth: 130 }}>
+              <label className={styles.fieldLabel}>Team</label>
+              <select className={styles.select} value={segment} onChange={(e) => setSegment(e.target.value)}>
+                {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          )
         )}
         <button className={styles.btnPrimary} type="submit">+ Add</button>
       </form>
 
       {loading ? (
         <div className={styles.emptyState}>Loading…</div>
-      ) : profiles.length === 0 ? (
-        <div className={styles.emptyState}>No one on the roster yet — add yourself first.</div>
+      ) : visibleProfiles.length === 0 ? (
+        <div className={styles.emptyState}>{profile?.role === "teamlead" ? "No one on your team's roster yet — add someone above." : "No one on the roster yet — add yourself first."}</div>
       ) : (
         <table className={styles.table}>
           <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Signed In</th><th></th></tr></thead>
           <tbody>
-            {profiles.map((p) => (
+            {visibleProfiles.map((p) => {
+              // A person can only be re-assigned to a role the CALLER is
+              // allowed to grant — plus their own current role, so the
+              // select still shows what they actually are even if the
+              // caller couldn't have set it themselves (e.g. a Team Lead
+              // viewing a fellow "teamlead" — grantable is just ["exc"] for
+              // them, but the row still needs to display "teamlead").
+              const roleOptions = grantable.includes(p.role) ? grantable : [p.role, ...grantable];
+              return (
               <tr key={p.id}>
                 <td>
                   <input
@@ -362,22 +423,34 @@ function TeamSection() {
                   />
                 </td>
                 <td>
-                  <input
-                    className={styles.input}
-                    style={{ padding: "4px 8px", fontSize: 12, minWidth: 160 }}
-                    defaultValue={p.email}
-                    onBlur={(e) => updateEmail(p, e.target.value)}
-                    title={p.auth_id ? "Changing this also updates their login email." : "No login yet — this only changes the profile record."}
-                  />
+                  {canManageAccountSecurity ? (
+                    <input
+                      className={styles.input}
+                      style={{ padding: "4px 8px", fontSize: 12, minWidth: 160 }}
+                      defaultValue={p.email}
+                      onBlur={(e) => updateEmail(p, e.target.value)}
+                      title={p.auth_id ? "Changing this also updates their login email." : "No login yet — this only changes the profile record."}
+                    />
+                  ) : (
+                    <span style={{ fontSize: 12 }}>{p.email}</span>
+                  )}
                 </td>
                 <td>
-                  <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={p.role} onChange={(e) => updateRole(p, e.target.value)}>
-                    {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                  <select
+                    className={styles.select}
+                    style={{ padding: "4px 8px", fontSize: 12 }}
+                    value={p.role}
+                    disabled={!grantable.includes(p.role) && roleOptions.length <= 1}
+                    onChange={(e) => updateRole(p, e.target.value)}
+                  >
+                    {roleOptions.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                   </select>
                 </td>
                 <td>
                   {p.role === "dev" ? (
                     <span style={{ color: "var(--text-faint)" }}>—</span>
+                  ) : profile?.role === "teamlead" ? (
+                    <span style={{ fontSize: 12 }}>{p.segment}</span>
                   ) : (
                     <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={p.segment || ""} onChange={(e) => updateSegment(p, e.target.value)}>
                       {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -386,10 +459,13 @@ function TeamSection() {
                 </td>
                 <td>{p.auth_id ? <span style={{ color: "var(--success-fg)" }}>Yes</span> : <span style={{ color: "var(--text-faint)" }}>Not yet</span>}</td>
                 <td>
-                  <button onClick={() => deleteProfile(p)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }} title="Delete this person entirely">✕</button>
+                  {canManageAccountSecurity && (
+                    <button onClick={() => deleteProfile(p)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }} title="Delete this person entirely">✕</button>
+                  )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       )}

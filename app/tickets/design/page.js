@@ -17,6 +17,7 @@ import {
   DEFAULT_DESIGN_NOTIFICATION_TEMPLATES,
 } from "../../../lib/designFlow";
 import { resolveProfilesByEmail } from "../../../lib/pingNotification";
+import { canEditLockedDeadline } from "../../../lib/permissions";
 import styles from "../../shared.module.css";
 
 const OVERLOAD_EMAIL = "anh.duong@vieent.vn";
@@ -335,7 +336,7 @@ export default function DesignList() {
                     profiles={profiles}
                     isExecutorView={isExecutorView}
                     isDev={isDev}
-                    isAdmin={profile?.role === "admin"}
+                    isAdmin={canEditLockedDeadline(profile)}
                     onUpdateData={updateData}
                     onStatusChange={handleStatusChange}
                     onUpdatePic={updatePic}

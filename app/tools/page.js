@@ -118,7 +118,7 @@ export default async function Home() {
           <a href="/tickets/artist-profile" style={demoLinkStyle}>→ Ticket: Artist Profile</a>
           <a href="/tickets/stream-update" style={demoLinkStyle}>→ Ticket: Stream Update</a>
           <a href="/tickets/khac" style={demoLinkStyle}>→ Ticket: Khác</a>
-          <a href="/summary" style={demoLinkStyle}>→ Summary</a>
+          <a href="/report" style={demoLinkStyle}>→ Report</a>
         </div>
       </div>
     </main>

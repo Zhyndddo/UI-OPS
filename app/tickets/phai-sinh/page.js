@@ -12,6 +12,7 @@ import LinkOrEditCell from "../../../lib/LinkOrEditCell";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import { PHAI_SINH_TYPE_OPTIONS, isKhoNhacType, isMetadataConfirmed, CHILD_STATUS_COUNTERS } from "../../../lib/phaiSinhTypes";
+import { canEditLockedDeadline } from "../../../lib/permissions";
 import styles from "../../shared.module.css";
 
 // Rebuilt bespoke to match v1's real Phái Sinh table exactly — it shows
@@ -39,7 +40,7 @@ export default function PhaiSinhList() {
   const [relatedReleases, setRelatedReleases] = useState({}); // did -> release (gate_split_share/gate_phu_luc_publishing only)
   const [itemsByBatch, setItemsByBatch] = useState({}); // ticket id -> phai_sinh_batch_items rows, Kho Nhạc-family only
 
-  const canEditDeadline = profile?.role === "dev" || profile?.role === "admin";
+  const canEditDeadline = canEditLockedDeadline(profile); // round 57 — teamlead+
 
   const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
 
@@ -354,8 +355,18 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
           Phái Sinh already used (tab-agnostic, reused unchanged). */}
       <td style={{ minWidth: 70, maxWidth: isBatch ? 130 : 90 }}>
         {isBatch ? (
-          <Link href={`/tickets/batch-phai-sinh/${ticket.id}`} target="_blank" rel="noopener noreferrer" className={styles.btnSmall}>
-            Open Batch ↗
+          // Round 57 fix — the column is narrow enough that "Open Batch ↗"
+          // was wrapping mid-word wherever the browser happened to break
+          // it (e.g. "Open Bat-ch"), which looked broken. Force a clean
+          // 2-line break instead: "Open" / "Batch ↗".
+          <Link
+            href={`/tickets/batch-phai-sinh/${ticket.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={styles.btnSmall}
+            style={{ display: "inline-block", textAlign: "center", lineHeight: 1.3 }}
+          >
+            Open<br />Batch ↗
           </Link>
         ) : (
           <LinkOrEditCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v, !isExecutorView)} />
