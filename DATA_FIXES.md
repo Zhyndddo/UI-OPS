@@ -4253,3 +4253,156 @@ just gotten big) and would need a real pagination/lazy-load redesign, not a thro
 this now rather than silently leaving it as a loose end.
 
 No schema changes.
+
+## Round 67 — fix: Stream Workstation freeze (the loose end from round 66)
+
+Following up on the Stream Workstation caveat flagged in round 66: this page used to pull the
+**entire** `release_stream_metrics` table (every release, ~10 metric columns each) on every page
+load, then render every single month's full table simultaneously in the Monthly tab — for a
+release list that's already big enough to need pagination elsewhere in the app. That's not just a
+slow network call, it's a genuinely heavy synchronous render (potentially dozens of months ×
+dozens of releases × ~10 inputs per row, all mounted in the DOM at once), which is what was
+actually freezing the tab.
+
+**Redesigned per your idea:**
+- Monthly's months are now collapsible sections, **collapsed by default**.
+- Expanding a month for the first time is what fetches its metrics from the DB ("running the
+  database again") — only for that month's releases, not the whole table.
+- Collapsing it back just stops rendering its table. The fetched data stays cached in memory for
+  the rest of the session ("local store") — re-expanding the same month later is instant, no new
+  query. Nothing periodically refreshes a collapsed month's cached numbers in the background; once
+  fetched, it just sits there until you reload the page. That's the simpler of the two options you
+  offered — say the word if you'd rather it actually re-poll stale collapsed months periodically.
+- Which months were open is remembered in **sessionStorage** (not localStorage — session-only, per
+  your ask) under `vieent_stream_expanded_months`. Reloading the page within the same browser
+  session re-expands and re-fetches exactly the months you had open ("ran as much table as
+  needed"). A fresh session (new tab, browser restart) always starts fully collapsed — no auto-
+  expand, minimal initial load ("otherwise just normal").
+- The month index bar (jump links) now also expands the month it jumps to, since a plain anchor
+  scroll would otherwise have landed on a closed section.
+- Searching Monthly still searches every loaded release's title/artist/DID (that list was always
+  lightweight — the heavy part was always the metrics, never the release list itself) and now
+  auto-loads + shows every matched month regardless of its collapsed state, same as before
+  functionally, just fetching only the matched months' data instead of relying on an
+  already-fully-loaded table.
+- Today Check is small by nature (only day-1/day-2/day-7 releases) and is the default tab, so it
+  still just loads its metrics immediately — no need to gate something that small behind a click.
+- The "every release gets a metrics row" auto-create behavior still exists, just scoped to
+  whichever releases are actually being fetched (a month, Today Check, or a Bổ Sung merge) instead
+  of sweeping the entire table on every load.
+
+No schema changes.
+
+## Round 68 — many little fixes (magic link + release detail + Media Booking ticket)
+
+**1. Feed Back button hidden once a package is confirmed**
+
+Per your screenshot: "Feed Back" was still showing next to an already "✓ Package Confirmed"
+release (specifically one confirmed via the Package Runner's Chỉ Phát Hành import). It was gated
+on `!isLocked` only, but `isLocked` (`magicLink.locked || release.package_locked`) wasn't reliably
+true at the same moment `confirmed` was for an imported pick. Now also gated on `!confirmed`
+directly, which closes that gap regardless of the isLocked timing.
+
+**2. Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT**
+
+- a. Removed the "TRỢ GIÁ BOOKING" and "TRỢ GIÁ BOOKING ADS YOUTUBE NGOÀI GÓI HTTT" rows.
+- b. Recording Studio redesigned per your correction — it's picked **per product (release), not
+  per package**. Pulled it back out of the Package Builder's per-package add-on lines (where round
+  65 had put it) and gave it its own standalone toggle button in the ticket, next to the package
+  tabs but not tied to any one of them ("+ Recording Studio" / "✓ Recording Studio included").
+  Backed by a new `releases.recording_studio_included` boolean (see the migration file). When on,
+  it now shows as its own row right above "19 CREATIVE SPACE" on the magic link, regardless of
+  which package the artist ends up choosing — a package-line couldn't do that since it only ever
+  showed inside whichever specific package it was added to.
+
+**3. Package card title disappearing on light backgrounds**
+
+Both the rich comparison cards and the narrow simple-option cards had a hardcoded near-white title
+color (`#f4f4f4`, meant for dark mode) sitting on `var(--bg-card)`, which resolves close to white
+itself in light mode — title text went invisible. Fixed to fixed, theme-independent colors per
+your exact values: card background `#f7f3ee`, title text `#15130c` (applies the same regardless of
+which site theme is active, not just light mode).
+
+**4. Text formatting on the magic link's terms text**
+
+`TermsText()` (shared renderer for all 4 canned text blocks — Intro, Conditions, per-package
+terms, and Shared Terms B) now applies 3 line-matching rules instead of 1:
+- a. "HỖ TRỢ 100% CHI PHÍ" and "KHÔNG CẦN TRỪ DOANH THU" (2 separate lines) both now go bold +
+  orange — the old rule only matched the first line's exact phrase, never the second.
+- b. "ĐIỀU KIỆN CAM KẾT" now goes bold (no color change).
+- d. The 2 "Điều kiện N: ..." lines in Shared Terms B now go bold, with just their
+  numbers/percentages colored orange (matched via regex, not hardcoded to the current wording, so
+  it survives edits in Config → Shared Terms).
+
+Item **c** ("LƯU Ý: Chỉ áp dụng cho gói 5 năm và 2 năm" — remove this line) is content living in
+Config → Shared Terms (the `package_terms_shared_b` global setting), not code — please delete that
+line there directly. The "only shows for 5-năm/2-năm packages" behavior you described already
+exists exactly as-is (`SHARED_B_TIERS`/`showSharedB`, from a previous round) — nothing needed
+there.
+
+**Also (picture 2): Số Lượng / Thành Tiền column widths**
+
+In the same comparison table, Số Lượng (14% → 16%) and Thành Tiền (18% → 21%) were wrapping their
+own values onto 2 lines ("32 Bài Đăng" / "22.400.000 đ"). Widened both ~1.15x, Chi Tiết gives up
+the difference (46% → 41%, it had room to spare), and both cells are now `white-space: nowrap` so
+neither can wrap again regardless of content length.
+
+**5. Feature Artist field restored on the release detail page**
+
+`releases.feature_artist` was already a real column (used at New Release creation and per-track on
+the Tracks tab) but was never actually rendered on the release detail page's own Name/Artist/
+Release Date fields — added it back. Per your layout: Name now spans the row alone, Main Artist
+and Feature Artist share the row below it, Release Date/Release Time unchanged below that.
+
+**7. URL LBM column added to the Media Booking ticket list**
+
+Added next to the Release column, same field (`releases.link_lbm`) and pattern every other ticket
+type's list already uses for it (Sony Publish, Spotify MV, Priority Sync Lyric, etc.).
+
+**Not changed — flagged for you:**
+- Item 4c above (Config-editable text, see note there).
+- The "note" question (ops note vs marketing note being the same) — this is intentional, not a
+  bug: `ReleaseNotePanel`'s own comment says so explicitly — `releases.brief` is a SINGLE shared
+  field by design decision, edited once from "Next Step Note" on Overview, and every team's tab in
+  that panel just shows the same note. If you want it to actually be per-team going forward,
+  that's a real schema change (a note column per team, or a small notes table) — let me know and
+  I'll scope it properly rather than guess.
+- Item 6 (new publishing field + its own ticket page) — your message cut off mid-sentence ("will
+  go detail for the pag..."), so I didn't guess at what's needed there. There's already a Phụ Lục
+  Publishing ticket type in the app — let me know if this is meant to extend that, or if it's a
+  genuinely separate field/ticket, and what the field should actually capture.
+
+No schema changes except the new `releases.recording_studio_included` column — see
+`add-round68-recording-studio-flag.sql`.
+
+## Round 68b — per-team notes (follow-up to round 68 item 4)
+
+Per your explicit choice, the release detail page's note went from one shared field to a real
+note per team. `releases.brief` was always ONE field used by every team — the header panel and
+the "Next Step Note" editor both just showed/edited that same column regardless of which team tab
+was selected. That was an earlier explicit decision, since revised.
+
+**New columns:** `releases.note_ar`, `note_marketing`, `note_ops`, `note_legal` (matching
+`NOTE_PANEL_TEAMS` — same 4 teams already shown in the header panel, Design still excluded same as
+before). See `add-round68b-per-team-notes.sql`.
+
+**Migration also backfills:** copies whatever was already in the old `brief` field into all 4 new
+columns, once, so nothing already written is lost from view — only touches rows where the new
+column is still empty, so it's safe to re-run. `brief` itself is left in place (not dropped), just
+no longer read from or written to by this page.
+
+**Code changes:**
+- `ReleaseNotePanel` (header panel) — now takes the whole `form` object instead of a single `note`
+  string, and looks up the right field for whichever team tab is selected. Clicking a different
+  team now actually shows a different note.
+- The "Next Step Note" editor near Save on Overview — added a small team picker above the textarea
+  (same 4 teams), defaulting to AR. Editing writes to that team's own column via the existing
+  generic `update()` — no new save-path needed, it rides the same `saveTab()` write as everything
+  else on Overview.
+
+**Verified this migration for real** — not just eyeballed: ran it against a real local Postgres
+16 instance seeded from `staging-schema-full.sql`, inserted a test release with a `brief` value,
+confirmed the backfill correctly copied it into all 4 new columns, and confirmed re-running the
+migration is a clean no-op (doesn't clobber anything, `UPDATE 0` on the second pass).
+
+No other schema changes.

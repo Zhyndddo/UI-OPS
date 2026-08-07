@@ -873,7 +873,7 @@ export default function ReleaseDetailPage() {
             </div>
           </div>
 
-          <ReleaseNotePanel note={form.brief} />
+          <ReleaseNotePanel form={form} />
         </div>
 
         {error && <div className={styles.errorBox}>{error}</div>}
@@ -1002,13 +1002,19 @@ function LinkPill({ label, href }) {
 
 // Top-right note panel, sitting next to the header — same two-pane shape
 // as the notification bell dropdown (lib/NotificationBell.js: fixed-width
-// list on the left, content on the right). Per explicit decision, the note
-// itself is a SINGLE shared field (releases.brief — same "Next Step Note"
-// edited at the bottom of the Overview tab, see PreReleaseTab/OverviewTab)
-// rather than one note per team, so clicking a different team here doesn't
-// change what's shown — it's just which team's "view" you're browsing
-// from, matching every team seeing the same note today. Read-only here;
-// editing happens via the Next Step Note field near Save on Overview.
+// list on the left, content on the right).
+//
+// Round 68 — item 4: this used to be ONE shared field (releases.brief) for
+// every team, by an earlier explicit decision. Per a later explicit
+// correction, each team now has its own real note — clicking a different
+// team here actually changes what's shown now, backed by
+// releases.note_ar/note_marketing/note_ops/note_legal (round 68 migration;
+// see NOTE_FIELD_BY_TEAM below). The old shared releases.brief column
+// still exists and its prior content was copied into all 4 new columns as
+// a one-time backfill (see the migration) so nothing already written was
+// lost — it's just not read/written from here anymore. Read-only here;
+// editing happens via the Next Step Note field near Save on Overview,
+// which now has its own team picker too.
 // "possibly the ticket in the future too" (per the original request) is a
 // noted extension point, not built yet — there's no per-ticket note source
 // to pull from at the moment.
@@ -1022,9 +1028,11 @@ function LinkPill({ label, href }) {
 // picker uses), so switching to it compiles the note panel down to one
 // OPS tab instead of three.
 const NOTE_PANEL_TEAMS = REPORTING_TEAMS.filter((t) => t !== "Design");
+const NOTE_FIELD_BY_TEAM = { AR: "note_ar", Marketing: "note_marketing", OPS: "note_ops", Legal: "note_legal" };
 
-function ReleaseNotePanel({ note }) {
+function ReleaseNotePanel({ form }) {
   const [selectedTeam, setSelectedTeam] = useState(NOTE_PANEL_TEAMS[0]);
+  const note = form?.[NOTE_FIELD_BY_TEAM[selectedTeam]];
   return (
     <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden", height: 140 }}>
       <div style={{ width: 100, flexShrink: 0, borderRight: "1px solid var(--border)", overflowY: "auto", background: "var(--bg-card)" }}>
@@ -1073,9 +1081,9 @@ function SaveBar({ onSave, saving }) {
   );
 }
 
-function Field({ label, children }) {
+function Field({ label, children, style }) {
   return (
-    <div className={styles.field}>
+    <div className={styles.field} style={style}>
       <label className={styles.fieldLabel}>{label}</label>
       {children}
     </div>
@@ -1143,6 +1151,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
   const [artistsList, setArtistsList] = useState([]);
   const [labelsList, setLabelsList] = useState([]);
   const [labelDraft, setLabelDraft] = useState(form.label || "");
+  const [noteEditTeam, setNoteEditTeam] = useState(NOTE_PANEL_TEAMS[0]); // Round 68 — item 4: which team's Next Step Note is being edited
 
   useEffect(() => {
     setLabelDraft(form.label || "");
@@ -1271,7 +1280,14 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
 
       <div className={styles.subheading}>Name / Artist / Release Date (editing updates the title above)</div>
       <div className={styles.grid2}>
-        <Field label="Name">
+        {/* Round 68 — item 5: Feature Artist added back — it's a real
+            releases.feature_artist column (used at New Release creation,
+            and per-track on the Tracks tab), but was never actually
+            rendered here on the detail page's own Overview fields. Name
+            now spans the full row alone (per explicit layout ask) so Main
+            Artist and Feature Artist can share the row right below it,
+            same shape as the New Release form. */}
+        <Field label="Name" style={{ gridColumn: "1 / -1" }}>
           <input className={styles.input} value={form.title || ""} onChange={(e) => update("title", e.target.value)} />
         </Field>
         <Field label="Main Artist">
@@ -1280,6 +1296,14 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
               <ArtistInput styles={styles} value={form.main_artist} onChange={(v) => update("main_artist", v)} artists={artistsList} placeholder="Tên nghệ sĩ chính" />
             </div>
             <QuickCreate kind="artist" onCreated={(newArtist) => { setArtistsList((prev) => [...prev, newArtist]); update("main_artist", newArtist.stage_name); }} />
+          </div>
+        </Field>
+        <Field label="Feature Artist">
+          <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+            <div style={{ flex: 1 }}>
+              <ArtistInput styles={styles} value={form.feature_artist} onChange={(v) => update("feature_artist", v)} artists={artistsList} placeholder="Tên nghệ sĩ feature (nếu có)" />
+            </div>
+            <QuickCreate kind="artist" onCreated={(newArtist) => { setArtistsList((prev) => [...prev, newArtist]); update("feature_artist", newArtist.stage_name); }} />
           </div>
         </Field>
         <Field label="Release Date">
@@ -1461,11 +1485,37 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         />
 
         {/* Moved here from the old "Pre-release & Note" tab, right before
-            Save, per explicit request — this is the same releases.brief
-            field shown (read-only) in the note panel next to the header. */}
+            Save. Round 68 — item 4: now one note PER TEAM (matching the
+            read-only panel next to the header) instead of one shared
+            releases.brief field — added a small team picker so this stays
+            a single field/textarea instead of 4 stacked ones. Defaults to
+            AR (first team) same as the header panel. */}
         <div className={styles.subheading}>Next Step Note</div>
+        <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
+          {NOTE_PANEL_TEAMS.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setNoteEditTeam(t)}
+              className={styles.tabBtn}
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                fontWeight: noteEditTeam === t ? 700 : 400,
+                color: noteEditTeam === t ? "var(--accent)" : "var(--text-muted)",
+              }}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
         <Field label="">
-          <textarea className={styles.textarea} value={form.brief || ""} onChange={(e) => update("brief", e.target.value)} placeholder="Tình trạng data, xác nhận gói HTTT..." />
+          <textarea
+            className={styles.textarea}
+            value={form[NOTE_FIELD_BY_TEAM[noteEditTeam]] || ""}
+            onChange={(e) => update(NOTE_FIELD_BY_TEAM[noteEditTeam], e.target.value)}
+            placeholder="Tình trạng data, xác nhận gói HTTT..."
+          />
         </Field>
 
         <SaveBar onSave={onSave} saving={saving} />

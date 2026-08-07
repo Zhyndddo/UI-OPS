@@ -27,27 +27,27 @@ const BOOKING_ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
 // selected. Transcribed from the reference sheet; ping if any wording here
 // needs correcting and it'll get fixed in this same constant.
 const PARTNER_BENEFITS = [
-  // Round 65 — item 3: RECORDING STUDIO removed from this fixed,
-  // always-shown list — it's now an opt-in per-ticket add-on (the
-  // "+ RECORDING STUDIO" button in the Package Builder), so whether it
-  // appears at all now lives as a real package line instead, shown in the
-  // items table above like Design/other add-ons already are.
+  // Round 65 — RECORDING STUDIO removed from here (was an always-shown
+  // fixed row). Round 68 — moved again: for a while it lived as an
+  // opt-in per-PACKAGE line item, but that was wrong per explicit
+  // correction — it's picked per PRODUCT (this release), not per package,
+  // so it now conditionally prepends to this same list from
+  // PartnerBenefits() below (see recordingStudioIncluded), driven by
+  // releases.recording_studio_included instead of living in this array at
+  // all.
   { label: "19 CREATIVE SPACE", detail: "Không gian miễn phí để thực hiện quay phỏng vấn, live session, MV ..." },
   { label: "PITCHING PLAYLIST/BANNER", detail: "Nền Tảng : Zingmp3, NCT, Spotify, Apple Music\nKết quả Pitching sẽ được cập nhật sau khi nền tảng trả kết quả về" },
-  {
-    label: "TRỢ GIÁ BOOKING",
-    detail: "HỖ TRỢ 10% - 70% CHI PHÍ TRUYỀN THÔNG\n(KHÔNG GIỚI HẠN SỐ LẦN HỖ TRỢ)",
-    link: { text: "LINK", href: "https://docs.google.com/spreadsheets/d/1Jyuy_QjrDAk3ToG70Ql4O-6w2WMwVPi5lFRJJjWh9JQ/edit?gid=388080288#gid=388080288" },
-    detailAfterLink: "Hỗ trợ 10% đối với kênh youtube nghệ sĩ thuộc MCN, MV thời lượng dưới 5 phút, tối thiểu 20k views\n\nHỗ trợ 5% đối với kênh youtube nghệ sĩ không thuộc MCN, MV thời lượng dưới 5 phút, tối thiểu 200k views",
-  },
-  {
-    label: "TRỢ GIÁ BOOKING ADS YOUTUBE NGOÀI GÓI HTTT",
-    detail: "* TRỢ GIÁ KHÔNG ÁP DỤNG CHO CÁC TRƯỜNG HỢP SAU:\n1. Không thoả các điều kiện trên\n2. Chạy trong 24h - 48h\n3. Các chi phí phát sinh do thay đổi so với kế hoạch ban đầu (bao gồm nhưng không giới hạn ở): Đẩy nhanh tiến độ/Fast-push, thay đổi nội dung video, thay đổi đối tượng mục tiêu hoặc tạm dừng chiến dịch) sẽ làm gián đoạn quá trình tối ưu hóa tự động của Ads. Việc này có thể dẫn đến hệ quả chi phí thực tế tăng cao hơn so với báo giá dự kiến ban đầu.",
-  },
+  // Round 68 — item 2a: TRỢ GIÁ BOOKING and TRỢ GIÁ BOOKING ADS YOUTUBE
+  // NGOÀI GÓI HTTT rows removed per explicit request.
   { label: "HỆ THỐNG QUẢN LÝ PHÁT HÀNH VÀ DOANH THU", detail: "Cung cấp tài khoản truy cập để kiểm tra\n- Catalog : VIEENT Music Dashboard\n- Xem Báo cáo Doanh thu : Royalties Analytics" },
   { label: "BẢO VỆ BẢN QUYỀN & ĐỊNH DANH NGHỆ SĨ:", detail: "- Tối ưu hóa Hồ sơ nghệ sĩ (Mapping/Verification) trên mọi nền tảng.\n- Giám sát, xử lý vi phạm bản quyền (Claim/Report) trên các nền tảng.\n- Tư vấn pháp lý các vấn đề liên quan đến quyền tác giả, quyền bản ghi." },
   { label: "THEO DÕI & BÁO CÁO ĐỊNH KỲ", detail: "- Báo cáo định kỳ về chỉ số lượt nghe của dự án và profile của nghệ sĩ.\n- Đánh giá dữ liệu để tư vấn điều chỉnh kế hoạch truyền thông kịp thời, đảm bảo hiệu quả tối đa." },
 ];
+// Round 68 — the row PartnerBenefits() prepends when
+// release.recording_studio_included is true, regardless of which package
+// was picked (it's a per-product flag, not tied to any one package's
+// terms).
+const RECORDING_STUDIO_ROW = { label: "RECORDING STUDIO", detail: "Thu âm miễn phí tại VIEENT Studio" };
 const MEDIA_PARTNER_NOTE = {
   intro: "***Logo VIEENT sẽ xuất hiện trên các tài liệu truyền thông chính thức như:\n– Bài đăng Facebook\n– Thumbnail YouTube\n*** Chia sẻ các bài đăng về artist post /congrats post hoặc tag tên VIEENT trong bài đăng Congrats/Thank You Post",
   logoLink: "https://drive.google.com/drive/folders/1Pqx0wQAssoWe2aZcilI-N9bGzZXuDjIF",
@@ -59,14 +59,33 @@ const MEDIA_PARTNER_NOTE = {
 // shows it, even though Block A still shows for every real package.
 const SHARED_B_TIERS = ["độc quyền 5 năm", "độc quyền 2 năm"];
 
-// Any terms line containing this phrase gets highlighted in the accent
-// color instead of the default muted grey — Marketing wants "HỖ TRỢ 100%
-// CHI PHÍ KHÔNG CẤN TRỪ DOANH THU" (wherever it appears across the Intro /
-// Conditions / per-package terms text, all admin-edited in Config → Shared
-// Terms) to stand out. var(--accent-soft) is already bright orange in dark
-// mode and a darker, still-readable-on-white orange in light mode — no
-// separate light/dark branching needed here.
-const HIGHLIGHT_PHRASE = "hỗ trợ 100%";
+// Any terms line containing one of these phrases gets highlighted in the
+// accent color instead of the default muted grey — Marketing wants "HỖ TRỢ
+// 100% CHI PHÍ" / "KHÔNG CẦN TRỪ DOANH THU" (wherever it appears across the
+// Intro / Conditions / per-package terms text, all admin-edited in Config →
+// Shared Terms) to stand out. var(--accent-soft) is already bright orange
+// in dark mode and a darker, still-readable-on-white orange in light mode —
+// no separate light/dark branching needed here. Round 68 — item 4a added
+// the second line ("KHÔNG CẦN TRỪ DOANH THU" sits on its own line, right
+// after "HỖ TRỢ 100% CHI PHÍ", and wasn't matching the old single phrase).
+const HIGHLIGHT_PHRASES = ["hỗ trợ 100%", "không cần trừ doanh thu"];
+
+// Round 68 — item 4b: this exact line just goes bold, no color change.
+const BOLD_ONLY_PHRASES = ["điều kiện cam kết"];
+
+// Round 68 — item 4d: the two "Điều kiện N: ..." lines in Shared Terms
+// Block B go bold, with just their numbers/percentages colored orange —
+// matched by prefix rather than the surrounding sentence, so it survives
+// whatever exact wording ends up in Config → Shared Terms.
+const BOLD_NUMBERS_PHRASES = ["điều kiện 1", "điều kiện 2"];
+
+// Wraps every digit run (optionally followed by %) in an orange span —
+// "gấp 5 lần", "100% chi phí", "kèm 50% lợi nhuận" all get their numbers
+// picked out, whatever the surrounding sentence says.
+function withColoredNumbers(line) {
+  const parts = line.split(/(\d+%?)/g);
+  return parts.map((part, i) => (/^\d+%?$/.test(part) ? <span key={i} style={{ color: "var(--accent-soft)" }}>{part}</span> : part));
+}
 
 // Streaming & Milestone section, below Booking Progress — read-only
 // display of release_stream_metrics (the real, actively-maintained
@@ -88,18 +107,27 @@ const STREAM_FIELD_LABELS = {
   views_fb: "Facebook — Views", creations_fb: "Facebook — Creations",
 };
 
-// Renders a terms blob line-by-line so the one line containing
-// HIGHLIGHT_PHRASE (if any) can be colored differently — everything else
-// renders exactly as before (same font size/color/line-height), just
-// broken into per-line divs instead of one whiteSpace:"pre-line" block so
-// each line can carry its own style.
+// Renders a terms blob line-by-line so specific lines can carry their own
+// formatting — everything else renders exactly as before (same font
+// size/color/line-height), just broken into per-line divs instead of one
+// whiteSpace:"pre-line" block. Round 68 — item 4 added 2 more line-level
+// rules on top of the original HIGHLIGHT_PHRASES one: bold-only lines, and
+// bold-with-colored-numbers lines.
 function TermsText({ text, baseStyle }) {
   if (!text) return null;
-  return text.split("\n").map((line, i) => (
-    <div key={i} style={line.toLowerCase().includes(HIGHLIGHT_PHRASE) ? { ...baseStyle, color: "var(--accent-soft)", fontWeight: 700 } : baseStyle}>
-      {line || " "}
-    </div>
-  ));
+  return text.split("\n").map((line, i) => {
+    const lower = line.toLowerCase();
+    if (HIGHLIGHT_PHRASES.some((p) => lower.includes(p))) {
+      return <div key={i} style={{ ...baseStyle, color: "var(--accent-soft)", fontWeight: 700 }}>{line || " "}</div>;
+    }
+    if (BOLD_NUMBERS_PHRASES.some((p) => lower.includes(p))) {
+      return <div key={i} style={{ ...baseStyle, fontWeight: 700 }}>{withColoredNumbers(line)}</div>;
+    }
+    if (BOLD_ONLY_PHRASES.some((p) => lower.includes(p))) {
+      return <div key={i} style={{ ...baseStyle, fontWeight: 700 }}>{line || " "}</div>;
+    }
+    return <div key={i} style={baseStyle}>{line || " "}</div>;
+  });
 }
 
 export default function PickPackagePage() {
@@ -483,7 +511,13 @@ export default function PickPackagePage() {
               <div
                 key={c.value}
                 style={{
-                  background: selected ? "rgba(255,107,26,0.1)" : "var(--bg-card)",
+                  // Round 68 — item 3: was var(--bg-card), which resolves
+                  // near-white in light mode — combined with the title
+                  // text below (also hardcoded near-white, for dark mode
+                  // only), the title went invisible on light backgrounds.
+                  // Fixed to this specific cream regardless of site theme,
+                  // per explicit color values given.
+                  background: selected ? "rgba(255,107,26,0.1)" : "#f7f3ee",
                   // Every package card gets an orange stroke now (not just
                   // the selected one) so they read as a set of options to
                   // compare, not a plain grey list — selected still stands
@@ -508,7 +542,7 @@ export default function PickPackagePage() {
                   }}
                 >
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: selected ? "#ff9d5c" : "#f4f4f4" }}>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: selected ? "#ff9d5c" : "#15130c" }}>
                       {c.label || c.value}
                     </span>
                     {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
@@ -541,11 +575,17 @@ export default function PickPackagePage() {
                 ) : c.items?.length > 0 ? (
                   <div style={{ borderTop: "1px solid var(--border)", padding: "8px 16px" }}>
                     <table className={styles.table} style={{ marginTop: 8, tableLayout: "fixed", width: "100%" }}>
+                      {/* Round 68 — item 3: Số Lượng (14% -> 16%, ~1.15x)
+                          and Thành Tiền (18% -> 21%, ~1.15x) were clipping/
+                          wrapping their own numbers ("32 Bài Đăng" and
+                          "22.400.000 đ" breaking onto 2 lines). Chi Tiết
+                          gives up the difference (46% -> 41%) — it already
+                          has the most room to spare and wraps fine. */}
                       <colgroup>
                         <col style={{ width: "22%" }} />
-                        <col style={{ width: "14%" }} />
-                        <col style={{ width: "46%" }} />
-                        <col style={{ width: "18%" }} />
+                        <col style={{ width: "16%" }} />
+                        <col style={{ width: "41%" }} />
+                        <col style={{ width: "21%" }} />
                       </colgroup>
                       <thead>
                         <tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr>
@@ -554,9 +594,9 @@ export default function PickPackagePage() {
                         {c.items.map((item, i) => (
                           <tr key={i}>
                             <td style={{ wordBreak: "break-word" }}>{item.category}</td>
-                            <td>{item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
+                            <td style={{ whiteSpace: "nowrap" }}>{item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
                             <td style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "pre-line", lineHeight: 1.4 }}>{formatDetailText(item.detail) || "—"}</td>
-                            <td>{fmtVnd(item.amount)}</td>
+                            <td style={{ whiteSpace: "nowrap" }}>{fmtVnd(item.amount)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -610,7 +650,9 @@ export default function PickPackagePage() {
                   disabled={isLocked || picking}
                   style={{
                     textAlign: "left",
-                    background: selected ? "rgba(255,107,26,0.1)" : "var(--bg-card)",
+                    // Round 68 — item 3: same white-on-white fix as the
+                    // rich options cards above.
+                    background: selected ? "rgba(255,107,26,0.1)" : "#f7f3ee",
                     border: selected ? "1px solid #ff6b1a" : "1px solid var(--border)",
                     borderRadius: 10,
                     padding: "14px 16px",
@@ -619,7 +661,7 @@ export default function PickPackagePage() {
                   }}
                 >
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span style={{ fontSize: 14, fontWeight: 800, color: selected ? "#ff9d5c" : "#f4f4f4" }}>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: selected ? "#ff9d5c" : "#15130c" }}>
                       {c.label || c.value}
                     </span>
                     {selected && <span style={{ fontSize: 10, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
@@ -686,8 +728,16 @@ export default function PickPackagePage() {
 
         {/* Feed Back — the alternative to confirming a pick. Sends a note
             to AR instead of/alongside picking, rather than committing to
-            a choice right now. */}
-        {!isLocked && mediaBookingTicket && (
+            a choice right now. Round 68 — item 1: also gated on !confirmed
+            now, not just !isLocked. A release confirmed via the Package
+            Runner import (Chỉ Phát Hành) sets project_type directly, which
+            flips `confirmed` true on load — but isLocked depends on
+            magicLink.locked / release.package_locked, which weren't
+            reliably true in the same moment for an imported pick, so Feed
+            Back was staying visible next to an already-"✓ Package
+            Confirmed" card. Checking !confirmed directly closes that gap
+            regardless of the isLocked timing. */}
+        {!isLocked && !confirmed && mediaBookingTicket && (
           <div style={{ marginTop: 12 }}>
             {feedbackSent ? (
               <div className={styles.successBox}>Feedback sent — your OPS/AR contact has been notified.</div>
@@ -736,7 +786,7 @@ export default function PickPackagePage() {
             that section is showing. Round 54 — collapsed by default once
             this is a Media Report, same reasoning as the Package section
             above. */}
-        <PartnerBenefits defaultCollapsed={isMediaReport} />
+        <PartnerBenefits defaultCollapsed={isMediaReport} recordingStudioIncluded={!!release?.recording_studio_included} />
 
         {confirmed && (
           <div style={{ marginTop: 32 }}>
@@ -870,8 +920,12 @@ function CollapsibleSection({ title, defaultCollapsed, children }) {
   );
 }
 
-function PartnerBenefits({ defaultCollapsed }) {
+function PartnerBenefits({ defaultCollapsed, recordingStudioIncluded }) {
   const [open, setOpen] = useState(!defaultCollapsed);
+  // Round 68 — prepended, not part of PARTNER_BENEFITS itself, since
+  // whether it shows depends on this release's own flag rather than being
+  // fixed for every release.
+  const rows = recordingStudioIncluded ? [RECORDING_STUDIO_ROW, ...PARTNER_BENEFITS] : PARTNER_BENEFITS;
   return (
     <div style={{ marginTop: 28 }}>
       <button
@@ -884,7 +938,7 @@ function PartnerBenefits({ defaultCollapsed }) {
       </button>
       {open && (
       <div style={{ border: "1px solid var(--border)", borderTop: "none" }}>
-        {PARTNER_BENEFITS.map((row, i) => (
+        {rows.map((row, i) => (
           <div
             key={row.label}
             style={{

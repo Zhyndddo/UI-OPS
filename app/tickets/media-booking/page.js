@@ -98,7 +98,10 @@ export default function MediaBookingList() {
 
     const dids = [...new Set((data || []).map((t) => t.data?.releaseId).filter(Boolean))];
     if (dids.length > 0) {
-      const { data: rels } = await supabase.from("releases").select("did, title, main_artist, label, release_date, release_time").in("did", dids);
+      // Round 68 — item 7: link_lbm added so the ticket list can show a URL
+      // LBM column next to Release, same field/pattern every other ticket
+      // type's list already shows it with (Sony Publish, Spotify MV, etc.).
+      const { data: rels } = await supabase.from("releases").select("did, title, main_artist, label, release_date, release_time, link_lbm").in("did", dids);
       const map = {};
       (rels || []).forEach((r) => { map[r.did] = r; });
       setReleasesByDid(map);
@@ -189,7 +192,7 @@ export default function MediaBookingList() {
             <>
             <table className={styles.table}>
               <thead>
-                <tr><th>Release (DID)</th><th>Release</th><th>Propose Package</th><th>PIC</th><th>Deadline</th><th>Status</th></tr>
+                <tr><th>Release (DID)</th><th>Release</th><th>URL LBM</th><th>Propose Package</th><th>PIC</th><th>Deadline</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {pagedTickets.map((t) => {
@@ -205,6 +208,15 @@ export default function MediaBookingList() {
                             <div style={{ color: "var(--text-faint)" }}>Label: {rel.label || "—"}</div>
                             <div style={{ color: "var(--text-faint)" }}>{fmtDate(rel.release_date)} {rel.release_time || ""}</div>
                           </>
+                        ) : (
+                          <span style={{ color: "var(--text-dim)" }}>—</span>
+                        )}
+                      </td>
+                      <td onClick={(e) => e.stopPropagation()} style={{ maxWidth: 160, fontSize: 11 }}>
+                        {rel?.link_lbm ? (
+                          <a href={rel.link_lbm.split("\n")[0]} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a", wordBreak: "break-all" }}>
+                            {rel.link_lbm.split("\n")[0]}
+                          </a>
                         ) : (
                           <span style={{ color: "var(--text-dim)" }}>—</span>
                         )}
@@ -965,6 +977,21 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     updateLine(line, { is_package_priced: !line.is_package_priced });
   }
 
+  // Round 68 — item 2b: Recording Studio used to be a PREBUILT_ADDONS line
+  // added to one specific package (see the now-removed "Recording Studio"
+  // entry above). Per explicit correction, it's picked per PRODUCT (this
+  // release), not per package — an artist offered "Độc Quyền 5 năm" or
+  // "Chỉ Phát Hành" should see it on the magic link the same either way if
+  // it was included, which a package-specific line can't do. Lives on
+  // releases.recording_studio_included (round 68 migration) instead —
+  // this just flips it, no package/line involved at all.
+  async function toggleRecordingStudio() {
+    if (!release) return;
+    const next = !release.recording_studio_included;
+    setRelease((r) => ({ ...r, recording_studio_included: next }));
+    await supabase.from("releases").update({ recording_studio_included: next }).eq("id", release.id);
+  }
+
   async function addPrebuiltLine(addon) {
     if (!activePackage) return;
     const { data: line } = await supabase
@@ -1454,6 +1481,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   reorderLines={reorderLines}
                   updateLine={updateLine}
                   syncYoutubeAdsLine={syncYoutubeAdsLine}
+                  onToggleRecordingStudio={toggleRecordingStudio}
                   magicLinkUrl={magicLinkUrl}
                   generatingLink={generatingLink}
                   onGenerateLink={handleGenerateLink}
@@ -1581,8 +1609,12 @@ const PREBUILT_ADDONS = [
   { name: "Priority Pitching Spotify Homepage Banner", unit: "Gói", detail: "Banner Trang Chủ Spotify tháng 6 hoặc tháng 7" },
   // Round 54 — 3 more, straight off the "Quyền Lợi Dành Riêng Cho Đối Tác
   // Phát Hành VIEENT" reference sheet (same source PartnerBenefits() on the
-  // magic-link page renders from).
-  { name: "Recording Studio", unit: "Gói", detail: "Thu âm miễn phí tại VIEENT Studio" },
+  // magic-link page renders from). Recording Studio was here too — round 68
+  // pulled it out into its own release-level toggle (see the Recording
+  // Studio button below, near the package tabs) since it's picked per
+  // product, not per package, and needs to show on the magic link
+  // regardless of which package the artist ends up choosing — a real
+  // package line couldn't do that.
   { name: "19 Creative Space", unit: "Gói", detail: "Không gian miễn phí để thực hiện quay phỏng vấn, live session, MV ..." },
   { name: "Pitching Playlist/Banner", unit: "Gói", detail: "Nền Tảng: Zingmp3, NCT, Spotify, Apple Music\nKết quả Pitching sẽ được cập nhật sau khi nền tảng trả kết quả về" },
 ];
@@ -1706,7 +1738,7 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
 function PackagesPanel({
   release, categories, packages, activePackageId, setActivePackageId, activePackage, isIntMedia,
   namePopup, setNamePopup, createPackage, deletePackage, addPrebuiltLine, deleteLine, reorderLines, updateLine,
-  syncYoutubeAdsLine, magicLinkUrl, generatingLink, onGenerateLink, proposedPackage, onHide,
+  syncYoutubeAdsLine, onToggleRecordingStudio, magicLinkUrl, generatingLink, onGenerateLink, proposedPackage, onHide,
 }) {
   const hasSavedPackage = packages.length > 0;
   // Round 54 — item A.4: drag-to-reorder. dragIndex tracks which row (by
@@ -1734,6 +1766,28 @@ function PackagesPanel({
             </div>
             <button onClick={onHide} title="Hide this panel — the package stays as-is" style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer" }}>✕</button>
           </div>
+
+          {/* Round 68 — Recording Studio: per-product (this release), not
+              per-package — deliberately sits outside the package tabs
+              below, since it isn't tied to any one of them. Shows on the
+              magic link's Quyền Lợi table regardless of which package the
+              artist ends up picking. */}
+          <button
+            className={styles.btnSmall}
+            onClick={onToggleRecordingStudio}
+            title="Whether this product includes Recording Studio — shown on the magic link no matter which package is picked"
+            style={{
+              marginBottom: 14,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              border: release?.recording_studio_included ? "1px solid var(--accent)" : "1px solid var(--border-strong)",
+              background: release?.recording_studio_included ? "rgba(255,107,26,0.15)" : "transparent",
+              color: release?.recording_studio_included ? "var(--accent)" : "var(--text-muted)",
+            }}
+          >
+            {release?.recording_studio_included ? "✓ Recording Studio included" : "+ Recording Studio"}
+          </button>
 
           <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
             {packages.map((p) => (
