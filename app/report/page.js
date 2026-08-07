@@ -1,7 +1,7 @@
 "use client";
 
 import AppShell from "../../lib/AppShell";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
@@ -165,7 +165,25 @@ function KpiCard({ label, value, sub }) {
 const PIPELINE_TYPES = ["BRIEF & DATA", "DEALING"];
 const PAYMENT_STATUS_ORDER = ["Chưa Thực Hiện", "Đã Thanh Toán Một Phần", "Đã Thanh Toán"];
 
+// Round 61 fix — the production build failed: "useSearchParams() should
+// be wrapped in a suspense boundary" (Next.js requires this for a page
+// that reads the URL's query string, so it can bail out of static
+// prerendering just for that part instead of failing the whole build).
+// Missed this in round 57 when ?tab=worklist was added — other pages in
+// this app use useSearchParams without one (see app/releases/[id]/page.js)
+// but apparently never got caught by a real build, just got lucky on
+// however Next.js decided to prerender them. Split the component so the
+// actual page logic lives in ReportPageInner and the default export just
+// wraps it in <Suspense>.
 export default function ReportPage() {
+  return (
+    <Suspense fallback={<AppShell><div className={styles.page}><div className={styles.container}>Loading…</div></div></AppShell>}>
+      <ReportPageInner />
+    </Suspense>
+  );
+}
+
+function ReportPageInner() {
   const { profile } = useAuth();
   const searchParams = useSearchParams();
   // /summary redirects here with ?tab=worklist so old bookmarks land on

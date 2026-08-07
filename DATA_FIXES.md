@@ -4097,3 +4097,30 @@ someone already edited in the building panel). Nothing to change there; confirme
 `syncPackageLine`'s existing logic rather than assuming.
 
 No schema changes — same tables, just when the insert happens.
+
+## Round 62 — fix: production build failing on /report
+
+**Error from your Vercel build log:** `useSearchParams() should be wrapped in a suspense
+boundary` on `/report`, failing the whole deploy.
+
+**Cause:** round 57 added `useSearchParams()` to `/report` (to read `?tab=worklist` from
+`/summary`'s redirect) without wrapping it in a `<Suspense>` boundary — Next.js's App Router
+requires that for any plain (non-dynamic-segment) route it tries to statically prerender at build
+time, so it can bail out of static generation for just that part instead of failing outright.
+`/releases/[id]` uses `useSearchParams()` the same unguarded way, but never hit this because
+dynamic-segment routes aren't statically prerendered by default — only `/report`, a plain route,
+actually got caught.
+
+**Fix:** split the component — the actual page logic now lives in an internal
+`ReportPageInner`, and the default export just wraps it in `<Suspense fallback={...}>`, the
+standard pattern for this exact error.
+
+**Verification note, honestly:** this sandbox doesn't currently have npm registry access (every
+package install attempt came back 403, `next` included), so I couldn't run a real `next build`
+here to reproduce your exact Vercel failure and confirm it's gone end-to-end. What I *did* verify:
+the file still passes a full TypeScript/JSX syntax check clean, and this is Next.js's own
+documented fix for this exact error message (not a guess). Redeploy and let me know if it still
+fails — I'll iterate immediately if so.
+
+No schema changes, and no other page has the same gap (checked every `useSearchParams()` usage in
+the app — `/releases/[id]` is the only other one, and it's unaffected for the reason above).
