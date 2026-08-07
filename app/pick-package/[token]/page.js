@@ -27,7 +27,11 @@ const BOOKING_ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
 // selected. Transcribed from the reference sheet; ping if any wording here
 // needs correcting and it'll get fixed in this same constant.
 const PARTNER_BENEFITS = [
-  { label: "RECORDING STUDIO", detail: "Thu âm miễn phí tại VIEENT Studio" },
+  // Round 65 — item 3: RECORDING STUDIO removed from this fixed,
+  // always-shown list — it's now an opt-in per-ticket add-on (the
+  // "+ RECORDING STUDIO" button in the Package Builder), so whether it
+  // appears at all now lives as a real package line instead, shown in the
+  // items table above like Design/other add-ons already are.
   { label: "19 CREATIVE SPACE", detail: "Không gian miễn phí để thực hiện quay phỏng vấn, live session, MV ..." },
   { label: "PITCHING PLAYLIST/BANNER", detail: "Nền Tảng : Zingmp3, NCT, Spotify, Apple Music\nKết quả Pitching sẽ được cập nhật sau khi nền tảng trả kết quả về" },
   {
@@ -186,11 +190,19 @@ export default function PickPackagePage() {
     }
     const packagesEverCompleted = !!ticketRow?.status_log?.COMPLETE;
 
+    // Round 65 — item 4: the nested media_booking_package_lines(*) embed
+    // had no explicit order, so PostgREST returned each package's lines in
+    // whatever order the DB felt like (not necessarily insertion order),
+    // which is why this page's Hạng Mục row order didn't match the
+    // drag-to-reorder order set in the Package Builder ticket. The outer
+    // .order("sort_order") only orders the packages themselves, not their
+    // nested lines — needs its own foreignTable-scoped .order() too.
     const { data: realPackagesRaw } = await supabase
       .from("media_booking_packages")
       .select("*, media_booking_package_lines(*)")
       .eq("release_id", link.release_id)
-      .order("sort_order");
+      .order("sort_order")
+      .order("sort_order", { foreignTable: "media_booking_package_lines" });
     const realPackages = packagesEverCompleted ? realPackagesRaw : [];
     const { data: pkgCategories } = await supabase.from("package_categories").select("id, name");
     const categoryNameById = {};
@@ -256,7 +268,10 @@ export default function PickPackagePage() {
 
     const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
     setCategories(cats || []);
-    const { data: items } = await supabase.from("release_package_items").select("*").eq("release_id", link.release_id);
+    // Same ordering fix as the media_booking_package_lines embed above —
+    // this table also carries a sort_order column (set at copy-time in
+    // confirmChoice() below) that was never actually being asked for.
+    const { data: items } = await supabase.from("release_package_items").select("*").eq("release_id", link.release_id).order("sort_order");
     setPackageItems(items || []);
     const { data: entries } = await supabase.from("media_booking_entries").select("*").eq("release_id", link.release_id);
     setBookingEntries(entries || []);

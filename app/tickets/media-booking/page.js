@@ -896,6 +896,68 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...fullPatch } : l)) })));
   }
 
+  // Round 65 — item 2: YouTube Ads is the one Ads brand with exactly one
+  // possible metric ("Thruplays (Views)" — see ADS_METRICS), so unlike
+  // every other Ads brand (which can have several metric rows mushed into
+  // one lump amount, never individually editable from the right panel),
+  // its package line can safely be treated as a direct 1:1 mirror of its
+  // single underlying media_booking_content_entries row. This edits BOTH
+  // sides — the entry (so the left DSP grid stays correct too) and the
+  // package line/rollup — instead of only patching the line like
+  // updateLine() does for every other Hạng Mục. Re-queries the entry fresh
+  // rather than relying on `entries` state, since the right panel can be
+  // open while the left grid is showing an entirely different Hạng Mục.
+  async function syncYoutubeAdsLine(line, field, value) {
+    const adsCategoryId = line.category_id;
+    const { data: existingEntry } = await supabase
+      .from("media_booking_content_entries")
+      .select("*")
+      .eq("release_id", release.id)
+      .eq("category_id", adsCategoryId)
+      .eq("brand", "YouTube Ads")
+      .order("sort_order")
+      .limit(1)
+      .maybeSingle();
+
+    let entryAfter;
+    if (existingEntry) {
+      await supabase.from("media_booking_content_entries").update({ [field]: value }).eq("id", existingEntry.id);
+      entryAfter = { ...existingEntry, [field]: value };
+    } else {
+      const insertPayload = {
+        release_id: release.id, category_id: adsCategoryId, brand: "YouTube Ads", platform: "Thruplays (Views)",
+        count_posts: field === "count_posts" ? value : 0,
+        unit_price: field === "unit_price" ? value : priceDefaults.ads["YouTube Ads"]?.["Thruplays (Views)"] ?? null,
+        sort_order: 0,
+      };
+      const { data: inserted } = await supabase.from("media_booking_content_entries").insert(insertPayload).select().single();
+      entryAfter = inserted;
+    }
+    if (!entryAfter) return;
+
+    // Keep the left DSP grid's own `entries` state in sync too, if it
+    // happens to already have this row loaded (i.e. Ads is the currently
+    // selected Hạng Mục).
+    setEntries((prev) => {
+      const idx = prev.findIndex((e) => e.id === entryAfter.id);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      next[idx] = entryAfter;
+      return next;
+    });
+
+    const totalMoney = (entryAfter.count_posts || 0) * (entryAfter.unit_price || 0);
+    const detailText = "Thruplays (Views)"; // per request — unit name only, not the "SL X ..." format other brands use
+    await supabase.from("media_booking_package_categories").upsert(
+      { release_id: release.id, category_id: adsCategoryId, brand: "YouTube Ads", total_posts: entryAfter.count_posts || 0, total_money: totalMoney, detail_text: detailText, skipped: false, updated_at: new Date().toISOString() },
+      { onConflict: "release_id,category_id,brand" }
+    );
+
+    const linePatch = { quantity: entryAfter.count_posts || 0, unit_price: entryAfter.unit_price ?? null, detail: detailText, amount: totalMoney };
+    await supabase.from("media_booking_package_lines").update(linePatch).eq("id", line.id);
+    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...linePatch } : l)) })));
+  }
+
   // "Convert to Package" — 2-way toggle, flips the Thành Tiền formula
   // between Đơn Giá × Tổng Số Bài Đăng and Đơn Giá × Số Gói. Free to flip
   // back anytime, writes immediately either way.
@@ -1391,6 +1453,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   deleteLine={deleteLine}
                   reorderLines={reorderLines}
                   updateLine={updateLine}
+                  syncYoutubeAdsLine={syncYoutubeAdsLine}
                   magicLinkUrl={magicLinkUrl}
                   generatingLink={generatingLink}
                   onGenerateLink={handleGenerateLink}
@@ -1643,7 +1706,7 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
 function PackagesPanel({
   release, categories, packages, activePackageId, setActivePackageId, activePackage, isIntMedia,
   namePopup, setNamePopup, createPackage, deletePackage, addPrebuiltLine, deleteLine, reorderLines, updateLine,
-  magicLinkUrl, generatingLink, onGenerateLink, proposedPackage, onHide,
+  syncYoutubeAdsLine, magicLinkUrl, generatingLink, onGenerateLink, proposedPackage, onHide,
 }) {
   const hasSavedPackage = packages.length > 0;
   // Round 54 — item A.4: drag-to-reorder. dragIndex tracks which row (by
@@ -1728,7 +1791,7 @@ function PackagesPanel({
                   <tr>
                     <th></th>
                     <th>Hạng Mục</th>
-                    <th>Tổng Số Bài Đăng / Số Gói</th>
+                    <th>Tổng số lượng</th>
                     <th>Chi Tiết</th>
                     <th>Đơn Giá</th>
                     <th>Thành Tiền</th>
@@ -1739,6 +1802,13 @@ function PackagesPanel({
                   {sortedLines.map((line, index) => {
                     const cat = categories.find((c) => c.id === line.category_id);
                     const isAdsLine = cat?.name === "Ads";
+                    // Round 65 — item 2: YouTube Ads is the one Ads brand
+                    // with just a single possible metric (Thruplays
+                    // (Views) — ADS_METRICS only lists one for it), so
+                    // unlike every other Ads brand it's treated as a real
+                    // 1:1 editable line here instead of the "1 Gói" /
+                    // read-only-total display the other Ads brands get.
+                    const isYoutubeAdsLine = isAdsLine && line.brand === "YouTube Ads";
                     return (
                       <tr
                         key={line.id}
@@ -1763,7 +1833,15 @@ function PackagesPanel({
                         {/* Read-only now — quantity/Số Gói is edited from the
                             left data tool, this just mirrors it live. */}
                         <td style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                          {isAdsLine ? (
+                          {isYoutubeAdsLine ? (
+                            <input
+                              type="number"
+                              className={styles.input}
+                              style={{ width: 70, padding: "4px 6px", fontSize: 12 }}
+                              defaultValue={line.quantity ?? 0}
+                              onBlur={(e) => syncYoutubeAdsLine(line, "count_posts", parseInt(e.target.value, 10) || 0)}
+                            />
+                          ) : isAdsLine ? (
                             // Round 64 — item 2: Ads never carries a real
                             // quantity at the package-line level (it's
                             // priced per-entry, then summed into one lump
@@ -1778,12 +1856,21 @@ function PackagesPanel({
                           )}
                         </td>
                         <td style={{ minWidth: 260 }}>
-                          <textarea
-                            className={styles.textarea}
-                            style={{ width: "100%", padding: "4px 6px", fontSize: 11, minHeight: 44, boxSizing: "border-box" }}
-                            defaultValue={line.detail || ""}
-                            onBlur={(e) => updateLine(line, { detail: e.target.value || null })}
-                          />
+                          {isYoutubeAdsLine ? (
+                            // Round 65 — item 2: fixed to the unit name
+                            // only, not freely-typed — the entry-level sync
+                            // above always overwrites this with "Thruplays
+                            // (Views)" anyway, so making it look editable
+                            // would be misleading.
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Thruplays (Views)</span>
+                          ) : (
+                            <textarea
+                              className={styles.textarea}
+                              style={{ width: "100%", padding: "4px 6px", fontSize: 11, minHeight: 44, boxSizing: "border-box" }}
+                              defaultValue={line.detail || ""}
+                              onBlur={(e) => updateLine(line, { detail: e.target.value || null })}
+                            />
+                          )}
                         </td>
                         {/* Editable here too now — Đơn Giá wasn't
                             consistently reachable everywhere (Ads lines
@@ -1791,7 +1878,14 @@ function PackagesPanel({
                             tool's field for the categories that do, instead
                             of being read-only-only on this side. */}
                         <td>
-                          {isAdsLine ? (
+                          {isYoutubeAdsLine ? (
+                            <ThousandInput
+                              className={styles.input}
+                              style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
+                              value={line.unit_price ?? ""}
+                              onCommit={(n) => syncYoutubeAdsLine(line, "unit_price", n ?? 0)}
+                            />
+                          ) : isAdsLine ? (
                             // Round 64 — item 2: pairs with the "1 Gói"
                             // shown in the quantity column — since Số
                             // Lượng is being displayed as 1, the "default"

@@ -4166,3 +4166,52 @@ Nothing here changes what's actually stored — `unit`/`quantity`/`unit_price` s
 package lines same as before; this is display-only, same spirit as item 1.
 
 No schema changes.
+
+## Round 65 — quick fixes: label, Ads YouTube exception, Recording Studio, package order bug
+
+**1. Relabeled the right panel's quantity column**
+
+"Tổng Số Bài Đăng / Số Gói" → "Tổng số lượng" in the Package Builder's right-side Packages
+panel (`app/tickets/media-booking/page.js`). Display-only, no behavior change.
+
+**2. Ads Hạng Mục — YouTube Ads treated as an exception**
+
+YouTube Ads is the only Ads brand with just one possible metric (`ADS_METRICS["YouTube Ads"]`
+= `["Thruplays (Views)"]`), so unlike every other Ads brand (which mushes several metrics into
+one lump, read-only total), its right-panel package line now behaves like a real 1:1 mirror of
+that single row on the left DSP grid:
+- **Số Lượng** (quantity) column: now a real editable number input
+- **Đơn Giá** column: now a real editable input (thousand-separated display, same as other
+  Đơn Giá fields)
+- **Chi Tiết** column: fixed to just "Thruplays (Views)" (the unit name), not editable
+
+New `syncYoutubeAdsLine()` function writes both sides on every edit here — the underlying
+`media_booking_content_entries` row (so the left grid stays correct too) and the package line +
+`media_booking_package_categories` rollup, mirroring what Summarize already does for this row.
+Every other Ads brand is unchanged from round 64 (still shows "1 Gói" / the line's total as a
+read-only default).
+
+**3. Recording Studio — removed from the magic link's fixed benefits list**
+
+"RECORDING STUDIO" is no longer hardcoded into the always-shown "Quyền Lợi Dành Riêng Cho Đối
+Tác Phát Hành VIEENT" list on the magic link page (`app/pick-package/[token]/page.js`). It's
+already available as a real opt-in add-on from the Package Builder ("+ RECORDING STUDIO" —
+existing since round 54's `PREBUILT_ADDONS`), so whether it's actually included now only shows
+up as a real package line (like Design and the other add-ons), instead of always appearing
+whether or not it was actually added to that specific package.
+
+**4. Fixed: package row order on the magic link not matching the ticket**
+
+Root cause: the magic link page's Supabase query for a package's lines
+(`media_booking_packages.select("*, media_booking_package_lines(*)")`) had no explicit order on
+the *nested* `media_booking_package_lines` relation — the outer `.order("sort_order")` only
+orders the packages themselves, not each package's lines within it. So even though the
+Package Builder ticket persists your drag-to-reorder order via `sort_order`, the magic link (both
+the pre-confirm preview and the locked/confirmed view) was pulling those lines back in whatever
+order Postgres felt like returning them, not the order you set. Fixed by adding
+`.order("sort_order", { foreignTable: "media_booking_package_lines" })` to that query, and added
+the equivalent missing `.order("sort_order")` on the `release_package_items` query (the locked
+package's copied breakdown) for the same reason, even though nothing currently renders that one
+as an ordered list — it's the same latent bug and cheap to close now.
+
+No schema changes.
