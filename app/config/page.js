@@ -37,6 +37,7 @@ export default function ConfigPage() {
               ["team", "Team"],
               ["picDefaults", "PIC Defaults"],
               ["packageTerms", "Package Terms"],
+              ["mediaBookingPricing", "Media Booking Pricing"],
               ["platforms", "Platforms"],
               ["designTypes", "Design Types"],
               ["sizes", "Sizes"],
@@ -58,6 +59,7 @@ export default function ConfigPage() {
           {section === "team" && <TeamSection />}
           {section === "picDefaults" && <PicDefaultsSection />}
           {section === "packageTerms" && <PackageTermsSection />}
+          {section === "mediaBookingPricing" && <MediaBookingPricingSection />}
           {section === "platforms" && <PlatformsSection />}
           {section === "designTypes" && <DesignTypesSection />}
           {section === "sizes" && <SizesSection />}
@@ -647,6 +649,148 @@ function PackageTermsSection() {
             onBlur={(e) => { setSharedB(e.target.value); saveShared("package_terms_shared_b", e.target.value); }}
           />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Media Booking Pricing ────────────────────────────────────────────────
+// Round 54 — item A.1: the Media Booking ticket's Package Builder seeds
+// Đơn Giá with these defaults (see app/tickets/media-booking/page.js's
+// DEFAULT_UNIT_PRICES/priceDefaults) — Social/Community/TikTok Channel each
+// get ONE default (their brand rows always mush into a single package
+// line), Ads gets one per (ad brand, metric) since it keeps a real Đơn Giá
+// column per row. Saved here as one JSON blob under global_settings key
+// "media_booking_unit_price_defaults" (same key/value table PackageTerms
+// above already uses). Editing here only changes what NEW rows/lines
+// default to going forward — it never rewrites unit_price on anything
+// already saved on an existing release's package.
+const MEDIA_BOOKING_PRICE_CATEGORIES = ["TikTok Channel", "Social", "Community"];
+const MEDIA_BOOKING_PRICE_ADS = {
+  "Facebook Ads": ["Lượt tiếp cận", "Lượt tương tác", "Lượt truy cập (Link click)"],
+  "YouTube Ads": ["Thruplays (Views)"],
+  "TikTok Ads": ["Lượt tiếp cận", "Lượt xem video", "Lượt theo dõi", "Lượt truy cập (Link click)"],
+  "Spotify Ads": ["HPTO", "In-Stream Audio", "In-Stream Video", "In-Feed Display", "In-Feed Video"],
+};
+const MEDIA_BOOKING_PRICE_DEFAULTS = {
+  categories: { "TikTok Channel": 700000, "Social": 200000, "Community": 200000 },
+  ads: {
+    "Facebook Ads": { "Lượt tiếp cận": 30, "Lượt tương tác": 300, "Lượt truy cập (Link click)": 2000 },
+    "YouTube Ads": { "Thruplays (Views)": 55 },
+    "TikTok Ads": { "Lượt tiếp cận": 15, "Lượt xem video": 15, "Lượt theo dõi": 1500, "Lượt truy cập (Link click)": 2500 },
+    "Spotify Ads": { "HPTO": 26000, "In-Stream Audio": 26000, "In-Stream Video": 26000, "In-Feed Display": 26000, "In-Feed Video": 26000 },
+  },
+};
+const MEDIA_BOOKING_PRICE_SETTING_KEY = "media_booking_unit_price_defaults";
+
+function MediaBookingPricingSection() {
+  const [prices, setPrices] = useState(MEDIA_BOOKING_PRICE_DEFAULTS);
+  const [loading, setLoading] = useState(true);
+  const [savedKey, setSavedKey] = useState(null);
+
+  useEffect(() => {
+    if (!supabase) return;
+    (async () => {
+      const { data } = await supabase.from("global_settings").select("value").eq("key", MEDIA_BOOKING_PRICE_SETTING_KEY).maybeSingle();
+      if (data?.value) {
+        try {
+          const parsed = JSON.parse(data.value);
+          setPrices({
+            categories: { ...MEDIA_BOOKING_PRICE_DEFAULTS.categories, ...(parsed.categories || {}) },
+            ads: { ...MEDIA_BOOKING_PRICE_DEFAULTS.ads, ...(parsed.ads || {}) },
+          });
+        } catch {
+          // malformed value in the DB — keep the hardcoded fallback
+        }
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  function flashSaved(key) {
+    setSavedKey(key);
+    setTimeout(() => setSavedKey((k) => (k === key ? null : k)), 1500);
+  }
+
+  async function saveAll(next) {
+    setPrices(next);
+    await supabase.from("global_settings").upsert(
+      { key: MEDIA_BOOKING_PRICE_SETTING_KEY, value: JSON.stringify(next), updated_at: new Date().toISOString() },
+      { onConflict: "key" }
+    );
+  }
+
+  function updateCategoryPrice(categoryName, value) {
+    const num = value === "" ? null : parseFloat(value);
+    const next = { ...prices, categories: { ...prices.categories, [categoryName]: num } };
+    saveAll(next);
+    flashSaved(`cat:${categoryName}`);
+  }
+
+  function updateAdsPrice(brand, metric, value) {
+    const num = value === "" ? null : parseFloat(value);
+    const next = { ...prices, ads: { ...prices.ads, [brand]: { ...prices.ads[brand], [metric]: num } } };
+    saveAll(next);
+    flashSaved(`ads:${brand}:${metric}`);
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20, maxWidth: 640 }}>
+        Default Đơn Giá the Media Booking ticket's Package Builder starts new rows/lines at. Still freely editable
+        per-release in the building panel same as always — changing a number here only affects packages built after
+        the change, never rewrites what's already on an existing release. Changes save immediately on blur.
+      </p>
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
+        Per Hạng Mục (mushed brand rows → one price × tổng số lượng)
+      </div>
+      <div style={{ display: "grid", gap: 10, marginBottom: 28, maxWidth: 420 }}>
+        {MEDIA_BOOKING_PRICE_CATEGORIES.map((categoryName) => (
+          <div key={categoryName} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <label className={styles.fieldLabel} style={{ fontSize: 12, margin: 0 }}>{categoryName}</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {savedKey === `cat:${categoryName}` && <span style={{ color: "var(--success-fg)", fontSize: 11 }}>Saved</span>}
+              <input
+                type="number"
+                className={styles.input}
+                style={{ width: 120 }}
+                defaultValue={prices.categories[categoryName] ?? ""}
+                onBlur={(e) => updateCategoryPrice(categoryName, e.target.value)}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
+        Ads (per ad platform × metric — Đơn Giá stays a real per-row column)
+      </div>
+      <div style={{ display: "grid", gap: 20, maxWidth: 460 }}>
+        {Object.entries(MEDIA_BOOKING_PRICE_ADS).map(([adBrand, metrics]) => (
+          <div key={adBrand}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{adBrand}</div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {metrics.map((metric) => (
+                <div key={metric} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <label className={styles.fieldLabel} style={{ fontSize: 12, margin: 0, fontWeight: 400 }}>{metric}</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {savedKey === `ads:${adBrand}:${metric}` && <span style={{ color: "var(--success-fg)", fontSize: 11 }}>Saved</span>}
+                    <input
+                      type="number"
+                      className={styles.input}
+                      style={{ width: 120 }}
+                      defaultValue={prices.ads[adBrand]?.[metric] ?? ""}
+                      onBlur={(e) => updateAdsPrice(adBrand, metric, e.target.value)}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

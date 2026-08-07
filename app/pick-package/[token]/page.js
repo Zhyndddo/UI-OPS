@@ -136,6 +136,13 @@ export default function PickPackagePage() {
     load();
   }, [token]);
 
+  // Round 54 — browser tab title follows the same "Package Offer" →
+  // "Media Report" rename as everywhere else this link's name shows up.
+  useEffect(() => {
+    if (!release) return;
+    document.title = `${release.media_report_status ? "Media Report" : "Package Offer"} — ${release.title}`;
+  }, [release?.title, release?.media_report_status]);
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -378,6 +385,12 @@ export default function PickPackagePage() {
   if (error) return <div className={styles.page}><div className={styles.container} style={{ maxWidth: 640 }}><div className={styles.errorBox}>{error}</div></div></div>;
 
   const isLocked = magicLink?.locked || release?.package_locked;
+  // Round 54 — this same link is "Package Offer" until the Booking Board's
+  // "Convert Media Report" button is clicked for this release, then
+  // "Media Report" from then on (see release.media_report_status). Also
+  // gates item B.3's default-collapsed sections below.
+  const isMediaReport = !!release?.media_report_status;
+  const linkName = isMediaReport ? "Media Report" : "Package Offer";
   const isPipelineStage = ["BRIEF & DATA", "DEALING"].includes(release?.project_type);
   const hasOtherRounds = bookingEntries.some((e) => e.booking_round === "Đợt 1" || e.booking_round === "Đợt 2");
 
@@ -403,7 +416,7 @@ export default function PickPackagePage() {
             PartnerBenefits(). */}
         <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap", marginBottom: 20 }}>
           <div style={{ flex: "1 1 320px" }}>
-            <div className={styles.eyebrow}>// chọn gói hỗ trợ truyền thông</div>
+            <div className={styles.eyebrow}>// {linkName.toLowerCase()}</div>
             <h1 className={styles.title} style={{ marginBottom: 4 }}>
               {release?.title}
             </h1>
@@ -412,7 +425,7 @@ export default function PickPackagePage() {
             </div>
           </div>
           <div style={{ flex: "1 1 360px" }}>
-            <MediaPartnerNote />
+            <MediaPartnerNote defaultCollapsed={isMediaReport} />
           </div>
         </div>
 
@@ -428,6 +441,14 @@ export default function PickPackagePage() {
           </p>
         )}
 
+        {/* Round 54 — item B.3: once this link has been converted to a
+            Media Report (release.media_report_status set from the Booking
+            Board), the package-picking UI below is no longer actionable
+            (selection's already locked) — collapse it by default so the
+            report content is what's in front of whoever opens the link,
+            while still leaving it one click away if anyone wants to check
+            back on what was picked. */}
+        <CollapsibleSection title="Package" defaultCollapsed={isMediaReport}>
         <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
           Each contract type comes with its own package — compare them side by side below, then confirm
           your choice.
@@ -692,11 +713,15 @@ export default function PickPackagePage() {
           </div>
         )}
 
+        </CollapsibleSection>
+
         {/* Fixed partner-benefits block — same for every package, shown
             once (not duplicated per card) right under the package
             cards/confirm button, above the Booking Progress numbers when
-            that section is showing. */}
-        <PartnerBenefits />
+            that section is showing. Round 54 — collapsed by default once
+            this is a Media Report, same reasoning as the Package section
+            above. */}
+        <PartnerBenefits defaultCollapsed={isMediaReport} />
 
         {confirmed && (
           <div style={{ marginTop: 32 }}>
@@ -807,12 +832,42 @@ export default function PickPackagePage() {
   );
 }
 
-function PartnerBenefits() {
+// Round 54 — item B.3: generic collapsible wrapper for the "Package"
+// section (used inline, wrapping the whole options grid). PartnerBenefits
+// and MediaPartnerNote below have the same orange-header look already, so
+// they grow their own inline toggle instead of using this — kept separate
+// so their existing headers don't have to change shape.
+function CollapsibleSection({ title, defaultCollapsed, children }) {
+  const [open, setOpen] = useState(!defaultCollapsed);
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: open ? 10 : 0, color: "var(--text-faint)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}
+      >
+        <span style={{ display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+        {title}
+        <span style={{ fontWeight: 400, textTransform: "none", color: "var(--text-dim)" }}>{open ? "(click to collapse)" : "(click to expand)"}</span>
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
+function PartnerBenefits({ defaultCollapsed }) {
+  const [open, setOpen] = useState(!defaultCollapsed);
   return (
     <div style={{ marginTop: 28 }}>
-      <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{ width: "100%", textAlign: "left", background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase", border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
         Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT
-      </div>
+        <span>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
       <div style={{ border: "1px solid var(--border)", borderTop: "none" }}>
         {PARTNER_BENEFITS.map((row, i) => (
           <div
@@ -841,6 +896,7 @@ function PartnerBenefits() {
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }
@@ -849,12 +905,19 @@ function PartnerBenefits() {
 // so it can render at the top of the page (next to the product info)
 // instead of down with the rest of the partner-benefits content. Same
 // content/styling as before, just its own component now.
-function MediaPartnerNote() {
+function MediaPartnerNote({ defaultCollapsed }) {
+  const [open, setOpen] = useState(!defaultCollapsed);
   return (
     <div>
-      <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{ width: "100%", textAlign: "left", background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase", border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
         Quyền Lợi Dành Cho Đơn Vị Truyền Thông
-      </div>
+        <span>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
       <div style={{ border: "1px solid var(--border)", borderTop: "none", padding: "12px 14px", fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
         <div style={{ whiteSpace: "pre-line" }}>{MEDIA_PARTNER_NOTE.intro}</div>
         <div style={{ marginTop: 8 }}>
@@ -862,6 +925,7 @@ function MediaPartnerNote() {
         </div>
         <div style={{ marginTop: 8 }}>{MEDIA_PARTNER_NOTE.hashtag}</div>
       </div>
+      )}
     </div>
   );
 }

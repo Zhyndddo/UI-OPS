@@ -392,6 +392,21 @@ export default function ReleasesDashboard() {
                     <td>{fmtDate(r.release_date)}</td>
                     <td>
                       <span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.12)", color: "#ff9d5c" }}>{r.status}</span>
+                      {/* Round 54 — item B.1: surfaces the Booking Board's
+                          "Convert Media Report" state here on the New
+                          Release Dashboard too, per "add tab booking status
+                          (NEW RELEASE DASHBOARD): Đã có media report" — the
+                          board itself is where Convert/Send Artist actually
+                          happen (fixed "Media Report" column), this is just
+                          the read-only marker showing up here as well. */}
+                      {r.media_report_status && (
+                        <span
+                          className={styles.statusBadge}
+                          style={{ display: "block", marginTop: 4, background: r.media_report_status === "sent" ? "rgba(126,230,168,0.14)" : "rgba(255,202,77,0.14)", color: r.media_report_status === "sent" ? "#7ee6a8" : "#ffca4d" }}
+                        >
+                          {r.media_report_status === "sent" ? "Media Report — Artist Sent" : "Đã có media report"}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <span

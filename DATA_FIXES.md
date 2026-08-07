@@ -3668,3 +3668,183 @@ externally to the artist/label/media partner — it's not part of the internal a
 navigation, nobody on the internal team reaches it by browsing around; it only opens via the
 specific token link generated for a release (Media Booking ticket's "Generate Link" action).
 `app/pick-package/[token]/page.js`.
+
+## Round 53
+
+### 1. Notification product names — done, thanks for the function bodies
+
+Used the exact `notify_on_ticket_insert` / `notify_on_ticket_complete` bodies you pasted back and
+added one thing to each: a lookup of the release's title via `releases.did = new.data->>'releaseId'`
+(the same convention every auto-created ticket already uses), appended to the notification's title
+as " — {title}" when found. Everything else — the settings gate, `fanout_notification` calls, body
+text, requester fallback chain — is byte-for-byte what you sent back, untouched. Ticket types that
+don't carry a `releaseId` (Manual Claim, Report Conflict, Batch Phái Sinh's parent row, etc.) just
+get no suffix, same as before.
+
+**Migration:** `add-round53-notification-product-name.sql` — run once against the existing
+database. Not added to `schema.sql`, since these two functions were never in it to begin with (they
+predate this session's migration history).
+
+### 2. Media Booking ticket — artist Feed Back now visible while building the package
+
+The artist/label's Feed Back (submitted via the magic-link page, stored as `tickets.data.feedback =
+{text, submittedAt}`) was previously invisible anywhere in the internal Package Builder UI — I
+confirmed this with a grep before building, zero prior references to it in this file. Added a new
+"Feed Back Từ Đối Tác" panel that renders below the main DSP-grid panel (only when feedback exists),
+showing the free-text feedback and its submission timestamp.
+
+Also enlarged the Package Builder popup per your request: overall popup width grows from 1400px to
+1600px while building a package; the Hạng Mục picker on the left narrows from 190px to 160px in that
+same state to free up room; and the Packages panel on the right grows from 460px to 620px.
+`app/tickets/media-booking/page.js` (`PackageBuilderPopup`, `PackagesPanel`).
+
+## Round 54 — big batch: Booking ticket + Booking Board
+
+### A. Media Booking ticket
+
+**A.1 — Default Đơn Giá, Config-editable.** New rows/lines now start pre-priced instead of at 0/blank:
+Social, Community, and TikTok Channel each get ONE default price (200.000đ / 200.000đ / 700.000đ —
+their brand rows always mush into a single package line, so one price × tổng số lượng is enough),
+Ads gets a default per (ad platform, metric) pair since it keeps a real per-row Đơn Giá column
+(the 13 values from your list — Facebook/YouTube/TikTok/Spotify Ads). Still fully editable per-row/
+per-line in the building panel exactly like before — these are only what a *brand-new* row/line
+starts at. **New Config tab: Config → Media Booking Pricing** — editing a number there only changes
+what gets created going forward; it never rewrites Đơn Giá already saved on an existing release's
+package. Stored in `global_settings` (key `media_booking_unit_price_defaults`, same key/value table
+Package Terms already uses) — no schema migration needed for this part.
+
+**A.2 — 3 more prebuilt add-on lines.** "+ Recording Studio", "+ 19 Creative Space", "+ Pitching
+Playlist/Banner" now sit alongside the existing Design/Discovery Mode/Priority Pitching buttons in
+the Packages panel, wording taken straight from your screenshot (same content as the magic-link
+page's own "Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT" table).
+
+**A.3 — Summarize auto-adds to the package.** The separate "+ Add to Package" / "− Remove" button
+next to Summarize/Skip is gone. Clicking Summarize now syncs straight into whichever package tab is
+active — inserts a new line the first time a Hạng Mục/brand is summarized, updates the existing
+line's quantity/detail/Thành Tiền on every re-Summarize after that (re-Summarizing never touches a
+Đơn Giá you've already edited by hand — only ever set once, on first insert, from the Config
+default). If there's no package created yet, Summarize behaves exactly as before — just records the
+rollup, nothing to sync anywhere. A small "✓ In '{package name}'" note replaces the old button once
+a line exists.
+
+**A.4 — Drag to reorder.** Each Hạng Mục row in the Packages panel's table now has a ⋮⋮ handle on
+the left — drag and drop to reorder; the new order saves immediately (persists to
+`media_booking_package_lines.sort_order`, an existing column that wasn't being read/written before).
+
+**A.5 — Ads Chi Tiết shows the actual số lượng.** Was "SL Lượt tiếp cận; SL Lượt tương tác" (metric
+names only); now "SL 30 Lượt tiếp cận; SL 300 Lượt tương tác" (includes the quantity). Thành Tiền
+was already correctly summing Đơn Giá × Số Lượng per metric — no change needed there.
+
+**Migration:** none required for A — no schema changes, `global_settings` already exists.
+`app/tickets/media-booking/page.js`, `app/config/page.js`.
+
+### B. Booking Board
+
+**B.1 — "Convert Media Report" → Send Artist flow.** New fixed column on the Booking Board (next to
+Note, stays put regardless of which Hạng Mục filter/subfilter is active) with 3 states: nothing yet
+if no magic link exists for the release; a "Convert Media Report" button (special orange-gradient
+styling) once a link exists; after clicking, that becomes "Send Artist"; clicking Send Artist (one
+confirm prompt, since it's one-way) locks it to "✓ Artist Sent" and sets the release's `status` to
+"Hoàn thành" (marks the product complete). New nullable `releases.media_report_status` column
+(`null` | `'ready'` | `'sent'`).
+
+One judgment call I made here, flagging it in case it's not what you meant: "add tab booking status
+(NEW RELEASE DASHBOARD): Đã có media report" — I read this as "this state should also be visible on
+the New Release Dashboard," not a brand-new dashboard filter tab (there wasn't an existing "booking
+status" concept to hang a new tab off of, and I didn't want to guess my way into the wrong dashboard
+feature). So for now it shows as a small badge under the release's existing status badge on
+`/releases` ("Đã có media report" / "Media Report — Artist Sent"). If you actually wanted a real
+filterable tab there (like the Pre-release/Release/Post-release stat cards), tell me and I'll build
+that properly next round.
+
+**B.2 — Magic link has 2 names now.** Same link, renamed everywhere based on
+`releases.media_report_status`: **"Package Offer"** before Convert Media Report is clicked,
+**"Media Report"** after. Updated everywhere the name shows: the magic-link page's eyebrow line and
+browser-tab title, the media-booking ticket's link display (added a small label above the URL that
+wasn't there before), and the release detail page's URL tab field label ("Link Package Offer" /
+"Link Media Report").
+
+**B.3 — Collapsed sections once it's a Media Report.** On the magic-link page, once
+`media_report_status` is set, three sections default to collapsed (click to expand, still all fully
+there — nothing removed): the Package section (the comparison cards + Confirm flow — no longer
+actionable at that point since the pick is already locked in), "Quyền Lợi Dành Riêng Cho Đối Tác
+Phát Hành VIEENT", and "Quyền Lợi Dành Cho Đơn Vị Truyền Thông". Before conversion, everything
+still renders exactly as before (fully expanded, no click required).
+
+**Migration:** `add-round54-media-report-status.sql` — run once against the existing database.
+`app/booking/page.js`, `app/pick-package/[token]/page.js`, `app/releases/page.js`,
+`app/releases/[id]/page.js`, `schema.sql`.
+
+## Round 55 — fix: "always show only releases with a number" wasn't applying on "All"
+
+Round 50's always-on filter ("only show releases that have a requested/booked number for at least
+one column currently shown") had an explicit exception for the "All" Hạng Mục tab — it was written
+assuming "All" had no real columns to check against. That was wrong: "All" DOES have columns (one
+aggregate-per-category, brand `null` — same ones the SOCIAL/COMMUNITY/ADS/TIKTOK CHANNEL columns in
+that view show). Because of the exception, a release still sitting at BRIEF & DATA with no package
+built at all (target = null everywhere) was slipping through on the "All" tab specifically — exactly
+what your screenshot showed (rows like "Sao Em Không Thật Lòng" with a BRIEF & DATA package pill and
+0/— across every column). Removed the exception — the filter now applies the same way on every tab,
+including "All". `app/booking/page.js`.
+
+## Round 56 — Report page, user role pitch, YouTube stats auto-fetch
+
+### 1. User role levels — pitch (no code change)
+
+Answered in chat, not here — see that message for the actual recommendation (kept the existing
+3-tier exc/admin/dev model, explained what each currently gates and where a 4th tier would/wouldn't
+help). Flagging here only so it's not missing from the round's record.
+
+### 2. New "Report" sidebar item
+
+New `/report` page, added to the main sidebar nav (after Summary). Distinct from Summary — Summary is
+a live per-team "what's not done yet" worklist; Report is a read-only rollup across releases, the
+Booking Board, and package value, covering the 3 areas you picked: Release Pipeline Health, Booking
+Board Activity, Package/Revenue Value. Table + column-chart + pie-chart format, per your answer.
+Everything computed client-side from plain reads (`releases`, `media_booking_package_categories`) —
+nothing here writes anything.
+
+- **KPI row:** Total Releases, In Pipeline, Package Locked, Media Report Sent, Total Package Value,
+  Total VIEENT Support.
+- **A. Pipeline Health:** column chart by Loại Dự Án, column chart by Status, and an "At Risk" table —
+  releases whose release date has already passed while still sitting in BRIEF & DATA/DEALING.
+- **B. Booking Board Activity:** pie chart of Media Report conversion state (not converted / ready /
+  artist sent), column chart of how many releases have real (non-skipped) booking data per Hạng Mục,
+  and a "Ready — not yet sent" table (mirrors the Booking Board's own fixed column from round 54).
+- **C. Package/Revenue Value:** column chart of total package value by release month (last 12 months
+  with data), pie chart of payment status, and a top-10-by-value table.
+
+No schema changes — reads columns that already exist. New file `app/report/page.js`,
+`lib/Sidebar.js` (nav entry).
+
+### 3. Auto-fetch follower counts — YouTube only, official API
+
+Per your answer ("official APIs only"): built this for **YouTube specifically** — its Data API v3
+can look up ANY public channel's subscriber count with just an API key, no OAuth. TikTok, Instagram,
+and Facebook do NOT offer that through any official route for channels you don't own — their public
+APIs only return numbers for accounts connected via OAuth/Business verification, which only ever
+covers VIEENT's own Direct channels (and needs a real Business API integration to set up, a much
+bigger lift). If Direct-only TikTok/IG/FB stats become worth that investment later, this same route
+is the pattern to extend from, not start over.
+
+**What it does:** Booking Channels page (`/booking-channels`) gets a "↻ Refresh YouTube Stats" button
+(refreshes every YouTube row with a URL) plus a per-row ↻ button (just that one). Both call a new
+server route that hits YouTube's `channels` endpoint (resolves `/channel/UC.../`, `/@handle`, and
+legacy `/user/Username` URL shapes — `/c/CustomName` custom URLs aren't resolvable this cheaply, those
+rows get skipped with a clear reason shown in the result banner) and writes `follower_count` +
+`stats_synced_at` back. The channel row then shows "39,500 followers (synced 07/08/2026)".
+
+**Setup required before this works — I can't do this part myself (no live deploy access):**
+1. Get a YouTube Data API v3 key from Google Cloud Console — API key only, no OAuth consent screen
+   needed for this. Free tier quota is generous for this volume (a few hundred channels, refreshed
+   occasionally).
+2. Add it as the `YOUTUBE_API_KEY` environment variable in the Vercel project (Settings →
+   Environment Variables → all environments), then redeploy.
+3. `SUPABASE_SERVICE_ROLE_KEY` needs to already be set (it's what the admin-invite/delete-user
+   routes use too — if those already work, this is already set).
+
+Until `YOUTUBE_API_KEY` is set, clicking Refresh returns a clear error instead of silently doing
+nothing.
+
+**Migration:** `add-round56-channel-stats-sync.sql` — run once against the existing database.
+New file `app/api/refresh-youtube-stats/route.js`, `app/booking-channels/page.js`, `schema.sql`.

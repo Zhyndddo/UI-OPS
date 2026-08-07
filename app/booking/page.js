@@ -164,7 +164,7 @@ export default function BookingBoard() {
     setLoading(true);
     const { data: rels } = await supabase
       .from("releases")
-      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note")
+      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status")
       .order("release_date", { ascending: false });
     const { data: ents } = await supabase.from("media_booking_entries").select("*");
     const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
@@ -187,6 +187,22 @@ export default function BookingBoard() {
   async function updateReleaseNote(release, value) {
     setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, booking_note: value } : r)));
     await supabase.from("releases").update({ booking_note: value }).eq("id", release.id);
+  }
+
+  // Round 54 — item B.1: "Convert Media Report" turns this release's
+  // magic link from a "Package Offer" into a "Media Report" everywhere it's
+  // named (see release.media_report_status, read by app/pick-package,
+  // app/releases/[id], and the media-booking ticket). 'ready' shows
+  // "Send Artist" here next; clicking that is one-time — it flips to
+  // 'sent' (locked, no more clicks) and marks the release complete.
+  async function convertMediaReport(release) {
+    setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, media_report_status: "ready" } : r)));
+    await supabase.from("releases").update({ media_report_status: "ready" }).eq("id", release.id);
+  }
+
+  async function sendArtistMediaReport(release) {
+    setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, media_report_status: "sent" } : r)));
+    await supabase.from("releases").update({ media_report_status: "sent", status: "Hoàn thành" }).eq("id", release.id);
   }
 
   // Mirrors phu_luc_status() in schema.sql
@@ -362,16 +378,16 @@ export default function BookingBoard() {
       }
       if (typeFilter && r.project_type !== typeFilter) return false;
       if (labelFilter && r.label !== labelFilter) return false;
-      // Per the team's confirmed default: once a specific Hạng Mục (and
-      // Brand, where applicable) path is picked, ALWAYS show only releases
-      // that actually have a requested/booked number for at least one of
-      // the columns currently shown — no toggle, this is just how the
-      // filtered path works now. (Replaces the earlier "Chưa có yêu cầu" /
-      // "Đã có yêu cầu" toggle buttons — the team decided the "has a
-      // number" behavior should be the only, always-on behavior rather
-      // than something to switch on and off.) Doesn't apply to "All" (no
-      // columns to check against).
-      if (hangMucFilter !== "All" && columns.length > 0) {
+      // Per the team's confirmed default: ALWAYS show only releases that
+      // actually have a requested/booked number for at least one of the
+      // columns currently shown — no toggle, this is just how the board
+      // works now. (Replaces the earlier "Chưa có yêu cầu" / "Đã có yêu
+      // cầu" toggle buttons.) This also applies on "All" — its columns are
+      // one aggregate-per-category entry (brand: null), so a release with
+      // no package/target anywhere (still sitting at BRIEF & DATA) has
+      // every one of those come back null and correctly gets filtered out
+      // there too, not just once you drill into a specific Hạng Mục/Brand.
+      if (columns.length > 0) {
         const anyFilled = columns.some((c) => bookedFor(r, c.categoryName, c.brand) != null);
         if (!anyFilled) return false;
       }
@@ -661,6 +677,10 @@ export default function BookingBoard() {
                     per-Hạng-Mục column set below so it stays in the same
                     place regardless of which filter is active. */}
                 <th style={{ borderRight: "2px solid var(--accent)", width: 140, minWidth: 140 }}>Note</th>
+                {/* Round 54 — item B.1: fixed column, same reasoning as
+                    Note above — stays put regardless of which Hạng Mục
+                    filter/subfilter is active ("in all filter page"). */}
+                <th style={{ borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>Media Report</th>
                 {columns.map((c, i) => {
                   const prev = columns[i - 1];
                   const isGroupStart = prev && prev.categoryName !== c.categoryName;
@@ -728,6 +748,9 @@ export default function BookingBoard() {
                       defaultValue={r.booking_note || ""}
                       onBlur={(e) => updateReleaseNote(r, e.target.value)}
                     />
+                  </td>
+                  <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>
+                    <MediaReportCell release={r} onConvert={convertMediaReport} onSendArtist={sendArtistMediaReport} />
                   </td>
                   {columns.map((c, i) => {
                     const prev = columns[i - 1];
@@ -803,6 +826,49 @@ export default function BookingBoard() {
 // scroll distance half-covered/half-showing). Halving the cell's height
 // doesn't eliminate that effect (inherent to any sticky header + row
 // taller than one line) but cuts it roughly in half.
+// Round 54 — item B.1: 3-state fixed cell.
+//   no magic link yet        → nothing to convert, shows a dash
+//   link exists, not yet     → "Convert Media Report" button (special
+//     converted                accent styling per explicit request)
+//   media_report_status      → "Send Artist" button
+//     === "ready"
+//   media_report_status      → locked "Artist Sent" label, no more clicks
+//     === "sent"
+function MediaReportCell({ release, onConvert, onSendArtist }) {
+  if (!release.link_media_report) {
+    return <span style={{ color: "var(--text-faint)", fontSize: 12 }}>—</span>;
+  }
+  if (release.media_report_status === "sent") {
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "#7ee6a8", fontWeight: 700 }}>
+        ✓ Artist Sent
+      </span>
+    );
+  }
+  if (release.media_report_status === "ready") {
+    return (
+      <button
+        className={styles.btnSmall}
+        onClick={() => { if (window.confirm("Send this Media Report to the artist? This can only be done once, and marks the product as complete.")) onSendArtist(release); }}
+        style={{ border: "1px solid #ffca4d", color: "#ffca4d" }}
+      >
+        Send Artist
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={() => onConvert(release)}
+      style={{
+        border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.3,
+        cursor: "pointer", color: "#0a0a0a", background: "linear-gradient(135deg, #ff9d5c, #ff6b1a)",
+      }}
+    >
+      Convert Media Report
+    </button>
+  );
+}
+
 function ResultCell({ release, categories, bookedFor, entries, categoryIdByName }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 10, rowGap: 3 }}>

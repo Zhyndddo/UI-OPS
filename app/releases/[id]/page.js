@@ -1580,8 +1580,12 @@ function UrlTab({ form, update, onSave, saving, did, releaseId }) {
         {/* Link Media Report keeps its label but is no longer hand-typed —
             it's auto-mapped to whatever magic link exists for this release
             (set the moment one is generated from the media-booking ticket),
-            so it always matches what the artist was actually sent. */}
-        <Field label="Link Media Report">
+            so it always matches what the artist was actually sent. Round 54
+            — the SAME link now has 2 names depending on whether the Booking
+            Board's "Convert Media Report" has been clicked yet for this
+            release: "Package Offer" before, "Media Report" after — see
+            release.media_report_status. */}
+        <Field label={form.media_report_status ? "Link Media Report" : "Link Package Offer"}>
           {form.link_media_report ? (
             <a
               href={form.link_media_report}
