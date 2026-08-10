@@ -789,8 +789,15 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       // channel_count defaults to 1 and stays that way for Social (no
       // Số Kênh column there) — so summing it is equivalent to counting
       // rows for every category except Community, where it's now editable.
-      byPlatform[e.platform].channelCount += e.channel_count || 1;
-      byPlatform[e.platform].totalPosts += PHASES.reduce((sum, [key]) => sum + (e[key] || 0), 0);
+      const rowChannels = e.channel_count || 1;
+      const rowPosts = PHASES.reduce((sum, [key]) => sum + (e[key] || 0), 0);
+      byPlatform[e.platform].channelCount += rowChannels;
+      // Round 80 — unified formula per explicit request: multiply Số
+      // Lượng Kênh × Số Lượng Bài PER ROW, then sum those products —
+      // sum(byrow(số lượng kênh, số lượng bài)) — instead of the previous
+      // sum(channel counts) and sum(post counts) kept independent of each
+      // other. Matches what TikTok Channel's own formula already did.
+      byPlatform[e.platform].totalPosts += rowChannels * rowPosts;
     });
     const rows = PLATFORMS.map((p) => byPlatform[p]).filter((r) => r.channelCount > 0);
     setSummary(rows);

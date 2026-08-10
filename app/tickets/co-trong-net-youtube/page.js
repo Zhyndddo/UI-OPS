@@ -169,7 +169,7 @@ export default function CoTrongNetYoutubeTicketList() {
                       <td>
                         <input
                           className={styles.input}
-                          style={{ padding: "4px 8px", fontSize: 12 }}
+                          style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }}
                           defaultValue={d.ytbPage || ""}
                           onBlur={(e) => updateTicketData(t, { ytbPage: e.target.value })}
                         />

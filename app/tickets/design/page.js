@@ -438,19 +438,19 @@ function DesignRow({ ticket, platforms, types, sizes, profiles, isExecutorView, 
         <textarea className={styles.textarea} style={{ minHeight: 44, fontSize: 12, padding: "4px 8px" }} defaultValue={ticket.data?.description || ""} onBlur={(e) => onUpdateData(ticket, { description: e.target.value })} />
       </td>
       <td>
-        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.data?.platform || ""} onChange={(e) => onPlatformChange(e.target.value)}>
+        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} value={ticket.data?.platform || ""} onChange={(e) => onPlatformChange(e.target.value)}>
           <option value="">—</option>
           {platforms.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
         </select>
       </td>
       <td>
-        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.data?.designType || ""} onChange={(e) => onTypeChange(e.target.value)} disabled={!currentPlatform}>
+        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} value={ticket.data?.designType || ""} onChange={(e) => onTypeChange(e.target.value)} disabled={!currentPlatform}>
           <option value="">—</option>
           {typesForPlatform.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
         </select>
       </td>
       <td>
-        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.data?.size || ""} onChange={(e) => onUpdateData(ticket, { size: e.target.value })} disabled={!currentType}>
+        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} value={ticket.data?.size || ""} onChange={(e) => onUpdateData(ticket, { size: e.target.value })} disabled={!currentType}>
           <option value="">—</option>
           {sizesForType.map((s) => <option key={s.id} value={s.label}>{s.label}</option>)}
         </select>

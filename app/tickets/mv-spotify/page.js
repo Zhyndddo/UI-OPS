@@ -193,7 +193,7 @@ export default function MvSpotifyTicketList() {
                       <td>
                         <input
                           className={styles.input}
-                          style={{ padding: "4px 8px", fontSize: 12 }}
+                          style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }}
                           defaultValue={ticket.data?.note || ""}
                           onBlur={(e) => updateTicketNote(ticket, e.target.value)}
                         />

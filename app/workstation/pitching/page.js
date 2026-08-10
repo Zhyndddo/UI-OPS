@@ -304,13 +304,20 @@ export default function PitchingWorkstation() {
                           ))}
                         </div>
                       </td>
-                      <td onClick={(e) => e.stopPropagation()}>
+                      <td>
+                        {/* Round 80 — fixed bug: stopPropagation belongs on
+                            the input itself (so typing/clicking into it
+                            doesn't also open the row's popup), NOT on the
+                            whole <td> — that blocked the row's onClick from
+                            ever firing for anyone clicking this column at
+                            all, anywhere in it, popup or not. */}
                         {row.release ? (
                           <input
                             className={styles.input}
                             style={{ minWidth: 140 }}
                             defaultValue={row.release.pitching_note || ""}
                             onBlur={(e) => updateRelease(row.release, "pitching_note", e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
                           />
                         ) : (
                           <span style={{ color: "var(--text-faint)" }}>—</span>

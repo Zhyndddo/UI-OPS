@@ -181,14 +181,14 @@ export default function DiscoveryModeSpotifyTicketList() {
                       <td>
                         <input
                           className={styles.input}
-                          style={{ padding: "4px 8px", fontSize: 12 }}
+                          style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }}
                           defaultValue={d.discoveryClipUrl || ""}
                           onBlur={(e) => updateTicketData(ticket, { discoveryClipUrl: e.target.value })}
                         />
                       </td>
                       <td>
                         {isExecutorView ? (
-                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={d.clipStatus || DISCOVERY_CLIP_STATUS_OPTIONS[0]} onChange={(e) => updateTicketData(ticket, { clipStatus: e.target.value })}>
+                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} value={d.clipStatus || DISCOVERY_CLIP_STATUS_OPTIONS[0]} onChange={(e) => updateTicketData(ticket, { clipStatus: e.target.value })}>
                             {DISCOVERY_CLIP_STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
                           </select>
                         ) : (

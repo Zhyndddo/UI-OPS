@@ -15,6 +15,7 @@ import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import NoteCell from "../../../lib/NoteCell";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
+import { parseManualClaimBatchPaste, MANUAL_CLAIM_BATCH_COLUMNS } from "../../../lib/manualClaimBatchParse";
 import styles from "../../shared.module.css";
 
 // Rebuilt bespoke to match v1's real Manual Claim table — simpler than
@@ -30,6 +31,13 @@ export default function ManualClaimList() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
   const [query, setQuery] = useState(""); // round 76 — quick index search box
+  // Round 81 item 4 — mass import via paste, mirroring Phái Sinh's "+ Add
+  // Via Paste" pattern (lib/phaiSinhBatchParse.js) but creating standalone
+  // tickets instead of batch child rows.
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [pasteError, setPasteError] = useState(null);
+  const [pasteSubmitting, setPasteSubmitting] = useState(false);
 
   const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
 
@@ -109,6 +117,40 @@ export default function ManualClaimList() {
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
+  // Round 81 item 4 — same insert shape lib/NewTicketPage.js uses for a
+  // single Manual Claim ticket (tab_id/data/status/status_log/requester_*),
+  // just fired once per pasted row instead of once per form submit.
+  async function handleAddPaste(e) {
+    e.preventDefault();
+    setPasteError(null);
+    if (!tab) return;
+    const { rows, skipped } = parseManualClaimBatchPaste(pasteText);
+    if (rows.length === 0) {
+      setPasteError("Nothing parsed from the box — check the column order and try again.");
+      return;
+    }
+    setPasteSubmitting(true);
+    const { error } = await supabase.from("tickets").insert(
+      rows.map((r) => ({
+        tab_id: tab.id,
+        data: r,
+        status: tab.default_status,
+        status_log: { [tab.default_status]: new Date().toISOString() },
+        requester_segment: profile?.segment || null,
+        requester_name: profile?.name || null,
+      }))
+    );
+    setPasteSubmitting(false);
+    if (error) {
+      setPasteError(error.message);
+      return;
+    }
+    setPasteText("");
+    setPasteOpen(false);
+    await load();
+    if (skipped > 0) window.alert(`${rows.length} ticket(s) created — ${skipped} row(s) skipped (missing Label/Tên Bài/Artist/URL).`);
+  }
+
   const visibleTickets = (isExecutorView
     ? tickets.filter((t) => t.status === statusFilter)
     : [...tickets].sort((a, b) => (REFUND_LIKE.includes(a.status) ? 0 : 1) - (REFUND_LIKE.includes(b.status) ? 0 : 1))
@@ -126,8 +168,35 @@ export default function ManualClaimList() {
               <div className={styles.eyebrow}>// Ticket</div>
               <h1 className={styles.title} style={{ marginBottom: 0 }}>Manual Claim</h1>
             </div>
-            <Link href="/tickets/manual-claim/new" className={styles.btnPrimary}>+ New Ticket</Link>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className={styles.btnSmall} onClick={() => setPasteOpen((o) => !o)}>+ Mass Import</button>
+              <Link href="/tickets/manual-claim/new" className={styles.btnPrimary}>+ New Ticket</Link>
+            </div>
           </div>
+
+          {pasteOpen && (
+            <form onSubmit={handleAddPaste} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14, marginBottom: 20 }}>
+              {pasteError && <div className={styles.errorBox}>{pasteError}</div>}
+              <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 0, marginBottom: 6 }}>
+                One ticket per line, tab-separated, in this column order: {MANUAL_CLAIM_BATCH_COLUMNS.join(" · ")}. Label, Tên Bài, Artist, and URL are required — rows missing any of those are skipped.
+              </p>
+              <textarea
+                className={styles.textarea}
+                style={{ minHeight: 140, fontFamily: "monospace", fontSize: 11 }}
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder="Paste tab-separated rows here…"
+              />
+              <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                <button className={styles.btnPrimary} type="submit" disabled={pasteSubmitting}>
+                  {pasteSubmitting ? "Adding…" : "Add Tickets"}
+                </button>
+                <button type="button" className={styles.btnSmall} onClick={() => { setPasteOpen(false); setPasteText(""); setPasteError(null); }}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
 
           <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
 
@@ -196,7 +265,7 @@ function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, 
       <td>
         <input
           className={styles.input}
-          style={{ padding: "4px 8px", fontSize: 12 }}
+          style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }}
           defaultValue={value || ""}
           onBlur={(e) => onUpdateField(ticket, key, e.target.value, !isExecutorView)}
         />

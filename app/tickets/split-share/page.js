@@ -179,7 +179,7 @@ export default function SplitShareTicketList() {
                         )}
                       </td>
                       <td>
-                        <input type="date" className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={t.data?.ngaySet || ""} onBlur={(e) => updateTicketData(t, { ngaySet: e.target.value })} />
+                        <input type="date" className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.ngaySet || ""} onBlur={(e) => updateTicketData(t, { ngaySet: e.target.value })} />
                       </td>
                       <td>
                         <span style={{ fontSize: 12, color: t.data?.ngayHoanThanh ? "var(--success-fg)" : "var(--text-faint)" }}>

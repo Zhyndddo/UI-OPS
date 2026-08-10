@@ -162,22 +162,22 @@ export default function ArtistProfileTicketList() {
                   return (
                     <tr key={t.id}>
                       <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={t.data?.artistName || ""} onBlur={(e) => updateTicketData(t, { artistName: e.target.value })} />
+                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.artistName || ""} onBlur={(e) => updateTicketData(t, { artistName: e.target.value })} />
                       </td>
                       <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={t.data?.email || ""} onBlur={(e) => updateTicketData(t, { email: e.target.value })} />
+                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.email || ""} onBlur={(e) => updateTicketData(t, { email: e.target.value })} />
                       </td>
                       {/* View-only per explicit request — "computed, not an
                           input field" — no input rendered here at all. */}
                       <td style={{ fontSize: 12, color: "var(--text-faint)" }}>{t.data?.latestSong || "—"}</td>
                       <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={t.data?.spotifyUrl || ""} onBlur={(e) => updateTicketData(t, { spotifyUrl: e.target.value })} />
+                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.spotifyUrl || ""} onBlur={(e) => updateTicketData(t, { spotifyUrl: e.target.value })} />
                       </td>
                       <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={t.data?.appleUrl || ""} onBlur={(e) => updateTicketData(t, { appleUrl: e.target.value })} />
+                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.appleUrl || ""} onBlur={(e) => updateTicketData(t, { appleUrl: e.target.value })} />
                       </td>
                       <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={t.data?.fbUrl || ""} onBlur={(e) => updateTicketData(t, { fbUrl: e.target.value })} />
+                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.fbUrl || ""} onBlur={(e) => updateTicketData(t, { fbUrl: e.target.value })} />
                       </td>
                       <td>
                         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -195,7 +195,7 @@ export default function ArtistProfileTicketList() {
                         </div>
                       </td>
                       <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={t.data?.note || ""} onBlur={(e) => updateTicketData(t, { note: e.target.value })} />
+                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.note || ""} onBlur={(e) => updateTicketData(t, { note: e.target.value })} />
                       </td>
                       <td>
                         {isExecutorView ? (

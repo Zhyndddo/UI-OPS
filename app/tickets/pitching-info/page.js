@@ -231,7 +231,9 @@ function PitchingInfoTickets() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>DID</th>
+                {/* Round 81 item 6 — DID column hidden per explicit
+                    request; still available via each row's popup detail
+                    (release?.did is untouched there). */}
                 <th>Song</th>
                 <th>Artist</th>
                 <th>Label</th>
@@ -250,7 +252,6 @@ function PitchingInfoTickets() {
                 const done = fieldsDone(ticket.data);
                 return (
                   <tr key={ticket.id} onClick={() => setOpenTicketId(ticket.id)} style={{ cursor: "pointer" }}>
-                    <td>{release?.did || ticket.data?.releaseId || "—"}</td>
                     <td>{release?.title || "—"}</td>
                     <td>{release?.main_artist || "—"}</td>
                     <td>{release?.label || "—"}</td>

@@ -5081,3 +5081,71 @@ duplicated across 3 pre-existing places (`app/releases/[id]/page.js`, `lib/packa
 sync so "still not a real resolved package" logic (Phụ Lục auto-requirement, TBU defaults, Lock
 Editing disabled, the artist-facing magic link page's own gating) treats the new stage the same as
 the other two, everywhere.
+
+## Round 81 — Booking summarize formula, pitching popup bug, column widths, mass import, PL Publishing column, Pitching Info DID
+
+Six separate requests. No SQL this round — every change is app code only.
+
+### 1. Media Booking: summarize formula fixed for Social/Community
+
+The "Summarize" button's TikTok Channel branch already multiplied `channel_count × count_posts` per
+row and summed that (matching the requested formula exactly) — left untouched. The general
+Social/Community branch previously summed channel count and total posts **independently** per
+platform, not multiplied per row. Fixed to `sum(byrow(số lượng kênh, số lượng bài))`, matching
+TikTok Channel's existing (correct) approach. Ads' branch is money-based (`count_posts × unit_price`
+— a different metric pair with no "số lượng kênh" concept at all) and is intentionally out of scope.
+
+### 2. Pitching Workstation: popup wasn't opening (bug fix)
+
+Clicking anywhere in the Note column of the Pitching Workstation table silently ate the click and
+the ticket popup never opened — reported as "no popup, meaning I can't click anywhere for the pop
+up." Root cause: the Note column's `<td onClick={(e) => e.stopPropagation()}>` wrapped the *entire
+cell*, not just the `<input>` inside it, so it was blocking the row's own `onClick` (which opens the
+popup) for anyone clicking that column, whether they were interacting with the note input or not.
+Fixed by moving `stopPropagation` onto the `<input>` itself — typing/clicking into the note field
+still doesn't accidentally open the popup, but clicking anywhere else in that column (or the rest of
+the row) does.
+
+### 3. Ticket table column widths (global)
+
+Two parts, per the explicit request:
+
+- **URL columns** — the round 80 URL max-width cap (`lib/UrlField.js`/`lib/MultiLinkCell.js`,
+  previously `maxWidth: 320`) was too generous. Tightened to ~110px (the multi-URL editing textarea
+  in `UrlField.js` keeps a little more room, 150px, since it's an actual edit surface for pasting
+  several links rather than a read-only display) — roughly matching the pixel width of the example
+  string `"https://abc"` given in the request.
+- **Plain text columns** (Label/Tên Bài/Artist-style fields) — these had no explicit width at all,
+  so they were only ever as wide as their table's other columns forced them to be. Added
+  `minWidth: 180` to every occurrence of the shared inline pattern
+  (`style={{ padding: "4px 8px", fontSize: 12 }}`) across `lib/TicketListPage.js` and 9 bespoke
+  ticket list files: Artist Profile, Có Trong Net YouTube, Design, Discovery Mode Spotify, Manual
+  Claim, MV Spotify, Phái Sinh, Sony Publish, Split Share. `lib/PhuLucStyleTicketList.js`'s narrow
+  fixed-width numeric/code fields (Giá Trị PL, Mã PL, Link Phụ Lục) were intentionally left alone —
+  out of scope, different kind of column than the Label/Tên Bài/Artist example in the request.
+  `lib/LinkOrEditCell.js` (Phái Sinh's single-URL column) was also left alone — it's a URL field,
+  not a text-name field, and already has its own explicit per-callsite width from an earlier round.
+
+### 4. Manual Claim: mass import via paste
+
+New "+ Mass Import" button next to "+ New Ticket," mirroring Phái Sinh's "+ Add Via Paste" pattern
+(`lib/phaiSinhBatchParse.js`) but simpler: Manual Claim has no batch/child-item concept, so each
+pasted row becomes its own standalone ticket (a normal `tickets` insert with the same shape
+`lib/NewTicketPage.js` already uses for one-at-a-time creation), not a child row under a parent.
+New `lib/manualClaimBatchParse.js` parses tab-separated paste text — one row per ticket, columns
+Label / Tên Bài / Artist / Claim Timestamp / URL / Note (Label, Tên Bài, Artist, and URL are
+required per Manual Claim's own field config; a row missing any of those is skipped and counted,
+reported back after import — "N created, M skipped"). Textbox-paste only, per explicit request
+("import by textbox") — no file-upload variant like Phái Sinh's was added here.
+
+### 5. Phụ Lục Publishing: removed "Giá Trị PL (Publishing)" column
+
+`lib/PhuLucStyleTicketList.js` (shared by both Phụ Lục MG and Phụ Lục Publishing) gained a new
+`hideGiaTri` prop, passed only from `app/tickets/phu-luc-publishing/page.js`. Phụ Lục MG is
+unaffected — its own call site doesn't pass the prop, so it still gets the column exactly as before.
+
+### 6. Pitching Info: hid DID column
+
+Removed the DID column from the Pitching Info ticket list table. The DID is still visible inside
+each ticket's popup detail view (unchanged) — only the list column was hidden, per the request's
+wording ("hide DID column").

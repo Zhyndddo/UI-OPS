@@ -330,7 +330,7 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
         {/* Round 41 — free-text Type replaced with the real 4-option
             select (Phái sinh / Kho nhạc / Chuyển net / Takedown) — the one
             switch that decides which flow the whole row uses. */}
-        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={d.typeRequest || PHAI_SINH_TYPE_OPTIONS[0]} onChange={(e) => onUpdateField(ticket, "typeRequest", e.target.value, !isExecutorView)}>
+        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} value={d.typeRequest || PHAI_SINH_TYPE_OPTIONS[0]} onChange={(e) => onUpdateField(ticket, "typeRequest", e.target.value, !isExecutorView)}>
           {PHAI_SINH_TYPE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
         {relatedTags.length > 0 && (

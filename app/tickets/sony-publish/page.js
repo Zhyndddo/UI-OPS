@@ -166,7 +166,7 @@ export default function SonyPublishTicketList() {
                         {release ? (
                           <input
                             className={styles.input}
-                            style={{ padding: "4px 8px", fontSize: 12 }}
+                            style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }}
                             defaultValue={release.upc || ""}
                             onBlur={(e) => updateReleaseField(release, "upc", e.target.value)}
                           />
@@ -176,7 +176,7 @@ export default function SonyPublishTicketList() {
                         {release ? (
                           <input
                             className={styles.input}
-                            style={{ padding: "4px 8px", fontSize: 12 }}
+                            style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }}
                             defaultValue={release.isrc || ""}
                             onBlur={(e) => updateReleaseField(release, "isrc", e.target.value)}
                           />
