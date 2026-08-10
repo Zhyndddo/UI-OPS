@@ -15,6 +15,7 @@ import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import NotePopup from "../../../lib/ReleaseNotePopup";
 import { PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
@@ -33,6 +34,7 @@ export default function UploadWorkstation() {
   const [assignments, setAssignments] = useState({}); // release_id -> pic_profile_id
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
   const [notePopup, setNotePopup] = useState(null); // { release, kind: "product" | "linkshare" } | null
   const sonyPublishDids = useSonyPublishDids();
 
@@ -127,8 +129,9 @@ export default function UploadWorkstation() {
   }, [releases]);
 
   const filteredReleases = useMemo(() => {
-    return showDone ? releases : releases.filter((r) => !isDone(r));
-  }, [releases, showDone]);
+    const base = showDone ? releases : releases.filter((r) => !isDone(r));
+    return base.filter((r) => matchesQuery(r, query));
+  }, [releases, showDone, query]);
 
   const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleReleases);
@@ -142,6 +145,7 @@ export default function UploadWorkstation() {
           <h1 className={styles.title} style={{ marginBottom: 8 }}>Upload</h1>
 
           <StatusCounter done={counts.done} notDone={counts.notDone} cancel={counts.cancel} />
+          <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
           <button
             onClick={() => setShowDone((s) => !s)}
             className={styles.btnSmall}
@@ -302,7 +306,7 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateFiel
         </select>
       </td>
       <td title={isOverride ? "Row override" : "Workstation default"}>
-        <select className={styles.select} style={{ minWidth: 130 }} value={pic || ""} onChange={(e) => onUpdatePic(release, e.target.value)}>
+        <select className={styles.select} style={{ minWidth: "16ch" }} value={pic || ""} onChange={(e) => onUpdatePic(release, e.target.value)}>
           <option value="">— Unassigned —</option>
           {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>

@@ -7,6 +7,7 @@ import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
 import { TEAM_WORKSTATION_TYPES, WORKSTATION_TYPE_LABELS, WORKSTATION_ROUTES, typesForTeam } from "../../lib/teamTypes";
+import { getNotDoneCount } from "../../lib/notDoneCounts";
 import styles from "../shared.module.css";
 
 const NOTES = {
@@ -41,31 +42,23 @@ export default function WorkstationIndex() {
     }
   }, [profile]);
 
+  // Round 73 — per explicit request, this card grid now shows the
+  // NOT-DONE count per workstation (lib/notDoneCounts.js's
+  // workstationNotDoneCount — the exact same rule each workstation page
+  // already uses for its own "outstanding work" logic), instead of the
+  // raw release/upload-requested totals this used to show — those were
+  // "how many releases exist at all," not "how much is left to do."
+  // booking, package_price, stream, and milestone have no defined
+  // "done" concept (same as before) — getNotDoneCount returns null for
+  // those, and the card shows a dash instead of a number.
   useEffect(() => {
     if (!supabase) return;
     (async () => {
-      const { count: releaseCount } = await supabase.from("releases").select("id", { count: "exact", head: true });
-      const { count: uploadCount } = await supabase.from("releases").select("id", { count: "exact", head: true }).eq("requested", true);
-      const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "pitching").single();
-      let pitchingCount = 0;
-      if (tab) {
-        const { data: tickets } = await supabase.from("tickets").select("data").eq("tab_id", tab.id).is("deleted_at", null);
-        const dids = [...new Set((tickets || []).map((t) => t.data?.releaseId).filter(Boolean))];
-        if (dids.length > 0) {
-          const { data: rels } = await supabase.from("releases").select("did, upc").in("did", dids);
-          pitchingCount = (rels || []).filter((r) => r.upc).length;
-        }
-      }
-      setCounts({
-        booking: releaseCount ?? 0,
-        upload: uploadCount ?? 0,
-        confirm: releaseCount ?? 0,
-        pre_release: releaseCount ?? 0,
-        pitching: pitchingCount,
-        stream: releaseCount ?? 0,
-        milestone: 0,
-        package_price: 0,
-      });
+      const keys = ["booking", "upload", "confirm", "pre_release", "pitching", "stream", "milestone", "package_price"];
+      const results = await Promise.all(
+        keys.map(async (key) => [key, await getNotDoneCount("workstation", key)])
+      );
+      setCounts(Object.fromEntries(results));
     })();
   }, []);
 
@@ -133,8 +126,11 @@ function CardGrid({ types, counts }) {
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{WORKSTATION_TYPE_LABELS[key]}</div>
             <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{NOTES[key]}</div>
           </div>
+          {/* Round 73 — null means "no not-done rule defined" (booking,
+              package_price, stream, milestone) — dash instead of a
+              misleading 0. */}
           <span style={{ fontSize: 36, fontWeight: 800, color: "var(--accent-soft)", lineHeight: 1, flexShrink: 0 }}>
-            {counts[key] ?? 0}
+            {counts[key] != null ? counts[key] : "—"}
           </span>
         </Link>
       ))}

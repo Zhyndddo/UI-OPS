@@ -13,6 +13,7 @@ import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import { MV_TYPE_OPTIONS } from "../../../lib/pickerOptions";
 import SonyPublishLockRow from "../../../lib/SonyPublishLockRow";
 import { useSonyPublishDids } from "../../../lib/useSonyPublishDids";
@@ -62,6 +63,7 @@ export default function PreReleaseWorkstation() {
   const [assignments, setAssignments] = useState({});
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
   const sonyPublishDids = useSonyPublishDids();
 
   useEffect(() => {
@@ -119,8 +121,9 @@ export default function PreReleaseWorkstation() {
   }, [releases]);
 
   const filteredReleases = useMemo(() => {
-    return showDone ? releases : releases.filter((r) => !isDone(r));
-  }, [releases, showDone]);
+    const base = showDone ? releases : releases.filter((r) => !isDone(r));
+    return base.filter((r) => matchesQuery(r, query));
+  }, [releases, showDone, query]);
 
   const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleReleases);
@@ -134,6 +137,7 @@ export default function PreReleaseWorkstation() {
           <h1 className={styles.title} style={{ marginBottom: 16 }}>Pre-release</h1>
 
           <StatusCounter done={counts.done} notDone={counts.notDone} cancel={counts.cancel} />
+          <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
           <button onClick={() => setShowDone((s) => !s)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
             {showDone ? "Hide done rows" : `Show done rows (${counts.done})`}
           </button>
@@ -233,7 +237,7 @@ function PreReleaseRow({ release, pic, isOverride, profiles, onUpdateField, onUp
         <PickSelect styles={styles} opts={PICK_OPTS} value={release.zing_lyric} onChange={(v) => onUpdateField(release, "zing_lyric", v)} />
       </td>
       <td title={isOverride ? "Row override" : "Workstation default"}>
-        <select className={styles.select} style={{ minWidth: 130 }} value={pic || ""} onChange={(e) => onUpdatePic(release.id, e.target.value)}>
+        <select className={styles.select} style={{ minWidth: "16ch" }} value={pic || ""} onChange={(e) => onUpdatePic(release.id, e.target.value)}>
           <option value="">— Unassigned —</option>
           {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>

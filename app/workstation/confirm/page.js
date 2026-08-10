@@ -14,6 +14,7 @@ import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import { PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
 
@@ -34,6 +35,7 @@ export default function ConfirmWorkstation() {
   const [assignments, setAssignments] = useState({}); // phase -> { release_id -> profile_id }
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
 
   useEffect(() => {
     if (!supabase) return;
@@ -100,8 +102,9 @@ export default function ConfirmWorkstation() {
   }, [releases, phase]);
 
   const filteredReleases = useMemo(() => {
-    return showDone ? releases : releases.filter((r) => !isDone(r));
-  }, [releases, showDone, phase]);
+    const base = showDone ? releases : releases.filter((r) => !isDone(r));
+    return base.filter((r) => matchesQuery(r, query));
+  }, [releases, showDone, phase, query]);
 
   const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleReleases);
@@ -128,6 +131,7 @@ export default function ConfirmWorkstation() {
           </div>
 
           <StatusCounter done={counts.done} notDone={counts.notDone} cancel={counts.cancel} />
+          <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
           <button onClick={() => setShowDone((s) => !s)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
             {showDone ? "Hide done rows" : `Show done rows (${counts.done})`}
           </button>
@@ -175,7 +179,7 @@ export default function ConfirmWorkstation() {
                     <td style={{ minWidth: 90 }}><BoolToggle value={!!r.confirm_tag} onChange={(v) => updateField(r, "confirm_tag", v)} /></td>
                     <td><span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.12)", color: "#ff9d5c" }}>{r.project_type || "—"}</span></td>
                     <td>
-                      <select className={styles.select} style={{ minWidth: 130 }} value={assignments.confirm_phase1?.[r.id] ?? defaultPics.confirm_phase1 ?? ""} onChange={(e) => updatePic(r.id, e.target.value)}>
+                      <select className={styles.select} style={{ minWidth: "16ch" }} value={assignments.confirm_phase1?.[r.id] ?? defaultPics.confirm_phase1 ?? ""} onChange={(e) => updatePic(r.id, e.target.value)}>
                         <option value="">— Unassigned —</option>
                         {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
@@ -236,7 +240,7 @@ export default function ConfirmWorkstation() {
                       <BoolToggle value={!!r.confirm_tiktok_sound_updated} onChange={(v) => updateField(r, "confirm_tiktok_sound_updated", v)} />
                     </td>
                     <td>
-                      <select className={styles.select} style={{ minWidth: 130 }} value={assignments.confirm_phase2?.[r.id] ?? defaultPics.confirm_phase2 ?? ""} onChange={(e) => updatePic(r.id, e.target.value)}>
+                      <select className={styles.select} style={{ minWidth: "16ch" }} value={assignments.confirm_phase2?.[r.id] ?? defaultPics.confirm_phase2 ?? ""} onChange={(e) => updatePic(r.id, e.target.value)}>
                         <option value="">— Unassigned —</option>
                         {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>

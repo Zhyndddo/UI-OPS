@@ -619,7 +619,7 @@ function PackageTermsSection() {
   async function load() {
     setLoading(true);
     const [{ data: pkgs }, { data: settings }] = await Promise.all([
-      supabase.from("contract_type_packages").select("id, contract_type, terms_text").order("contract_type"),
+      supabase.from("contract_type_packages").select("id, contract_type, terms_text, tro_gia_booking_text").order("contract_type"),
       supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_conditions", "package_terms_shared_b"]),
     ]);
     setPackages(pkgs || []);
@@ -640,6 +640,18 @@ function PackageTermsSection() {
     setPackages((prev) => prev.map((p) => (p.id === pkg.id ? { ...p, terms_text: value } : p)));
     await supabase.from("contract_type_packages").update({ terms_text: value || null }).eq("id", pkg.id);
     flashSaved(pkg.id);
+  }
+
+  // Round 72 — item 4d: separate per-package field for the "Trợ Giá
+  // Booking" block on the magic link (its own text block under a package's
+  // itemized breakdown, not mixed into terms_text). Same
+  // save-on-blur/immediate-write pattern as everything else here. Supports
+  // real HTML (<br/>, <a href>, …) — see the pick-package page's TermsText
+  // for the HTML-vs-plain-text detection.
+  async function saveTroGiaBooking(pkg, value) {
+    setPackages((prev) => prev.map((p) => (p.id === pkg.id ? { ...p, tro_gia_booking_text: value } : p)));
+    await supabase.from("contract_type_packages").update({ tro_gia_booking_text: value || null }).eq("id", pkg.id);
+    flashSaved(`${pkg.id}-tgb`);
   }
 
   async function saveShared(key, value) {
@@ -673,6 +685,17 @@ function PackageTermsSection() {
               placeholder="No terms text — nothing extra shown for this package."
               onBlur={(e) => savePackageTerms(p, e.target.value)}
             />
+            <label className={styles.fieldLabel} style={{ fontSize: 11, display: "flex", justifyContent: "space-between", marginTop: 10 }}>
+              <span>Trợ Giá Booking (optional, own block below the itemized table)</span>
+              {savedKey === `${p.id}-tgb` && <span style={{ color: "var(--success-fg)", fontWeight: 400 }}>Saved</span>}
+            </label>
+            <textarea
+              className={styles.textarea}
+              style={{ width: "100%", minHeight: 60, fontSize: 12 }}
+              defaultValue={p.tro_gia_booking_text || ""}
+              placeholder="No Trợ Giá Booking rows — nothing extra shown for this package. HTML is OK here (e.g. <br/> for line breaks, real <a href> links)."
+              onBlur={(e) => saveTroGiaBooking(p, e.target.value)}
+            />
           </div>
         ))}
         {packages.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)" }}>No contract-type packages found.</div>}
@@ -683,10 +706,14 @@ function PackageTermsSection() {
       </div>
       <p style={{ fontSize: 10, color: "var(--text-dim)", marginTop: -6, marginBottom: 12 }}>
         Fixed render order on the magic-link page: Intro → Conditions → this package's own terms (above the item
-        table) → itemized breakdown table → 5/2-năm note (below the table, only shown for those 2 tiers — moved
-        here so it doesn't throw off the Hạng Mục rows lining up horizontally across package cards). Any line
-        containing "hỗ trợ 100%" (case-insensitive) in any of these 3 fields renders in the accent color instead
-        of the default grey.
+        table) → itemized breakdown table → Trợ Giá Booking (its own block, if this package has one) → 5/2-năm
+        note (below everything, only shown for those 2 tiers — moved here so it doesn't throw off the Hạng Mục
+        rows lining up horizontally across package cards). Any line containing "hỗ trợ 100%" or "điều kiện cam
+        kết"/"điều kiện 1"/"điều kiện 2" (case-insensitive) gets bolded/colored automatically, and any "NN năm"
+        duration (05 năm, 02 năm, …) gets colored automatically too — no HTML needed for those. For anything
+        else you want formatted (bold, color, a real clickable link, …), paste real HTML tags directly (e.g.
+        <code>&lt;br/&gt;</code>, <code>&lt;a href="…"&gt;text&lt;/a&gt;</code>) — any field with an HTML tag in
+        it renders as HTML instead of plain text.
       </p>
       <div style={{ display: "grid", gap: 16, maxWidth: 640 }}>
         <div>

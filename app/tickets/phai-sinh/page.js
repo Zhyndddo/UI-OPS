@@ -11,6 +11,8 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import LinkOrEditCell from "../../../lib/LinkOrEditCell";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import NoteCell from "../../../lib/NoteCell";
 import { PHAI_SINH_TYPE_OPTIONS, isKhoNhacType, isMetadataConfirmed, CHILD_STATUS_COUNTERS } from "../../../lib/phaiSinhTypes";
 import { canEditLockedDeadline } from "../../../lib/permissions";
 import styles from "../../shared.module.css";
@@ -37,6 +39,7 @@ export default function PhaiSinhList() {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
   const [relatedReleases, setRelatedReleases] = useState({}); // did -> release (gate_split_share/gate_phu_luc_publishing only)
   const [itemsByBatch, setItemsByBatch] = useState({}); // ticket id -> phai_sinh_batch_items rows, Kho Nhạc-family only
 
@@ -142,9 +145,10 @@ export default function PhaiSinhList() {
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
-  const visibleTickets = isExecutorView
+  const visibleTickets = (isExecutorView
     ? tickets.filter((t) => t.status === statusFilter)
-    : [...tickets].sort((a, b) => (REFUND_LIKE.includes(a.status) ? 0 : 1) - (REFUND_LIKE.includes(b.status) ? 0 : 1));
+    : [...tickets].sort((a, b) => (REFUND_LIKE.includes(a.status) ? 0 : 1) - (REFUND_LIKE.includes(b.status) ? 0 : 1))
+  ).filter((t) => matchesQuery(t, query));
 
   const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
 
@@ -160,6 +164,8 @@ export default function PhaiSinhList() {
             </div>
             <Link href="/tickets/phai-sinh/new" className={styles.btnPrimary}>+ New Ticket</Link>
           </div>
+
+          <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
 
           {isExecutorView && tab && (
             <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
@@ -261,17 +267,28 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
   // Every field here is now editable from both sides — a requester's edit
   // just gets flagged (see showEditedHighlight) instead of the field
   // being locked read-only text.
+  // Round 76 — item 3: every cell in this row now aligns to the TOP
+  // (verticalAlign: "top") instead of the browser default (middle), and
+  // fills the cell's full height (height: "100%") instead of sitting at
+  // its own natural size. Before this, a short single-line cell like
+  // Label would vertical-center against whatever the tallest cell in the
+  // row happened to be (Tên Bài's 2 stacked inputs, Artist/Contributor's
+  // multi-line groups, …), so it visually floated away from the Type
+  // select above it even though they're the same row. Now every cell
+  // starts at the same top edge and stretches down to match, so the row
+  // reads as one row regardless of which cell happens to have extra
+  // hidden content.
   function textCell(key, value) {
     return (
-      <td>
-        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={value || ""} onBlur={(e) => onUpdateField(ticket, key, e.target.value, !isExecutorView)} />
+      <td style={{ verticalAlign: "top" }}>
+        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, height: "100%", boxSizing: "border-box" }} defaultValue={value || ""} onBlur={(e) => onUpdateField(ticket, key, e.target.value, !isExecutorView)} />
       </td>
     );
   }
   function textareaCell(key, value) {
     return (
-      <td style={{ minWidth: 160 }}>
-        <textarea className={styles.textarea} style={{ fontSize: 12, minHeight: 40 }} defaultValue={value || ""} onBlur={(e) => onUpdateField(ticket, key, e.target.value, !isExecutorView)} />
+      <td style={{ minWidth: 160, verticalAlign: "top" }}>
+        <textarea className={styles.textarea} style={{ fontSize: 12, minHeight: 40, height: "100%", boxSizing: "border-box" }} defaultValue={value || ""} onBlur={(e) => onUpdateField(ticket, key, e.target.value, !isExecutorView)} />
       </td>
     );
   }
@@ -344,16 +361,16 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
           disabled={isBatch}
         />
       </td>
-      <td style={{ fontSize: 12, whiteSpace: "pre-line", ...greyedStyle }}>{artistGroup || "—"}</td>
-      <td style={{ fontSize: 12, whiteSpace: "pre-line", width: 240, minWidth: 240, maxWidth: 240, wordBreak: "break-word", overflowWrap: "break-word", ...greyedStyle }}>{contributorGroup || "—"}</td>
-      <td style={{ fontSize: 12, ...greyedStyle }}>{releaseGroup}</td>
+      <td style={{ fontSize: 12, whiteSpace: "pre-line", verticalAlign: "top", ...greyedStyle }}>{artistGroup || "—"}</td>
+      <td style={{ fontSize: 12, whiteSpace: "pre-line", width: 240, minWidth: 240, maxWidth: 240, wordBreak: "break-word", overflowWrap: "break-word", verticalAlign: "top", ...greyedStyle }}>{contributorGroup || "—"}</td>
+      <td style={{ fontSize: 12, verticalAlign: "top", ...greyedStyle }}>{releaseGroup}</td>
       {textareaCell("description", d.description)}
       {textareaCell("tacQuyen", d.tacQuyen)}
       {/* URL repurposed into "Open Batch" for Kho Nhạc-family rows, per
           explicit request ("when choosing kho nhạc, change to the open
           the children table") — routes into the same expanded table Batch
           Phái Sinh already used (tab-agnostic, reused unchanged). */}
-      <td style={{ minWidth: 70, maxWidth: isBatch ? 130 : 90 }}>
+      <td style={{ minWidth: 70, maxWidth: isBatch ? 130 : 90, verticalAlign: "top" }}>
         {isBatch ? (
           // Round 57 fix — the column is narrow enough that "Open Batch ↗"
           // was wrapping mid-word wherever the browser happened to break
@@ -372,12 +389,18 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
           <LinkOrEditCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v, !isExecutorView)} />
         )}
       </td>
-      {textareaCell("note", d.note)}
-      <td style={{ minWidth: 140, maxWidth: 180, ...greyedStyle }}><LinkOrEditCell styles={styles} value={d.refLink} onSave={(v) => onUpdateField(ticket, "refLink", v, !isExecutorView)} /></td>
+      {/* Round 76 — item 1: Note now shows a compact hoverable preview
+          (title= tooltip has the full text) + Edit button opening a
+          bigger textarea in a modal, instead of an always-open small
+          textarea. */}
+      <td style={{ minWidth: 140, verticalAlign: "top" }}>
+        <NoteCell value={d.note} onSave={(v) => onUpdateField(ticket, "note", v, !isExecutorView)} />
+      </td>
+      <td style={{ minWidth: 140, maxWidth: 180, verticalAlign: "top", ...greyedStyle }}><LinkOrEditCell styles={styles} value={d.refLink} onSave={(v) => onUpdateField(ticket, "refLink", v, !isExecutorView)} /></td>
       {/* Round 41 — Hạn Cuối: real deadline date picker, locked for `exc`
           role per explicit request ("lock for exc role") — only dev/admin
           can edit, same lock pattern as Batch Phái Sinh's item deadline. */}
-      <td>
+      <td style={{ verticalAlign: "top" }}>
         <input
           type="date"
           className={styles.input}
@@ -388,9 +411,9 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
           onBlur={(e) => onUpdateDeadline(ticket, e.target.value || null)}
         />
       </td>
-      <td>
+      <td style={{ verticalAlign: "top" }}>
         {isExecutorView ? (
-          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
+          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
             <option value="">— Unassigned —</option>
             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
@@ -398,7 +421,7 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
           <span style={{ fontSize: 12 }}>{ticket.profiles?.name || "—"}</span>
         )}
       </td>
-      <td>
+      <td style={{ verticalAlign: "top" }}>
         {statusEditable ? (
           <select value={ticket.status} onChange={(e) => onUpdateStatus(ticket, e.target.value)} style={{ background: color.bg, color: color.fg, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>
             {statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -413,7 +436,7 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
           Rechecking/Complete are straight status counts
           (CHILD_STATUS_COUNTERS). Left blank for plain Phái Sinh rows —
           they have no children. */}
-      <td style={{ fontSize: 10 }}>
+      <td style={{ fontSize: 10, verticalAlign: "top" }}>
         {isBatch ? (
           batchItems.length === 0 ? (
             <span style={{ color: "var(--text-faint)" }}>No songs added</span>

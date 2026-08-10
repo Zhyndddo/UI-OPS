@@ -11,6 +11,8 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import MultiLinkCell from "../../../lib/MultiLinkCell";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import NoteCell from "../../../lib/NoteCell";
 import styles from "../../shared.module.css";
 
 // Rebuilt bespoke to match v1's real Manual Claim table — simpler than
@@ -25,6 +27,7 @@ export default function ManualClaimList() {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
 
   const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
 
@@ -96,9 +99,10 @@ export default function ManualClaimList() {
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
-  const visibleTickets = isExecutorView
+  const visibleTickets = (isExecutorView
     ? tickets.filter((t) => t.status === statusFilter)
-    : [...tickets].sort((a, b) => (REFUND_LIKE.includes(a.status) ? 0 : 1) - (REFUND_LIKE.includes(b.status) ? 0 : 1));
+    : [...tickets].sort((a, b) => (REFUND_LIKE.includes(a.status) ? 0 : 1) - (REFUND_LIKE.includes(b.status) ? 0 : 1))
+  ).filter((t) => matchesQuery(t, query));
 
   const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
 
@@ -114,6 +118,8 @@ export default function ManualClaimList() {
             </div>
             <Link href="/tickets/manual-claim/new" className={styles.btnPrimary}>+ New Ticket</Link>
           </div>
+
+          <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
 
           {isExecutorView && tab && (
             <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
@@ -206,12 +212,12 @@ function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, 
       {textCell("tenBai", d.tenBai)}
       {textCell("artist", d.artist)}
       <td style={{ minWidth: 220 }}><MultiLinkCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v, !isExecutorView)} /></td>
-      <td style={{ minWidth: 200 }}>
-        <textarea className={styles.textarea} style={{ fontSize: 12, minHeight: 40 }} defaultValue={d.note || ""} onBlur={(e) => onUpdateField(ticket, "note", e.target.value, !isExecutorView)} />
+      <td style={{ minWidth: 160 }}>
+        <NoteCell value={d.note} onSave={(v) => onUpdateField(ticket, "note", v, !isExecutorView)} />
       </td>
       <td>
         {isExecutorView ? (
-          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
+          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
             <option value="">— Unassigned —</option>
             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>

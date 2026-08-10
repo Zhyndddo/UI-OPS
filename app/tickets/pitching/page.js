@@ -10,6 +10,7 @@ import { isOpsTeam } from "../../../lib/teamTypes";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import styles from "../../shared.module.css";
 
 // "Move Pitching to the ticket system" per explicit request — the
@@ -37,6 +38,7 @@ export default function PitchingTicketList() {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
 
   const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
 
@@ -86,9 +88,10 @@ export default function PitchingTicketList() {
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
-  const visibleRows = isExecutorView
+  const visibleRows = (isExecutorView
     ? rows.filter((row) => row.ticket.status === statusFilter)
-    : rows;
+    : rows
+  ).filter((row) => matchesQuery(row, query));
 
   const { pageRows: pagedRows, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleRows);
 
@@ -107,6 +110,8 @@ export default function PitchingTicketList() {
             Overall request status + PIC only. Per-DSP work (Priority/Spotify/NCT/Zing) is still on
             the <Link href="/workstation/pitching" className={styles.rowLink}>Pitching Workstation</Link>.
           </p>
+
+          <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
 
           {isExecutorView && tab && (
             <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
@@ -151,7 +156,7 @@ export default function PitchingTicketList() {
                       </td>
                       <td>
                         {isExecutorView ? (
-                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.pic_profile_id || ""} onChange={(e) => updatePic(ticket, e.target.value)}>
+                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={ticket.pic_profile_id || ""} onChange={(e) => updatePic(ticket, e.target.value)}>
                             <option value="">— Unassigned —</option>
                             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                           </select>

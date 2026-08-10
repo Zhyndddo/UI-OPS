@@ -9,6 +9,7 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import NotePopup from "../../../lib/ReleaseNotePopup";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import styles from "../../shared.module.css";
 
 export default function NewreleaseUploadList() {
@@ -17,6 +18,7 @@ export default function NewreleaseUploadList() {
   const [releasesByDid, setReleasesByDid] = useState({});
   const [loading, setLoading] = useState(true);
   const [notePopup, setNotePopup] = useState(null); // { release, kind: "product" | "linkshare" } | null
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
 
   useEffect(() => {
     if (!supabase) return;
@@ -75,7 +77,8 @@ export default function NewreleaseUploadList() {
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
-  const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(tickets);
+  const visibleTickets = tickets.filter((t) => matchesQuery({ ...t, release: releasesByDid[t.data?.releaseId] }, query));
+  const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
 
   return (
     <AppShell>
@@ -90,9 +93,11 @@ export default function NewreleaseUploadList() {
           <Link href="/tickets/newrelease-upload/new" className={styles.btnPrimary}>+ New Ticket</Link>
         </div>
 
+        <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
+
         {loading ? (
           <div className={styles.emptyState}>Loading…</div>
-        ) : tickets.length === 0 ? (
+        ) : visibleTickets.length === 0 ? (
           <div className={styles.emptyState}>No tickets yet.</div>
         ) : (
           <>
@@ -112,7 +117,7 @@ export default function NewreleaseUploadList() {
                     <td>{fmtDate(t.created_at)}</td>
                     <td>{t.data?.project || t.data?.releaseId || "—"} — {t.data?.artist || ""}</td>
                     <td>
-                      <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={t.pic_profile_id || ""} onChange={(e) => updatePic(t, e.target.value)}>
+                      <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={t.pic_profile_id || ""} onChange={(e) => updatePic(t, e.target.value)}>
                         <option value="">— Unassigned —</option>
                         {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>

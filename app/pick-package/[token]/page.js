@@ -70,21 +70,23 @@ const SHARED_B_TIERS = ["độc quyền 5 năm", "độc quyền 2 năm"];
 // after "HỖ TRỢ 100% CHI PHÍ", and wasn't matching the old single phrase).
 const HIGHLIGHT_PHRASES = ["hỗ trợ 100%", "không cần trừ doanh thu"];
 
-// Round 68 — item 4b: this exact line just goes bold, no color change.
-const BOLD_ONLY_PHRASES = ["điều kiện cam kết"];
+// Round 68 — item 4b: bold, no color change. Round 72 — item 4b: the two
+// "Điều kiện N: ..." lines moved here too (used to be BOLD_NUMBERS_PHRASES
+// below, with their numbers colored orange — per explicit correction,
+// that's gone now, they're just bold like this line, normal color
+// everywhere including the numbers).
+const BOLD_ONLY_PHRASES = ["điều kiện cam kết", "điều kiện 1", "điều kiện 2"];
 
-// Round 68 — item 4d: the two "Điều kiện N: ..." lines in Shared Terms
-// Block B go bold, with just their numbers/percentages colored orange —
-// matched by prefix rather than the surrounding sentence, so it survives
-// whatever exact wording ends up in Config → Shared Terms.
-const BOLD_NUMBERS_PHRASES = ["điều kiện 1", "điều kiện 2"];
-
-// Wraps every digit run (optionally followed by %) in an orange span —
-// "gấp 5 lần", "100% chi phí", "kèm 50% lợi nhuận" all get their numbers
-// picked out, whatever the surrounding sentence says.
-function withColoredNumbers(line) {
-  const parts = line.split(/(\d+%?)/g);
-  return parts.map((part, i) => (/^\d+%?$/.test(part) ? <span key={i} style={{ color: "var(--accent-soft)" }}>{part}</span> : part));
+// Round 72 — item 4c: any "NN năm" duration (05 năm, 02 năm, 01 năm, …)
+// gets its number+"năm" colored orange, wherever it shows up — replaces
+// the old digit-only BOLD_NUMBERS_PHRASES/withColoredNumbers pair (that
+// colored ANY number on the điều kiện lines above; those are now plain
+// bold instead, see BOLD_ONLY_PHRASES). Applied to every line by default
+// (not gated by a phrase list) since duration text appears in different
+// packages' own terms_text with different wording around it.
+function withColoredYears(line) {
+  const parts = line.split(/(\d+\s*năm)/gi);
+  return parts.map((part, i) => (/^\d+\s*năm$/i.test(part) ? <span key={i} style={{ color: "var(--accent-soft)" }}>{part}</span> : part));
 }
 
 // Streaming & Milestone section, below Booking Progress — read-only
@@ -107,26 +109,43 @@ const STREAM_FIELD_LABELS = {
   views_fb: "Facebook — Views", creations_fb: "Facebook — Creations",
 };
 
+// Round 72 — item 4: "make the package term also HTML format" — any text
+// admin-pastes into Config → Shared Terms / Per-Package Terms / Trợ Giá
+// Booking that itself contains real HTML tags (<br/>, <a href>, <b>,
+// <span>, …) now renders as actual HTML instead of literal text, so admin
+// can hand-format a block (e.g. embed a real clickable link) without
+// needing a new phrase rule added here every time. Detected by a simple
+// tag-shaped regex — plain text with no "<...>" in it is completely
+// unaffected and keeps going through the line-by-line phrase logic below,
+// so nothing already in Config needs to change.
+const HTML_TAG_RE = /<\/?[a-z][\s\S]*>/i;
+
 // Renders a terms blob line-by-line so specific lines can carry their own
 // formatting — everything else renders exactly as before (same font
 // size/color/line-height), just broken into per-line divs instead of one
-// whiteSpace:"pre-line" block. Round 68 — item 4 added 2 more line-level
-// rules on top of the original HIGHLIGHT_PHRASES one: bold-only lines, and
-// bold-with-colored-numbers lines.
+// whiteSpace:"pre-line" block. Round 68 — item 4 added bold-only/
+// bold-with-colored-numbers line rules on top of the original
+// HIGHLIGHT_PHRASES one; round 72 — item 4 replaced the colored-numbers
+// rule with a colored-years rule (see withColoredYears above) and added
+// the raw-HTML passthrough above.
 function TermsText({ text, baseStyle }) {
   if (!text) return null;
+  if (HTML_TAG_RE.test(text)) {
+    return <div style={baseStyle} dangerouslySetInnerHTML={{ __html: text }} />;
+  }
   return text.split("\n").map((line, i) => {
     const lower = line.toLowerCase();
     if (HIGHLIGHT_PHRASES.some((p) => lower.includes(p))) {
       return <div key={i} style={{ ...baseStyle, color: "var(--accent-soft)", fontWeight: 700 }}>{line || " "}</div>;
     }
-    if (BOLD_NUMBERS_PHRASES.some((p) => lower.includes(p))) {
-      return <div key={i} style={{ ...baseStyle, fontWeight: 700 }}>{withColoredNumbers(line)}</div>;
-    }
     if (BOLD_ONLY_PHRASES.some((p) => lower.includes(p))) {
       return <div key={i} style={{ ...baseStyle, fontWeight: 700 }}>{line || " "}</div>;
     }
-    return <div key={i} style={baseStyle}>{line || " "}</div>;
+    // Round 75 — item 3: any line with a "NN năm" duration in it (e.g.
+    // "Bản ghi gốc...: 02 năm") now goes bold too, not just the number
+    // colored — per explicit request.
+    const hasYear = /\d+\s*năm/i.test(line);
+    return <div key={i} style={{ ...baseStyle, fontWeight: hasYear ? 700 : baseStyle?.fontWeight }}>{withColoredYears(line || " ")}</div>;
   });
 }
 
@@ -239,9 +258,18 @@ export default function PickPackagePage() {
     // terms_text per contract type — matched against the package's own
     // (free-typed) name. Only the 3 real Độc Quyền tiers carry one; a
     // custom-named package just shows nothing extra here.
-    const { data: termsRows } = await supabase.from("contract_type_packages").select("contract_type, terms_text");
+    // Round 72 — item 4d: tro_gia_booking_text added alongside terms_text,
+    // same per-package/admin-edited pattern (Config → Package Terms) — a
+    // separate block so Marketing can add/edit these rows without wading
+    // through the main terms_text blob, and per package like they asked.
+    const { data: termsRows } = await supabase.from("contract_type_packages").select("contract_type, terms_text, tro_gia_booking_text");
     const termsByName = {};
-    (termsRows || []).forEach((t) => { if (t.terms_text) termsByName[t.contract_type.trim().toLowerCase()] = t.terms_text; });
+    const troGiaByName = {};
+    (termsRows || []).forEach((t) => {
+      const key = t.contract_type.trim().toLowerCase();
+      if (t.terms_text) termsByName[key] = t.terms_text;
+      if (t.tro_gia_booking_text) troGiaByName[key] = t.tro_gia_booking_text;
+    });
 
     const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_conditions", "package_terms_shared_b"]);
     const settingsByKey = {};
@@ -262,6 +290,7 @@ export default function PickPackagePage() {
         label: p.name,
         kind: isIntMedia ? "intMedia" : "real",
         termsText: termsByName[matchedTier] || null,
+        troGiaBookingText: troGiaByName[matchedTier] || null,
         showSharedB: SHARED_B_TIERS.includes(matchedTier),
         totalValue: isIntMedia || !(p.media_booking_package_lines || []).some((l) => l.amount != null)
           ? null
@@ -535,19 +564,14 @@ export default function PickPackagePage() {
                   overflow: "hidden",
                 }}
               >
-                <button
-                  onClick={() => selectPackage(c.value)}
-                  disabled={isLocked || picking}
-                  style={{
-                    width: "100%",
-                    textAlign: "left",
-                    background: "none",
-                    border: "none",
-                    padding: 16,
-                    cursor: isLocked ? "not-allowed" : "pointer",
-                    opacity: isLocked && !selected ? 0.5 : 1,
-                  }}
-                >
+                {/* Round 69 — item: the whole header used to be one big
+                    clickable button (click-anywhere-to-select). Per
+                    explicit request, that's removed for clarity — this is
+                    now a plain, non-clickable info block, and the only way
+                    to pick this package is the explicit button on the
+                    right (was previously duplicated at the bottom of the
+                    card too; consolidated to just this one). */}
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: 16, opacity: isLocked && !selected ? 0.5 : 1 }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     <span style={{ fontSize: 15, fontWeight: 800, color: selected ? "#ff9d5c" : "#15130c" }}>
                       {c.label || c.value}
@@ -557,7 +581,21 @@ export default function PickPackagePage() {
                       <span style={{ fontSize: 13, color: "var(--text-faint)" }}>{fmtVnd(c.totalValue)}</span>
                     )}
                   </div>
-                </button>
+                  {!isLocked && (
+                    <button
+                      onClick={() => selectPackage(c.value)}
+                      disabled={picking}
+                      style={{
+                        flexShrink: 0, padding: "8px 14px", fontSize: 12, fontWeight: 800, borderRadius: 6, cursor: "pointer", whiteSpace: "nowrap",
+                        border: selected ? "1px solid #ff6b1a" : "1px solid var(--border-strong)",
+                        background: selected ? "#ff6b1a" : "var(--bg-hover)",
+                        color: selected ? "#0a0a0a" : "var(--text-muted)",
+                      }}
+                    >
+                      {selected ? "✓ Đã Chọn" : "Chọn Gói Này"}
+                    </button>
+                  )}
+                </div>
                 {(c.termsText || sharedTerms.a || sharedTerms.conditions) && (
                   // Fixed order: intro (a) -> conditions -> this package's
                   // own terms (c, e.g. VĨNH VIỄN/03 năm). The 5/2-năm note
@@ -615,24 +653,21 @@ export default function PickPackagePage() {
                     <TermsText text={sharedTerms.b} baseStyle={{ fontSize: 10, color: "var(--text-faint)", lineHeight: 1.5 }} />
                   </div>
                 )}
-                {/* Explicit "Chọn Gói Này" button — per explicit request,
-                    clearer than relying on the whole header area being
-                    clickable (that click-to-select still works too, this
-                    is additive). */}
-                {!isLocked && (
-                  <div style={{ borderTop: "1px solid var(--border)", padding: 12 }}>
-                    <button
-                      onClick={() => selectPackage(c.value)}
-                      disabled={picking}
-                      style={{
-                        width: "100%", padding: "10px 0", fontSize: 13, fontWeight: 800, borderRadius: 6, cursor: "pointer",
-                        border: selected ? "1px solid #ff6b1a" : "1px solid var(--border-strong)",
-                        background: selected ? "#ff6b1a" : "var(--bg-hover)",
-                        color: selected ? "#0a0a0a" : "var(--text-muted)",
-                      }}
-                    >
-                      {selected ? "✓ Đã Chọn Gói Này" : "Chọn Gói Này"}
-                    </button>
+                {/* Round 72 — item 4d: "TRỢ GIÁ BOOKING" as its own block,
+                    per package, admin-edited in Config → Package Terms
+                    (Marketing can add/edit rows there, HTML-formatted —
+                    see TermsText's HTML passthrough above). Replaces the
+                    old always-shown TRỢ GIÁ BOOKING / TRỢ GIÁ BOOKING ADS
+                    YOUTUBE rows that were removed from PARTNER_BENEFITS in
+                    round 68 — this is the "move it here" destination. */}
+                {c.troGiaBookingText && (
+                  <div style={{ borderTop: "1px solid var(--border)" }}>
+                    <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "6px 16px", textTransform: "uppercase" }}>
+                      Trợ Giá Booking
+                    </div>
+                    <div style={{ padding: "10px 16px" }}>
+                      <TermsText text={c.troGiaBookingText} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }} />
+                    </div>
                   </div>
                 )}
               </div>

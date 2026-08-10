@@ -13,6 +13,7 @@ import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import styles from "../../shared.module.css";
 
 const STATUS_OPTS = ["", "Chưa thực hiện", "Đang thực hiện", "Đã pitching", "Không thực hiện"];
@@ -63,6 +64,7 @@ export default function PitchingWorkstation() {
   const [assignments, setAssignments] = useState({});
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
   const [openTicketId, setOpenTicketId] = useState(null);
 
   useEffect(() => {
@@ -180,8 +182,8 @@ export default function PitchingWorkstation() {
 
   const filteredRows = useMemo(() => {
     const filtered = showDone ? rows : rows.filter((row) => !isDone(row));
-    return filtered.map((row) => ({ ...row, release_date: row.release?.release_date }));
-  }, [rows, showDone]);
+    return filtered.map((row) => ({ ...row, release_date: row.release?.release_date })).filter((row) => matchesQuery(row, query));
+  }, [rows, showDone, query]);
 
   const { sorted: visibleRows, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredRows);
   const { pageRows: pagedRows, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleRows);
@@ -197,6 +199,7 @@ export default function PitchingWorkstation() {
           <h1 className={styles.title} style={{ marginBottom: 8 }}>Pitching</h1>
 
           <StatusCounter done={counts.done} notDone={counts.notDone} cancel={counts.cancel} />
+          <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
           <button onClick={() => setShowDone((s) => !s)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
             {showDone ? "Hide done rows" : `Show done rows (${counts.done})`}
           </button>
@@ -253,7 +256,7 @@ export default function PitchingWorkstation() {
                       <td onClick={(e) => e.stopPropagation()}>
                         <select
                           className={styles.select}
-                          style={{ minWidth: 130 }}
+                          style={{ minWidth: "16ch" }}
                           value={(rid && assignments[rid]) ?? defaultPic ?? ""}
                           onChange={(e) => updatePic(rid, e.target.value)}
                         >

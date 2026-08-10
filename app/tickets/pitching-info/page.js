@@ -8,6 +8,7 @@ import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import styles from "../../shared.module.css";
 
 const GENRE_CATEGORIES = [
@@ -124,6 +125,7 @@ function PitchingInfoTickets() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
   const [openTicketId, setOpenTicketId] = useState(null);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
 
   useEffect(() => {
     if (!supabase) return;
@@ -184,7 +186,10 @@ function PitchingInfoTickets() {
     await supabase.from("tickets").update({ data: newData }).eq("id", ticket.id);
   }
 
-  const visibleRows = useMemo(() => rows.filter((row) => row.ticket.status === statusFilter), [rows, statusFilter]);
+  const visibleRows = useMemo(
+    () => rows.filter((row) => row.ticket.status === statusFilter).filter((row) => matchesQuery(row, query)),
+    [rows, statusFilter, query]
+  );
   const { pageRows: pagedRows, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleRows);
   const openRow = rows.find((row) => row.ticket.id === openTicketId) || null;
 
@@ -203,6 +208,8 @@ function PitchingInfoTickets() {
         <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -16, marginBottom: 24 }}>
           DSP editorial tagging (Genre / Moods / Song Styles / Music Cultures / Instruments) for Spotify + Apple Music — auto-sent when Priority Pitching or Spotify is checked at New Release creation.
         </p>
+
+        <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
 
         <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
           {tab.status_options.map((s) => (
@@ -257,7 +264,7 @@ function PitchingInfoTickets() {
                     <td onClick={(e) => e.stopPropagation()}>
                       <select
                         className={styles.select}
-                        style={{ fontSize: 11, padding: "4px 6px" }}
+                        style={{ fontSize: 11, padding: "4px 6px", minWidth: "16ch" }}
                         value={ticket.pic_profile_id || ""}
                         onChange={(e) => updatePic(ticket, e.target.value)}
                       >

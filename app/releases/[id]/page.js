@@ -1030,43 +1030,31 @@ function LinkPill({ label, href }) {
 const NOTE_PANEL_TEAMS = REPORTING_TEAMS.filter((t) => t !== "Design");
 const NOTE_FIELD_BY_TEAM = { AR: "note_ar", Marketing: "note_marketing", OPS: "note_ops", Legal: "note_legal" };
 
+// Round 72 — item 1: per explicit request, this no longer switches one
+// team at a time via the left tab list — it now compiles every team's
+// note into one scrollable view at once, skipping any team whose note is
+// still blank, so there's no clicking around to see what everyone wrote.
 function ReleaseNotePanel({ form }) {
-  const [selectedTeam, setSelectedTeam] = useState(NOTE_PANEL_TEAMS[0]);
-  const note = form?.[NOTE_FIELD_BY_TEAM[selectedTeam]];
+  const entries = NOTE_PANEL_TEAMS
+    .map((t) => ({ team: t, note: form?.[NOTE_FIELD_BY_TEAM[t]] }))
+    .filter((e) => e.note && e.note.trim());
+
   return (
-    <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden", height: 140 }}>
-      <div style={{ width: 100, flexShrink: 0, borderRight: "1px solid var(--border)", overflowY: "auto", background: "var(--bg-card)" }}>
-        {NOTE_PANEL_TEAMS.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setSelectedTeam(t)}
-            style={{
-              display: "block",
-              width: "100%",
-              textAlign: "left",
-              padding: "8px 10px",
-              fontSize: 11,
-              fontWeight: selectedTeam === t ? 700 : 400,
-              border: "none",
-              cursor: "pointer",
-              background: selectedTeam === t ? "var(--bg-hover)" : "transparent",
-              color: selectedTeam === t ? "var(--accent)" : "var(--text-muted)",
-              borderLeft: selectedTeam === t ? "2px solid var(--accent)" : "2px solid transparent",
-            }}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-      <div style={{ flex: 1, minWidth: 0, padding: 10, overflowY: "auto" }}>
-        <div style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: 0.5, marginBottom: 6 }}>
-          {selectedTeam} — NOTE
+    <div style={{ border: "1px solid var(--border)", borderRadius: 8, minWidth: 240, maxWidth: 340, height: 140, overflowY: "auto", background: "var(--bg-card)", padding: 10 }}>
+      {entries.length === 0 ? (
+        <div style={{ fontSize: 12, color: "var(--text-faint)" }}>
+          No notes yet — edit them from the Next Step Note field on Overview.
         </div>
-        <div style={{ fontSize: 12, color: note ? "var(--text-muted)" : "var(--text-faint)", whiteSpace: "pre-wrap" }}>
-          {note || "No note yet — edit it from the Next Step Note field on Overview."}
-        </div>
-      </div>
+      ) : (
+        entries.map(({ team, note }, i) => (
+          <div key={team} style={{ marginTop: i === 0 ? 0 : 10 }}>
+            <div style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>
+              {team.toUpperCase()} — NOTE
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-wrap" }}>{note}</div>
+          </div>
+        ))
+      )}
     </div>
   );
 }
@@ -1235,6 +1223,24 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         <div>
           <div className={styles.subheading} style={{ marginTop: 0 }}>Trạng Thái Gói (Loại Dự Án)</div>
           <PipelineControl form={form} update={update} setTab={setTab} />
+
+          {/* Round 72 — item 3: moved here from further down the page
+              (used to sit right before the Upload section, well below
+              this box) — per explicit request, right under the package
+              status box instead. The rest of that section (Tổng Giá Trị
+              Gói, Lock/Send Ticket buttons, magic link box) stays where
+              it was. */}
+          <div className={styles.subheading}>Package (Gói Hỗ Trợ Truyền Thông)</div>
+          {["BRIEF & DATA", "DEALING"].includes(form.project_type) ? (
+            <p style={{ fontSize: 13, color: "var(--text-faint)", marginBottom: 0 }}>
+              No contract type resolved yet — package details will show once the artist locks one in.
+            </p>
+          ) : (
+            <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 0 }}>
+              Contract type: <strong style={{ color: "#ff9d5c" }}>{form.project_type}</strong>
+              {form.package_locked && <span style={{ color: "var(--text-faint)" }}> (locked)</span>}
+            </p>
+          )}
         </div>
         <div>
           <Field label="Label">
@@ -1392,18 +1398,12 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
       </div>
 
       <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
-        <div className={styles.subheading} style={{ marginTop: 0 }}>Package (Gói Hỗ Trợ Truyền Thông)</div>
-
-        {["BRIEF & DATA", "DEALING"].includes(form.project_type) ? (
-          <p style={{ fontSize: 13, color: "var(--text-faint)", marginBottom: 12 }}>
-            No contract type resolved yet — package details will show once the artist locks one in.
-          </p>
-        ) : (
-          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 4 }}>
-            Contract type: <strong style={{ color: "#ff9d5c" }}>{form.project_type}</strong>
-            {form.package_locked && <span style={{ color: "var(--text-faint)" }}> (locked)</span>}
-          </p>
-        )}
+        {/* Round 72 — item 3: heading + contract-type line moved up to
+            right under the package status box (see above) — kept this
+            smaller continuation heading so the actions below still read
+            as belonging to the Package section instead of dangling with
+            no context. */}
+        <div className={styles.subheading} style={{ marginTop: 0 }}>Package Actions</div>
 
         {form.package_total_value != null && (
           <p style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 12 }}>
@@ -1675,11 +1675,43 @@ function UrlTab({ form, update, onSave, saving, did, releaseId }) {
         Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{plStatus}</span>
         {" — "}{phuLucNextStep(form)}
       </p>
+
+      {/* Round 72 — a real, separate "Publishing" ticket, built the same
+          way the original Phụ Lục ticket is (releases.link_publishing/
+          publishing_ngay_gui/publishing_ngay_ky, own status state machine,
+          own ticket type) — NOT the same thing as Phụ Lục Publishing
+          (round 71's PublishingUrlField reading a ticket's `data` was
+          wrong/reverted; that field belongs to Phụ Lục Publishing only,
+          left untouched again). See app/tickets/publishing/ for the list. */}
+      <Field label="URL Publishing">
+        <UrlField styles={styles} value={form.link_publishing} onChange={(v) => update("link_publishing", v)} />
+      </Field>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
+        Status Publishing: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{publishingStatusClient(form)}</span>
+        {" — "}{publishingNextStep(form)}
+      </p>
+
       <SaveBar onSave={onSave} saving={saving} />
 
       <AllUrlsSection did={did} releaseId={releaseId} />
     </div>
   );
+}
+
+// Mirrors publishing_status() in schema.sql — client-side, same idea as
+// phuLucStatusClient above.
+function publishingStatusClient(form) {
+  if (form.link_publishing && form.publishing_ngay_ky) return "Đã Ký";
+  if (form.link_publishing && form.publishing_ngay_gui) return "Chờ Ký";
+  if (form.link_publishing) return "Đã Soạn";
+  return "Chưa Soạn";
+}
+
+function publishingNextStep(form) {
+  if (!form.link_publishing) return "add a URL Publishing above to begin.";
+  if (!form.publishing_ngay_gui) return "next: set Ngày Gửi (Booking tab).";
+  if (!form.publishing_ngay_ky) return "next: set Ngày Ký (Booking tab).";
+  return "complete.";
 }
 
 // Pulls together every URL-shaped piece of data tied to this DID from
@@ -1944,6 +1976,26 @@ function MediaBookingTab({ form, update, onSave, saving, entries, categories, pa
         <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -8, marginBottom: 0 }}>
           Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{phuLucStatusClient(form)}</span>
           {" — "}{phuLucNextStep(form)}
+        </p>
+        <SaveBar onSave={onSave} saving={saving} />
+      </div>
+
+      {/* Round 72 — same "Ngày Gửi/Ngày Ký" pattern as Phụ Lục (Booking)
+          above, for the new separate Publishing ticket (URL Publishing
+          lives on the URL tab). */}
+      <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+        <div className={styles.subheading} style={{ marginTop: 0 }}>Publishing (Booking)</div>
+        <div className={styles.grid2}>
+          <Field label="Ngày Gửi">
+            <input type="date" className={styles.input} value={form.publishing_ngay_gui || ""} onChange={(e) => update("publishing_ngay_gui", e.target.value)} />
+          </Field>
+          <Field label="Ngày Ký">
+            <input type="date" className={styles.input} value={form.publishing_ngay_ky || ""} onChange={(e) => update("publishing_ngay_ky", e.target.value)} />
+          </Field>
+        </div>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -8, marginBottom: 0 }}>
+          Status Publishing: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{publishingStatusClient(form)}</span>
+          {" — "}{publishingNextStep(form)}
         </p>
         <SaveBar onSave={onSave} saving={saving} />
       </div>

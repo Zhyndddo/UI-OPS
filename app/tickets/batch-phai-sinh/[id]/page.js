@@ -266,7 +266,7 @@ export default function BatchPhaiSinhDetail() {
                       <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.link_labelmaster || ""} onBlur={(e) => updateItem(item, { link_labelmaster: e.target.value })} /></td>
                       <td>
                         {isExecutorView ? (
-                          <select className={styles.select} style={{ padding: "4px 6px", fontSize: 11 }} value={item.pic_profile_id || ""} onChange={(e) => updatePic(item, e.target.value)}>
+                          <select className={styles.select} style={{ padding: "4px 6px", fontSize: 11, minWidth: "16ch" }} value={item.pic_profile_id || ""} onChange={(e) => updatePic(item, e.target.value)}>
                             <option value="">— Unassigned —</option>
                             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                           </select>

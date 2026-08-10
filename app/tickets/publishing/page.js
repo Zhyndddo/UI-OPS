@@ -11,23 +11,31 @@ import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import styles from "../../shared.module.css";
 
-const PHU_LUC_COLOR = {
+// Round 72 — a genuinely separate ticket type from Phụ Lục Publishing
+// (round 71 mistakenly conflated the two — reverted). Built the exact
+// same way the original Phụ Lục ticket (app/tickets/phu-luc/page.js)
+// works: link/ngày Gửi/ngày Ký live directly on the release
+// (releases.link_publishing/publishing_ngay_gui/publishing_ngay_ky), not
+// on the ticket's own `data`. Cloned field-for-field from that page —
+// only the column labels and release fields changed to Publishing's own.
+
+const PUBLISHING_COLOR = {
   "Chưa Soạn": { bg: "rgba(255,255,255,0.06)", fg: "var(--text-faint)" },
   "Đã Soạn": { bg: "rgba(33,150,243,0.15)", fg: "#5cb3ff" },
   "Chờ Ký": { bg: "rgba(255,193,7,0.15)", fg: "#ffca4d" },
   "Đã Ký": { bg: "rgba(76,175,80,0.15)", fg: "#7ee6a8" },
 };
 
-// Mirrors phu_luc_status() in schema.sql
-function phuLucStatus(r) {
+// Mirrors publishing_status() in schema.sql
+function publishingStatus(r) {
   if (!r) return "Chưa Soạn";
-  if (r.link_phu_luc && r.phu_luc_ngay_ky) return "Đã Ký";
-  if (r.link_phu_luc && r.phu_luc_ngay_gui) return "Chờ Ký";
-  if (r.link_phu_luc) return "Đã Soạn";
+  if (r.link_publishing && r.publishing_ngay_ky) return "Đã Ký";
+  if (r.link_publishing && r.publishing_ngay_gui) return "Chờ Ký";
+  if (r.link_publishing) return "Đã Soạn";
   return "Chưa Soạn";
 }
 
-export default function PhuLucList() {
+export default function PublishingList() {
   const [tickets, setTickets] = useState([]);
   const [releases, setReleases] = useState({}); // id -> release
   const [profiles, setProfiles] = useState([]);
@@ -42,7 +50,7 @@ export default function PhuLucList() {
 
   async function load() {
     setLoading(true);
-    const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "phu_luc").single();
+    const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "publishing").single();
     if (!tab) { setLoading(false); return; }
     const { data: tix } = await supabase
       .from("tickets")
@@ -52,15 +60,15 @@ export default function PhuLucList() {
       .order("created_at", { ascending: false });
     setTickets(tix || []);
 
-    // This ticket has no fields of its own for link/dates anymore — it
-    // reads/writes releases.link_phu_luc/phu_luc_ngay_gui/phu_luc_ngay_ky
-    // directly, so fetch the releases it points at (via data.releaseId,
-    // a real releases.id set when the ticket was auto-created).
+    // Same as Phụ Lục — this ticket has no fields of its own for
+    // link/dates, it reads/writes releases.link_publishing/
+    // publishing_ngay_gui/publishing_ngay_ky directly (data.releaseId is
+    // a real releases.id, set when the ticket was created via the /new form).
     const releaseIds = [...new Set((tix || []).map((t) => t.data?.releaseId).filter(Boolean))];
     if (releaseIds.length > 0) {
       const { data: rels } = await supabase
         .from("releases")
-        .select("id, did, title, main_artist, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky")
+        .select("id, did, title, main_artist, link_publishing, publishing_ngay_gui, publishing_ngay_ky")
         .in("id", releaseIds);
       const map = {};
       (rels || []).forEach((r) => (map[r.id] = r));
@@ -99,19 +107,19 @@ export default function PhuLucList() {
     <AppShell>
     <div className={styles.page}>
       <div className={styles.container} style={{ maxWidth: 1100 }}>
-        <TypeSwitcher kind="ticket" current="phu_luc" />
+        <TypeSwitcher kind="ticket" current="publishing" />
         <div className={styles.topRow}>
           <div>
             <div className={styles.eyebrow}>// Ticket</div>
-            <h1 className={styles.title} style={{ marginBottom: 0 }}>Phụ Lục</h1>
+            <h1 className={styles.title} style={{ marginBottom: 0 }}>Publishing</h1>
           </div>
-          <Link href="/tickets/phu-luc/new" className={styles.btnPrimary}>+ New Ticket</Link>
+          <Link href="/tickets/publishing/new" className={styles.btnPrimary}>+ New Ticket</Link>
         </div>
 
         <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
-          Auto-created when an artist locks in a contract type via the magic link. Link/Ngày Gửi/Ngày Ký
-          here edit the release directly (single source of truth) — Status is the generic ticket lifecycle,
-          PL Status is the Phụ Lục-specific document status, computed separately.
+          URL Publishing / Ngày Gửi / Ngày Ký here edit the release directly (single source of truth,
+          same as Phụ Lục) — Status is the generic ticket lifecycle, Publishing Status is the
+          document status, computed separately.
         </p>
 
         <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
@@ -125,8 +133,8 @@ export default function PhuLucList() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>#</th><th>Ngày Order</th><th>Release</th><th>Giá Trị PL</th><th>Mã PL</th><th>PIC</th>
-                <th>Status</th><th>PL Status</th><th>Link Phụ Lục</th><th>Ngày Gửi</th><th>Ngày Ký</th>
+                <th>#</th><th>Ngày Order</th><th>Release</th><th>Giá Trị Publishing</th><th>Mã Publishing</th><th>PIC</th>
+                <th>Status</th><th>Publishing Status</th><th>URL Publishing</th><th>Ngày Gửi</th><th>Ngày Ký</th>
               </tr>
             </thead>
             <tbody>
@@ -134,8 +142,8 @@ export default function PhuLucList() {
                 const status = t.status;
                 const color = statusColor(status);
                 const rel = releases[t.data?.releaseId];
-                const plStatus = phuLucStatus(rel);
-                const plColor = PHU_LUC_COLOR[plStatus];
+                const plStatus = publishingStatus(rel);
+                const plColor = PUBLISHING_COLOR[plStatus];
                 return (
                   <tr key={t.id}>
                     <td>{(page - 1) * pageSize + i + 1}</td>
@@ -169,9 +177,9 @@ export default function PhuLucList() {
                       <input
                         className={styles.input}
                         style={{ padding: "4px 8px", fontSize: 11, width: 120 }}
-                        value={rel?.link_phu_luc || ""}
+                        value={rel?.link_publishing || ""}
                         placeholder="link…"
-                        onChange={(e) => rel && updateReleaseField(rel.id, "link_phu_luc", e.target.value)}
+                        onChange={(e) => rel && updateReleaseField(rel.id, "link_publishing", e.target.value)}
                         disabled={!rel}
                       />
                     </td>
@@ -180,8 +188,8 @@ export default function PhuLucList() {
                         type="date"
                         className={styles.input}
                         style={{ padding: "4px 8px", fontSize: 11 }}
-                        value={rel?.phu_luc_ngay_gui || ""}
-                        onChange={(e) => rel && updateReleaseField(rel.id, "phu_luc_ngay_gui", e.target.value)}
+                        value={rel?.publishing_ngay_gui || ""}
+                        onChange={(e) => rel && updateReleaseField(rel.id, "publishing_ngay_gui", e.target.value)}
                         disabled={!rel}
                       />
                     </td>
@@ -190,8 +198,8 @@ export default function PhuLucList() {
                         type="date"
                         className={styles.input}
                         style={{ padding: "4px 8px", fontSize: 11 }}
-                        value={rel?.phu_luc_ngay_ky || ""}
-                        onChange={(e) => rel && updateReleaseField(rel.id, "phu_luc_ngay_ky", e.target.value)}
+                        value={rel?.publishing_ngay_ky || ""}
+                        onChange={(e) => rel && updateReleaseField(rel.id, "publishing_ngay_ky", e.target.value)}
                         disabled={!rel}
                       />
                     </td>

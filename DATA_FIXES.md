@@ -4440,3 +4440,238 @@ Text colors were left as-is (already near-black from the earlier pass, matches t
 asked for on the magic link cards).
 
 No schema changes this round.
+
+## Round 70 — pick button, Publishing ticket check
+
+**1. Explicit "pick this package" button, old whole-card click removed.** On the magic link, each
+package card's header used to be one big clickable button (click anywhere in the title/price area
+to select) — per your screenshot, that's gone now. The header is a plain info block, and the only
+way to select is an explicit "Chọn Gói Này" button now sitting in the top-right of the header
+(where you boxed the empty space). There used to be a second copy of this button at the bottom of
+the card too (from an earlier round) — removed that since it's now redundant with the one button
+at top. The small "Chỉ Phát Hành" option on the right rail wasn't touched — it was already just a
+plain button with nothing else to click by accident.
+
+**2. Round 67b question.** There's no round "67b" in this project — closest matches are round 67
+(Stream Workstation collapsible redesign) and round 68b (per-team notes). Neither of those enlarged
+any text. The header text enlarge you're asking about is round 69 item 1, and yes — it's in the
+`round69.zip` already sent (eyebrow/title/artist line ~1.4x bigger, title kept to one line).
+
+**3. "Template publishing ticket" — didn't add a new one, because one already exists.** Checked
+before building anything: **Phụ Lục Publishing** is already a real, fully wired ticket type —
+`releaseId` (DID) + note fields, one ticket per release, requested by AR, executed by Legal, its
+own gate field on the release detail page's Legal Request group, its own list page
+(`/tickets/phu-luc-publishing`) and list entry in the Legal/AR ticket switcher. If this is what you
+meant, it's already there and working — no action needed. If you meant something genuinely
+separate (a different field, different team, different data captured), let me know what it should
+be and I'll build that instead of guessing and adding a confusing near-duplicate. This is also
+still where round 68's item 6 (new publishing field + its own ticket page) is waiting on your
+from-scratch re-explanation.
+
+No schema changes this round.
+
+## Round 71 — Publishing ticket URL on the release detail page
+
+**Correction to round 70:** I'd said Phụ Lục Publishing was minimal (DID + note only) — that was wrong,
+I'd only checked `lib/ticketConfigs.js` (stale, no longer read) and missed that its real list page
+(`lib/PhuLucStyleTicketList.js`, shared with Phụ Lục MG) already reuses the full Phụ Lục pattern —
+link, Ngày Gửi, Ngày Ký, computed PL Status, Giá Trị/Mã PL — same as the original Phụ Lục ticket,
+just stored on the ticket itself (`tickets.data`) instead of dedicated release columns. So the
+"build the publishing ticket using the phụ lục ticket" part was already done from an earlier round.
+
+**What actually changed this round:**
+- The Phụ Lục Publishing ticket list's URL column now reads "URL Publishing" instead of "Link Phụ
+  Lục (Publishing)" (added a `urlLabel` prop to the shared list component so this only affects
+  Phụ Lục Publishing, not Phụ Lục MG).
+- **Added "URL Publishing" (+ Ngày Gửi/Ngày Ký/status) to the release detail page's URL tab**, right
+  under the existing "URL Phụ Lục" field. This is new — it wasn't editable from the release page
+  before, only from the Phụ Lục Publishing ticket list. Since this ticket's data lives on the
+  ticket row itself (not a releases column, unlike the original Phụ Lục), this field self-fetches
+  that release's Phụ Lục Publishing ticket and writes straight back to it — same data, two edit
+  surfaces, always in sync. Before the ticket exists (Legal Request's "Phụ Lục Publishing" gate
+  hasn't been ticked + saved yet for this release), the field shows a hint instead of a broken
+  editor.
+
+**Not done — need your input:** "remember the simulation function, build that" — I don't have any
+record of a "simulation function" from earlier in this project (checked the codebase too — nothing
+matching). Can you describe what it should do? I'll build it once I know what it's for.
+
+No schema changes this round.
+
+## Round 72 — real, separate "Publishing" ticket (correction to round 71)
+
+You caught round 71's mistake: I'd conflated the new "Publishing" ticket with the existing "Phụ Lục
+Publishing" ticket. They're different things. **Reverted** round 71's changes to Phụ Lục Publishing
+(its URL column is back to "Link Phụ Lục (Publishing)", and the field I'd added to the release
+detail page for it is removed) — Phụ Lục Publishing is untouched, back to exactly how it was before
+round 71.
+
+**Built a genuinely new, separate "Publishing" ticket type**, using the original Phụ Lục ticket as
+the template like you asked: its own `releases.link_publishing` / `publishing_ngay_gui` /
+`publishing_ngay_ky` columns (not stored on the ticket like Phụ Lục Publishing is), its own
+`publishing_status()` function (Chưa Soạn → Đã Soạn → Chờ Ký → Đã Ký, same rule as Phụ Lục), its
+own ticket list (`/tickets/publishing`) and create form, both cloned from Phụ Lục's own pages.
+Visible to AR (requester) and Legal, same as Phụ Lục — flag it if you wanted different team
+visibility.
+
+**Added to the release detail page:**
+- URL tab — "URL Publishing" field + status line, right under "URL Phụ Lục".
+- Booking tab — a "Publishing (Booking)" block with its own Ngày Gửi/Ngày Ký, right under "Phụ Lục
+  (Booking)".
+
+**Tickets are created manually** via "+ New Ticket" on `/tickets/publishing` (same as Phụ Lục —
+no auto-create hook). One thing worth flagging: while testing this, I found `releases.gate_publishing`
+already exists in `schema.sql` (a tri-state Yes/No/Update column, sitting alongside gate_pitching/
+gate_split_share/etc.) but it's not wired to anything anywhere in the app — no UI renders it, no
+gate-ticket mapping uses it. Looks like a "Publishing" gate field was planned at some point but
+never finished. I didn't touch it or wire it to this new ticket, since doing that safely means
+switching this ticket's ID convention (it currently stores the release's real UUID, like Phụ Lục
+does — the generic gate-triggered auto-create pattern used elsewhere instead stores the DID as
+text, and mixing the two would break the list page's release lookup). Let me know if you want that
+gate field wired up to auto-create a Publishing ticket on Save (like Có Trong Net YouTube/Sony
+Publish etc. do) — happy to do it, just flagging it's a separate, deliberate decision rather than
+something to bolt on silently.
+
+**Verified for real** — spun up a local Postgres 16 instance, loaded the full schema (with the new
+`publishing` ticket_tabs row and `releases` columns), inserted a test release, and walked
+`publishing_status()` through all 3 states by setting link → Ngày Gửi → Ngày Ký, confirming it
+returns Đã Soạn → Chờ Ký → Đã Ký correctly. Also confirmed `add-round72-publishing-ticket.sql` is
+safe to run twice (second run is a clean no-op).
+
+See `add-round72-publishing-ticket.sql`.
+
+## Round 73 — note panel, package section move, magic-link HTML terms
+
+**1. Note panel — compiled, not tabbed.** The header box on the release detail page used to show
+one team's note at a time (click a team name to switch). It now shows every team's note stacked
+at once, skipping any team with a blank note — no more clicking around to see what everyone wrote.
+
+**2. Package builder question.** No, I didn't build another one — "the simulation function" from a
+couple rounds ago is resolved now: you're right, the package builder (Media Booking ticket's
+PackagesPanel + the pick-package magic-link flow) is what that meant. I haven't touched that
+system's core logic this round or last — only the "Publishing" ticket (round 72, separate thing)
+and the terms-text formatting below. Nothing new/duplicate was built.
+
+**3. "Package (Gói Hỗ Trợ Truyền Thông)" heading + Contract type line moved** — now sits directly
+under the package status box near the top of Overview (right under "Trạng Thái Gói (Loại Dự Án)"),
+instead of much further down the page, right before the Upload section. The rest of that section
+(Tổng Giá Trị Gói, Lock/Send Ticket buttons, the existing magic-link box) stays where it was — gave
+it a small "Package Actions" heading so it doesn't read as headerless now that the original heading
+moved up.
+
+**4. Magic-link package terms — real HTML support, plus formatting fixes:**
+- Any Config → Package Terms field (Intro, Conditions, per-package Terms, the new Trợ Giá Booking
+  field below) that contains actual HTML tags (`<br/>`, `<a href>`, `<b>`, `<span>`, …) now renders
+  as real HTML instead of literal text — so you can hand-format a block or embed a real clickable
+  link without needing a new phrase rule added to the code every time. Plain text with no tags in
+  it is unaffected — everything already in Config keeps rendering exactly as before.
+- (a) "HỖ TRỢ 100% CHI PHÍ / KHÔNG CẦN TRỪ DOANH THU" — unchanged, still bold + orange.
+- (b) "Điều kiện 1 / Điều kiện 2" lines — now just bold, no color on the numbers (this reverses
+  round 68's "color the numbers" version of this rule, per your correction).
+- (c) Any "NN năm" duration (05 năm, 02 năm, 01 năm, …) now gets colored orange automatically,
+  wherever it appears in any package's terms — covers "Bản ghi gốc...: 02 năm" / "Các bản phái
+  sinh...: 01 năm" without needing that text hand-edited into HTML.
+- (d) **New "Trợ Giá Booking" block** — a separate field per package (Config → Package Terms →
+  each package now has a second textarea below its main Terms field), rendered as its own
+  orange-header block under a package's itemized table on the magic link, only when that package
+  has something in it. This is the "move it here" destination for the TRỢ GIÁ BOOKING rows removed
+  from the fixed Partner Benefits list in round 68 — paste the same HTML content you sent (the
+  TikTok Channel / CapCut / Rate Card rows with real links) into that field for whichever
+  package(s) it should show on, and it'll render with working links. Marketing can add/edit rows
+  per package themselves from Config now, no code change needed for wording changes.
+
+**Verified for real** — ran `add-round73-tro-gia-booking.sql` against a real local Postgres 16
+instance, confirmed the columns land correctly on a fresh schema.sql install and that the migration
+is a safe no-op if run again on a database that already has them.
+
+See `add-round73-tro-gia-booking.sql`.
+
+## Round 74 — PIC column width, ticket/workstation counters
+
+**1. PIC column minimum width — every one of them.** Every "PIC" `<select>` across every ticket
+list and workstation page (21 in total — every ticket type's list, plus Booking/Upload/Re-Check/
+Pre-release) now has `minWidth: "16ch"`, so a person's full name (or "— Unassigned —") never gets
+clipped. I don't have access to your actual live `profiles` table from here to measure the real
+longest name in use, so this is a generous fixed size (`16ch` ≈ enough room for a 4-word Vietnamese
+name) rather than a number computed from your real roster — if any name still doesn't fully fit,
+tell me roughly how many characters the longest one is and I'll size it exactly.
+
+**2. Mobile (6:19) question — need a bit more from you.** Not sure what "(6:19)" refers to
+here — a specific phone's screen size, an aspect ratio, or something else? And which page(s) are
+you looking at on mobile — the whole app, a specific ticket list, the magic link? Once I know that
+I can actually look at what's cramped/overflowing and fix it, rather than guess at a "mobile
+optimization" that might not touch the actual problem.
+
+**3. Ticket and workstation counters — now count not-done, everywhere.** The big number on each
+card on the `/tickets` and `/workstation` index pages used to be a raw total (every ticket ever
+created for that type, or every release in the system for most workstations) — now it's the same
+"not done" count already used for the small badge next to each tab inside a ticket/workstation
+page (`lib/notDoneCounts.js`, unchanged logic, just reused here too). A type sitting at a big
+number here now actually means "this much outstanding work," not "this much history." Booking,
+Package Price Management, Streaming, and Milestone still have no defined "done" concept (same as
+before) — those cards show a dash instead of a 0, so it doesn't look like "nothing to do" when it
+really means "not tracked that way."
+
+No schema changes this round.
+
+## Round 75 — Media Booking URL swap, Package Url column, bold năm text
+
+**1. Media Booking ticket list — "URL LBM" → "URL Drive".** The column used to show
+`releases.link_lbm`; it now shows `releases.drive_link` instead, header relabeled "URL Drive" to
+match.
+
+**2. Media Booking ticket list — new "Package Url" column.** Sits right next to URL Drive, shows
+`releases.link_media_report` (the magic link itself) as a clickable link as soon as one exists for
+that release — a "—" shows until the link is created. Lets you grab the magic link straight from
+the ticket list for a fast send, without opening the release detail page first.
+
+**3. Magic-link package terms — "năm" duration lines now bold too.** The "Bản ghi gốc và các bản
+phái sinh từ bản ghi gốc: 02 năm / Các bản phái sinh từ bản sáng tác: 01 năm" line (and any other
+line containing an "NN năm" duration) is now bold in addition to the orange-colored year number
+added in round 73 — same rule, applies wherever this pattern shows up in Config → Package Terms
+text.
+
+No schema changes this round.
+
+**Still open from round 74:** the mobile-optimization question — you confirmed it's about phone
+screen size, but I still don't know which page(s) to target (whole app? a specific ticket list?
+the magic link page?). Let me know and I'll take a real pass at it next round.
+
+## Round 76 — Note cells, quick-search boxes, Phái Sinh row alignment
+
+**1. Notes now hover-to-preview + Edit button, everywhere they appear as a ticket field.**
+Previously every ticket list's Note column was an always-open small textarea — either clipping a
+long note or eating a chunk of row height on every single row whether it had anything in it or
+not. Every "Note" ticket field now shows a compact single-line preview instead (hover it — your
+browser's native tooltip shows the full text, works even on a phone with a long-press) plus a
+small **Edit** button that pops a real modal with a properly sized textarea to actually read/write
+in. Covered: Phái Sinh, Manual Claim, Design (Design's requester-side read-only view still shows
+the same hover preview, just without the Edit button, matching how it worked before), and every
+generic ticket type that goes through the shared list component (Artist Profile, Co Trong Net
+Youtube, Discovery Mode Spotify, Khác, MV Spotify, Pre-order iTunes, Priority Sync Lyric, Report
+Conflict, Sony Publish, Splitshare) — one shared component, `lib/NoteCell.js`, used everywhere so
+they all behave identically. If there's a Note field somewhere I missed, point me at it and I'll
+wire it in the same way.
+
+**2. Quick-search box on every ticket and workstation list.** A small search field now sits near
+the top of every ticket list page and every workstation list page (Booking and Stream already had
+their own search/filter fields from before — left untouched; Milestone already has its
+Artist/Song filter fields — left untouched). It's a plain client-side substring match against
+everything in the row (labels, artist names, DIDs, notes, URLs, etc.) — type a few letters of
+whatever you're looking for and the list narrows instantly, no need to page through. Same shared
+component (`lib/SearchBox.js`) everywhere, so it looks and behaves the same on every page.
+
+**3. Phái Sinh ticket list — every cell in a row now aligns to the same top edge.** Before, a
+short single-line cell like Label vertical-centered against whatever the tallest cell in that row
+happened to be (Tên Bài's 2 stacked inputs, Artist/Contributor's multi-line groups, etc.), so it
+visually floated away from the Type select above it even though it's the same row — that's the
+gap you circled in the screenshot. Every cell in the row now starts at the same top edge
+(`verticalAlign: "top"`) and the input/textarea cells stretch to fill their cell's full height, so
+the row reads as one clean row regardless of which cell happens to have extra hidden content (like
+the Related DID field tucked under Tên Bài).
+
+No schema changes this round.
+
+**Still open from round 74:** the mobile-optimization question — still don't know which page(s) to
+target (whole app? a specific ticket list? the magic link page?). Let me know and I'll take a real
+pass at it next round.

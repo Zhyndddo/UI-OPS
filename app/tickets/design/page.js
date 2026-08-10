@@ -9,6 +9,8 @@ import { useAuth } from "../../../lib/AuthContext";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import NoteCell from "../../../lib/NoteCell";
 import {
   DESIGN_STATUSES,
   statusOptionsFor,
@@ -53,6 +55,7 @@ export default function DesignList() {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
   const [overload, setOverload] = useState(null);
   const [notifTemplates, setNotifTemplates] = useState(DEFAULT_DESIGN_NOTIFICATION_TEMPLATES);
   const [processModal, setProcessModal] = useState(null); // { ticket } | null
@@ -209,9 +212,9 @@ export default function DesignList() {
   }
 
   const visibleTickets = useMemo(() => {
-    if (isExecutorView) return tickets.filter((t) => t.status === statusFilter);
-    return tickets;
-  }, [tickets, isExecutorView, statusFilter]);
+    const base = isExecutorView ? tickets.filter((t) => t.status === statusFilter) : tickets;
+    return base.filter((t) => matchesQuery(t, query));
+  }, [tickets, isExecutorView, statusFilter, query]);
 
   const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
 
@@ -295,6 +298,8 @@ export default function DesignList() {
               </div>
             </div>
           )}
+
+          <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
 
           {isExecutorView && tab && (
             <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
@@ -450,21 +455,11 @@ function DesignRow({ ticket, platforms, types, sizes, profiles, isExecutorView, 
         </select>
       </td>
       <td style={{ minWidth: 140 }}>
-        {isExecutorView ? (
-          <textarea
-            className={styles.textarea}
-            style={{ minHeight: 44, fontSize: 11, padding: "4px 8px" }}
-            defaultValue={ticket.data?.note || ""}
-            placeholder="Note missing stuff…"
-            onBlur={(e) => onUpdateData(ticket, { note: e.target.value })}
-          />
-        ) : (
-          <span style={{ fontSize: 11, whiteSpace: "pre-line" }}>{ticket.data?.note || "—"}</span>
-        )}
+        <NoteCell value={ticket.data?.note} editable={isExecutorView} onSave={(v) => onUpdateData(ticket, { note: v })} placeholder="Note missing stuff…" />
       </td>
       <td>
         {isExecutorView ? (
-          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
+          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
             <option value="">— Unassigned —</option>
             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>

@@ -9,6 +9,7 @@ import { useAuth } from "../../../lib/AuthContext";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import styles from "../../shared.module.css";
 
 function fmtVnd(n) {
@@ -77,6 +78,7 @@ export default function MediaBookingList() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
   const [openTicket, setOpenTicket] = useState(null);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
 
   const isExecutorView = !profile?.segment || profile.segment === "Marketing";
 
@@ -99,9 +101,13 @@ export default function MediaBookingList() {
     const dids = [...new Set((data || []).map((t) => t.data?.releaseId).filter(Boolean))];
     if (dids.length > 0) {
       // Round 68 — item 7: link_lbm added so the ticket list can show a URL
-      // LBM column next to Release, same field/pattern every other ticket
+      // column next to Release, same field/pattern every other ticket
       // type's list already shows it with (Sony Publish, Spotify MV, etc.).
-      const { data: rels } = await supabase.from("releases").select("did, title, main_artist, label, release_date, release_time, link_lbm").in("did", dids);
+      // Round 75 — item 1: swapped for drive_link ("URL Drive" instead of
+      // "URL LBM") per explicit request. Round 75 — item 2: link_media_report
+      // added too, for the new "Package Url" column (the magic link itself,
+      // shown once one's been generated for fast access).
+      const { data: rels } = await supabase.from("releases").select("did, title, main_artist, label, release_date, release_time, drive_link, link_media_report").in("did", dids);
       const map = {};
       (rels || []).forEach((r) => { map[r.did] = r; });
       setReleasesByDid(map);
@@ -152,12 +158,14 @@ export default function MediaBookingList() {
 
   const visibleTickets = useMemo(() => {
     if (!tab) return [];
-    if (isExecutorView) return tickets.filter((t) => t.status === statusFilter).sort(byReleaseDate);
-    // Sort by release date first, then a STABLE re-sort pulling REFUND
-    // tickets to the top — Array.sort is stable, so the release-date
-    // order survives within each of the two groups.
-    return [...tickets].sort(byReleaseDate).sort((a, b) => (a.status === "REFUND" ? 0 : 1) - (b.status === "REFUND" ? 0 : 1));
-  }, [tickets, tab, isExecutorView, statusFilter, releasesByDid]);
+    const base = isExecutorView
+      ? tickets.filter((t) => t.status === statusFilter).sort(byReleaseDate)
+      // Sort by release date first, then a STABLE re-sort pulling REFUND
+      // tickets to the top — Array.sort is stable, so the release-date
+      // order survives within each of the two groups.
+      : [...tickets].sort(byReleaseDate).sort((a, b) => (a.status === "REFUND" ? 0 : 1) - (b.status === "REFUND" ? 0 : 1));
+    return base.filter((t) => matchesQuery({ ...t, release: releasesByDid[t.data?.releaseId] }, query));
+  }, [tickets, tab, isExecutorView, statusFilter, releasesByDid, query]);
 
   const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
 
@@ -173,6 +181,8 @@ export default function MediaBookingList() {
             </div>
             <Link href="/tickets/media-booking/new" className={styles.btnPrimary}>+ New Ticket</Link>
           </div>
+
+          <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
 
           {isExecutorView && tab && (
             <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
@@ -192,7 +202,7 @@ export default function MediaBookingList() {
             <>
             <table className={styles.table}>
               <thead>
-                <tr><th>Release (DID)</th><th>Release</th><th>URL LBM</th><th>Propose Package</th><th>PIC</th><th>Deadline</th><th>Status</th></tr>
+                <tr><th>Release (DID)</th><th>Release</th><th>URL Drive</th><th>Package Url</th><th>Propose Package</th><th>PIC</th><th>Deadline</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {pagedTickets.map((t) => {
@@ -213,9 +223,23 @@ export default function MediaBookingList() {
                         )}
                       </td>
                       <td onClick={(e) => e.stopPropagation()} style={{ maxWidth: 160, fontSize: 11 }}>
-                        {rel?.link_lbm ? (
-                          <a href={rel.link_lbm.split("\n")[0]} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a", wordBreak: "break-all" }}>
-                            {rel.link_lbm.split("\n")[0]}
+                        {rel?.drive_link ? (
+                          <a href={rel.drive_link.split("\n")[0]} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a", wordBreak: "break-all" }}>
+                            {rel.drive_link.split("\n")[0]}
+                          </a>
+                        ) : (
+                          <span style={{ color: "var(--text-dim)" }}>—</span>
+                        )}
+                      </td>
+                      {/* Round 75 — item 2: "Package Url" — the magic link
+                          itself (releases.link_media_report), shown as
+                          soon as one exists for this release so it can be
+                          grabbed straight from the ticket list without
+                          opening the release detail page ("fast track"). */}
+                      <td onClick={(e) => e.stopPropagation()} style={{ maxWidth: 160, fontSize: 11 }}>
+                        {rel?.link_media_report ? (
+                          <a href={rel.link_media_report} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a", wordBreak: "break-all" }}>
+                            {rel.link_media_report}
                           </a>
                         ) : (
                           <span style={{ color: "var(--text-dim)" }}>—</span>
@@ -224,7 +248,7 @@ export default function MediaBookingList() {
                       <td>{t.data?.proposedPackage || "—"}</td>
                       <td onClick={(e) => e.stopPropagation()}>
                         {isExecutorView ? (
-                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={t.pic_profile_id || ""} onChange={(e) => updatePic(t, e.target.value)}>
+                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={t.pic_profile_id || ""} onChange={(e) => updatePic(t, e.target.value)}>
                             <option value="">— Unassigned —</option>
                             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                           </select>
