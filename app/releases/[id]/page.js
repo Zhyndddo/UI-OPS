@@ -1340,6 +1340,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         </div>
       </div>
 
+<<<<<<< Updated upstream
       <div className={styles.subheading}>Name / Artist / Release Date (editing updates the title above)</div>
       <div className={styles.grid2}>
         {/* Round 68 — item 5: Feature Artist added back — it's a real
@@ -1453,6 +1454,67 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         )}
       </div>
 
+=======
+      {/* Round 79 — moved Package Actions (and the Track DID / pseudo-
+          package section that gates it) up here, right under the Package
+          (Gói Hỗ Trợ Truyền Thông) summary box above — per explicit
+          request, everything about the package should live in one place
+          instead of Package Actions sitting far down the page below
+          Metadata/Marketing/Upload. */}
+      {/* Round 79 — item 2: "pseudo package" — a single spun off from an
+          EP/Album can link here to its parent product instead of going
+          through the whole booking process itself. Always shown (not
+          hidden behind a toggle) since clearing it is just erasing this
+          field's text. */}
+      <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+        <div className={styles.subheading} style={{ marginTop: 0 }}>Track DID (Pseudo Package)</div>
+        <p style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 8, maxWidth: 520 }}>
+          If this release is a single spun off from an EP/Album, link it to that parent product here
+          — it inherits the parent's package and magic link, skips Package Actions below entirely,
+          and won't show up on the Booking Board.
+        </p>
+        <div style={{ maxWidth: 420 }}>
+          <RelatedDidField styles={styles} value={form.pseudo_package_parent_did || ""} onChange={(v) => update("pseudo_package_parent_did", v)} />
+        </div>
+        {pseudoParentError && (
+          <p style={{ fontSize: 11, color: "var(--error-fg, #e57373)", marginTop: 6 }}>⚠ {pseudoParentError}</p>
+        )}
+        {pseudoParent && (
+          <p style={{ fontSize: 11, color: "var(--success-fg, #7ee6a8)", marginTop: 6 }}>
+            ✓ Linked to <Link href={`/releases/${pseudoParent.id}`} className={styles.rowLink}>{pseudoParent.title} ({pseudoParent.did})</Link> — package/magic link below are inherited live from that release, not saved separately here.
+          </p>
+        )}
+      </div>
+
+      {pseudoParent ? (
+        <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+          <div className={styles.subheading} style={{ marginTop: 0 }}>Package (Inherited)</div>
+          <p style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 8 }}>
+            This is a pseudo-package track — its package always mirrors its parent EP/Album's live,
+            it's never its own. Build/edit the package on the parent release, not here.
+          </p>
+          <p style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            Contract type: <strong>{pseudoParent.project_type || "—"}</strong>
+            {pseudoParent.package_total_value != null && <> · Tổng Giá Trị Gói: <strong>{fmtVnd(pseudoParent.package_total_value)}</strong></>}
+          </p>
+          {pseudoParentMagicLink ? (
+            <div style={{ marginTop: 10, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
+              <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 6 }}>
+                Inherited link — this is the parent's own magic link; this track doesn't get its own:
+              </div>
+              <a href={pseudoParentMagicLink} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a", fontSize: 13, wordBreak: "break-all" }}>
+                {pseudoParentMagicLink}
+              </a>
+            </div>
+          ) : (
+            <p style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8 }}>
+              The parent release doesn't have a magic link yet — one will show here automatically
+              once it's built and confirmed on the parent.
+            </p>
+          )}
+        </div>
+      ) : (
+>>>>>>> Stashed changes
       <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
         {/* Round 72 — item 3: heading + contract-type line moved up to
             right under the package status box (see above) — kept this
@@ -1550,6 +1612,119 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
               {magicLinkUrl}
             </a>
           </div>
+        )}
+      </div>
+
+      <div className={styles.subheading}>Name / Artist / Release Date (editing updates the title above)</div>
+      <div className={styles.grid2}>
+        {/* Round 68 — item 5: Feature Artist added back — it's a real
+            releases.feature_artist column (used at New Release creation,
+            and per-track on the Tracks tab), but was never actually
+            rendered here on the detail page's own Overview fields. Name
+            now spans the full row alone (per explicit layout ask) so Main
+            Artist and Feature Artist can share the row right below it,
+            same shape as the New Release form. */}
+        <Field label="Name" style={{ gridColumn: "1 / -1" }}>
+          <input className={styles.input} value={form.title || ""} onChange={(e) => update("title", e.target.value)} />
+        </Field>
+        <Field label="Main Artist">
+          <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+            <div style={{ flex: 1 }}>
+              <ArtistInput styles={styles} value={form.main_artist} onChange={(v) => update("main_artist", v)} artists={artistsList} placeholder="Tên nghệ sĩ chính" />
+            </div>
+            <QuickCreate kind="artist" onCreated={(newArtist) => { setArtistsList((prev) => [...prev, newArtist]); update("main_artist", newArtist.stage_name); }} />
+          </div>
+        </Field>
+        <Field label="Feature Artist">
+          <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
+            <div style={{ flex: 1 }}>
+              <ArtistInput styles={styles} value={form.feature_artist} onChange={(v) => update("feature_artist", v)} artists={artistsList} placeholder="Tên nghệ sĩ feature (nếu có)" />
+            </div>
+            <QuickCreate kind="artist" onCreated={(newArtist) => { setArtistsList((prev) => [...prev, newArtist]); update("feature_artist", newArtist.stage_name); }} />
+          </div>
+        </Field>
+        <Field label="Release Date">
+          <input type="date" className={styles.input} value={form.release_date || ""} onChange={(e) => update("release_date", e.target.value)} />
+        </Field>
+        <Field label="Release Time">
+          <input type="time" className={styles.input} value={form.release_time || ""} onChange={(e) => update("release_time", e.target.value)} />
+        </Field>
+      </div>
+
+      {form.needs_update && (
+        <div style={{ background: "rgba(229,115,115,0.1)", border: "1px solid #e57373", borderRadius: 8, padding: 12, marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ color: "#e57373", fontSize: 12, fontWeight: 700 }}>
+            ⚠ {PRIORITY_MODE_WARNING} Smartlink is locked (URL tab) until the checklist below is complete.
+          </div>
+          {requiredMetaDone === REQUIRED_META_KEYS.length && (
+            <button className={styles.btnSmall} onClick={onUnlockNeedsUpdate} style={{ borderColor: "#7ee6a8", color: "#7ee6a8", flexShrink: 0 }}>
+              Checklist complete — unlock Smartlink
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className={styles.subheading}>Metadata Checklist ({metaDone}/6 — {requiredMetaDone}/{REQUIRED_META_KEYS.length} required)</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
+        {META_ITEMS.map((m) => (
+          <div key={m.key} className={styles.field} style={{ marginBottom: 0 }}>
+            <label className={styles.fieldLabel}>{m.label}{REQUIRED_META_KEYS.includes(m.key) ? " *" : ""}</label>
+            <GateToggle value={form[m.key] || "false"} onChange={(v) => update(m.key, v)} />
+            {/* MV type — same field the Pre-release Workstation edits
+                (releases.canva_status, labeled "MV" there), surfaced here
+                too once MV is ticked Yes, per explicit request. */}
+            {m.key === "meta_mv" && form.meta_mv === "true" && (
+              <div style={{ marginTop: 6 }}>
+                <PickSelect styles={styles} opts={MV_TYPE_OPTIONS} value={form.canva_status} onChange={(v) => update("canva_status", v)} placeholder="— MV type —" />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <p style={{ fontSize: 11, color: "var(--text-faint)", marginTop: -12, marginBottom: 20 }}>
+        * Required for Send Upload (Audio, Artwork, Lyric, Metadata). Working Files and MV are tracked here but don't block the ticket. TBU counts the same as No for gating — it's not done yet.
+      </p>
+
+      {/* Marketing Checklist — rendered directly under Metadata Checklist
+          (not inside GateFields) per follow-up feedback: the whole group
+          belongs here, not split with Project Proposal alone up here and
+          Artist Info/Artist Photo left below in the request section. */}
+      <div className={styles.subheading}>Marketing Checklist</div>
+      <GateGrid styles={styles} fields={MARKETING_CHECKLIST_FIELDS} form={form} update={update} />
+
+      {/* "Other Checklist" (Sony Publish/Publishing/Splitshare/Request Phụ
+          Lục as plain Yes/No) removed — it duplicated fields that now live
+          as tri-state (with TBU) in the Marketing Request group below via
+          GateFields: gate_sony_publish, gate_split_share, gate_phu_luc_mg /
+          gate_phu_luc_truyen_thong / gate_phu_luc_publishing. The old
+          "PUBLISHING" box here was also a straight duplicate of
+          Additional Request's old gate_publishing field ("bị trùng
+          publishing") — both are gone now, folded into the Phụ Lục
+          Publishing field instead. */}
+
+      <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+        <button
+          className={styles.btnPrimary}
+          disabled={!uploadReady || form.requested}
+          onClick={onUpload}
+          style={{ opacity: form.requested ? 0.5 : uploadReady ? 1 : 0.3 }}
+        >
+          {form.requested ? "UPLOAD SENT" : "SEND UPLOAD"}
+        </button>
+        {!form.requested && !!pitchingTicket?.data?.priority && requiredMetaDone < REQUIRED_META_KEYS.length && (
+          <p style={{ color: "#e57373", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
+            Priority Pitching is ticked — Send Upload is unlocked, please fill in Metadata Checklist.
+          </p>
+        )}
+        {!form.requested && pitchingTypesDraft.priority && !pitchingTicket?.data?.priority && requiredMetaDone < REQUIRED_META_KEYS.length && (
+          <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
+            Priority Pitching is ticked but not saved yet — hit Save below to unlock Send Upload.
+          </p>
+        )}
+        {!form.requested && !uploadReady && requiredMetaDoneLive !== requiredMetaDone && (
+          <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
+            Metadata Checklist has unsaved changes — hit Save below before Send Upload picks them up.
+          </p>
         )}
       </div>
 

@@ -198,7 +198,7 @@ function PreOrderPopup({ ticket, release, tab, isExecutorView, onUpdateStatus, o
         <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>Release Info</div>
         {release ? (
           <div style={{ marginBottom: 16, fontSize: 12 }}>
-            <Link href={`/releases/${release.did}`} className={styles.rowLink}>{release.title} — {release.main_artist}</Link>
+            <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title} — {release.main_artist}</Link>
             <div style={{ color: "var(--text-faint)", marginTop: 2 }}>{release.did} · {fmtDate(release.release_date)}</div>
           </div>
         ) : (

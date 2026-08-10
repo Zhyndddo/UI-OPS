@@ -4901,3 +4901,111 @@ every magic link already sent keeps its current (working) 48-character hex token
 invalidated. No app-code changes were needed either — nothing in the codebase parses, validates, or
 assumes a length/format for the token, it's only ever used as an opaque string in an exact-match
 lookup.
+<<<<<<< Updated upstream
+=======
+
+## Round 79 — Pitching 4-tab redesign, pseudo package, Clone from another product
+
+Three separate requests this round. Clarified 4 genuine ambiguities up front (Apple as a real new
+platform vs. a display-only grouping; whether Domestic's NCT/Zing get one shared status or stay
+independent; whether the pseudo package is a live link or a one-time snapshot; whether the child
+track gets its own magic link or reuses the parent's) — all confirmed against the recommended
+option before writing any code.
+
+### 1. Pitching Workstation: 4-tab redesign
+
+The Pitching Workstation popup now splits into 4 real tabs — **Priority Spotify**, **Spotify
+(S4A)**, **Priority Apple** (new), and **Domestic** (NCT + Zing sharing one PIC, but with their own
+independent status dropdowns — a tab only counts "done" once BOTH are satisfied). Each tab has its
+own PIC dropdown (new `pitching_pic_priority`/`pitching_pic_spotify`/`pitching_pic_apple`/
+`pitching_pic_domestic` columns on `releases`) — the release-level single PIC (previously stored in
+`workstation_assignments`) is gone, replaced entirely by these 4. The release-level PIC column was
+removed from both the Workstation table and the plain Pitching ticket list (`app/tickets/pitching`)
+to match.
+
+Apple joins Priority/Spotify as a real tracked platform (`pitching_status_apple` column, same
+status vocabulary), not just a visual label — it has its own checkbox at ticket creation ("Which
+pitching?"), its own requested-count logic, everywhere Spotify's status already existed.
+
+**Ticket status is now fully computed, never manually set.** `tickets.status` for a Pitching ticket
+is derived purely from the real per-platform status columns for whichever platforms were actually
+requested: COMPLETE once every requested platform reaches "Đã pitching", CANCELED if every
+requested platform is in a cancel state, PROCESS if any requested platform has started, otherwise
+REQUESTED. This recomputes on every relevant status edit and once more on page load to catch any
+drift. The Status column on both the Workstation and the ticket list is now read-only everywhere —
+manually changing it is no longer possible from the UI.
+
+Config → PIC Workstations' "Pitching" default-PIC setting is now unwired (`wired: false`) with an
+explanation — there's no single release-level PIC left for that setting to apply to.
+
+See `add-round79-pitching-4tabs.sql` — adds `releases.pitching_status_apple` and the 4 new PIC
+columns, plus registers "apple" as an `entity_fields` row for the "Which pitching?" picker. Tested
+against a real Postgres instance for idempotency (safe to run twice).
+
+### 2. Pseudo package (Track DID)
+
+New "Track DID" field — searchable/autocomplete (reuses the same combobox as Phái Sinh's Related
+DID field) — on both the release detail page's Overview tab and directly on the New Release
+Dashboard table (next to the product name, as requested). Typing or picking another release's DID
+here marks the current release as a **pseudo-package track**: it's a single spun off an EP/Album
+after the fact, and per the request skips the entire booking process, the Package Actions buttons
+(Send Package Ticket / INT MEDIA / INT SUPPORT / ONLY PH), and never appears on the Booking board
+at all.
+
+The link is **live**, not a one-time copy — the track's Overview tab resolves its parent by exact
+DID match on every load/edit of the field and shows the parent's current package type, total value,
+and **the parent's own magic link** (the track deliberately doesn't get a separate magic link of
+its own — sending the track's page to an artist points at the same link as the parent). Two
+guardrails: a release can't link to itself, and a release that is itself already a pseudo-package
+track can't be used as a parent (must link straight to the real EP/Album, not chain through
+another track).
+
+Enforcement isn't just hiding buttons — `lib/packageSimulator.js`'s `runOne()` (the shared function
+behind both the release detail page's own package-selection buttons AND the standalone Package
+Runner tool's manual-DID-input flow) now refuses to run package selection at all for a release that
+has `pseudo_package_parent_did` set, from either entry point. The Booking board's own query now
+filters out any release with `pseudo_package_parent_did` set, so a pseudo-package track can never
+appear there even if something upstream tries to create a booking ticket for it.
+
+See `add-round79-pseudo-package.sql` — adds `releases.pseudo_package_parent_did text`. Tested
+against a real Postgres instance for idempotency.
+
+### 3. Media Booking ticket: "Clone from another product"
+
+New button in the Media Booking ticket's Package Builder popup (next to the close button, visible
+on every Hạng Mục tab) — **Clone from another product**. Opens a search panel listing releases that
+have a **locked, complete package with at least one real built package** (`package_locked = true`
+AND at least one `media_booking_packages` row) — exactly "only complete package get in that
+pickable pool" per the request. Searchable by product name, artist, or DID.
+
+Picking one clones that release's entire manual-input numbers (`media_booking_content_entries`),
+its Summarize rollups (`media_booking_package_categories`), and its built package(s) + lines
+(`media_booking_packages`/`media_booking_package_lines`) into the current ticket's release —
+replacing whatever was already entered here (confirmed before running, since this can't be undone).
+After cloning, OPS refines/retunes from there exactly as requested — nothing about the clone is
+locked or read-only afterward.
+
+No schema changes for item 3 — pure app logic reusing the existing tables.
+
+## Round 79 (2) — Package Actions moved up under the Package summary
+
+Per follow-up screenshots: Package Actions (Lock editing / Send Package Ticket to Marketing / INT
+MEDIA / INT SUPPORT / ONLY PH buttons + magic link display) used to sit far down the Overview tab,
+after Metadata Checklist, Marketing Checklist, and the Send Upload button — while the "Package
+(Gói Hỗ Trợ Truyền Thông)" summary box (contract type / "no contract type resolved yet") sat much
+higher, right under the pipeline stage box. Moved Package Actions (and the Track DID pseudo-package
+section that gates it, added earlier this round) up to sit directly under that summary box instead,
+so everything about a release's package lives in one place. No behavior changes, pure layout move.
+
+## Round 79 (3) — Bug fix: Pitching/Pre-order iTunes ticket links crashed on click
+
+Caught during local testing before deploy (exactly what that testing was for) — clicking a
+release's title link from the Pitching ticket list (`app/tickets/pitching`) or the Pre-order
+iTunes ticket list (`app/tickets/pre-order-itunes`) threw `invalid input syntax for type uuid`
+and crashed. Both links were pointed at `/releases/${release.did}` (the release's DID string,
+e.g. `EXTN-25092026-0478`) instead of `/releases/${release.id}` (the real UUID the release detail
+page's route actually expects) — a pre-existing bug in both files, not something this round
+introduced, but it surfaced during round 79's testing pass so it's fixed here. Pitching's `releases`
+query also didn't select `id` at all before, so that select list picked up the column too. No SQL —
+pure app-code fix, both files tsc-verified clean.
+>>>>>>> Stashed changes

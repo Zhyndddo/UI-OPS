@@ -64,7 +64,7 @@ export default function PitchingTicketList() {
     const dids = [...new Set((tickets || []).map((t) => t.data?.releaseId).filter(Boolean))];
     let releaseMap = {};
     if (dids.length > 0) {
-      const { data: rels } = await supabase.from("releases").select("did, title, main_artist, release_date").in("did", dids);
+      const { data: rels } = await supabase.from("releases").select("id, did, title, main_artist, release_date").in("did", dids);
       (rels || []).forEach((r) => (releaseMap[r.did] = r));
     }
     setRows((tickets || []).map((t) => ({ ticket: t, release: releaseMap[t.data?.releaseId] || null })));
@@ -145,7 +145,7 @@ export default function PitchingTicketList() {
                       <td style={{ fontSize: 12 }}>{fmtDate(ticket.created_at)}</td>
                       <td style={{ fontSize: 12 }}>
                         {release ? (
-                          <Link href={`/releases/${release.did}`} className={styles.rowLink}>
+                          <Link href={`/releases/${release.id}`} className={styles.rowLink}>
                             {release.title} — {release.main_artist}
                           </Link>
                         ) : (ticket.data?.releaseId || "—")}
