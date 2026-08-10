@@ -12,6 +12,7 @@ import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import styles from "../../shared.module.css";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 
 function fmtVnd(n) {
   if (n === null || n === undefined || n === "") return "—";
@@ -131,8 +132,33 @@ export default function MediaBookingList() {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
     if (newStatus === "REFUND") patch.pic_profile_id = null;
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js).
+    if (statusNeedsNote(newStatus)) {
+      const newData = withStatusNote(t.data, newStatus);
+      if (!newData) return; // cancelled / no reason given — abort the change
+      patch.data = newData;
+    }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+
+    // Round 80 — marking this ticket COMPLETE is what ends the release's
+    // SENT TO MARKETING interlude (see app/releases/[id]/page.js's
+    // PIPELINE_STAGES) and moves it into DEALING, waiting on the artist to
+    // actually pick a package via the magic link. Only fires from that
+    // exact stage — a release already past it (DEALING or a real resolved
+    // package) is untouched, and re-completing an already-COMPLETE ticket
+    // is a no-op since the release won't still be SENT TO MARKETING.
+    if (newStatus === "COMPLETE") {
+      const did = t.data?.releaseId;
+      if (did) {
+        const { data: rel } = await supabase.from("releases").select("id, project_type").eq("did", did).maybeSingle();
+        if (rel?.project_type === "SENT TO MARKETING") {
+          await supabase.from("releases").update({ project_type: "DEALING" }).eq("id", rel.id);
+          setReleasesByDid((prev) => (prev[did] ? { ...prev, [did]: { ...prev[did], project_type: "DEALING" } } : prev));
+        }
+      }
+    }
   }
 
   // Auto-sort by release date, farthest-out first (descending — per
@@ -256,7 +282,10 @@ export default function MediaBookingList() {
                         ) : (t.profiles?.name || "—")}
                       </td>
                       <td>{fmtDate(t.deadline)}</td>
-                      <td onClick={(e) => e.stopPropagation()}>
+                      {/* Round 80 — no Note column in this list, so the
+                          reason folded into data.note by statusNoteGate is
+                          only reachable via this hover. */}
+                      <td onClick={(e) => e.stopPropagation()} title={t.data?.note || undefined}>
                         {isExecutorView ? (
                           <select value={t.status} onChange={(e) => updateStatus(t, e.target.value)} style={{ background: color.bg, color: color.fg, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>
                             {tab.status_options.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -1899,6 +1928,12 @@ function computeLineAmount(line) {
 function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel }) {
   const vinhVienTaken = existingNames.includes("Độc Quyền Vĩnh Viễn");
   const intMediaTaken = existingNames.includes("INT MEDIA");
+  // Round 80 — "Internal Package" joins Vĩnh Viễn/Custom Years as a real
+  // pickable tier at package-building time, per explicit request. Fully
+  // editable like Vĩnh Viễn/Custom Years (no locked/read-only behavior
+  // like INT MEDIA) — same one-per-release limit as the other two named
+  // tiers, so it doesn't get accidentally duplicated.
+  const internalTaken = existingNames.includes("Internal Package");
   // Never auto-default to the INT MEDIA tier, even when it's offered —
   // INT MEDIA renders its package lines read-only (names only, no
   // quantities/pricing), so silently pre-selecting it meant clicking
@@ -1907,7 +1942,7 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
   // always be a deliberate click now, for both "create" and "clone".
   const [tierMode, setTierMode] = useState(vinhVienTaken ? "years" : "vinhVien");
   const [years, setYears] = useState("2");
-  const name = tierMode === "vinhVien" ? "Độc Quyền Vĩnh Viễn" : tierMode === "intMedia" ? "INT MEDIA" : `Độc Quyền ${years} năm`;
+  const name = tierMode === "vinhVien" ? "Độc Quyền Vĩnh Viễn" : tierMode === "intMedia" ? "INT MEDIA" : tierMode === "internal" ? "Internal Package" : `Độc Quyền ${years} năm`;
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onCancel}>
@@ -1937,6 +1972,15 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
           )}
           <button className={styles.btnSmall} onClick={() => setTierMode("years")} style={tierMode === "years" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}>
             Custom Years
+          </button>
+          <button
+            className={styles.btnSmall}
+            onClick={() => !internalTaken && setTierMode("internal")}
+            disabled={internalTaken}
+            style={tierMode === "internal" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}
+            title={internalTaken ? "Already created for this release" : undefined}
+          >
+            Internal Package
           </button>
           {tierMode === "years" && (
             <input type="number" className={styles.input} style={{ width: 60, padding: "4px 8px", fontSize: 12 }} value={years} onChange={(e) => setYears(e.target.value)} />

@@ -333,7 +333,7 @@ export default function PickPackagePage() {
     if (intMediaBuilt) {
       setSelectedValue("INT MEDIA");
       setConfirmed(true);
-    } else if (rel && !["BRIEF & DATA", "DEALING"].includes(rel.project_type)) {
+    } else if (rel && !["BRIEF & DATA", "SENT TO MARKETING", "DEALING"].includes(rel.project_type)) {
       setSelectedValue(rel.project_type);
       setConfirmed(true);
     }
@@ -392,7 +392,7 @@ export default function PickPackagePage() {
   async function confirmChoice() {
     if (isLocked || !selectedValue) return;
     setPicking(true);
-    const wasPipelineStage = ["BRIEF & DATA", "DEALING"].includes(release?.project_type);
+    const wasPipelineStage = ["BRIEF & DATA", "SENT TO MARKETING", "DEALING"].includes(release?.project_type);
     const option = pickOptions.find((o) => o.value === selectedValue);
     const { error: err } = await supabase
       .from("releases")
@@ -478,7 +478,7 @@ export default function PickPackagePage() {
   // gates item B.3's default-collapsed sections below.
   const isMediaReport = !!release?.media_report_status;
   const linkName = isMediaReport ? "Media Report" : "Package Offer";
-  const isPipelineStage = ["BRIEF & DATA", "DEALING"].includes(release?.project_type);
+  const isPipelineStage = ["BRIEF & DATA", "SENT TO MARKETING", "DEALING"].includes(release?.project_type);
   const hasOtherRounds = bookingEntries.some((e) => e.booking_round === "Đợt 1" || e.booking_round === "Đợt 2");
 
   // "Rich" cards (real built packages, incl. INT MEDIA) get the wide

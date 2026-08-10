@@ -16,6 +16,7 @@ import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import NoteCell from "../../../lib/NoteCell";
 import { PHAI_SINH_TYPE_OPTIONS, isKhoNhacType, isMetadataConfirmed, CHILD_STATUS_COUNTERS } from "../../../lib/phaiSinhTypes";
 import { canEditLockedDeadline } from "../../../lib/permissions";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
 
 // Rebuilt bespoke to match v1's real Phái Sinh table exactly — it shows
@@ -142,6 +143,13 @@ export default function PhaiSinhList() {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
     if (REFUND_LIKE.includes(newStatus)) patch.pic_profile_id = null;
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js).
+    if (statusNeedsNote(newStatus)) {
+      const newData = withStatusNote(t.data, newStatus);
+      if (!newData) return; // cancelled / no reason given — abort the change
+      patch.data = newData;
+    }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
@@ -422,7 +430,9 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
           <span style={{ fontSize: 12 }}>{ticket.profiles?.name || "—"}</span>
         )}
       </td>
-      <td style={{ verticalAlign: "top" }}>
+      {/* Round 80 — hover reveals the reason folded into data.note by
+          statusNoteGate for refund/cancel-like status moves. */}
+      <td style={{ verticalAlign: "top" }} title={ticket.data?.note || undefined}>
         {statusEditable ? (
           <select value={ticket.status} onChange={(e) => onUpdateStatus(ticket, e.target.value)} style={{ background: color.bg, color: color.fg, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>
             {statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}

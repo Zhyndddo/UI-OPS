@@ -5006,3 +5006,78 @@ page's route actually expects) — a pre-existing bug in both files, not somethi
 introduced, but it surfaced during round 79's testing pass so it's fixed here. Pitching's `releases`
 query also didn't select `id` at all before, so that select list picked up the column too. No SQL —
 pure app-code fix, both files tsc-verified clean.
+
+## Round 80 — Status-change notes, Internal Package tier, URL column caps, Claim Timestamp, SENT TO MARKETING interlude
+
+Five separate requests. No SQL this round — every change is app code only (Claim Timestamp lives
+in `tickets.data`, not a new column; `project_type`/`releases` has no CHECK constraint so the new
+pipeline stage string needs no migration).
+
+### 1. Status-change note required on Refund/Cancel (global)
+
+This app has no single shared "change a ticket's status" function — most ticket types are their
+own bespoke list page with their own copy of that logic (only Report Conflict, Stream Update, and
+Khác actually share `lib/TicketListPage.js`; Phụ Lục MG/Publishing share `lib/PhuLucStyleTicketList.js`;
+the other 12 types — Manual Claim, Phái Sinh, Media Booking, Publishing, Phụ Lục, Split Share, Sony
+Publish, Priority Sync Lyric, MV Spotify, Discovery Mode Spotify, Có Trong Net YouTube, Pre-order
+iTunes, Artist Profile — are each their own file). New shared helper `lib/statusNoteGate.js`
+(`statusNeedsNote`/`withStatusNote`) is now wired into every one of those 14 files' `updateStatus`,
+plus Design's own pre-existing note-required gate (`lib/designFlow.js`'s `NOTE_REQUIRED_STATUSES`,
+which already worked differently — pre-fill-then-change rather than prompt-then-change — extended
+to cover `CANCEL`, its only terminal "didn't happen" state, alongside its existing PENDING/REVISE).
+
+Moving a ticket to any refund/cancel-shaped status — `REFUND`, `CANCELED`, `CANCEL`, or Report
+Conflict's Vietnamese `Từ chối`/`Hủy` — now prompts for a short required reason, which gets appended
+(with a timestamp) into that ticket's `data.note`, never overwriting whatever was already there.
+Types that already show a Note column via `NoteCell` (Manual Claim, Phái Sinh, Design, Report
+Conflict, Artist Profile's plain input) get this for free through that existing hover+edit cell.
+Types with no Note column at all (Media Booking, Publishing, Phụ Lục, Phụ Lục MG/Publishing, Split
+Share, Sony Publish, Priority Sync Lyric, MV Spotify, Discovery Mode Spotify, Có Trong Net YouTube,
+Pre-order iTunes, Stream Update, Khác) instead get a plain native hover tooltip on the Status cell
+itself showing the note — the "or add a hover" fallback from the request, applied consistently
+everywhere rather than picking case by case.
+
+**Explicitly NOT touched, flagged rather than silently skipped:** the Pitching Workstation/ticket
+(status is fully computed as of round 79, never manually set — REFUND/CANCELED aren't reachable
+there anymore, so there's nothing to gate), and `pitching_info` (its `ticket_tabs` row doesn't
+actually exist in `schema.sql` at all — this type looks pre-existing-broken/orphaned independent of
+this round, left alone rather than risk building on top of something already dead).
+
+### 2. Media Booking: "Internal Package" tier
+
+The package-naming popup (first thing shown when building a release's first package) offered
+Vĩnh Viễn / Custom Years (/ INT MEDIA, conditionally) as pickable tiers. Added a fourth, always-
+visible option — **Internal Package** — fully editable like Vĩnh Viễn/Custom Years (not
+locked/read-only like INT MEDIA), same one-per-release limit as the other two named tiers.
+
+### 3. URL columns capped at a max width (global)
+
+Long pasted URLs were stretching their table column wide ("over-extend"). Fixed at the component
+level rather than chasing every call site's `<td>` style individually — `lib/UrlField.js` and
+`lib/MultiLinkCell.js` (used across ~12 files: Manual Claim, MV Spotify, Pre-order iTunes, Priority
+Sync Lyric, Sony Publish, the release detail page, Artists, Upload/Confirm/Pre-release Workstations,
+GateFields) now cap themselves internally (`maxWidth: 320`, plus a `minWidth: 0` fix on
+`MultiLinkCell`'s flex item — its missing `min-width: 0` was the actual reason the ellipsis
+truncation wasn't engaging at all before). A booking-board link list missing the same `minWidth: 0`
+fix got it too. Also added a reusable `.urlCell` class in `app/shared.module.css` for any future
+raw-URL table cell that doesn't go through either shared component.
+
+### 4. Manual Claim: "Claim Timestamp" field
+
+New free-typed text field (not a real date/time picker, per explicit request) — `claimTimestamp` —
+on both the Manual Claim creation form and its ticket list (editable inline after creation, same
+pattern as every other field there).
+
+### 5. New pipeline stage: SENT TO MARKETING
+
+The pipeline was BRIEF & DATA -> DEALING, with "DEALING" set the instant the Package Ticket was
+sent to Marketing — even though nothing had actually been built yet. New interlude stage **SENT TO
+MARKETING** sits between them: sending the Package Ticket now moves BRIEF & DATA -> SENT TO
+MARKETING (not straight to DEALING), and only once Marketing actually marks that Media Booking
+ticket **COMPLETE** does it advance to DEALING (see `app/tickets/media-booking/page.js`'s
+`updateStatus` — this is the one new auto-transition this item adds). `PIPELINE_STAGES` is
+duplicated across 3 pre-existing places (`app/releases/[id]/page.js`, `lib/packageSimulator.js`,
+`app/pick-package/[token]/page.js`, none centralized before this round either) — all 3 updated in
+sync so "still not a real resolved package" logic (Phụ Lục auto-requirement, TBU defaults, Lock
+Editing disabled, the artist-facing magic link page's own gating) treats the new stage the same as
+the other two, everywhere.

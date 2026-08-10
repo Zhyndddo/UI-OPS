@@ -14,6 +14,7 @@ import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import NoteCell from "../../../lib/NoteCell";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
 
 // Rebuilt bespoke to match v1's real Manual Claim table — simpler than
@@ -64,7 +65,7 @@ export default function ManualClaimList() {
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, data: newData } : x)));
     await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
     if (editedByRequester) {
-      const fieldLabel = { label: "Label", tenBai: "Tên Bài", artist: "Artist", url: "URL", note: "Note" }[key] || key;
+      const fieldLabel = { label: "Label", tenBai: "Tên Bài", artist: "Artist", claimTimestamp: "Claim Timestamp", url: "URL", note: "Note" }[key] || key;
       await supabase.rpc("fanout_notification", {
         p_team: "OPS",
         p_type: "ticket_edited",
@@ -96,6 +97,14 @@ export default function ManualClaimList() {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
     if (REFUND_LIKE.includes(newStatus)) patch.pic_profile_id = null;
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js) — already visible
+    // here via the existing Note column's NoteCell.
+    if (statusNeedsNote(newStatus)) {
+      const newData = withStatusNote(t.data, newStatus);
+      if (!newData) return;
+      patch.data = newData;
+    }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
@@ -142,7 +151,7 @@ export default function ManualClaimList() {
             <table className={styles.table} style={{ minWidth: 1100 }}>
               <thead>
                 <tr>
-                  <th>Request Date</th><th>Label</th><th>Tên Bài</th><th>Artist</th><th>URL</th><th>Note</th>
+                  <th>Request Date</th><th>Label</th><th>Tên Bài</th><th>Artist</th><th>Claim Timestamp</th><th>URL</th><th>Note</th>
                   <th>PIC</th><th>Status</th>
                 </tr>
               </thead>
@@ -212,6 +221,10 @@ function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, 
       {textCell("label", d.label)}
       {textCell("tenBai", d.tenBai)}
       {textCell("artist", d.artist)}
+      {/* Round 80 — Claim Timestamp: plain text (not a real timestamp
+          picker — per request it's just a free-typed text field), editable
+          after creation same as every other field here. */}
+      {textCell("claimTimestamp", d.claimTimestamp)}
       <td style={{ minWidth: 220 }}><MultiLinkCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v, !isExecutorView)} /></td>
       <td style={{ minWidth: 160 }}>
         <NoteCell value={d.note} onSave={(v) => onUpdateField(ticket, "note", v, !isExecutorView)} />

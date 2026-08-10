@@ -12,6 +12,7 @@ import { ARTIST_PROFILE_PLATFORMS } from "../../../lib/GateFields";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
 
 // Bespoke (not the generic TicketListPage) per explicit request — the
@@ -82,6 +83,13 @@ export default function ArtistProfileTicketList() {
   async function updateStatus(t, newStatus) {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js).
+    if (statusNeedsNote(newStatus)) {
+      const newData = withStatusNote(t.data, newStatus);
+      if (!newData) return; // cancelled / no reason given — abort the change
+      patch.data = newData;
+    }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
@@ -200,7 +208,7 @@ export default function ArtistProfileTicketList() {
                         )}
                       </td>
                       <td>{fmtDate(t.deadline)}</td>
-                      <td>
+                      <td title={t.data?.note || undefined}>
                         {isExecutorView ? (
                           <select value={t.status} onChange={(e) => updateStatus(t, e.target.value)} style={{ background: color.bg, color: color.fg, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>
                             {tab?.status_options.map((s) => <option key={s} value={s}>{s}</option>)}

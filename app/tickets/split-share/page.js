@@ -11,6 +11,7 @@ import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
 
 // Bespoke (not the generic TicketListPage) per explicit request — "reuse
@@ -90,6 +91,13 @@ export default function SplitShareTicketList() {
     if (newStatus === "COMPLETE") newData.ngayHoanThanh = new Date().toISOString().slice(0, 10);
     else if (t.status === "COMPLETE") newData.ngayHoanThanh = null;
     const patch = { status: newStatus, status_log: newLog, data: newData };
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js).
+    if (statusNeedsNote(newStatus)) {
+      const notedData = withStatusNote(newData, newStatus);
+      if (!notedData) return; // cancelled / no reason given — abort the change
+      patch.data = notedData;
+    }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
@@ -161,7 +169,7 @@ export default function SplitShareTicketList() {
                           <span style={{ fontSize: 12 }}>{profiles.find((p) => p.id === t.pic_profile_id)?.name || "—"}</span>
                         )}
                       </td>
-                      <td>
+                      <td title={t.data?.note || undefined}>
                         {isExecutorView ? (
                           <select value={t.status} onChange={(e) => updateStatus(t, e.target.value)} style={{ background: color.bg, color: color.fg, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>
                             {tab?.status_options.map((s) => <option key={s} value={s}>{s}</option>)}

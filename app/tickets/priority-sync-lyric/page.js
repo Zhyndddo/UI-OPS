@@ -13,6 +13,7 @@ import UrlField from "../../../lib/UrlField";
 import PickSelect from "../../../lib/PickSelect";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
 
 // Same Musixmatch vocabulary as the Pre-release Workstation
@@ -80,6 +81,13 @@ export default function PrioritySyncLyricTicketList() {
   async function updateStatus(t, newStatus) {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js).
+    if (statusNeedsNote(newStatus)) {
+      const newData = withStatusNote(t.data, newStatus);
+      if (!newData) return; // cancelled / no reason given — abort the change
+      patch.data = newData;
+    }
     setRows((prev) => prev.map((row) => (row.ticket.id === t.id ? { ...row, ticket: { ...row.ticket, ...patch } } : row)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
@@ -177,7 +185,7 @@ export default function PrioritySyncLyricTicketList() {
                           <span style={{ fontSize: 12 }}>{ticket.profiles?.name || "—"}</span>
                         )}
                       </td>
-                      <td>
+                      <td title={ticket.data?.note || undefined}>
                         {isExecutorView ? (
                           <select value={ticket.status} onChange={(e) => updateStatus(ticket, e.target.value)} style={{ background: color.bg, color: color.fg, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>
                             {tab?.status_options.map((s) => <option key={s} value={s}>{s}</option>)}

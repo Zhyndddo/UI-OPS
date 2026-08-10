@@ -10,6 +10,7 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
 
 const PHU_LUC_COLOR = {
@@ -89,6 +90,13 @@ export default function PhuLucList() {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
     if (newStatus === "REFUND") patch.pic_profile_id = null;
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js).
+    if (statusNeedsNote(newStatus)) {
+      const newData = withStatusNote(t.data, newStatus);
+      if (!newData) return; // cancelled / no reason given — abort the change
+      patch.data = newData;
+    }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
@@ -156,7 +164,7 @@ export default function PhuLucList() {
                         {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
                     </td>
-                    <td>
+                    <td title={t.data?.note || undefined}>
                       <select
                         value={status}
                         onChange={(e) => updateStatus(t, e.target.value)}

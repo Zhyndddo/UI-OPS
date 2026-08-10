@@ -31,7 +31,14 @@ const TABS = [
   { key: "tasklist", label: "Tasklist" },
 ];
 
-const PIPELINE_STAGES = ["BRIEF & DATA", "DEALING"];
+// Round 80 — "SENT TO MARKETING" is the new interlude stage between
+// BRIEF & DATA and DEALING: entered the moment the Package Ticket is sent
+// to Marketing, held while Marketing is still building it, and left for
+// DEALING only once that Media Booking ticket is marked COMPLETE (see the
+// media-booking ticket list's updateStatus). Treated identically to the
+// other two pipeline stages everywhere in this file (still "no real
+// package resolved yet").
+const PIPELINE_STAGES = ["BRIEF & DATA", "SENT TO MARKETING", "DEALING"];
 
 const META_ITEMS = [
   { key: "meta_audio", label: "Audio" },
@@ -722,7 +729,11 @@ export default function ReleaseDetailPage() {
     setHasMediaBookingTicket(true);
 
     const patch = { package_ticket_sent: true };
-    if (form.project_type === "BRIEF & DATA") patch.project_type = "DEALING";
+    // Round 80 — sending the Package Ticket now moves BRIEF & DATA into
+    // the new SENT TO MARKETING interlude, not straight to DEALING —
+    // DEALING is reached once Marketing actually marks that ticket
+    // COMPLETE (see media-booking ticket list's updateStatus).
+    if (form.project_type === "BRIEF & DATA") patch.project_type = "SENT TO MARKETING";
     await supabase.from("releases").update(patch).eq("id", id);
     setForm((f) => ({ ...f, ...patch }));
     setRelease((r) => ({ ...r, ...patch }));
@@ -1170,12 +1181,15 @@ function Field({ label, children, style }) {
 }
 
 // Loại Dự Án is no longer a static dropdown — it's the booking pipeline:
-// BRIEF & DATA -> DEALING (persists until artist locks in) -> a real resolved package
-// (set once the artist locks one in via the magic link). Shows the current
-// stage — no manual "Advance" action anymore; sending the package ticket
-// to Marketing (below, in the Package section) is what actually moves
-// BRIEF & DATA -> DEALING. Once resolved to a real package, shows that
-// value read-only plus the derived Phụ Lục requirement.
+// BRIEF & DATA -> SENT TO MARKETING (once the Package Ticket is sent) ->
+// DEALING (once Marketing marks that ticket COMPLETE, persists until
+// artist locks in) -> a real resolved package (set once the artist locks
+// one in via the magic link). Shows the current stage — no manual
+// "Advance" action anymore; sending the package ticket to Marketing
+// (below, in the Package section) is what moves BRIEF & DATA -> SENT TO
+// MARKETING, and Marketing completing that ticket is what moves SENT TO
+// MARKETING -> DEALING. Once resolved to a real package, shows that value
+// read-only plus the derived Phụ Lục requirement.
 function PipelineControl({ form, update, setTab }) {
   const stage = form.project_type;
   const isPipelineStage = PIPELINE_STAGES.includes(stage);
@@ -1197,7 +1211,12 @@ function PipelineControl({ form, update, setTab }) {
         )}
         {stage === "BRIEF & DATA" && (
           <span style={{ color: "var(--text-faint)", fontSize: 11 }}>
-            Moves to DEALING automatically once a Package Ticket is sent (see Package section below)
+            Moves to SENT TO MARKETING automatically once a Package Ticket is sent (see Package section below)
+          </span>
+        )}
+        {stage === "SENT TO MARKETING" && (
+          <span style={{ color: "var(--text-faint)", fontSize: 11 }}>
+            Waiting on Marketing to build and complete the package — moves to DEALING automatically once that Media Booking ticket is marked COMPLETE
           </span>
         )}
         {stage === "DEALING" && (
@@ -1322,7 +1341,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
               Gói, Lock/Send Ticket buttons, magic link box) stays where
               it was. */}
           <div className={styles.subheading}>Package (Gói Hỗ Trợ Truyền Thông)</div>
-          {["BRIEF & DATA", "DEALING"].includes(form.project_type) ? (
+          {PIPELINE_STAGES.includes(form.project_type) ? (
             <p style={{ fontSize: 13, color: "var(--text-faint)", marginBottom: 0 }}>
               No contract type resolved yet — package details will show once the artist locks one in.
             </p>

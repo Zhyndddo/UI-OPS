@@ -206,6 +206,17 @@
   background: var(--bg-hover);
 }
 
+/* Round 80 — reusable cap for any table cell holding a raw URL/link that
+   isn't already going through UrlField/MultiLinkCell (which cap
+   themselves internally) — apply directly to a <td> to keep a long
+   pasted link from stretching its column ("over-extend"). */
+.urlCell {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .rowLink {
   color: inherit;
   text-decoration: none;

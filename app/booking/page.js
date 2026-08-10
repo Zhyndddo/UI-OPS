@@ -1284,7 +1284,10 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
               <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 8, display: "grid", gap: 4, maxHeight: 140, overflowY: "auto" }}>
                 {cellEntries.map((e) => (
                   <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, gap: 6 }}>
-                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {/* Round 80 — minWidth: 0 lets a flex item actually
+                        shrink to its parent instead of growing to fit a
+                        long pasted link ("over-extend"). */}
+                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                       {e.platform && <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{e.platform}: </span>}
                       <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-muted)" }}>{e.link}</a>
                     </div>
