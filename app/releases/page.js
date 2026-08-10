@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import { fmtDate, metadataPercent, uploadPercent, fetchAllRows } from "../../lib/helpers";
+import { buildProductNote } from "../../lib/releaseNotes";
 import { useSortableRows } from "../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../lib/SortableTh";
 import { usePagination } from "../../lib/usePagination";
@@ -455,10 +456,12 @@ export default function ReleasesDashboard() {
       <div
         style={{
           position: "fixed",
-          left: Math.min(hoverPos.x + 16, (typeof window !== "undefined" ? window.innerWidth : 1200) - 320),
+          left: Math.min(hoverPos.x + 16, (typeof window !== "undefined" ? window.innerWidth : 1200) - 380),
           top: hoverPos.y + 16,
           zIndex: 500,
-          width: 300,
+          width: 360,
+          maxHeight: 420,
+          overflow: "hidden",
           background: "var(--bg-card)",
           border: "1px solid var(--border-strong)",
           borderRadius: 8,
@@ -470,14 +473,16 @@ export default function ReleasesDashboard() {
         <div style={{ fontSize: 10, color: "var(--accent)", fontWeight: 700, marginBottom: 4 }}>{hoverRelease.did}</div>
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>{hoverRelease.title}</div>
         <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>{hoverRelease.main_artist} · {hoverRelease.label}</div>
-        <div style={{ fontSize: 11, color: "var(--text-faint)", display: "grid", gap: 3 }}>
-          <div>Genre: {hoverRelease.genre || "—"}</div>
-          <div>Topic: {hoverRelease.theme || "—"}</div>
-          <div>Stage: {hoverRelease.project_type}</div>
-          <div>Metadata: {metadataPercent(hoverRelease)}%</div>
-          <div>Booking: {bookingPct[hoverRelease.id] ?? 0}%</div>
-          <div>Upload: {uploadPercent(hoverRelease)}%</div>
-        </div>
+        {/* Round 78 — per explicit request, this now shows the same
+            generated product note as the New Release Setup workstation's
+            Note popup (lib/releaseNotes.js's buildProductNote — title,
+            artist, release date/time, channel, then LINK DRIVE/LINK
+            SHARE/SMARTLINK/LINKDASH/UPC/LINK UGC/MEDIA REPORT, whichever
+            are filled in) instead of the previous Genre/Topic/Stage/
+            Metadata/Booking/Upload summary. */}
+        <pre style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }}>
+{buildProductNote(hoverRelease)}
+        </pre>
       </div>
     )}
     </AppShell>

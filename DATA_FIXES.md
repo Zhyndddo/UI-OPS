@@ -4818,3 +4818,86 @@ youtube nghệ sĩ thuộc MCN, MV thời lượng dưới 5 phút"** instead, p
 starting value — freely editable afterward (see #2).
 
 No schema changes this round.
+
+## Round 78 (3) — Fix: magic link showing blank Số Lượng for non-YouTube Ads lines
+
+Reported against Chuyện Nắng (CNHB-14082026-0437): the internal package builder correctly shows
+"1 Gói" for the Ads — Facebook Ads line, but the artist-facing magic link showed nothing at all in
+that same row's Số Lượng column.
+
+Not a regression from the recent YouTube Ads work — this table (`app/pick-package/[token]/page.js`)
+reads `media_booking_package_lines.quantity` directly, and every Ads brand except YouTube Ads has
+*never* carried a real quantity there (Ads is priced per-entry then mushed into one lump amount —
+there's no single meaningful "count" for e.g. Facebook Ads, which can sum 3 different metrics). The
+internal builder's "1 Gói" is a display-only label that was never mirrored onto this page, so it's
+been showing a bare "—" here since Ads first got built out, just never noticed until now.
+
+Fixed by giving the magic link page the same "1 Gói" fallback the builder already uses: any Ads-
+category line whose brand isn't YouTube Ads now shows "1 Gói" instead of "—". YouTube Ads is
+unaffected — it already shows its real quantity (from the round 77/78 fixes above).
+
+No schema changes this round.
+
+## Round 78 (4) — New Release dashboard hover: now shows the product note
+
+The DID-cell hover popup on the New Release dashboard (`app/releases/page.js`) used to show a
+Genre/Topic/Stage/Metadata/Booking/Upload summary. Per explicit request, it now shows the same
+generated **product note** the New Release Setup workstation's Note popup shows (title, artist,
+release date/time, channel, then numbered LINK DRIVE/LINK SHARE/SMARTLINK/LINKDASH/UPC/LINK
+UGC/MEDIA REPORT lines, whichever are actually filled in) — reused straight from
+`lib/releaseNotes.js`'s `buildProductNote()`, the same function that popup already calls, so
+there's exactly one place this template lives.
+
+Widened the tooltip a bit (300px → 360px, capped at 420px tall) to fit the longer text
+comfortably. This tooltip stays a non-interactive hover preview (same as before) — to actually
+edit the note's underlying fields, that's still done from the New Release Setup workstation's own
+Note popup.
+
+No schema changes this round.
+
+## Round 78 (5) — Magic link package cards: reverted to theme-aware background in dark mode
+
+**Why the package cards were a fixed cream/white plate even in dark mode:** back in round 68, the
+card background and title text were hardcoded to specific colors (`#f7f3ee` background, `#15130c`
+text) regardless of site theme — that was a deliberate fix at the time, given exact values, for a
+real bug: the title text was hardcoded near-white (dark-mode-only), sitting on `var(--bg-card)`
+which itself resolved close to white in light mode, so the title went invisible on light
+backgrounds. Fixing it theme-independent solved that, but as a side effect meant dark mode also got
+the light-mode plate.
+
+Per this round's request, reverted both the card background and the title text back to
+theme-aware `var(--bg-card)`/`var(--text)` — today those two variables are always a correctly-
+contrasted pair in both themes (dark: near-black card + near-white text; light: white card +
+near-black text), so the original invisible-title bug doesn't come back, and dark mode gets a real
+dark plate again instead of the fixed light one. Applies to both the rich comparison cards and the
+narrow simple-option cards on the magic link page.
+
+No schema changes this round.
+
+## Round 78 (6) — Shorter magic link tokens
+
+The magic link (`/pick-package/[token]`) has no login — the token is the entire access control, so
+its length is a real security tradeoff, not just cosmetic. It was 24 random bytes, hex-encoded (48
+lowercase hex characters). Per explicit request, weighed the options:
+
+- **Base62** (mixed-case letters + digits) packs the most entropy per character, so it's the
+  shortest — but a token that mixes upper/lowercase can silently break if anything in the delivery
+  chain (some chat apps' link previews, certain email clients) normalizes the URL's case.
+- **Base36** (digits + lowercase letters only) is single-case, so it's exactly as safe against that
+  as the current hex token, just meaningfully shorter.
+
+Went with base36, since you're not trying to squeeze out the absolute shortest possible string —
+you're trying to avoid an unnecessarily-long one while staying safe. New tokens are **~25
+characters** (down from 48) carrying **128 bits** of randomness (down from 192) — still an
+astronomically large space; nobody is brute-forcing this via random guesses at either size.
+
+See `migrate-round78-shorten-magic-link-token.sql` — adds a `generate_base36_token()` Postgres
+function and points `magic_links.token`'s default at it. Tested against a real Postgres instance:
+500 inserts, all 25 characters, all `[0-9a-z]` only, all unique, leading-zero case confirmed
+correctly padded.
+
+**Non-breaking, no backfill needed.** This only changes the DEFAULT for new rows going forward —
+every magic link already sent keeps its current (working) 48-character hex token; nothing gets
+invalidated. No app-code changes were needed either — nothing in the codebase parses, validates, or
+assumes a length/format for the token, it's only ever used as an opaque string in an exact-match
+lookup.

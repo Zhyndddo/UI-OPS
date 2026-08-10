@@ -295,10 +295,25 @@ export default function PickPackagePage() {
         totalValue: isIntMedia || !(p.media_booking_package_lines || []).some((l) => l.amount != null)
           ? null
           : p.media_booking_package_lines.reduce((sum, l) => sum + (l.amount || 0), 0),
-        items: (p.media_booking_package_lines || []).map((l) => ({
-          category: (categoryNameById[l.category_id] || l.platform || "—") + (l.brand ? ` — ${l.brand}` : ""),
-          unit: l.unit, quantity: l.quantity, detail: l.detail, amount: l.amount,
-        })),
+        items: (p.media_booking_package_lines || []).map((l) => {
+          const categoryName = categoryNameById[l.category_id] || null;
+          // Round 78 (3) — every Ads brand except YouTube Ads has never
+          // carried a real `quantity` at the package-line level (it's
+          // priced per-entry, then mushed into one lump amount — see
+          // media-booking/page.js's syncPackageLine comment), so this was
+          // rendering as a bare "—" here even though the internal package
+          // builder shows "1 Gói" for the exact same line. Not a
+          // regression from the recent YouTube Ads fixes — this table has
+          // always read the raw DB quantity — but it should match what
+          // the builder already shows instead of looking like missing
+          // data. YouTube Ads keeps showing its real quantity as before.
+          const isNonYoutubeAdsLine = categoryName === "Ads" && l.brand !== "YouTube Ads";
+          return {
+            category: (categoryName || l.platform || "—") + (l.brand ? ` — ${l.brand}` : ""),
+            unit: l.unit, quantity: l.quantity, detail: l.detail, amount: l.amount,
+            isNonYoutubeAdsLine,
+          };
+        }),
       };
     });
     const simpleOptions = SIMPLE_OPTIONS.map((name) => ({ value: name, label: name, kind: "simple", totalValue: null, items: [] }));
@@ -547,13 +562,17 @@ export default function PickPackagePage() {
               <div
                 key={c.value}
                 style={{
-                  // Round 68 — item 3: was var(--bg-card), which resolves
-                  // near-white in light mode — combined with the title
-                  // text below (also hardcoded near-white, for dark mode
-                  // only), the title went invisible on light backgrounds.
-                  // Fixed to this specific cream regardless of site theme,
-                  // per explicit color values given.
-                  background: selected ? "rgba(255,107,26,0.1)" : "#f7f3ee",
+                  // Round 68 — item 3 hardcoded this to a fixed cream
+                  // (#f7f3ee) regardless of site theme, because back then
+                  // var(--bg-card) + the hardcoded near-white title text
+                  // combined to go invisible in light mode. Round 78 — per
+                  // explicit request, reverted to theme-aware var(--bg-card)
+                  // now that the title text below is also theme-aware
+                  // (var(--text)) instead of a second hardcoded color — the
+                  // two vars are always a correctly-contrasted pair in both
+                  // themes today, so this card is a real black plate again
+                  // in dark mode instead of always-light.
+                  background: selected ? "rgba(255,107,26,0.1)" : "var(--bg-card)",
                   // Every package card gets an orange stroke now (not just
                   // the selected one) so they read as a set of options to
                   // compare, not a plain grey list — selected still stands
@@ -573,7 +592,7 @@ export default function PickPackagePage() {
                     card too; consolidated to just this one). */}
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: 16, opacity: isLocked && !selected ? 0.5 : 1 }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: selected ? "#ff9d5c" : "#15130c" }}>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: selected ? "#ff9d5c" : "var(--text)" }}>
                       {c.label || c.value}
                     </span>
                     {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
@@ -639,7 +658,7 @@ export default function PickPackagePage() {
                         {c.items.map((item, i) => (
                           <tr key={i}>
                             <td style={{ wordBreak: "break-word" }}>{item.category}</td>
-                            <td style={{ whiteSpace: "nowrap" }}>{item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
+                            <td style={{ whiteSpace: "nowrap" }}>{item.isNonYoutubeAdsLine ? "1 Gói" : item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
                             <td style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "pre-line", lineHeight: 1.4 }}>{formatDetailText(item.detail) || "—"}</td>
                             <td style={{ whiteSpace: "nowrap" }}>{fmtVnd(item.amount)}</td>
                           </tr>
@@ -692,9 +711,10 @@ export default function PickPackagePage() {
                   disabled={isLocked || picking}
                   style={{
                     textAlign: "left",
-                    // Round 68 — item 3: same white-on-white fix as the
-                    // rich options cards above.
-                    background: selected ? "rgba(255,107,26,0.1)" : "#f7f3ee",
+                    // Round 78 — same revert as the rich options cards
+                    // above: theme-aware var(--bg-card) instead of the
+                    // fixed cream round 68 introduced.
+                    background: selected ? "rgba(255,107,26,0.1)" : "var(--bg-card)",
                     border: selected ? "1px solid #ff6b1a" : "1px solid var(--border)",
                     borderRadius: 10,
                     padding: "14px 16px",
@@ -703,7 +723,7 @@ export default function PickPackagePage() {
                   }}
                 >
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span style={{ fontSize: 14, fontWeight: 800, color: selected ? "#ff9d5c" : "#15130c" }}>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: selected ? "#ff9d5c" : "var(--text)" }}>
                       {c.label || c.value}
                     </span>
                     {selected && <span style={{ fontSize: 10, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
