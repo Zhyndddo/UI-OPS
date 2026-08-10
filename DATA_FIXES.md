@@ -4901,8 +4901,6 @@ every magic link already sent keeps its current (working) 48-character hex token
 invalidated. No app-code changes were needed either — nothing in the codebase parses, validates, or
 assumes a length/format for the token, it's only ever used as an opaque string in an exact-match
 lookup.
-<<<<<<< Updated upstream
-=======
 
 ## Round 79 — Pitching 4-tab redesign, pseudo package, Clone from another product
 
@@ -5008,4 +5006,3 @@ page's route actually expects) — a pre-existing bug in both files, not somethi
 introduced, but it surfaced during round 79's testing pass so it's fixed here. Pitching's `releases`
 query also didn't select `id` at all before, so that select list picked up the column too. No SQL —
 pure app-code fix, both files tsc-verified clean.
->>>>>>> Stashed changes

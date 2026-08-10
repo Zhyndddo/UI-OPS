@@ -6,6 +6,7 @@ import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import { fmtDate, metadataPercent, uploadPercent, fetchAllRows } from "../../lib/helpers";
 import { buildProductNote } from "../../lib/releaseNotes";
+import RelatedDidField from "../../lib/RelatedDidField";
 import { useSortableRows } from "../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../lib/SortableTh";
 import { usePagination } from "../../lib/usePagination";
@@ -20,11 +21,12 @@ const CHANNELS = ["VIEENT", "ENVI"];
 // definition.
 const PITCHING_DONE_VALUE = "Đã pitching";
 const PITCHING_CANCEL_VALUES = ["Không thực hiện", "Không hỗ trợ"];
-const PITCHING_TYPE_KEYS = ["priority", "spotify", "nct", "zing"];
+const PITCHING_TYPE_KEYS = ["priority", "spotify", "apple", "nct", "zing"]; // round 79 — Apple joined as a real tracked platform
 
 function pitchingStatusFor(release, key) {
   if (key === "priority") return release?.priority_pitching;
   if (key === "spotify") return release?.pitching_status_spotify;
+  if (key === "apple") return release?.pitching_status_apple;
   if (key === "nct") return release?.pitching_status_nct;
   if (key === "zing") return release?.pitching_status_zing;
   return null;
@@ -256,6 +258,16 @@ export default function ReleasesDashboard() {
     setSavingChannel(null);
   }
 
+  // Round 79 — Track DID (pseudo package): inline-editable straight from
+  // the dashboard row, same field as the release detail page's own Track
+  // DID box (lib/RelatedDidField.js does the search/autocomplete there and
+  // here identically — both just write releases.pseudo_package_parent_did).
+  async function updateTrackDid(release, value) {
+    const clean = (value || "").trim();
+    setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, pseudo_package_parent_did: clean || null } : r)));
+    await supabase.from("releases").update({ pseudo_package_parent_did: clean || null }).eq("id", release.id);
+  }
+
   const { sorted: sortedReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(sortedReleases);
 
@@ -338,6 +350,7 @@ export default function ReleasesDashboard() {
                 <SortableTh label="Package" sortKey="release_category" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Label" sortKey="label" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Name" sortKey="title" sort={sort} onToggle={toggleSort} />
+                <th>Track DID</th>
                 <SortableTh label="Artist" sortKey="main_artist" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Release Date" sortKey="release_date" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Status" sortKey="status" sort={sort} onToggle={toggleSort} />
@@ -397,6 +410,13 @@ export default function ReleasesDashboard() {
                       onMouseLeave={() => setHoverRelease(null)}
                     >
                       <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()} style={{ minWidth: 160 }}>
+                      <RelatedDidField
+                        styles={styles}
+                        value={r.pseudo_package_parent_did || ""}
+                        onChange={(v) => updateTrackDid(r, v)}
+                      />
                     </td>
                     <td>{r.main_artist}</td>
                     <td>{fmtDate(r.release_date)}</td>

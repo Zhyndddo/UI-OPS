@@ -18,6 +18,7 @@ import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHA
 import { useAuth } from "../../../lib/AuthContext";
 import { isDev } from "../../../lib/permissions";
 import { runOne } from "../../../lib/packageSimulator";
+import RelatedDidField from "../../../lib/RelatedDidField";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -60,7 +61,7 @@ export default function ReleaseDetailPage() {
   const [release, setRelease] = useState(null);
   const [form, setForm] = useState(null);
   const [pitchingTicket, setPitchingTicket] = useState(null);
-  const [pitchingTypesDraft, setPitchingTypesDraft] = useState({ priority: false, spotify: false, nct: false, zing: false });
+  const [pitchingTypesDraft, setPitchingTypesDraft] = useState({ priority: false, spotify: false, apple: false, nct: false, zing: false });
   const [artistProfileTicket, setArtistProfileTicket] = useState(null);
   const [artistProfileTypesDraft, setArtistProfileTypesDraft] = useState({ spotify: false, tiktok: false, apple: false });
   const [tab, setTab] = useState("overview");
@@ -99,6 +100,37 @@ export default function ReleaseDetailPage() {
   const mediaBookingSectionRef = useRef(null);
   const [autoScrolled, setAutoScrolled] = useState(false);
 
+  // Round 79 — item 2: "pseudo package" — a single spun off from an EP/
+  // Album can be linked (via Track DID, on the Overview tab) to its parent
+  // product instead of going through the whole booking process itself.
+  // Live-linked per explicit request: this always re-reads the parent's
+  // CURRENT package/magic-link fresh, never a one-time copy, so it stays
+  // accurate if the parent's package changes later. Debounced since the
+  // search field's onChange fires on every keystroke.
+  const [pseudoParent, setPseudoParent] = useState(null);
+  const [pseudoParentMagicLink, setPseudoParentMagicLink] = useState(null);
+  const [pseudoParentError, setPseudoParentError] = useState(null);
+  useEffect(() => {
+    if (!supabase) return;
+    const did = (form?.pseudo_package_parent_did || "").trim();
+    if (!did) { setPseudoParent(null); setPseudoParentMagicLink(null); setPseudoParentError(null); return; }
+    const t = setTimeout(async () => {
+      const { data: parent } = await supabase
+        .from("releases")
+        .select("id, did, title, main_artist, project_type, package_total_value, package_locked, pseudo_package_parent_did")
+        .eq("did", did)
+        .maybeSingle();
+      if (!parent) { setPseudoParent(null); setPseudoParentMagicLink(null); setPseudoParentError("No release found with that DID."); return; }
+      if (form?.did && parent.did === form.did) { setPseudoParent(null); setPseudoParentMagicLink(null); setPseudoParentError("A release can't be its own parent."); return; }
+      if (parent.pseudo_package_parent_did) { setPseudoParent(null); setPseudoParentMagicLink(null); setPseudoParentError("That release is itself a pseudo-package track — link straight to the real EP/Album instead, not another track."); return; }
+      setPseudoParent(parent);
+      setPseudoParentError(null);
+      const { data: link } = await supabase.from("magic_links").select("token").eq("release_id", parent.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      setPseudoParentMagicLink(link ? `${window.location.origin}/pick-package/${link.token}` : null);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [form?.pseudo_package_parent_did, form?.did]);
+
   useEffect(() => {
     if (!supabase || !id) return;
     supabase
@@ -123,7 +155,7 @@ export default function ReleaseDetailPage() {
             .limit(1);
           const found = tix?.[0] || null;
           setPitchingTicket(found);
-          if (found) setPitchingTypesDraft({ priority: false, spotify: false, nct: false, zing: false, ...found.data });
+          if (found) setPitchingTypesDraft({ priority: false, spotify: false, apple: false, nct: false, zing: false, ...found.data });
         }
         // Pitching Info (AR's genre/mood/DSP tagging ticket) — the New
         // Release create form already auto-sends this the moment Priority
@@ -365,7 +397,7 @@ export default function ReleaseDetailPage() {
       } else {
         const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching").single();
         if (tab) {
-          const newData = { releaseId: form.did, priority: false, spotify: false, nct: false, zing: false, ...pitchingTypesDraft };
+          const newData = { releaseId: form.did, priority: false, spotify: false, apple: false, nct: false, zing: false, ...pitchingTypesDraft };
           const { data: created } = await supabase
             .from("tickets")
             .insert({
@@ -966,6 +998,9 @@ export default function ReleaseDetailPage() {
             canSimulate={canSimulate}
             onSendIntSupportPackage={sendIntSupportPackage}
             onSendOnlyPh={sendOnlyPh}
+            pseudoParent={pseudoParent}
+            pseudoParentMagicLink={pseudoParentMagicLink}
+            pseudoParentError={pseudoParentError}
             pitchingTicket={pitchingTicket}
             pitchingTypesDraft={pitchingTypesDraft}
             onPitchingToggle={handlePitchingToggle}
@@ -1188,7 +1223,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, canSimulate, onSendIntSupportPackage, onSendOnlyPh, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, coTrongNetDraft, onCoTrongNetChange, gateTicketMap, setTab }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, canSimulate, onSendIntSupportPackage, onSendOnlyPh, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, coTrongNetDraft, onCoTrongNetChange, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -1340,121 +1375,6 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         </div>
       </div>
 
-<<<<<<< Updated upstream
-      <div className={styles.subheading}>Name / Artist / Release Date (editing updates the title above)</div>
-      <div className={styles.grid2}>
-        {/* Round 68 — item 5: Feature Artist added back — it's a real
-            releases.feature_artist column (used at New Release creation,
-            and per-track on the Tracks tab), but was never actually
-            rendered here on the detail page's own Overview fields. Name
-            now spans the full row alone (per explicit layout ask) so Main
-            Artist and Feature Artist can share the row right below it,
-            same shape as the New Release form. */}
-        <Field label="Name" style={{ gridColumn: "1 / -1" }}>
-          <input className={styles.input} value={form.title || ""} onChange={(e) => update("title", e.target.value)} />
-        </Field>
-        <Field label="Main Artist">
-          <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
-            <div style={{ flex: 1 }}>
-              <ArtistInput styles={styles} value={form.main_artist} onChange={(v) => update("main_artist", v)} artists={artistsList} placeholder="Tên nghệ sĩ chính" />
-            </div>
-            <QuickCreate kind="artist" onCreated={(newArtist) => { setArtistsList((prev) => [...prev, newArtist]); update("main_artist", newArtist.stage_name); }} />
-          </div>
-        </Field>
-        <Field label="Feature Artist">
-          <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
-            <div style={{ flex: 1 }}>
-              <ArtistInput styles={styles} value={form.feature_artist} onChange={(v) => update("feature_artist", v)} artists={artistsList} placeholder="Tên nghệ sĩ feature (nếu có)" />
-            </div>
-            <QuickCreate kind="artist" onCreated={(newArtist) => { setArtistsList((prev) => [...prev, newArtist]); update("feature_artist", newArtist.stage_name); }} />
-          </div>
-        </Field>
-        <Field label="Release Date">
-          <input type="date" className={styles.input} value={form.release_date || ""} onChange={(e) => update("release_date", e.target.value)} />
-        </Field>
-        <Field label="Release Time">
-          <input type="time" className={styles.input} value={form.release_time || ""} onChange={(e) => update("release_time", e.target.value)} />
-        </Field>
-      </div>
-
-      {form.needs_update && (
-        <div style={{ background: "rgba(229,115,115,0.1)", border: "1px solid #e57373", borderRadius: 8, padding: 12, marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <div style={{ color: "#e57373", fontSize: 12, fontWeight: 700 }}>
-            ⚠ {PRIORITY_MODE_WARNING} Smartlink is locked (URL tab) until the checklist below is complete.
-          </div>
-          {requiredMetaDone === REQUIRED_META_KEYS.length && (
-            <button className={styles.btnSmall} onClick={onUnlockNeedsUpdate} style={{ borderColor: "#7ee6a8", color: "#7ee6a8", flexShrink: 0 }}>
-              Checklist complete — unlock Smartlink
-            </button>
-          )}
-        </div>
-      )}
-
-      <div className={styles.subheading}>Metadata Checklist ({metaDone}/6 — {requiredMetaDone}/{REQUIRED_META_KEYS.length} required)</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
-        {META_ITEMS.map((m) => (
-          <div key={m.key} className={styles.field} style={{ marginBottom: 0 }}>
-            <label className={styles.fieldLabel}>{m.label}{REQUIRED_META_KEYS.includes(m.key) ? " *" : ""}</label>
-            <GateToggle value={form[m.key] || "false"} onChange={(v) => update(m.key, v)} />
-            {/* MV type — same field the Pre-release Workstation edits
-                (releases.canva_status, labeled "MV" there), surfaced here
-                too once MV is ticked Yes, per explicit request. */}
-            {m.key === "meta_mv" && form.meta_mv === "true" && (
-              <div style={{ marginTop: 6 }}>
-                <PickSelect styles={styles} opts={MV_TYPE_OPTIONS} value={form.canva_status} onChange={(v) => update("canva_status", v)} placeholder="— MV type —" />
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-      <p style={{ fontSize: 11, color: "var(--text-faint)", marginTop: -12, marginBottom: 20 }}>
-        * Required for Send Upload (Audio, Artwork, Lyric, Metadata). Working Files and MV are tracked here but don't block the ticket. TBU counts the same as No for gating — it's not done yet.
-      </p>
-
-      {/* Marketing Checklist — rendered directly under Metadata Checklist
-          (not inside GateFields) per follow-up feedback: the whole group
-          belongs here, not split with Project Proposal alone up here and
-          Artist Info/Artist Photo left below in the request section. */}
-      <div className={styles.subheading}>Marketing Checklist</div>
-      <GateGrid styles={styles} fields={MARKETING_CHECKLIST_FIELDS} form={form} update={update} />
-
-      {/* "Other Checklist" (Sony Publish/Publishing/Splitshare/Request Phụ
-          Lục as plain Yes/No) removed — it duplicated fields that now live
-          as tri-state (with TBU) in the Marketing Request group below via
-          GateFields: gate_sony_publish, gate_split_share, gate_phu_luc_mg /
-          gate_phu_luc_truyen_thong / gate_phu_luc_publishing. The old
-          "PUBLISHING" box here was also a straight duplicate of
-          Additional Request's old gate_publishing field ("bị trùng
-          publishing") — both are gone now, folded into the Phụ Lục
-          Publishing field instead. */}
-
-      <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
-        <button
-          className={styles.btnPrimary}
-          disabled={!uploadReady || form.requested}
-          onClick={onUpload}
-          style={{ opacity: form.requested ? 0.5 : uploadReady ? 1 : 0.3 }}
-        >
-          {form.requested ? "UPLOAD SENT" : "SEND UPLOAD"}
-        </button>
-        {!form.requested && !!pitchingTicket?.data?.priority && requiredMetaDone < REQUIRED_META_KEYS.length && (
-          <p style={{ color: "#e57373", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
-            Priority Pitching is ticked — Send Upload is unlocked, please fill in Metadata Checklist.
-          </p>
-        )}
-        {!form.requested && pitchingTypesDraft.priority && !pitchingTicket?.data?.priority && requiredMetaDone < REQUIRED_META_KEYS.length && (
-          <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
-            Priority Pitching is ticked but not saved yet — hit Save below to unlock Send Upload.
-          </p>
-        )}
-        {!form.requested && !uploadReady && requiredMetaDoneLive !== requiredMetaDone && (
-          <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
-            Metadata Checklist has unsaved changes — hit Save below before Send Upload picks them up.
-          </p>
-        )}
-      </div>
-
-=======
       {/* Round 79 — moved Package Actions (and the Track DID / pseudo-
           package section that gates it) up here, right under the Package
           (Gói Hỗ Trợ Truyền Thông) summary box above — per explicit
@@ -1514,7 +1434,6 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           )}
         </div>
       ) : (
->>>>>>> Stashed changes
       <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
         {/* Round 72 — item 3: heading + contract-type line moved up to
             right under the package status box (see above) — kept this
@@ -1614,6 +1533,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           </div>
         )}
       </div>
+      )}
 
       <div className={styles.subheading}>Name / Artist / Release Date (editing updates the title above)</div>
       <div className={styles.grid2}>
@@ -2286,6 +2206,15 @@ function PitchingTab({ form, update, onSave, saving }) {
       <div className={styles.grid2}>
         <Field label="Spotify Status">
           <select className={styles.select} value={form.pitching_status_spotify || ""} onChange={(e) => update("pitching_status_spotify", e.target.value)}>
+            {statusOpts.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+          </select>
+        </Field>
+        {/* Round 79 — Apple joined Priority/Spotify/NCT/Zing as a real
+            tracked pitching platform (its own status column, own tab in
+            the Pitching Workstation popup) — added here too so this
+            column isn't only editable from the workstation. */}
+        <Field label="Apple Status">
+          <select className={styles.select} value={form.pitching_status_apple || ""} onChange={(e) => update("pitching_status_apple", e.target.value)}>
             {statusOpts.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
           </select>
         </Field>

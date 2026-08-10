@@ -468,6 +468,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const [referenceTiers, setReferenceTiers] = useState([]);
   const [namePopup, setNamePopup] = useState(null); // null | "create" | "clone"
   const [generatingLink, setGeneratingLink] = useState(false);
+  const [showClonePopup, setShowClonePopup] = useState(false); // round 79 — "Clone from another product"
   const [priceDefaults, setPriceDefaults] = useState(DEFAULT_UNIT_PRICES); // overridden by Config → Media Booking Pricing once saved there
 
   const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
@@ -483,50 +484,103 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // counts popup below Summarize to show real per-brand numbers.
   const brandList = isSocial ? BRANDS : isCommunity ? COMMUNITY_BRANDS : isAds ? ADS_BRANDS : null;
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      const { data: rel } = await supabase.from("releases").select("*").eq("did", ticket.data?.releaseId).maybeSingle();
-      setRelease(rel);
-      const { data: cats } = await supabase.from("package_categories").select("*").order("sort_order");
-      setCategories(cats || []);
-      if (cats && cats.length > 0) setSelectedCategoryId(cats[0].id);
+  // Round 79 — pulled out of the mount-only useEffect below so "Clone from
+  // another product" can re-run the exact same load after copying another
+  // release's data in, instead of duplicating this logic or forcing a full
+  // page reload.
+  async function loadAll() {
+    setLoading(true);
+    const { data: rel } = await supabase.from("releases").select("*").eq("did", ticket.data?.releaseId).maybeSingle();
+    setRelease(rel);
+    const { data: cats } = await supabase.from("package_categories").select("*").order("sort_order");
+    setCategories(cats || []);
+    if (cats && cats.length > 0) setSelectedCategoryId((prev) => prev ?? cats[0].id);
 
-      // Round 54 — Config-editable default Đơn Giá (falls back to
-      // DEFAULT_UNIT_PRICES above if never saved, or if global_settings
-      // itself doesn't have this key yet).
-      const { data: priceSetting } = await supabase.from("global_settings").select("value").eq("key", UNIT_PRICE_DEFAULTS_SETTING_KEY).maybeSingle();
-      if (priceSetting?.value) {
-        try {
-          const parsed = JSON.parse(priceSetting.value);
-          setPriceDefaults({ categories: { ...DEFAULT_UNIT_PRICES.categories, ...(parsed.categories || {}) }, ads: { ...DEFAULT_UNIT_PRICES.ads, ...(parsed.ads || {}) } });
-        } catch {
-          // malformed value — keep the hardcoded fallback rather than crash
+    // Round 54 — Config-editable default Đơn Giá (falls back to
+    // DEFAULT_UNIT_PRICES above if never saved, or if global_settings
+    // itself doesn't have this key yet).
+    const { data: priceSetting } = await supabase.from("global_settings").select("value").eq("key", UNIT_PRICE_DEFAULTS_SETTING_KEY).maybeSingle();
+    if (priceSetting?.value) {
+      try {
+        const parsed = JSON.parse(priceSetting.value);
+        setPriceDefaults({ categories: { ...DEFAULT_UNIT_PRICES.categories, ...(parsed.categories || {}) }, ads: { ...DEFAULT_UNIT_PRICES.ads, ...(parsed.ads || {}) } });
+      } catch {
+        // malformed value — keep the hardcoded fallback rather than crash
+      }
+    }
+    if (rel) {
+      const [{ data: rollups }, { data: pkgs }, { data: tiers }, { data: link }] = await Promise.all([
+        supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", rel.id),
+        supabase.from("media_booking_packages").select("*, media_booking_package_lines(*)").eq("release_id", rel.id).order("sort_order"),
+        supabase.from("contract_type_packages").select("contract_type, items"),
+        supabase.from("magic_links").select("token").eq("release_id", rel.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      ]);
+      setSummarizedRows(rollups || []);
+      setSummarizedCategoryIds(new Set((rollups || []).map((r) => r.category_id)));
+      // A category can have both a real (non-skipped) row and a skipped
+      // row across different brands — only treat it as "skipped" in the
+      // sidebar if every row for it is a skip, not a real Summarize.
+      const byCategory = {};
+      (rollups || []).forEach((r) => { byCategory[r.category_id] = byCategory[r.category_id] ?? true; byCategory[r.category_id] = byCategory[r.category_id] && r.skipped; });
+      setSkippedCategoryIds(new Set(Object.keys(byCategory).filter((id) => byCategory[id])));
+      setPackages(pkgs || []);
+      if (pkgs && pkgs.length > 0) setActivePackageId(pkgs[0].id);
+      setReferenceTiers(tiers || []);
+      setMagicLinkUrl(link ? `${window.location.origin}/pick-package/${link.token}` : null);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadAll();
+  }, []);
+
+  // Round 79 — "Clone from another product": wholesale-copies another
+  // release's manual-input numbers (media_booking_content_entries), its
+  // summarize rollups (media_booking_package_categories), and its built
+  // packages + lines (media_booking_packages/media_booking_package_lines)
+  // into THIS release, so OPS can start from a real product instead of
+  // typing every row from scratch and just retune what's different.
+  // Wipes this release's own existing rows first (confirmed before
+  // calling, see ClonePickerPopup's onPick) — this is a full replace, not
+  // a merge.
+  async function cloneFromRelease(sourceReleaseId) {
+    if (!release) return;
+    const [{ data: srcEntries }, { data: srcRollups }, { data: srcPkgs }] = await Promise.all([
+      supabase.from("media_booking_content_entries").select("*").eq("release_id", sourceReleaseId),
+      supabase.from("media_booking_package_categories").select("*").eq("release_id", sourceReleaseId),
+      supabase.from("media_booking_packages").select("*, media_booking_package_lines(*)").eq("release_id", sourceReleaseId).order("sort_order"),
+    ]);
+
+    // Wipe this release's existing package-building data — package_lines
+    // cascade-delete with their parent package.
+    await Promise.all([
+      supabase.from("media_booking_content_entries").delete().eq("release_id", release.id),
+      supabase.from("media_booking_package_categories").delete().eq("release_id", release.id),
+      supabase.from("media_booking_packages").delete().eq("release_id", release.id),
+    ]);
+
+    if (srcEntries && srcEntries.length > 0) {
+      const rows = srcEntries.map(({ id, release_id, created_at, ...rest }) => ({ ...rest, release_id: release.id }));
+      await supabase.from("media_booking_content_entries").insert(rows);
+    }
+    if (srcRollups && srcRollups.length > 0) {
+      const rows = srcRollups.map(({ id, release_id, updated_at, ...rest }) => ({ ...rest, release_id: release.id }));
+      await supabase.from("media_booking_package_categories").insert(rows);
+    }
+    if (srcPkgs && srcPkgs.length > 0) {
+      for (const pkg of srcPkgs) {
+        const { id, release_id, created_at, media_booking_package_lines, ...pkgRest } = pkg;
+        const { data: newPkg } = await supabase.from("media_booking_packages").insert({ ...pkgRest, release_id: release.id }).select().single();
+        if (newPkg && media_booking_package_lines && media_booking_package_lines.length > 0) {
+          const lineRows = media_booking_package_lines.map(({ id: lineId, package_id, ...lineRest }) => ({ ...lineRest, package_id: newPkg.id }));
+          await supabase.from("media_booking_package_lines").insert(lineRows);
         }
       }
-      if (rel) {
-        const [{ data: rollups }, { data: pkgs }, { data: tiers }, { data: link }] = await Promise.all([
-          supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", rel.id),
-          supabase.from("media_booking_packages").select("*, media_booking_package_lines(*)").eq("release_id", rel.id).order("sort_order"),
-          supabase.from("contract_type_packages").select("contract_type, items"),
-          supabase.from("magic_links").select("token").eq("release_id", rel.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-        ]);
-        setSummarizedRows(rollups || []);
-        setSummarizedCategoryIds(new Set((rollups || []).map((r) => r.category_id)));
-        // A category can have both a real (non-skipped) row and a skipped
-        // row across different brands — only treat it as "skipped" in the
-        // sidebar if every row for it is a skip, not a real Summarize.
-        const byCategory = {};
-        (rollups || []).forEach((r) => { byCategory[r.category_id] = byCategory[r.category_id] ?? true; byCategory[r.category_id] = byCategory[r.category_id] && r.skipped; });
-        setSkippedCategoryIds(new Set(Object.keys(byCategory).filter((id) => byCategory[id])));
-        setPackages(pkgs || []);
-        if (pkgs && pkgs.length > 0) setActivePackageId(pkgs[0].id);
-        setReferenceTiers(tiers || []);
-        if (link) setMagicLinkUrl(`${window.location.origin}/pick-package/${link.token}`);
-      }
-      setLoading(false);
-    })();
-  }, []);
+    }
+
+    await loadAll();
+  }
 
   // Re-fetches just the rollup rows — called after handleSummarize/handleSkip
   // write new totals, so the "Add to Package" button and the grouped
@@ -1240,7 +1294,16 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                     <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>{release?.title || ticket.data?.releaseId}</h2>
                     <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release?.main_artist} · {selectedCategory?.name}{isSocial ? ` — ${brand}` : ""}{isCommunity ? ` — ${communityBrand}` : ""}{isTikTokChannel ? ` — ${tiktokBrand}` : ""}{isAds ? ` — ${adsBrand}` : ""}</div>
                   </div>
-                  <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 20, cursor: "pointer" }}>✕</button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    {/* Round 79 — "Clone from another product": copy another
+                        release's manual-input numbers + built package(s) in
+                        wholesale, then refine from there instead of typing
+                        every row from scratch. */}
+                    <button className={styles.btnSecondary} onClick={() => setShowClonePopup(true)}>
+                      Clone from another product
+                    </button>
+                    <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 20, cursor: "pointer" }}>✕</button>
+                  </div>
                 </div>
 
                 {!isAds && (
@@ -1610,6 +1673,96 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
           onClose={() => setShowDot2Popup(false)}
         />
       )}
+
+      {showClonePopup && (
+        <ClonePickerPopup
+          excludeReleaseId={release?.id}
+          onPick={async (sourceReleaseId) => {
+            setShowClonePopup(false);
+            setLoading(true);
+            await cloneFromRelease(sourceReleaseId);
+          }}
+          onClose={() => setShowClonePopup(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Round 79 — search/pick panel for "Clone from another product". Only
+// releases with package_locked = true (a real, confirmed/complete
+// package decision — see lib/packageSimulator.js) AND at least one row
+// in media_booking_packages (an actual built package, not just a locked
+// contract type with nothing built) are pickable, per "only complete
+// package get in that pickable pool".
+function ClonePickerPopup({ excludeReleaseId, onPick, onClose }) {
+  const [query, setQuery] = useState("");
+  const [candidates, setCandidates] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data: pkgs } = await supabase.from("media_booking_packages").select("release_id");
+      const releaseIdsWithPackage = [...new Set((pkgs || []).map((p) => p.release_id))];
+      if (releaseIdsWithPackage.length === 0) { setCandidates([]); setLoading(false); return; }
+      const { data: rels } = await supabase
+        .from("releases")
+        .select("id, did, title, main_artist, label, package_locked, project_type")
+        .in("id", releaseIdsWithPackage)
+        .eq("package_locked", true)
+        .order("created_at", { ascending: false });
+      setCandidates((rels || []).filter((r) => r.id !== excludeReleaseId));
+      setLoading(false);
+    })();
+  }, [excludeReleaseId]);
+
+  const matches = query.trim()
+    ? candidates.filter((r) => `${r.title} ${r.main_artist} ${r.did} ${r.label || ""}`.toLowerCase().includes(query.trim().toLowerCase()))
+    : candidates;
+
+  function handlePick(r) {
+    if (!window.confirm(`Clone "${r.title}" (${r.did})'s whole package into this ticket? This replaces any manual numbers/packages already entered here — it can't be undone.`)) return;
+    onPick(r.id);
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: 480, maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.eyebrow}>// Clone from another product</div>
+        <h3 style={{ fontSize: 15, fontWeight: 800, margin: "0 0 4px" }}>Pick a product with a complete package</h3>
+        <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 12 }}>Only releases with a locked package that's actually been built show up here.</div>
+        <input
+          className={styles.input}
+          style={{ width: "100%", padding: "8px 10px", fontSize: 13, marginBottom: 12 }}
+          placeholder="Search by product name, artist, or DID…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          autoFocus
+        />
+        <div style={{ overflowY: "auto", flex: 1 }}>
+          {loading ? (
+            <div className={styles.emptyState} style={{ padding: 16 }}>Loading…</div>
+          ) : matches.length === 0 ? (
+            <div className={styles.emptyState} style={{ padding: 16 }}>No matching products with a complete package.</div>
+          ) : (
+            matches.map((r) => (
+              <div
+                key={r.id}
+                onClick={() => handlePick(r)}
+                style={{ padding: "10px 8px", fontSize: 12, cursor: "pointer", borderBottom: "1px solid var(--border)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              >
+                <div style={{ fontWeight: 700, color: "var(--text)" }}>{r.title}</div>
+                <div style={{ color: "var(--text-faint)" }}>{r.main_artist} · {r.label || "—"} · {r.did} · {r.project_type || "—"}</div>
+              </div>
+            ))
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <button className={styles.btnSmall} onClick={onClose} style={{ flex: 1 }}>Cancel</button>
+        </div>
+      </div>
     </div>
   );
 }

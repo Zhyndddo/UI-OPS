@@ -490,7 +490,7 @@ function TeamSection({ profile }) {
 // picker of their own.
 const PIC_WORKSTATIONS = [
   { key: "upload", label: "New Release Setup", wired: true }, // round 77 — relabeled from "Upload"
-  { key: "pitching", label: "Pitching", wired: true },
+  { key: "pitching", label: "Pitching", wired: false }, // round 79 — Pitching Workstation dropped the single release-level PIC in favor of 4 per-platform PICs (set inside the popup); this default no longer has anywhere to apply
   { key: "confirm_phase1", label: "Re-Check — Phase 1", wired: true },
   { key: "confirm_phase2", label: "Re-Check — Phase 2", wired: true },
   { key: "pre_release", label: "Pre-release", wired: true },

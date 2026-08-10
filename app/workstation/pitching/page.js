@@ -20,48 +20,97 @@ const STATUS_OPTS = ["", "Chưa thực hiện", "Đang thực hiện", "Đã pit
 const NCT_ZING_OPTS = ["", "Chưa thực hiện", "Đã pitching", "Không hỗ trợ", "Có gói"];
 const CANCEL_VALUES = ["Không thực hiện", "Không hỗ trợ"];
 const DONE_VALUE = "Đã pitching";
+
+// Round 79 — redesigned from 4 tabs that mapped 1:1 to the 4 real
+// requested-flags, into 4 VISUAL tabs where the last one ("Domestic")
+// groups 2 real flags (nct + zing) together. TYPE_TABS/isTypeRequested
+// below drive tab labels + the "Requested" column's badges; DSP_COLUMNS
+// (5 real keys) is what actually drives done/cancel/status computation —
+// keeping these separate is what lets Domestic show as one tab while NCT
+// and Zing still complete independently underneath.
 const TYPE_TABS = [
-  ["priority", "Priority"],
-  ["spotify", "Spotify"],
-  ["nct", "NCT"],
-  ["zing", "Zing"],
+  ["priority", "Priority Spotify"],
+  ["spotify", "Spotify (S4A)"],
+  ["apple", "Priority Apple"],
+  ["domestic", "Domestic"],
 ];
+function isTypeRequested(ticket, key) {
+  if (key === "domestic") return !!(ticket.data?.nct || ticket.data?.zing);
+  return !!ticket.data?.[key];
+}
+function requestedVisualTypes(ticket) {
+  return TYPE_TABS.filter(([key]) => isTypeRequested(ticket, key)).map(([key]) => key);
+}
+
+// The 5 real requestable platforms and their status columns on `releases`.
+// Priority/Spotify/Apple share STATUS_OPTS' vocab (has an "in progress"
+// state); NCT/Zing share NCT_ZING_OPTS' vocab (no "in progress", has "Có
+// gói" instead).
+const DSP_COLUMNS = { priority: "priority_pitching", spotify: "pitching_status_spotify", apple: "pitching_status_apple", nct: "pitching_status_nct", zing: "pitching_status_zing" };
+function requestedRealTypes(ticket) {
+  return Object.keys(DSP_COLUMNS).filter((k) => ticket.data?.[k]);
+}
+
+// Round 79 — each of the 4 visual tabs now owns its own PIC (a release
+// column, same immediate-write pattern as every status field below) —
+// replaces both the Pitching ticket list's ticket-level PIC and this
+// workstation's own release-level PIC (workstation_assignments), which
+// were too coarse for "individual tracking of who has which task" once
+// the work is split by platform. Domestic shares ONE PIC column across
+// both NCT and Zing, per explicit request — only the statuses stay split.
+const PIC_COLUMNS = { priority: "pitching_pic_priority", spotify: "pitching_pic_spotify", apple: "pitching_pic_apple", domestic: "pitching_pic_domestic" };
 
 // "We already know which pitching should be done" — the ticket's own
-// requested-flags (priority/spotify/nct/zing) plus its overall status now
-// drive each DSP column's status automatically, per explicit request:
+// requested-flags (priority/spotify/apple/nct/zing) plus its overall status
+// now drive each DSP column's status automatically, per explicit request:
 //   - not requested at all      -> the DSP's own "won't do" value
-//     (Priority/Spotify: "Không thực hiện"; NCT/Zing have no exact
+//     (Priority/Spotify/Apple: "Không thực hiện"; NCT/Zing have no exact
 //     equivalent word, closest is "Không hỗ trợ" — same CANCEL_VALUES
 //     bucket either way)
 //   - requested, ticket not yet in PROCESS -> "Chưa thực hiện"
 //   - requested, ticket IS in PROCESS -> "Đang thực hiện" for
-//     Priority/Spotify (NCT/Zing have no "in progress" option in their own
-//     vocab — STATUS_OPTS vs NCT_ZING_OPTS above — so they stay at "Chưa
-//     thực hiện" until someone picks a real NCT_ZING_OPTS value by hand)
+//     Priority/Spotify/Apple (NCT/Zing have no "in progress" option in
+//     their own vocab — STATUS_OPTS vs NCT_ZING_OPTS above — so they stay
+//     at "Chưa thực hiện" until someone picks a real NCT_ZING_OPTS value by
+//     hand)
 // Only ever touches a column that's currently blank or still one of these
 // same auto-managed "not started yet" values — a real in-progress pick or
 // a completed one ("Đã pitching"/"Có gói") is never overwritten by this.
 const PRE_WORK_VALUES = ["", "Chưa thực hiện", "Đang thực hiện", "Không thực hiện", "Không hỗ trợ"];
-const DSP_COLUMNS = { priority: "priority_pitching", spotify: "pitching_status_spotify", nct: "pitching_status_nct", zing: "pitching_status_zing" };
-const IN_PROGRESS_CAPABLE = ["priority", "spotify"];
+const IN_PROGRESS_CAPABLE = ["priority", "spotify", "apple"];
 
 function autoTargetFor(key, requested, ticketStatus) {
-  if (!requested) return key === "priority" || key === "spotify" ? "Không thực hiện" : "Không hỗ trợ";
+  if (!requested) return IN_PROGRESS_CAPABLE.includes(key) ? "Không thực hiện" : "Không hỗ trợ";
   if (ticketStatus === "PROCESS" && IN_PROGRESS_CAPABLE.includes(key)) return "Đang thực hiện";
   return "Chưa thực hiện";
 }
 
-// The Pitching ticket is just the request (which of the 4 types were
+// Round 79 — the ticket's overall Status is no longer manually set anywhere
+// (the Pitching ticket list's Status dropdown is gone) — it's fully
+// computed from the 4 real requested platforms' own statuses, recomputed
+// and persisted every time one of them changes (see updateRelease below)
+// and once more on every page load (in case anything drifted before this
+// existed). Returns null when nothing is requested yet (leaves whatever
+// status the ticket already has alone — shouldn't happen in practice,
+// every pitching ticket requests at least one platform).
+function computeTicketStatus(ticket, release) {
+  const required = requestedRealTypes(ticket);
+  if (required.length === 0) return null;
+  const statuses = required.map((k) => release?.[DSP_COLUMNS[k]] || "");
+  if (statuses.every((s) => s === DONE_VALUE)) return "COMPLETE";
+  if (statuses.every((s) => CANCEL_VALUES.includes(s))) return "CANCELED";
+  if (statuses.some((s) => s && s !== "Chưa thực hiện")) return "PROCESS";
+  return "REQUESTED";
+}
+
+// The Pitching ticket is just the request (which of the 5 types were
 // asked for, chosen at New Release creation) — the actual work lives on
 // the release itself. This workstation surfaces the queue and lets OPS
 // do that work in one place — clicking a row opens the popup now,
-// instead of expanding inline, so each type gets its own clean tab.
+// instead of expanding inline, so each platform gets its own clean tab.
 export default function PitchingWorkstation() {
   const [rows, setRows] = useState([]); // { ticket, release }
   const [profiles, setProfiles] = useState([]);
-  const [defaultPic, setDefaultPic] = useState(null);
-  const [assignments, setAssignments] = useState({});
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
   const [query, setQuery] = useState(""); // round 76 — quick index search box
@@ -82,13 +131,12 @@ export default function PitchingWorkstation() {
     if (dids.length > 0) {
       const { data: rels } = await supabase
         .from("releases")
-        .select("id, did, title, main_artist, release_date, release_time, upc, priority_pitching, isrc, apple_id, pitching_status_spotify, pitching_status_nct, pitching_status_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo, pitching_note")
+        .select("id, did, title, main_artist, release_date, release_time, upc, priority_pitching, isrc, apple_id, pitching_status_spotify, pitching_status_apple, pitching_status_nct, pitching_status_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo, pitching_note, pitching_pic_priority, pitching_pic_spotify, pitching_pic_apple, pitching_pic_domestic")
         .in("did", dids);
       (rels || []).forEach((r) => (releaseMap[r.did] = r));
     }
-    const allRows = (tickets || []).map((t) => ({ ticket: t, release: releaseMap[t.data?.releaseId] || null }));
-    const visibleAllRows = allRows.filter((row) => row.release?.upc);
-    setRows(visibleAllRows);
+    let allRows = (tickets || []).map((t) => ({ ticket: t, release: releaseMap[t.data?.releaseId] || null }));
+    allRows = allRows.filter((row) => row.release?.upc);
 
     // Auto-sync each DSP's status column from the ticket's requested-flags
     // + overall status (see autoTargetFor above) — same "auto-sync on
@@ -96,7 +144,7 @@ export default function PitchingWorkstation() {
     // in the background; the UI above already shows the pre-sync values so
     // this doesn't block first paint.
     const syncPatches = [];
-    visibleAllRows.forEach((row) => {
+    allRows.forEach((row) => {
       if (!row.release) return;
       const patch = {};
       Object.entries(DSP_COLUMNS).forEach(([key, col]) => {
@@ -110,24 +158,33 @@ export default function PitchingWorkstation() {
     });
     if (syncPatches.length > 0) {
       await Promise.all(syncPatches.map(({ id, patch }) => supabase.from("releases").update(patch).eq("id", id)));
-      setRows((prev) => prev.map((row) => {
+      allRows = allRows.map((row) => {
         const found = syncPatches.find((p) => p.id === row.release?.id);
         return found ? { ...row, release: { ...row.release, ...found.patch } } : row;
-      }));
+      });
     }
+
+    // Round 79 — also recompute + persist ticket.status once on load, in
+    // case a status/PIC edit happened through some other path before this
+    // existed and left it stale (the same recompute also runs live on
+    // every relevant edit — see updateRelease).
+    const statusPatches = [];
+    allRows.forEach((row) => {
+      const next = computeTicketStatus(row.ticket, row.release);
+      if (next && next !== row.ticket.status) statusPatches.push({ id: row.ticket.id, status: next, status_log: { ...row.ticket.status_log, [next]: new Date().toISOString() } });
+    });
+    if (statusPatches.length > 0) {
+      await Promise.all(statusPatches.map((p) => supabase.from("tickets").update({ status: p.status, status_log: p.status_log }).eq("id", p.id)));
+      allRows = allRows.map((row) => {
+        const found = statusPatches.find((p) => p.id === row.ticket.id);
+        return found ? { ...row, ticket: { ...row.ticket, status: found.status, status_log: found.status_log } } : row;
+      });
+    }
+
+    setRows(allRows);
 
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
-
-    const { data: assigns } = await supabase.from("workstation_assignments").select("release_id, pic_profile_id").eq("workstation", "pitching");
-    const map = {};
-    let def = null;
-    (assigns || []).forEach((a) => {
-      if (a.release_id === null) def = a.pic_profile_id;
-      else map[a.release_id] = a.pic_profile_id;
-    });
-    setDefaultPic(def);
-    setAssignments(map);
 
     setLoading(false);
   }
@@ -135,37 +192,33 @@ export default function PitchingWorkstation() {
   async function updateRelease(release, field, value) {
     setRows((prev) => prev.map((row) => (row.release?.id === release.id ? { ...row, release: { ...row.release, [field]: value } } : row)));
     await supabase.from("releases").update({ [field]: value }).eq("id", release.id);
-  }
 
-  async function updatePic(releaseId, profileId) {
-    setAssignments((prev) => ({ ...prev, [releaseId]: profileId || undefined }));
-    if (!profileId) {
-      await supabase.from("workstation_assignments").delete().eq("workstation", "pitching").eq("release_id", releaseId);
-      return;
+    // Round 79 — a status-field edit can change what the ticket's overall
+    // Status computes to; PIC edits and Note edits never do, so this only
+    // fires for the 5 real status columns.
+    if (!Object.values(DSP_COLUMNS).includes(field)) return;
+    const row = rows.find((r) => r.release?.id === release.id);
+    if (!row) return;
+    const updatedRelease = { ...row.release, [field]: value };
+    const nextStatus = computeTicketStatus(row.ticket, updatedRelease);
+    if (nextStatus && nextStatus !== row.ticket.status) {
+      const nextLog = { ...row.ticket.status_log, [nextStatus]: new Date().toISOString() };
+      await supabase.from("tickets").update({ status: nextStatus, status_log: nextLog }).eq("id", row.ticket.id);
+      setRows((prev) => prev.map((r) => (r.release?.id === release.id ? { ...r, ticket: { ...r.ticket, status: nextStatus, status_log: nextLog } } : r)));
     }
-    const { data: existing } = await supabase.from("workstation_assignments").select("id").eq("workstation", "pitching").eq("column_key", "all").eq("release_id", releaseId).maybeSingle();
-    if (existing) await supabase.from("workstation_assignments").update({ pic_profile_id: profileId }).eq("id", existing.id);
-    else await supabase.from("workstation_assignments").insert({ workstation: "pitching", column_key: "all", release_id: releaseId, pic_profile_id: profileId });
   }
 
-  function requestedTypes(ticket) {
-    return TYPE_TABS.filter(([key]) => ticket.data?.[key]).map(([key]) => key);
-  }
   function statusFor(release, key) {
-    if (key === "priority") return release?.priority_pitching;
-    if (key === "spotify") return release?.pitching_status_spotify;
-    if (key === "nct") return release?.pitching_status_nct;
-    if (key === "zing") return release?.pitching_status_zing;
-    return null;
+    return release?.[DSP_COLUMNS[key]] ?? null;
   }
 
   function isDone(row) {
-    const types = requestedTypes(row.ticket);
+    const types = requestedRealTypes(row.ticket);
     if (types.length === 0) return false;
     return types.every((k) => statusFor(row.release, k) === DONE_VALUE);
   }
   function isCancel(row) {
-    const types = requestedTypes(row.ticket);
+    const types = requestedRealTypes(row.ticket);
     if (types.length === 0) return false;
     return types.every((k) => CANCEL_VALUES.includes(statusFor(row.release, k)));
   }
@@ -224,19 +277,17 @@ export default function PitchingWorkstation() {
                     Release info
                   </SortableTh>
                   <th>Requested</th>
-                  <th>PIC</th>
                   <th>Note</th>
                 </tr>
               </thead>
               <tbody>
                 {pagedRows.map((row) => {
-                  const types = requestedTypes(row.ticket);
-                  const rid = row.release?.id;
+                  const types = requestedVisualTypes(row.ticket);
                   return (
                     <tr key={row.ticket.id} onClick={() => setOpenTicketId(row.ticket.id)} style={{ cursor: "pointer" }}>
                       <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>
                         {row.release ? (
-                          <Link href={`/releases/${rid}`} className={styles.rowLink} onClick={(e) => e.stopPropagation()}>{row.release.title}</Link>
+                          <Link href={`/releases/${row.release.id}`} className={styles.rowLink} onClick={(e) => e.stopPropagation()}>{row.release.title}</Link>
                         ) : (
                           <span>Release {row.ticket.data?.releaseId} (not found)</span>
                         )}
@@ -252,17 +303,6 @@ export default function PitchingWorkstation() {
                             </span>
                           ))}
                         </div>
-                      </td>
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <select
-                          className={styles.select}
-                          style={{ minWidth: "16ch" }}
-                          value={(rid && assignments[rid]) ?? defaultPic ?? ""}
-                          onChange={(e) => updatePic(rid, e.target.value)}
-                        >
-                          <option value="">— Unassigned —</option>
-                          {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </select>
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
                         {row.release ? (
@@ -291,6 +331,7 @@ export default function PitchingWorkstation() {
       {openRow && (
         <PitchingPopup
           row={openRow}
+          profiles={profiles}
           onClose={() => setOpenTicketId(null)}
           onUpdateRelease={updateRelease}
         />
@@ -299,10 +340,22 @@ export default function PitchingWorkstation() {
   );
 }
 
-function PitchingPopup({ row, onClose, onUpdateRelease }) {
-  const types = TYPE_TABS.filter(([key]) => row.ticket.data?.[key]);
+function PitchingPopup({ row, profiles, onClose, onUpdateRelease }) {
+  const types = TYPE_TABS.filter(([key]) => isTypeRequested(row.ticket, key));
   const [activeType, setActiveType] = useState(types[0]?.[0]);
   const release = row.release;
+
+  function PicField({ tabKey }) {
+    const col = PIC_COLUMNS[tabKey];
+    return (
+      <Field label="PIC">
+        <select className={styles.select} value={release?.[col] || ""} onChange={(e) => onUpdateRelease(release, col, e.target.value || null)}>
+          <option value="">— Unassigned —</option>
+          {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      </Field>
+    );
+  }
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
@@ -331,6 +384,7 @@ function PitchingPopup({ row, onClose, onUpdateRelease }) {
 
         {activeType === "priority" && (
           <div className={styles.grid2}>
+            <PicField tabKey="priority" />
             <Field label="Priority Pitching Status">
               <select className={styles.select} value={release?.priority_pitching || ""} onChange={(e) => onUpdateRelease(release, "priority_pitching", e.target.value)}>
                 {STATUS_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
@@ -339,14 +393,12 @@ function PitchingPopup({ row, onClose, onUpdateRelease }) {
             <Field label="ISRC">
               <input className={styles.input} defaultValue={release?.isrc || ""} onBlur={(e) => onUpdateRelease(release, "isrc", e.target.value)} />
             </Field>
-            <Field label="Apple ID">
-              <input className={styles.input} defaultValue={release?.apple_id || ""} onBlur={(e) => onUpdateRelease(release, "apple_id", e.target.value)} />
-            </Field>
           </div>
         )}
 
         {activeType === "spotify" && (
           <div className={styles.grid2}>
+            <PicField tabKey="spotify" />
             <Field label="Status">
               <select className={styles.select} value={release?.pitching_status_spotify || ""} onChange={(e) => onUpdateRelease(release, "pitching_status_spotify", e.target.value)}>
                 {STATUS_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
@@ -370,20 +422,34 @@ function PitchingPopup({ row, onClose, onUpdateRelease }) {
           </div>
         )}
 
-        {activeType === "nct" && (
-          <Field label="NCT Status">
-            <select className={styles.select} value={release?.pitching_status_nct || ""} onChange={(e) => onUpdateRelease(release, "pitching_status_nct", e.target.value)}>
-              {NCT_ZING_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
-            </select>
-          </Field>
+        {activeType === "apple" && (
+          <div className={styles.grid2}>
+            <PicField tabKey="apple" />
+            <Field label="Priority Apple Status">
+              <select className={styles.select} value={release?.pitching_status_apple || ""} onChange={(e) => onUpdateRelease(release, "pitching_status_apple", e.target.value)}>
+                {STATUS_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+              </select>
+            </Field>
+            <Field label="Apple ID">
+              <input className={styles.input} defaultValue={release?.apple_id || ""} onBlur={(e) => onUpdateRelease(release, "apple_id", e.target.value)} />
+            </Field>
+          </div>
         )}
 
-        {activeType === "zing" && (
-          <Field label="Zing Status">
-            <select className={styles.select} value={release?.pitching_status_zing || ""} onChange={(e) => onUpdateRelease(release, "pitching_status_zing", e.target.value)}>
-              {NCT_ZING_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
-            </select>
-          </Field>
+        {activeType === "domestic" && (
+          <div className={styles.grid2}>
+            <PicField tabKey="domestic" />
+            <Field label="NCT Status">
+              <select className={styles.select} value={release?.pitching_status_nct || ""} onChange={(e) => onUpdateRelease(release, "pitching_status_nct", e.target.value)}>
+                {NCT_ZING_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+              </select>
+            </Field>
+            <Field label="Zing Status">
+              <select className={styles.select} value={release?.pitching_status_zing || ""} onChange={(e) => onUpdateRelease(release, "pitching_status_zing", e.target.value)}>
+                {NCT_ZING_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+              </select>
+            </Field>
+          </div>
         )}
       </div>
     </div>
