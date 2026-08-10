@@ -18,6 +18,7 @@ import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHA
 import { useAuth } from "../../../lib/AuthContext";
 import { isDev } from "../../../lib/permissions";
 import { runOne } from "../../../lib/packageSimulator";
+import RelatedDidField from "../../../lib/RelatedDidField";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -60,7 +61,7 @@ export default function ReleaseDetailPage() {
   const [release, setRelease] = useState(null);
   const [form, setForm] = useState(null);
   const [pitchingTicket, setPitchingTicket] = useState(null);
-  const [pitchingTypesDraft, setPitchingTypesDraft] = useState({ priority: false, spotify: false, nct: false, zing: false });
+  const [pitchingTypesDraft, setPitchingTypesDraft] = useState({ priority: false, spotify: false, apple: false, nct: false, zing: false });
   const [artistProfileTicket, setArtistProfileTicket] = useState(null);
   const [artistProfileTypesDraft, setArtistProfileTypesDraft] = useState({ spotify: false, tiktok: false, apple: false });
   const [tab, setTab] = useState("overview");
@@ -99,6 +100,37 @@ export default function ReleaseDetailPage() {
   const mediaBookingSectionRef = useRef(null);
   const [autoScrolled, setAutoScrolled] = useState(false);
 
+  // Round 79 — item 2: "pseudo package" — a single spun off from an EP/
+  // Album can be linked (via Track DID, on the Overview tab) to its parent
+  // product instead of going through the whole booking process itself.
+  // Live-linked per explicit request: this always re-reads the parent's
+  // CURRENT package/magic-link fresh, never a one-time copy, so it stays
+  // accurate if the parent's package changes later. Debounced since the
+  // search field's onChange fires on every keystroke.
+  const [pseudoParent, setPseudoParent] = useState(null);
+  const [pseudoParentMagicLink, setPseudoParentMagicLink] = useState(null);
+  const [pseudoParentError, setPseudoParentError] = useState(null);
+  useEffect(() => {
+    if (!supabase) return;
+    const did = (form?.pseudo_package_parent_did || "").trim();
+    if (!did) { setPseudoParent(null); setPseudoParentMagicLink(null); setPseudoParentError(null); return; }
+    const t = setTimeout(async () => {
+      const { data: parent } = await supabase
+        .from("releases")
+        .select("id, did, title, main_artist, project_type, package_total_value, package_locked, pseudo_package_parent_did")
+        .eq("did", did)
+        .maybeSingle();
+      if (!parent) { setPseudoParent(null); setPseudoParentMagicLink(null); setPseudoParentError("No release found with that DID."); return; }
+      if (form?.did && parent.did === form.did) { setPseudoParent(null); setPseudoParentMagicLink(null); setPseudoParentError("A release can't be its own parent."); return; }
+      if (parent.pseudo_package_parent_did) { setPseudoParent(null); setPseudoParentMagicLink(null); setPseudoParentError("That release is itself a pseudo-package track — link straight to the real EP/Album instead, not another track."); return; }
+      setPseudoParent(parent);
+      setPseudoParentError(null);
+      const { data: link } = await supabase.from("magic_links").select("token").eq("release_id", parent.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      setPseudoParentMagicLink(link ? `${window.location.origin}/pick-package/${link.token}` : null);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [form?.pseudo_package_parent_did, form?.did]);
+
   useEffect(() => {
     if (!supabase || !id) return;
     supabase
@@ -123,7 +155,7 @@ export default function ReleaseDetailPage() {
             .limit(1);
           const found = tix?.[0] || null;
           setPitchingTicket(found);
-          if (found) setPitchingTypesDraft({ priority: false, spotify: false, nct: false, zing: false, ...found.data });
+          if (found) setPitchingTypesDraft({ priority: false, spotify: false, apple: false, nct: false, zing: false, ...found.data });
         }
         // Pitching Info (AR's genre/mood/DSP tagging ticket) — the New
         // Release create form already auto-sends this the moment Priority
@@ -365,7 +397,7 @@ export default function ReleaseDetailPage() {
       } else {
         const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching").single();
         if (tab) {
-          const newData = { releaseId: form.did, priority: false, spotify: false, nct: false, zing: false, ...pitchingTypesDraft };
+          const newData = { releaseId: form.did, priority: false, spotify: false, apple: false, nct: false, zing: false, ...pitchingTypesDraft };
           const { data: created } = await supabase
             .from("tickets")
             .insert({
@@ -966,6 +998,9 @@ export default function ReleaseDetailPage() {
             canSimulate={canSimulate}
             onSendIntSupportPackage={sendIntSupportPackage}
             onSendOnlyPh={sendOnlyPh}
+            pseudoParent={pseudoParent}
+            pseudoParentMagicLink={pseudoParentMagicLink}
+            pseudoParentError={pseudoParentError}
             pitchingTicket={pitchingTicket}
             pitchingTypesDraft={pitchingTypesDraft}
             onPitchingToggle={handlePitchingToggle}
@@ -1188,7 +1223,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, canSimulate, onSendIntSupportPackage, onSendOnlyPh, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, coTrongNetDraft, onCoTrongNetChange, gateTicketMap, setTab }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, canSimulate, onSendIntSupportPackage, onSendOnlyPh, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, coTrongNetDraft, onCoTrongNetChange, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -1453,6 +1488,59 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         )}
       </div>
 
+      {/* Round 79 — item 2: "pseudo package" — a single spun off from an
+          EP/Album can link here to its parent product instead of going
+          through the whole booking process itself. Always shown (not
+          hidden behind a toggle) since clearing it is just erasing this
+          field's text. */}
+      <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+        <div className={styles.subheading} style={{ marginTop: 0 }}>Track DID (Pseudo Package)</div>
+        <p style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 8, maxWidth: 520 }}>
+          If this release is a single spun off from an EP/Album, link it to that parent product here
+          — it inherits the parent's package and magic link, skips Package Actions below entirely,
+          and won't show up on the Booking Board.
+        </p>
+        <div style={{ maxWidth: 420 }}>
+          <RelatedDidField styles={styles} value={form.pseudo_package_parent_did || ""} onChange={(v) => update("pseudo_package_parent_did", v)} />
+        </div>
+        {pseudoParentError && (
+          <p style={{ fontSize: 11, color: "var(--error-fg, #e57373)", marginTop: 6 }}>⚠ {pseudoParentError}</p>
+        )}
+        {pseudoParent && (
+          <p style={{ fontSize: 11, color: "var(--success-fg, #7ee6a8)", marginTop: 6 }}>
+            ✓ Linked to <Link href={`/releases/${pseudoParent.id}`} className={styles.rowLink}>{pseudoParent.title} ({pseudoParent.did})</Link> — package/magic link below are inherited live from that release, not saved separately here.
+          </p>
+        )}
+      </div>
+
+      {pseudoParent ? (
+        <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+          <div className={styles.subheading} style={{ marginTop: 0 }}>Package (Inherited)</div>
+          <p style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 8 }}>
+            This is a pseudo-package track — its package always mirrors its parent EP/Album's live,
+            it's never its own. Build/edit the package on the parent release, not here.
+          </p>
+          <p style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            Contract type: <strong>{pseudoParent.project_type || "—"}</strong>
+            {pseudoParent.package_total_value != null && <> · Tổng Giá Trị Gói: <strong>{fmtVnd(pseudoParent.package_total_value)}</strong></>}
+          </p>
+          {pseudoParentMagicLink ? (
+            <div style={{ marginTop: 10, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
+              <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 6 }}>
+                Inherited link — this is the parent's own magic link; this track doesn't get its own:
+              </div>
+              <a href={pseudoParentMagicLink} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a", fontSize: 13, wordBreak: "break-all" }}>
+                {pseudoParentMagicLink}
+              </a>
+            </div>
+          ) : (
+            <p style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8 }}>
+              The parent release doesn't have a magic link yet — one will show here automatically
+              once it's built and confirmed on the parent.
+            </p>
+          )}
+        </div>
+      ) : (
       <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
         {/* Round 72 — item 3: heading + contract-type line moved up to
             right under the package status box (see above) — kept this
@@ -1552,6 +1640,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           </div>
         )}
       </div>
+      )}
 
       <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
         <GateFields
@@ -2111,6 +2200,15 @@ function PitchingTab({ form, update, onSave, saving }) {
       <div className={styles.grid2}>
         <Field label="Spotify Status">
           <select className={styles.select} value={form.pitching_status_spotify || ""} onChange={(e) => update("pitching_status_spotify", e.target.value)}>
+            {statusOpts.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+          </select>
+        </Field>
+        {/* Round 79 — Apple joined Priority/Spotify/NCT/Zing as a real
+            tracked pitching platform (its own status column, own tab in
+            the Pitching Workstation popup) — added here too so this
+            column isn't only editable from the workstation. */}
+        <Field label="Apple Status">
+          <select className={styles.select} value={form.pitching_status_apple || ""} onChange={(e) => update("pitching_status_apple", e.target.value)}>
             {statusOpts.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
           </select>
         </Field>

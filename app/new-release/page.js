@@ -90,7 +90,7 @@ const EMPTY_FORM = {
   split_share_entries: [],
 };
 
-const EMPTY_PITCHING_TYPES = { priority: false, spotify: false, nct: false, zing: false };
+const EMPTY_PITCHING_TYPES = { priority: false, spotify: false, apple: false, nct: false, zing: false };
 const EMPTY_ARTIST_PROFILE_TYPES = { spotify: false, tiktok: false, apple: false };
 
 const META_ITEMS = [
@@ -315,6 +315,7 @@ export default function NewReleasePage() {
             releaseId: data.did,
             priority: pitchingTypes.priority,
             spotify: pitchingTypes.spotify,
+            apple: pitchingTypes.apple,
             nct: pitchingTypes.nct,
             zing: pitchingTypes.zing,
           },

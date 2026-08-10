@@ -173,7 +173,7 @@ export default function BookingBoard() {
       // Round 77 — gate_co_trong_net_youtube added: locks the YouTube Ads
       // Ads-brand column when the release hasn't opted into Có Trong Net
       // YouTube on its detail page (see AdsCell's ctnLocked prop below).
-      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status, gate_co_trong_net_youtube")
+      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status, gate_co_trong_net_youtube, pseudo_package_parent_did")
       .order("release_date", { ascending: false });
     const { data: ents } = await supabase.from("media_booking_entries").select("*");
     const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
@@ -184,7 +184,11 @@ export default function BookingBoard() {
     // from scratch every time. Missing table/no rows just means no
     // suggestions show up; the popup still works exactly as before.
     const { data: chans } = await supabase.from("booking_channels").select("*");
-    setReleases(rels || []);
+    // Round 79 — pseudo-package tracks (releases linked to a parent EP/Album
+    // via pseudo_package_parent_did) skip the whole booking process and
+    // never appear on the Booking board at all.
+    const filteredRels = (rels || []).filter((r) => !r.pseudo_package_parent_did);
+    setReleases(filteredRels);
     setEntries(ents || []);
     setCategories(cats || []);
     setPackages(pkgs || []);
