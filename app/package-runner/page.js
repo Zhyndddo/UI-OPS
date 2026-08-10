@@ -5,6 +5,7 @@ import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
 import { canRunPackageSimulator, isDev } from "../../lib/permissions";
+import { runOne } from "../../lib/packageSimulator";
 import styles from "../shared.module.css";
 
 // Round 58 — Package Runner. Fast-tracks a release straight to a locked
@@ -24,70 +25,20 @@ import styles from "../shared.module.css";
 // Marketing has already built one via the Package Builder popup for that
 // specific release — this tool never invents one).
 //
-// Scope: admin on the Marketing team, or dev (see canRunPackageSimulator
-// in lib/permissions.js). Admin is locked to Chỉ Phát Hành, the one real
-// day-to-day case; dev can pick any contract_type value (an override
-// tool, used rarely) and gets the CSV batch mode.
-
-const PIPELINE_STAGES = ["BRIEF & DATA", "DEALING"];
+// Scope: dev only (see canRunPackageSimulator in lib/permissions.js — round
+// 77 narrowed this from "admin on Marketing, or dev" to dev-only per
+// explicit request).
 
 function emptyRow() {
   return { did: "", legacyDid: "", contractType: "Chỉ Phát Hành" };
 }
 
-// The actual run — looked up and exported as a plain function so both the
-// single-row form and the CSV batch loop call the exact same logic.
-async function runOne({ did, legacyDid, contractType }, { allowOverwrite }) {
-  const cleanDid = (did || "").trim();
-  if (!cleanDid) return { ok: false, did, reason: "No DID given." };
-  if (!contractType) return { ok: false, did: cleanDid, reason: "No package/contract type given." };
-
-  const { data: release, error: findErr } = await supabase
-    .from("releases")
-    .select("id, did, title, main_artist, project_type, package_locked, legacy_id")
-    .eq("did", cleanDid)
-    .maybeSingle();
-  if (findErr) return { ok: false, did: cleanDid, reason: findErr.message };
-  if (!release) return { ok: false, did: cleanDid, reason: "No release found with that DID." };
-
-  if (release.package_locked && !allowOverwrite) {
-    return {
-      ok: false,
-      did: cleanDid,
-      reason: `Package already locked (currently "${release.project_type}") — this tool won't overwrite an existing decision.`,
-      release,
-    };
-  }
-
-  const wasPipelineStage = PIPELINE_STAGES.includes(release.project_type);
-  const updates = {
-    project_type: contractType,
-    package_total_value: null, // simple pick — no itemized package, same as confirmChoice()
-    package_locked: true,
-  };
-  const cleanLegacy = (legacyDid || "").trim();
-  if (cleanLegacy && !release.legacy_id) updates.legacy_id = cleanLegacy; // coalesce, never overwrite a real value
-
-  const { error: updateErr } = await supabase.from("releases").update(updates).eq("id", release.id);
-  if (updateErr) return { ok: false, did: cleanDid, reason: updateErr.message, release };
-
-  let phuLucCreated = false;
-  if (wasPipelineStage) {
-    const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "phu_luc").single();
-    if (tab) {
-      await supabase.from("tickets").insert({ tab_id: tab.id, data: { releaseId: release.id } });
-      phuLucCreated = true;
-    }
-  }
-
-  return {
-    ok: true,
-    did: cleanDid,
-    reason: null,
-    release: { ...release, project_type: contractType, package_locked: true },
-    phuLucCreated,
-  };
-}
+// Round 77 — runOne moved to lib/packageSimulator.js so the release detail
+// page's new "SEND INT SUPPORT PACKAGE" / "ONLY PH" buttons (see
+// app/releases/[id]/page.js's Package Actions section) can call the exact
+// same commit logic instead of a second, possibly-drifting copy. Both the
+// single-row form and the CSV batch loop below still call the exact same
+// function either way.
 
 export default function PackageRunnerPage() {
   const { profile } = useAuth();

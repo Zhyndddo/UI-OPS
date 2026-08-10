@@ -6,6 +6,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
@@ -85,7 +86,7 @@ export default function MediaBookingList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name").order("name").then(({ data }) => setProfiles(data || []));
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "Marketing"))); // round 78
   }, []);
 
   async function load() {
@@ -345,6 +346,13 @@ const ADS_METRICS = {
   "TikTok Ads": ["Lượt tiếp cận", "Lượt xem video", "Lượt theo dõi", "Lượt truy cập (Link click)"],
   "Spotify Ads": ["HPTO", "In-Stream Audio", "In-Stream Video", "In-Feed Display", "In-Feed Video"],
 };
+
+// Round 78 — item 3: default Chi Tiết text for a freshly-created YouTube
+// Ads package line, per explicit request. Replaces the computed "SL X
+// Thruplays (Views)" text every other Ads brand still gets on first
+// insert — still just a starting value, freely editable afterward (see
+// syncPackageLine's Ads branch and PackagesPanel's Chi Tiết column).
+const YOUTUBE_ADS_DEFAULT_DETAIL = "Áp dụng kênh youtube nghệ sĩ thuộc MCN, MV thời lượng dưới 5 phút";
 
 // Reference layout (team-supplied picture): EXTERNAL group first (= the
 // "Partner" group internally), then INTERNAL (= "In-house"), each brand
@@ -679,7 +687,10 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         );
         // Ads never mushes brands together — sync this brand's own line
         // straight in, using the numbers just computed (no refetch needed).
-        await syncPackageLine({ key: `${selectedCategoryId}::${adsBrandKey}`, categoryId: selectedCategoryId, categoryName: "Ads", isAds: true, brand: adsBrandKey, totalMoney, detailText });
+        // Round 77 — totalPosts (totalQty) is now passed through; see the
+        // fix note on syncPackageLine's Ads branch below for why this was
+        // missing and what it broke.
+        await syncPackageLine({ key: `${selectedCategoryId}::${adsBrandKey}`, categoryId: selectedCategoryId, categoryName: "Ads", isAds: true, brand: adsBrandKey, totalMoney, totalPosts: totalQty, detailText });
       }
       setCategoryTotals((prev) => ({ ...prev, ...totalsByBrand }));
       setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
@@ -876,16 +887,59 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     const existing = lineFor(group.categoryId, group.brand);
     if (group.isAds) {
       // Ads mushes into one line PER BRAND with a pre-computed Chi Tiết +
-      // Thành Tiền straight from Summarize's per-brand pricing — no unit/
-      // quantity, no reference-template lookup, nothing to compute later.
+      // Thành Tiền straight from Summarize's per-brand pricing — no unit,
+      // and (for most brands) no single meaningful quantity, since e.g.
+      // Facebook Ads sums 3 different metrics (Lượt tiếp cận + Lượt
+      // tương tác + Lượt truy cập) into one lump amount that doesn't map
+      // to any single number.
+      //
+      // Round 77 fix — YouTube Ads is the one Ads brand with exactly one
+      // possible metric (ADS_METRICS["YouTube Ads"] = ["Thruplays
+      // (Views)"] — same fact syncYoutubeAdsLine's comment already notes),
+      // so group.totalPosts IS a real, single, unambiguous quantity for
+      // it — unlike every other Ads brand. This branch used to always
+      // write quantity: null regardless of brand (and handleSummarize
+      // didn't even pass totalPosts through to get here), so the booking
+      // board's bookedFor() — which reads l.quantity — always summed to 0
+      // for a freshly-Summarized YouTube Ads line, even though the
+      // package popup's Chi Tiết text ("SL 5000 Thruplays (Views)")
+      // showed the real number right there. The number was only ever
+      // written to the DB's quantity column later, if someone happened to
+      // also edit the dedicated quantity field in the right panel
+      // (syncYoutubeAdsLine) — otherwise it silently stayed null/0
+      // forever. Writing it here too closes that gap at the source.
+      const isYoutubeAds = group.brand === "YouTube Ads";
+      const qty = isYoutubeAds ? group.totalPosts ?? null : null;
       if (existing) {
-        const patch = { detail: group.detailText || null, amount: group.totalMoney ?? null };
+        // Round 78 — item 2: Chi Tiết is a freely-editable field for every
+        // Ads brand now (including YouTube Ads — see PackagesPanel), so
+        // re-Summarize only ever recomputes the objective numbers
+        // (quantity/amount) and leaves whatever's already typed there
+        // alone — same "never clobber a manual edit" rule Đơn Giá already
+        // gets on every other Hạng Mục.
+        const patch = { quantity: qty, amount: group.totalMoney ?? null };
         await supabase.from("media_booking_package_lines").update(patch).eq("id", existing.id);
         setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === existing.id ? { ...l, ...patch } : l)) })));
       } else {
+        // Round 78 — item 1: YouTube Ads lines now also seed a default
+        // Đơn Giá on first insert instead of staying blank — computed as
+        // this Summarize's actual price-per-unit (totalMoney / totalPosts,
+        // i.e. exactly what was entered on the left grid for its one
+        // metric), falling back to the configured default only if that
+        // can't be computed. Every other Ads brand keeps unit_price null —
+        // they mush multiple metrics into one lump amount with no single
+        // per-unit price to show. Item 3: YouTube Ads also seeds a fixed
+        // default Chi Tiết instead of the computed "SL X ..." text every
+        // other Ads brand gets. Both are only starting values — freely
+        // editable afterward, never touched again by re-Summarize (see the
+        // `existing` branch above).
+        const unitPrice = isYoutubeAds
+          ? (qty ? Math.round((group.totalMoney ?? 0) / qty) : priceDefaults.ads["YouTube Ads"]?.["Thruplays (Views)"] ?? null)
+          : null;
+        const detail = isYoutubeAds ? YOUTUBE_ADS_DEFAULT_DETAIL : (group.detailText || null);
         const insertPayload = {
           package_id: activePackage.id, category_id: group.categoryId, brand: group.brand,
-          unit: null, quantity: null, detail: group.detailText || null, amount: group.totalMoney ?? null,
+          unit: null, quantity: qty, detail, unit_price: unitPrice, amount: group.totalMoney ?? null,
           sort_order: (activePackage.media_booking_package_lines || []).length,
         };
         const { data: line } = await supabase.from("media_booking_package_lines").insert(insertPayload).select().single();
@@ -983,13 +1037,18 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     });
 
     const totalMoney = (entryAfter.count_posts || 0) * (entryAfter.unit_price || 0);
-    const detailText = "Thruplays (Views)"; // per request — unit name only, not the "SL X ..." format other brands use
     await supabase.from("media_booking_package_categories").upsert(
-      { release_id: release.id, category_id: adsCategoryId, brand: "YouTube Ads", total_posts: entryAfter.count_posts || 0, total_money: totalMoney, detail_text: detailText, skipped: false, updated_at: new Date().toISOString() },
+      { release_id: release.id, category_id: adsCategoryId, brand: "YouTube Ads", total_posts: entryAfter.count_posts || 0, total_money: totalMoney, skipped: false, updated_at: new Date().toISOString() },
       { onConflict: "release_id,category_id,brand" }
     );
 
-    const linePatch = { quantity: entryAfter.count_posts || 0, unit_price: entryAfter.unit_price ?? null, detail: detailText, amount: totalMoney };
+    // Round 78 — item 2: Chi Tiết is now freely editable on this line (see
+    // PackagesPanel), so editing Số Lượng/Đơn Giá here no longer forces it
+    // back to a fixed "Thruplays (Views)" string — that used to silently
+    // overwrite anything typed into Chi Tiết the moment either of these
+    // two fields was touched. Leave it out of the patch entirely; only the
+    // objective numbers (quantity/unit_price/amount) update here.
+    const linePatch = { quantity: entryAfter.count_posts || 0, unit_price: entryAfter.unit_price ?? null, amount: totalMoney };
     await supabase.from("media_booking_package_lines").update(linePatch).eq("id", line.id);
     setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...linePatch } : l)) })));
   }
@@ -1934,21 +1993,18 @@ function PackagesPanel({
                           )}
                         </td>
                         <td style={{ minWidth: 260 }}>
-                          {isYoutubeAdsLine ? (
-                            // Round 65 — item 2: fixed to the unit name
-                            // only, not freely-typed — the entry-level sync
-                            // above always overwrites this with "Thruplays
-                            // (Views)" anyway, so making it look editable
-                            // would be misleading.
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Thruplays (Views)</span>
-                          ) : (
-                            <textarea
-                              className={styles.textarea}
-                              style={{ width: "100%", padding: "4px 6px", fontSize: 11, minHeight: 44, boxSizing: "border-box" }}
-                              defaultValue={line.detail || ""}
-                              onBlur={(e) => updateLine(line, { detail: e.target.value || null })}
-                            />
-                          )}
+                          {/* Round 78 — item 2: Chi Tiết is now freely
+                              editable for YouTube Ads too, same as every
+                              other Ads brand — syncYoutubeAdsLine no longer
+                              force-overwrites it when Số Lượng/Đơn Giá are
+                              edited (see that function), so a manual edit
+                              here sticks. */}
+                          <textarea
+                            className={styles.textarea}
+                            style={{ width: "100%", padding: "4px 6px", fontSize: 11, minHeight: 44, boxSizing: "border-box" }}
+                            defaultValue={line.detail || ""}
+                            onBlur={(e) => updateLine(line, { detail: e.target.value || null })}
+                          />
                         </td>
                         {/* Editable here too now — Đơn Giá wasn't
                             consistently reachable everywhere (Ads lines

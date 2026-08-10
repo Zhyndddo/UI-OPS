@@ -6,6 +6,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
@@ -104,8 +105,8 @@ export default function DesignList() {
     setPlatforms(p || []);
     setTypes(t || []);
     setSizes(s || []);
-    const { data: profs } = await supabase.from("profiles").select("id, name").order("name");
-    setProfiles(profs || []);
+    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name"); // round 78
+    setProfiles(filterProfilesByTeam(profs || [], "Design"));
     setLoading(false);
   }
 

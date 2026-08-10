@@ -8,6 +8,7 @@ import { supabase } from "../../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../../lib/helpers";
 import { useAuth } from "../../../../lib/AuthContext";
 import { isOpsTeam } from "../../../../lib/teamTypes";
+import { filterProfilesByTeam } from "../../../../lib/workstationHelpers";
 import { parseBatchPaste, BATCH_ITEM_COLUMNS } from "../../../../lib/phaiSinhBatchParse";
 import { recomputeBatchStatus, batchProgress } from "../../../../lib/batchPhaiSinhStatus";
 import { sendPing, resolvePingTargets } from "../../../../lib/pingNotification";
@@ -43,7 +44,7 @@ export default function BatchPhaiSinhDetail() {
   useEffect(() => {
     if (!supabase || !id) return;
     load();
-    supabase.from("profiles").select("id, name").order("name").then(({ data }) => setProfiles(data || []));
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
   }, [id]);
 
   async function load() {

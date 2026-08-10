@@ -15,6 +15,9 @@ import { MV_TYPE_OPTIONS } from "../../../lib/pickerOptions";
 import PickSelect from "../../../lib/PickSelect";
 import { TICKET_TYPE_LABELS, TEAMS, REPORTING_TEAMS } from "../../../lib/teamTypes";
 import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
+import { useAuth } from "../../../lib/AuthContext";
+import { isDev } from "../../../lib/permissions";
+import { runOne } from "../../../lib/packageSimulator";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -46,6 +49,14 @@ const REQUIRED_META_KEYS = ["meta_audio", "meta_artwork", "meta_lyric", "meta_do
 
 export default function ReleaseDetailPage() {
   const { id } = useParams();
+  const { profile } = useAuth();
+  // Round 77 — item 4: both new Package Actions buttons below run the same
+  // "simulation" commit Package Runner uses (lib/packageSimulator.js),
+  // which item 4a restricted to dev only — gating these the same way here
+  // keeps the two access points consistent instead of one being a
+  // dev-only page and the other reachable by anyone who can open a
+  // release.
+  const canSimulate = isDev(profile);
   const [release, setRelease] = useState(null);
   const [form, setForm] = useState(null);
   const [pitchingTicket, setPitchingTicket] = useState(null);
@@ -786,6 +797,48 @@ export default function ReleaseDetailPage() {
     setRelease((r) => ({ ...r, ...patch }));
   }
 
+  // Round 77 — item 4b: "SEND INT SUPPORT PACKAGE". Dev-only (see
+  // canSimulate above). Runs the same "simulation" commit Package Runner
+  // uses (lib/packageSimulator.js's runOne — the exact 3 writes
+  // confirmChoice() does on the real artist-facing magic link), but with
+  // contractType "INT MEDIA" instead of "Chỉ Phát Hành" — this is the
+  // "lock the package name to INTERNAL" part of the ask: the real package
+  // name for the internal-support tier is "INT MEDIA" (see
+  // media_booking_packages.name in app/tickets/media-booking/page.js —
+  // matched against release.project_type the same way every other package
+  // is), there's no separate "INTERNAL" value anywhere in the schema.
+  // Then reuses sendIntMediaTicket() verbatim for the "resend for internal
+  // support" half — that function already reopens the SAME existing Media
+  // Booking ticket rather than creating a second one (or creates exactly
+  // one if none exists yet), so running these two steps back-to-back here
+  // sends the ticket exactly once, not twice.
+  async function sendIntSupportPackage() {
+    if (!canSimulate || form.int_media_requested) return;
+    const r = await runOne({ did: form.did, legacyDid: "", contractType: "INT MEDIA" }, { allowOverwrite: false });
+    if (!r.ok) { setError(r.reason); return; }
+    const patch = { project_type: "INT MEDIA", package_locked: true, package_total_value: null };
+    setForm((f) => ({ ...f, ...patch }));
+    setRelease((rel) => ({ ...rel, ...patch }));
+    await sendIntMediaTicket();
+  }
+
+  // Round 77 — item 4b: "ONLY PH". Dev-only (see canSimulate above). Runs
+  // the same simulation as Package Runner's default Chỉ Phát Hành pick —
+  // "the artist chose no package" — WITHOUT touching the Media Booking
+  // ticket at all (a Chỉ Phát Hành pick never has one in the real flow
+  // either, so there's nothing to send). Still gets the same auto-created
+  // Phụ Lục ticket runOne() already handles if this release was sitting in
+  // BRIEF & DATA/DEALING — that's "set the package for the product" doing
+  // its normal job, not an extra step bolted on here.
+  async function sendOnlyPh() {
+    if (!canSimulate || form.package_locked) return;
+    const r = await runOne({ did: form.did, legacyDid: "", contractType: "Chỉ Phát Hành" }, { allowOverwrite: false });
+    if (!r.ok) { setError(r.reason); return; }
+    const patch = { project_type: "Chỉ Phát Hành", package_locked: true, package_total_value: null };
+    setForm((f) => ({ ...f, ...patch }));
+    setRelease((rel) => ({ ...rel, ...patch }));
+  }
+
   async function togglePackageLock() {
     const newVal = !form.package_locked;
     setForm((f) => ({ ...f, package_locked: newVal }));
@@ -910,6 +963,9 @@ export default function ReleaseDetailPage() {
             hasMediaBookingTicket={hasMediaBookingTicket}
             mediaBookingTicket={mediaBookingTicket}
             onSendIntMediaTicket={sendIntMediaTicket}
+            canSimulate={canSimulate}
+            onSendIntSupportPackage={sendIntSupportPackage}
+            onSendOnlyPh={sendOnlyPh}
             pitchingTicket={pitchingTicket}
             pitchingTypesDraft={pitchingTypesDraft}
             onPitchingToggle={handlePitchingToggle}
@@ -1132,7 +1188,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, coTrongNetDraft, onCoTrongNetChange, gateTicketMap, setTab }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, canSimulate, onSendIntSupportPackage, onSendOnlyPh, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, coTrongNetDraft, onCoTrongNetChange, gateTicketMap, setTab }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -1452,6 +1508,36 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
             >
               {form.int_media_requested ? "INT MEDIA Follow-up Sent" : "Send INT MEDIA Follow-up"}
             </button>
+          )}
+          {/* Round 77 — item 4b: dev-only fast-track buttons that run the
+              same "simulation" Package Runner does (see canSimulate,
+              lib/packageSimulator.js), directly from the release itself
+              instead of a separate tool page. */}
+          {canSimulate && (
+            <>
+              <button
+                className={styles.btnSmall}
+                onClick={onSendIntSupportPackage}
+                disabled={form.int_media_requested}
+                style={form.int_media_requested ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+                title="Dev only — locks this release straight to INT MEDIA and reopens/sends the Media Booking ticket for Marketing to build it, without waiting on the magic link."
+              >
+                {form.int_media_requested ? "INT SUPPORT PACKAGE Sent" : "SEND INT SUPPORT PACKAGE"}
+              </button>
+              <button
+                className={styles.btnSmall}
+                onClick={onSendOnlyPh}
+                disabled={form.package_locked}
+                style={form.package_locked ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+                title={
+                  form.package_locked
+                    ? "Already locked — this only runs before a package decision has been made."
+                    : "Dev only — locks this release to Chỉ Phát Hành (as if the artist picked no package) without sending any ticket."
+                }
+              >
+                ONLY PH
+              </button>
+            </>
           )}
         </div>
 

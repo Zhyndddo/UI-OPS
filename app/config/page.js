@@ -6,6 +6,7 @@ import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
 import { DEFAULT_DESIGN_NOTIFICATION_TEMPLATES } from "../../lib/designFlow";
 import { ROLES, ROLE_LABELS, isDev as isDevRole, isAdminOrAbove, canManageOrgConfig, canManageTeamMembers, assignableRoles, scopeableTeamMembers } from "../../lib/permissions";
+import { filterProfilesByTeam } from "../../lib/workstationHelpers";
 import styles from "../shared.module.css";
 
 const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
@@ -488,7 +489,7 @@ function TeamSection({ profile }) {
 // an admin record who owns them, ready for whenever those pages grow a
 // picker of their own.
 const PIC_WORKSTATIONS = [
-  { key: "upload", label: "Upload", wired: true },
+  { key: "upload", label: "New Release Setup", wired: true }, // round 77 — relabeled from "Upload"
   { key: "pitching", label: "Pitching", wired: true },
   { key: "confirm_phase1", label: "Re-Check — Phase 1", wired: true },
   { key: "confirm_phase2", label: "Re-Check — Phase 2", wired: true },
@@ -513,10 +514,14 @@ function PicDefaultsSection() {
   async function load() {
     setLoading(true);
     const [{ data: profs }, { data: assigns }] = await Promise.all([
-      supabase.from("profiles").select("id, name").order("name"),
+      supabase.from("profiles").select("id, name, segment, role").order("name"),
       supabase.from("workstation_assignments").select("workstation, pic_profile_id").is("release_id", null).eq("column_key", "all"),
     ]);
-    setProfiles(profs || []);
+    // Round 78 — every workstation in PIC_WORKSTATIONS is OPS work (Upload/
+    // New Release Setup, Pitching, Re-Check, Pre-release, Booking, Package
+    // Price, Streaming, Milestone), so the same OPS-scoped, dev-excluded
+    // list applies to all of them — see filterProfilesByTeam.
+    setProfiles(filterProfilesByTeam(profs || [], "OPS"));
     const map = {};
     (assigns || []).forEach((a) => (map[a.workstation] = a.pic_profile_id));
     setDefaults(map);

@@ -7,6 +7,7 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
 import { isOpsTeam } from "../../../lib/teamTypes";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { ARTIST_PROFILE_PLATFORMS } from "../../../lib/GateFields";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
@@ -39,7 +40,7 @@ export default function ArtistProfileTicketList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name").order("name").then(({ data }) => setProfiles(data || []));
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
     supabase.from("app_settings").select("value").eq("key", "artist_profile_links").maybeSingle().then(({ data }) => {
       setLinks({ spotify: data?.value?.spotify || "", apple: data?.value?.apple || "" });
     });

@@ -32,6 +32,24 @@
   --error-bg: #2a1212;
   --error-border: #5a2323;
   --error-fg: #ff9d9d;
+
+  /* Round 77 — shared "this row needs attention" highlight (This/Next
+     Week in Upload, Releasing Today in Booking, and anywhere else that
+     wants the same treatment). Deliberately the SAME fixed dark
+     orange-black box in both themes, not theme-driven — it's meant to
+     read as a distinct accent card regardless of page theme, the same
+     way it already worked on dark. --highlight-text/-text-faint are
+     forced (not var(--text)/var(--text-faint)) because those flip to
+     near-black on the light theme, which went unreadable against this
+     always-dark box — that's the bug this round fixes. Use these 3
+     together (bg for the sticky/lead cell, row-tint for the row's own
+     background, text/text-faint for anything drawn on top of bg) instead
+     of hardcoding the hex values inline, so every future user of this
+     pattern gets the light-theme fix for free. */
+  --highlight-bg: #2a1c0f;
+  --highlight-row-tint: rgba(255, 107, 26, 0.08);
+  --highlight-text: #ffffff;
+  --highlight-text-faint: #ffcb9a;
 }
 
 [data-theme="light"] {
@@ -67,6 +85,18 @@
   --error-bg: #fdeaea;
   --error-border: #f0b8b8;
   --error-fg: #b23b3b;
+
+  /* Round 77 — same fixed values as :root, intentionally NOT overridden
+     here — see the comment on these 3 vars in :root above. This is the
+     actual fix: before, code drawing text on top of the hardcoded dark
+     highlight box relied on var(--text)/.rowLink's inherited color, which
+     on this light theme is near-black (#14120c) — dark text on a
+     near-black box was the "hard to read" bug. Forcing these fixed light
+     values instead makes it readable in both themes. */
+  --highlight-bg: #2a1c0f;
+  --highlight-row-tint: rgba(255, 107, 26, 0.08);
+  --highlight-text: #ffffff;
+  --highlight-text-faint: #ffcb9a;
 }
 
 * {

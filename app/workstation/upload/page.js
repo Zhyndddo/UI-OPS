@@ -142,7 +142,7 @@ export default function UploadWorkstation() {
         <div className={styles.container} style={{ maxWidth: 1300 }}>
           <TypeSwitcher kind="workstation" current="upload" />
           <div className={styles.eyebrow}>// Workstation</div>
-          <h1 className={styles.title} style={{ marginBottom: 8 }}>Upload</h1>
+          <h1 className={styles.title} style={{ marginBottom: 8 }}>New Release Setup</h1>
 
           <StatusCounter done={counts.done} notDone={counts.notDone} cancel={counts.cancel} />
           <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
@@ -238,11 +238,17 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateFiel
   });
   const [upc, setUpc] = useState(release.upc || "");
 
-  const rowStyle = highlight ? { background: "rgba(255,107,26,0.06)" } : undefined;
+  // Round 77 — was a hardcoded near-black box (#1a120a) with text left on
+  // var(--text)/var(--text-faint)/.rowLink's inherited color, which flip to
+  // near-black on the light theme — dark text on a near-black box, exactly
+  // the "hard to read" bug reported. Switched to the shared highlight
+  // tokens (see globals.css) — same fix Booking's "Releasing Today" row
+  // already used, now shared instead of two separate hardcoded copies.
+  const rowStyle = highlight ? { background: "var(--highlight-row-tint)" } : undefined;
 
   return (
     <tr style={rowStyle}>
-      <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight ? "#1a120a" : "var(--bg)", borderRight: "2px solid var(--accent)" }}>
+      <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight ? "var(--highlight-bg)" : "var(--bg)", borderRight: "2px solid var(--accent)" }}>
         <input
           className={styles.input}
           style={{ padding: "4px 8px", fontSize: 12, marginBottom: 4 }}
@@ -260,9 +266,9 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateFiel
             placeholder="Link Drive…"
           />
         </div>
-        <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
+        <Link href={`/releases/${release.id}`} className={styles.rowLink} style={highlight ? { color: "var(--highlight-text)" } : undefined}>{release.title}</Link>
         {highlight && <span style={{ marginLeft: 6, fontSize: 9, color: "var(--accent)", fontWeight: 700 }}>THIS/NEXT WEEK</span>}
-        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release.main_artist} · {release.did} · {fmtDate(release.release_date)} {release.release_time}</div>
+        <div style={{ fontSize: 11, color: highlight ? "var(--highlight-text-faint)" : "var(--text-faint)" }}>{release.main_artist} · {release.did} · {fmtDate(release.release_date)} {release.release_time}</div>
       </td>
       <td style={{ minWidth: 180 }}>
         <UrlField styles={styles} value={drafts.link_lbm} onChange={(v) => setDrafts((d) => ({ ...d, link_lbm: v }))} onBlur={() => onUpdateField(release, "link_lbm", drafts.link_lbm)} />

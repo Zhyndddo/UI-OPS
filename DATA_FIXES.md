@@ -4675,3 +4675,146 @@ No schema changes this round.
 **Still open from round 74:** the mobile-optimization question — still don't know which page(s) to
 target (whole app? a specific ticket list? the magic link page?). Let me know and I'll take a real
 pass at it next round.
+
+## Round 77 — Highlight contrast fix, Ads quantity bug, YouTube Ads gate lock, Package Runner dev-only + INT SUPPORT/ONLY PH buttons
+
+**1. Upload workstation — highlight readability fix + relabel.** The "This/Next Week" highlighted
+row (and the sticky lead cell's dark box) was hardcoded to a fixed near-black background, but the
+title link and artist/DID line inside it were still using the theme's normal text color — on the
+light theme that's a dark color, so it read as dark text on a near-black box. Booking's own
+"Releasing Today" highlight had already hit and fixed this exact bug (forcing white/soft-orange
+text instead of the theme's inherited color) — pulled that fix out into 3 shared tokens in
+`globals.css` (`--highlight-bg`, `--highlight-row-tint`, `--highlight-text`,
+`--highlight-text-faint`) and pointed both Upload and Booking at them, so it's fixed once, in both
+themes, and any future page that wants this same "needs attention" row styling gets it correct by
+default instead of copy-pasting a broken pattern. Also relabeled the workstation from "Upload" to
+**New Release Setup** everywhere it's named (page title, the type-switcher tabs, Config's default-
+PIC list).
+
+**2. Media Booking package builder — YouTube Ads quantity wasn't reaching the booking board.**
+Root cause: when a YouTube Ads package line got built via Summarize, the real quantity (e.g. 5000)
+was computed and written into the line's free-typed "Chi Tiết" text ("SL 5000 Thruplays (Views)")
+and into `media_booking_package_categories.total_posts` — but never into
+`media_booking_package_lines.quantity`, the actual column the Booking Board reads to show the
+"booked / target" ratio. That column was left `null`, which the board reads as "no target," so the
+YouTube Ads cell showed 0/— or 0/0 even though the number was sitting right there in the text.
+Fixed the write path so the real quantity now lands in the `quantity` column too, for any package
+built or re-Summarized from now on. This only applies to YouTube Ads specifically — it's the one
+Ads platform with exactly one metric, so its total is an unambiguous single number; the other 3 Ads
+platforms (Facebook/TikTok/Spotify Ads) mush several different metrics into one lump total that
+doesn't map to any single target, so those are left as-is (not a bug, just a structurally different
+case).
+
+This fix is forward-only — it doesn't retroactively touch YouTube Ads lines already sitting in the
+database with the wrong (null/0) quantity, including the "Ngày Em Vu Quy" one from your screenshot.
+Run `backfill-round77-youtube-ads-quantity.sql` to fix those — it's a preview-then-update script
+(run the SELECT at the top first to see exactly which rows it'll touch and what it'll set them to),
+tested against a real Postgres instance including confirming it's a safe no-op on a second run.
+
+**3. Booking board — YouTube Ads column now locked to "Cancel" unless Có Trong Net YouTube is
+ticked.** A release's YouTube Ads column in the Ads Hạng Mục is now non-interactive and shows
+"Cancel" (a new, non-manually-pickable status, colored like the others) instead of the normal
+quantity/status popup, whenever that release's Có Trong Net YouTube gate (on its detail page) isn't
+ticked "Yes" — since that gate is what actually authorizes running YouTube ads for the release at
+all. Nothing ever gets entered for a locked cell, so it naturally counts as 0 when you're on the
+"All" filter's aggregate Ads column (summed alongside Facebook/TikTok/Spotify Ads), no special-case
+math needed there.
+
+**4a. Package Runner ("the simulation function") is now dev-only.** Was dev + admin-on-Marketing;
+per explicit request, narrowed to dev only. This is a real access change, not just a label tweak —
+any Marketing admin who was using `/package-runner` day-to-day loses access starting this round and
+will need a dev to run it going forward (or to be promoted).
+
+**4b. Two new dev-only buttons on the release detail page's Package Actions section** (you
+confirmed this location — next to Lock editing / Send Package Ticket to Marketing / Send INT MEDIA
+Follow-up):
+
+- **SEND INT SUPPORT PACKAGE** — runs the same "simulation" commit Package Runner uses (now shared
+  in `lib/packageSimulator.js` so both places call the exact same logic instead of two copies that
+  could drift), locking this release straight to **INT MEDIA** (the real package name for the
+  internal-support tier — there's no separate "INTERNAL" value in the schema, "INT MEDIA" is what
+  you meant), then reuses the existing `sendIntMediaTicket()` function to reopen/send the Media
+  Booking ticket for Marketing to build it. On the "sends the ticket twice" concern: I checked, and
+  `sendIntMediaTicket()` itself is already correct — it looks up any existing ticket for the
+  release first and reopens that same one (or creates exactly one if none exists), so calling it
+  once here sends exactly one ticket. If two tickets were actually landing before, it was more
+  likely two separate button clicks firing independently (e.g. Send Package Ticket AND Send INT
+  MEDIA Follow-up both clicked) rather than a bug inside the ticket function itself — this new
+  single button replaces needing to click two separate ones for the internal-support case.
+- **ONLY PH** — runs the same simulation with **Chỉ Phát Hành** (artist picked no package), same
+  as Package Runner's default pick, WITHOUT touching the Media Booking ticket at all (a Chỉ Phát
+  Hành pick never has one in the real flow either). Still auto-creates the Phụ Lục ticket if the
+  release was sitting in BRIEF & DATA/DEALING, same as the real flow always does the moment a
+  package gets locked in — that's "set the package for the product" happening automatically, not
+  a separate step.
+
+Both buttons only show for dev (see 4a), and both are guarded against re-running/overwriting a
+release that's already had its package decision made — same "won't clobber a real decision"
+safety Package Runner already had.
+
+No schema changes this round. See `backfill-round77-youtube-ads-quantity.sql`.
+
+## Round 78 — PIC dropdowns filtered by team, dev excluded everywhere
+
+**Every PIC picker in the app now only lists profiles from the team that actually owns that
+ticket/workstation's work, and never lists a `dev`-role profile.** Previously, most PIC dropdowns
+either loaded literally every profile in the org (so e.g. a Legal ticket's PIC list included
+Marketing/AR/Design people it makes no sense to assign), or already scoped to a team but still
+included dev accounts (dev can see/touch everything, but a dev isn't a real day-to-day team member
+you'd hand a ticket to — including them just cluttered every list with names that don't belong).
+
+Centralized both rules into one function, `filterProfilesByTeam(profiles, team)` in
+`lib/workstationHelpers.js` — pass it the team a page's PIC concept belongs to (or nothing, for the
+few types with no real team boundary) and it returns the right list, dev always excluded. Every
+consumer below just calls that function; the rule lives in exactly one place so it can't drift
+per-page again.
+
+Team assignments applied:
+
+- **OPS** (aggregate of Youtube/Publishing/Operation sub-teams): New Release Setup, Confirm (Phase
+  1 & 2), Pre-release, Pitching (workstation), Phái Sinh, Manual Claim, Artist Profile, Có Trong
+  Net YouTube, Discovery Mode Spotify, MV Spotify, Pre-order iTunes, Priority Sync Lyric, Sony
+  Publish, Pitching (ticket), Batch Phái Sinh, Report Conflict, Config's default-PIC-per-workstation
+  list (New Release Setup/Pitching/Re-Check/Pre-release/Booking/Package Price/Streaming/Milestone —
+  all OPS-owned work).
+- **Legal**: Split Share, Phụ Lục, Phụ Lục MG, Phụ Lục Publishing, Publishing.
+- **Marketing**: Media Booking.
+- **Design**: Design.
+- **AR**: Pitching Info.
+- **No team filter, dev still excluded** (types with no PIC-owning team concept): Khác, Stream
+  Update.
+
+Workstation pages that already called the shared helper before this round (Upload, Confirm,
+Pre-release, Pitching workstation, Pitching Info) picked up the dev-exclusion automatically — no
+edits needed on those files, since they all route through the one function that changed.
+
+No schema changes this round.
+
+## Round 78 (2) — Media Booking package builder: YouTube Ads Đơn Giá/Chi Tiết fixes
+
+Three follow-up fixes to the YouTube Ads package line, all in the Media Booking ticket's package
+builder (right-panel "Packages" table):
+
+**1. Đơn Giá was blank on a freshly-Summarized YouTube Ads line.** Số Lượng was already fixed last
+round to pull from the Summarize total; Đơn Giá never was — creating a brand-new YouTube Ads
+package line always left `unit_price` null, even though the left grid's entry (used to compute the
+line's own Thành Tiền) already had a real price on it. Now, the first time a YouTube Ads line gets
+created via Summarize, Đơn Giá is seeded from that Summarize's actual price-per-unit
+(`totalMoney / totalPosts` — exactly what was entered for its one metric), falling back to the
+configured default price only if that can't be computed. Same as Đơn Giá elsewhere, this is only a
+starting value — never touched again by re-Summarize, so editing it by hand afterward sticks.
+
+**2. Chi Tiết is now a real editable text box for YouTube Ads too.** Every other Ads brand
+(Facebook/TikTok/Spotify Ads) already had this; YouTube Ads was the one exception, locked to a
+fixed "Thruplays (Views)" label. Also fixed the reason it was locked in the first place: editing
+Số Lượng or Đơn Giá on a YouTube Ads line used to silently force Chi Tiết back to that fixed string
+every time, which would have clobbered any manual edit the moment either field was touched. That
+overwrite is gone now — Chi Tiết only gets set from Summarize on first creation (see #3 below) and
+is otherwise left alone, for every Ads brand.
+
+**3. New default Chi Tiết text for a fresh YouTube Ads line.** Previously it auto-computed "SL
+{count} Thruplays (Views)"; now a freshly-Summarized YouTube Ads line starts with **"Áp dụng kênh
+youtube nghệ sĩ thuộc MCN, MV thời lượng dưới 5 phút"** instead, per explicit request. Still just a
+starting value — freely editable afterward (see #2).
+
+No schema changes this round.

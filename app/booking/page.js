@@ -84,12 +84,18 @@ const ADS_METRICS = {
 // Ads cells take a quantity + a run-status instead of the Add Link popup
 // every other Hạng Mục uses. Own vocabulary/colors, distinct from the
 // link-status colors (Chưa Booking/Đã Gửi/Done) used everywhere else.
+// Round 77 — "Cancel" added: the forced status for the YouTube Ads column
+// on a release that hasn't ticked Có Trong Net YouTube on its detail page
+// (see AdsCell's ctnLocked prop) — not a manually-pickable option, so it's
+// not in ADS_STATUS_OPTIONS (the popup's own status-picker list), only in
+// the color map so the locked cell can still render in this vocabulary.
 const ADS_STATUS_OPTIONS = ["Chưa Chạy", "Đang Chạy", "Đã Chạy", "Pending"];
 const ADS_STATUS_COLORS = {
   "Chưa Chạy": "var(--text-faint)",
   "Đang Chạy": "#ffca4d",
   "Đã Chạy": "#7ee6a8",
   "Pending": "#ff9d5c",
+  "Cancel": "var(--text-dim)",
 };
 
 const ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
@@ -164,7 +170,10 @@ export default function BookingBoard() {
     setLoading(true);
     const { data: rels } = await supabase
       .from("releases")
-      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status")
+      // Round 77 — gate_co_trong_net_youtube added: locks the YouTube Ads
+      // Ads-brand column when the release hasn't opted into Có Trong Net
+      // YouTube on its detail page (see AdsCell's ctnLocked prop below).
+      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status, gate_co_trong_net_youtube")
       .order("release_date", { ascending: false });
     const { data: ents } = await supabase.from("media_booking_entries").select("*");
     const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
@@ -703,16 +712,19 @@ export default function BookingBoard() {
               {pagedReleases.map((r) => {
                 const releasingToday = isReleasingToday(r);
                 return (
-                <tr key={r.id} style={releasingToday ? { background: "rgba(255,107,26,0.08)" } : undefined}>
-                  <td style={{ position: "sticky", left: 0, zIndex: 1, background: releasingToday ? "#2a1c0f" : "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288, overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {/* .rowLink is `color: inherit` — on a light theme that
-                        inherited color is dark (meant for a light card),
-                        so against this cell's near-black highlight bg it
-                        went almost unreadable. Force white/orange here
-                        instead of relying on inherit, same fix on both the
-                        title link and the faint sub-text line. */}
-                    <Link href={`/releases/${r.id}`} className={styles.rowLink} style={releasingToday ? { color: "#ffffff" } : undefined}>{r.title}</Link>
-                    <div style={{ fontSize: 11, color: releasingToday ? "#ffcb9a" : "var(--text-faint)" }}>
+                <tr key={r.id} style={releasingToday ? { background: "var(--highlight-row-tint)" } : undefined}>
+                  <td style={{ position: "sticky", left: 0, zIndex: 1, background: releasingToday ? "var(--highlight-bg)" : "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {/* Round 77 — now the shared highlight tokens
+                        (globals.css) instead of hardcoded hex — same
+                        values as before, just centralized so Upload's
+                        identical box could be fixed the same way instead
+                        of carrying its own separate (and, until this
+                        round, broken-on-light-theme) copy. .rowLink is
+                        `color: inherit`, which on a light theme is dark —
+                        forcing var(--highlight-text) here instead of
+                        relying on inherit is what keeps this readable. */}
+                    <Link href={`/releases/${r.id}`} className={styles.rowLink} style={releasingToday ? { color: "var(--highlight-text)" } : undefined}>{r.title}</Link>
+                    <div style={{ fontSize: 11, color: releasingToday ? "var(--highlight-text-faint)" : "var(--text-faint)" }}>
                       {r.main_artist} · {r.did} · {fmtDate(r.release_date)}
                       {releasingToday && <span style={{ color: "#ff6b1a", fontWeight: 700, marginLeft: 6 }}>· TODAY</span>}
                     </div>
@@ -763,6 +775,16 @@ export default function BookingBoard() {
                       (c.subchannelType == null || (e.subchannel_type || "") === c.subchannelType)
                     );
                     if (c.categoryName === "Ads") {
+                      // Round 77 — item 3: YouTube Ads is locked (no
+                      // interaction, forced "Cancel" display) on any
+                      // release that hasn't ticked Có Trong Net YouTube on
+                      // its detail page — that gate is what actually
+                      // authorizes running YouTube ads for a release at
+                      // all. Locked = no entry ever gets created for it,
+                      // so it naturally sums to 0 in the "All" aggregate
+                      // alongside its Ads siblings, instead of needing any
+                      // special-case math there.
+                      const ctnLocked = c.brand === "YouTube Ads" && r.gate_co_trong_net_youtube !== "true";
                       return (
                         <AdsCell
                           key={c.key}
@@ -770,7 +792,8 @@ export default function BookingBoard() {
                           booked={bookedFor(r, c.categoryName, c.brand)}
                           added={addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries)}
                           existingEntry={cellEntries[0] || null}
-                          canEdit={hangMucFilter !== "All"}
+                          canEdit={hangMucFilter !== "All" && !ctnLocked}
+                          locked={ctnLocked}
                           cellBorderLeft={isGroupStart ? "2px solid #555" : "1px solid var(--border)"}
                           onSave={(quantity, status) => saveAdsQuantity(r.id, c.brand, c.platform, quantity, status, cellEntries[0] || null)}
                         />
@@ -1284,7 +1307,7 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
 // number of different unit not number of url"). Click opens a small popup
 // with a "Số lượng" number field and a 4-way status switch; the main cell
 // shows the number itself colored by status (not the cell background).
-function AdsCell({ column, booked, added, existingEntry, canEdit, cellBorderLeft, onSave }) {
+function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBorderLeft, onSave }) {
   const [open, setOpen] = useState(false);
   const [quantity, setQuantity] = useState(existingEntry?.quantity ?? "");
   const [status, setStatus] = useState(existingEntry?.status || ADS_STATUS_OPTIONS[0]);
@@ -1304,6 +1327,29 @@ function AdsCell({ column, booked, added, existingEntry, canEdit, cellBorderLeft
     await onSave(q, status);
     setSaving(false);
     setOpen(false);
+  }
+
+  // Round 77 — item 3: locked (Có Trong Net YouTube not ticked on the
+  // release) short-circuits the whole cell to a plain, non-interactive
+  // "Cancel" — no click handler, no popup, no quantity/status of its own,
+  // so nobody can accidentally start filling in numbers for an ad run
+  // that isn't authorized yet.
+  if (locked) {
+    return (
+      <td
+        style={{
+          verticalAlign: "top", minWidth: 130,
+          borderLeft: cellBorderLeft || "1px solid var(--border)",
+        }}
+      >
+        <div
+          style={{ fontSize: 17, textAlign: "center", fontWeight: 600, color: ADS_STATUS_COLORS["Cancel"] }}
+          title="Locked — release hasn't ticked Có Trong Net YouTube (see release detail page)"
+        >
+          Cancel
+        </div>
+      </td>
+    );
   }
 
   return (

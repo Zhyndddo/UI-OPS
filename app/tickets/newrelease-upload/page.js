@@ -4,6 +4,7 @@ import AppShell from "../../../lib/AppShell";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import NotePopup from "../../../lib/ReleaseNotePopup";
@@ -23,7 +24,7 @@ export default function NewreleaseUploadList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name").order("name").then(({ data }) => setProfiles(data || []));
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
   }, []);
 
   async function load() {
