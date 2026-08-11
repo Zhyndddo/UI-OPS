@@ -50,6 +50,14 @@
   --highlight-row-tint: rgba(255, 107, 26, 0.08);
   --highlight-text: #ffffff;
   --highlight-text-faint: #ffcb9a;
+
+  /* Round 83 item 2 — "unfilled field" highlight for New Release Setup
+     (app/workstation/upload/page.js). Fixed purple in both themes per
+     explicit request (#9D00FF), same "deliberately not theme-driven"
+     reasoning as --highlight-* above — it needs to read as a distinct
+     alert color regardless of page theme. */
+  --missing-highlight: #9d00ff;
+  --missing-highlight-bg: rgba(157, 0, 255, 0.12);
 }
 
 [data-theme="light"] {
@@ -97,6 +105,11 @@
   --highlight-row-tint: rgba(255, 107, 26, 0.08);
   --highlight-text: #ffffff;
   --highlight-text-faint: #ffcb9a;
+
+  /* Round 83 item 2 — same fixed values as :root, intentionally not
+     overridden — see that comment. */
+  --missing-highlight: #9d00ff;
+  --missing-highlight-bg: rgba(157, 0, 255, 0.12);
 }
 
 * {

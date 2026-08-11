@@ -229,6 +229,18 @@ export default function UploadWorkstation() {
   );
 }
 
+// Round 83 item 2 — purple highlight on every still-empty fillable field
+// in this table (UPC, Link Drive, Link LBM, Link Share, Smartlink), per
+// explicit request. An inset box-shadow rather than a background fill so
+// it works the same whether it's wrapping a plain input or a UrlField
+// component (whose own input already paints an opaque background) — see
+// --missing-highlight/--missing-highlight-bg in app/globals.css.
+function missingHighlightStyle(value) {
+  return value
+    ? undefined
+    : { boxShadow: "inset 0 0 0 2px var(--missing-highlight)", background: "var(--missing-highlight-bg)", borderRadius: 6 };
+}
+
 function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateField, onUpdatePic, onOpenNote }) {
   const URL_KEYS = ["drive_link", "link_lbm", "link_share", "smartlink"];
   const [drafts, setDrafts] = useState(() => {
@@ -251,13 +263,13 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateFiel
       <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight ? "var(--highlight-bg)" : "var(--bg)", borderRight: "2px solid var(--accent)" }}>
         <input
           className={styles.input}
-          style={{ padding: "4px 8px", fontSize: 12, marginBottom: 4 }}
+          style={{ padding: "4px 8px", fontSize: 12, marginBottom: 4, ...missingHighlightStyle(upc) }}
           value={upc}
           placeholder="UPC…"
           onChange={(e) => setUpc(e.target.value)}
           onBlur={() => onUpdateField(release, "upc", upc)}
         />
-        <div style={{ marginBottom: 4 }}>
+        <div style={{ marginBottom: 4, ...missingHighlightStyle(drafts.drive_link) }}>
           <UrlField
             styles={styles}
             value={drafts.drive_link}
@@ -270,13 +282,16 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateFiel
         {highlight && <span style={{ marginLeft: 6, fontSize: 9, color: "var(--accent)", fontWeight: 700 }}>THIS/NEXT WEEK</span>}
         <div style={{ fontSize: 11, color: highlight ? "var(--highlight-text-faint)" : "var(--text-faint)" }}>{release.main_artist} · {release.did} · {fmtDate(release.release_date)} {release.release_time}</div>
       </td>
-      <td style={{ minWidth: 180 }}>
+      <td style={{ minWidth: 180, ...missingHighlightStyle(drafts.link_lbm) }}>
         <UrlField styles={styles} value={drafts.link_lbm} onChange={(v) => setDrafts((d) => ({ ...d, link_lbm: v }))} onBlur={() => onUpdateField(release, "link_lbm", drafts.link_lbm)} />
       </td>
-      <td style={{ minWidth: 180 }}>
+      <td style={{ minWidth: 180, ...missingHighlightStyle(drafts.link_share) }}>
         <UrlField styles={styles} value={drafts.link_share} onChange={(v) => setDrafts((d) => ({ ...d, link_share: v }))} onBlur={() => onUpdateField(release, "link_share", drafts.link_share)} />
       </td>
-      <td style={{ minWidth: 180 }}>
+      {/* No highlight while needs_update disables this field — it isn't
+          actually editable right now, so flagging it "missing" would be
+          misleading (see PRIORITY_MODE_WARNING). */}
+      <td style={{ minWidth: 180, ...(release.needs_update ? undefined : missingHighlightStyle(drafts.smartlink)) }}>
         <UrlField
           styles={styles}
           value={drafts.smartlink}

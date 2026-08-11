@@ -258,10 +258,15 @@ export default function ReleasesDashboard() {
     setSavingChannel(null);
   }
 
-  // Round 79 — Track DID (pseudo package): inline-editable straight from
-  // the dashboard row, same field as the release detail page's own Track
+  // Round 79 — EP/Album DID (pseudo package): inline-editable straight from
+  // the dashboard row, same field as the release detail page's own EP/Album
   // DID box (lib/RelatedDidField.js does the search/autocomplete there and
   // here identically — both just write releases.pseudo_package_parent_did).
+  // Round 83 item 3 — relabeled from "Track DID" (see release detail
+  // page's matching rename) — this field holds the PARENT's DID, not this
+  // track's own, and setting it now correctly removes this release's own
+  // package flow entirely in favor of the parent's (release detail page
+  // gap fix, same round).
   async function updateTrackDid(release, value) {
     const clean = (value || "").trim();
     setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, pseudo_package_parent_did: clean || null } : r)));
@@ -350,7 +355,10 @@ export default function ReleasesDashboard() {
                 <SortableTh label="Package" sortKey="release_category" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Label" sortKey="label" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Name" sortKey="title" sort={sort} onToggle={toggleSort} />
-                <th>Track DID</th>
+                {/* Round 83 item 3 — relabeled from "Track DID"; this
+                    column holds the PARENT EP/Album's DID, not this row's
+                    own. */}
+                <th>EP/Album DID</th>
                 <SortableTh label="Artist" sortKey="main_artist" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Release Date" sortKey="release_date" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Status" sortKey="status" sort={sort} onToggle={toggleSort} />

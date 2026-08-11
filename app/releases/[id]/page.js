@@ -60,11 +60,15 @@ export default function ReleaseDetailPage() {
   const { profile } = useAuth();
   // Round 77 — item 4: both new Package Actions buttons below run the same
   // "simulation" commit Package Runner uses (lib/packageSimulator.js),
-  // which item 4a restricted to dev only — gating these the same way here
-  // keeps the two access points consistent instead of one being a
-  // dev-only page and the other reachable by anyone who can open a
-  // release.
-  const canSimulate = isDev(profile);
+  // originally restricted to dev only (item 4a) to keep this access point
+  // consistent with the dev-only Package Runner page.
+  //
+  // Round 83 item 1 — per explicit request, opened up to every AR team
+  // member (any role tier, not just dev) since these buttons are AR's own
+  // day-to-day tool, not a dev-only simulation shortcut. Package Runner
+  // itself (the standalone page, see lib/permissions.js's
+  // canRunPackageSimulator) is untouched — still dev/admin+Marketing only.
+  const canSimulate = isDev(profile) || profile?.segment === "AR";
   const [release, setRelease] = useState(null);
   const [form, setForm] = useState(null);
   const [pitchingTicket, setPitchingTicket] = useState(null);
@@ -840,8 +844,9 @@ export default function ReleaseDetailPage() {
     setRelease((r) => ({ ...r, ...patch }));
   }
 
-  // Round 77 — item 4b: "SEND INT SUPPORT PACKAGE". Dev-only (see
-  // canSimulate above). Runs the same "simulation" commit Package Runner
+  // Round 77 — item 4b: "SEND INT SUPPORT PACKAGE" (round 83 item 1 —
+  // opened up from dev-only to dev + any AR team member, see canSimulate
+  // above). Runs the same "simulation" commit Package Runner
   // uses (lib/packageSimulator.js's runOne — the exact 3 writes
   // confirmChoice() does on the real artist-facing magic link), but with
   // contractType "INT MEDIA" instead of "Chỉ Phát Hành" — this is the
@@ -865,7 +870,8 @@ export default function ReleaseDetailPage() {
     await sendIntMediaTicket();
   }
 
-  // Round 77 — item 4b: "ONLY PH". Dev-only (see canSimulate above). Runs
+  // Round 77 — item 4b: "ONLY PH" (round 83 item 1 — opened up from
+  // dev-only to dev + any AR team member, see canSimulate above). Runs
   // the same simulation as Package Runner's default Chỉ Phát Hành pick —
   // "the artist chose no package" — WITHOUT touching the Media Booking
   // ticket at all (a Chỉ Phát Hành pick never has one in the real flow
@@ -1037,6 +1043,7 @@ export default function ReleaseDetailPage() {
             packageItems={packageItems}
             mediaBookingTicket={mediaBookingTicket}
             sectionRef={mediaBookingSectionRef}
+            pseudoParent={pseudoParent}
           />
         )}
         {tab === "pitching" && <PitchingTab form={form} update={update} onSave={saveTab} saving={saving} />}
@@ -1331,25 +1338,48 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
 
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, alignItems: "start" }}>
         <div>
-          <div className={styles.subheading} style={{ marginTop: 0 }}>Trạng Thái Gói (Loại Dự Án)</div>
-          <PipelineControl form={form} update={update} setTab={setTab} />
-
-          {/* Round 72 — item 3: moved here from further down the page
-              (used to sit right before the Upload section, well below
-              this box) — per explicit request, right under the package
-              status box instead. The rest of that section (Tổng Giá Trị
-              Gói, Lock/Send Ticket buttons, magic link box) stays where
-              it was. */}
-          <div className={styles.subheading}>Package (Gói Hỗ Trợ Truyền Thông)</div>
-          {PIPELINE_STAGES.includes(form.project_type) ? (
-            <p style={{ fontSize: 13, color: "var(--text-faint)", marginBottom: 0 }}>
-              No contract type resolved yet — package details will show once the artist locks one in.
-            </p>
+          {/* Round 83 item 3 — gap fix: this whole block (pipeline stage +
+              the "Package (Gói Hỗ Trợ Truyền Thông)" summary) used to
+              render unconditionally even for a pseudo-linked track, so it
+              kept showing that track's OWN (stuck-at-BRIEF-&-DATA, never
+              actually going anywhere) package status right above the
+              correctly-hidden Package Actions section below — misleading,
+              since this release's package flow is supposed to be fully
+              replaced by the parent's. Now swapped for a short pointer to
+              the inherited package instead, same as everywhere else this
+              page already handles the pseudoParent case. */}
+          {pseudoParent ? (
+            <>
+              <div className={styles.subheading} style={{ marginTop: 0 }}>Trạng Thái Gói (Loại Dự Án)</div>
+              <p style={{ fontSize: 13, color: "var(--text-faint)", marginBottom: 0 }}>
+                This release inherits its package from{" "}
+                <Link href={`/releases/${pseudoParent.id}`} className={styles.rowLink}>{pseudoParent.title} ({pseudoParent.did})</Link>
+                {" "}— see "Package (Inherited)" below.
+              </p>
+            </>
           ) : (
-            <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 0 }}>
-              Contract type: <strong style={{ color: "#ff9d5c" }}>{form.project_type}</strong>
-              {form.package_locked && <span style={{ color: "var(--text-faint)" }}> (locked)</span>}
-            </p>
+            <>
+              <div className={styles.subheading} style={{ marginTop: 0 }}>Trạng Thái Gói (Loại Dự Án)</div>
+              <PipelineControl form={form} update={update} setTab={setTab} />
+
+              {/* Round 72 — item 3: moved here from further down the page
+                  (used to sit right before the Upload section, well below
+                  this box) — per explicit request, right under the package
+                  status box instead. The rest of that section (Tổng Giá Trị
+                  Gói, Lock/Send Ticket buttons, magic link box) stays where
+                  it was. */}
+              <div className={styles.subheading}>Package (Gói Hỗ Trợ Truyền Thông)</div>
+              {PIPELINE_STAGES.includes(form.project_type) ? (
+                <p style={{ fontSize: 13, color: "var(--text-faint)", marginBottom: 0 }}>
+                  No contract type resolved yet — package details will show once the artist locks one in.
+                </p>
+              ) : (
+                <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 0 }}>
+                  Contract type: <strong style={{ color: "#ff9d5c" }}>{form.project_type}</strong>
+                  {form.package_locked && <span style={{ color: "var(--text-faint)" }}> (locked)</span>}
+                </p>
+              )}
+            </>
           )}
         </div>
         <div>
@@ -1406,11 +1436,15 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           hidden behind a toggle) since clearing it is just erasing this
           field's text. */}
       <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
-        <div className={styles.subheading} style={{ marginTop: 0 }}>Track DID (Pseudo Package)</div>
+        {/* Round 83 item 3 — relabeled from "Track DID (Pseudo Package)"
+            per explicit request, to say what's actually being entered
+            here: the PARENT EP/Album's DID, not this track's own. Field
+            name/behavior unchanged (still releases.pseudo_package_parent_did). */}
+        <div className={styles.subheading} style={{ marginTop: 0 }}>EP/Album DID (Pseudo Package)</div>
         <p style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 8, maxWidth: 520 }}>
-          If this release is a single spun off from an EP/Album, link it to that parent product here
-          — it inherits the parent's package and magic link, skips Package Actions below entirely,
-          and won't show up on the Booking Board.
+          If this release is a single spun off from an EP/Album, enter that parent EP/Album's DID here
+          — it removes this release's own package flow entirely and inherits the parent's package and
+          magic link instead, skips Package Actions below entirely, and won't show up on the Booking Board.
         </p>
         <div style={{ maxWidth: 420 }}>
           <RelatedDidField styles={styles} value={form.pseudo_package_parent_did || ""} onChange={(v) => update("pseudo_package_parent_did", v)} />
@@ -1509,10 +1543,11 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
               {form.int_media_requested ? "INT MEDIA Follow-up Sent" : "Send INT MEDIA Follow-up"}
             </button>
           )}
-          {/* Round 77 — item 4b: dev-only fast-track buttons that run the
-              same "simulation" Package Runner does (see canSimulate,
+          {/* Round 77 — item 4b: fast-track buttons that run the same
+              "simulation" Package Runner does (see canSimulate,
               lib/packageSimulator.js), directly from the release itself
-              instead of a separate tool page. */}
+              instead of a separate tool page. Round 83 item 1 — opened up
+              to every AR team member, not just dev (see canSimulate). */}
           {canSimulate && (
             <>
               <button
@@ -1520,7 +1555,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
                 onClick={onSendIntSupportPackage}
                 disabled={form.int_media_requested}
                 style={form.int_media_requested ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
-                title="Dev only — locks this release straight to INT MEDIA and reopens/sends the Media Booking ticket for Marketing to build it, without waiting on the magic link."
+                title="Locks this release straight to INT MEDIA and reopens/sends the Media Booking ticket for Marketing to build it, without waiting on the magic link."
               >
                 {form.int_media_requested ? "INT SUPPORT PACKAGE Sent" : "SEND INT SUPPORT PACKAGE"}
               </button>
@@ -1532,7 +1567,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
                 title={
                   form.package_locked
                     ? "Already locked — this only runs before a package decision has been made."
-                    : "Dev only — locks this release to Chỉ Phát Hành (as if the artist picked no package) without sending any ticket."
+                    : "Locks this release to Chỉ Phát Hành (as if the artist picked no package) without sending any ticket."
                 }
               >
                 ONLY PH
@@ -2054,7 +2089,25 @@ function resolveBookingRound(form) {
   return null;
 }
 
-function MediaBookingTab({ form, update, onSave, saving, entries, categories, packageItems, mediaBookingTicket, sectionRef }) {
+function MediaBookingTab({ form, update, onSave, saving, entries, categories, packageItems, mediaBookingTicket, sectionRef, pseudoParent }) {
+  // Round 83 item 3 — gap fix: a pseudo-linked track's own Media Booking
+  // tab used to still render its own (separate, always-empty) package
+  // builder content — a user could click into it and interact with data
+  // that has nothing to do with the inherited package actually in effect.
+  // Short-circuited here, same "removes all the package flow from that
+  // product" intent as the Package Actions/pipeline-status gates already
+  // applied elsewhere on this page.
+  if (pseudoParent) {
+    return (
+      <div ref={sectionRef}>
+        <p style={{ fontSize: 13, color: "var(--text-faint)" }}>
+          This release is a pseudo-package track — its package is built and managed on the parent
+          EP/Album, not here. See{" "}
+          <Link href={`/releases/${pseudoParent.id}`} className={styles.rowLink}>{pseudoParent.title} ({pseudoParent.did})</Link>.
+        </p>
+      </div>
+    );
+  }
   const round = resolveBookingRound(form);
   const roundEntries = round ? entries.filter((e) => e.booking_round === round) : [];
   const feedbackText = mediaBookingTicket?.data?.feedback?.text;

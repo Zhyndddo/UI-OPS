@@ -7,6 +7,7 @@ import { useAuth } from "../../lib/AuthContext";
 import { DEFAULT_DESIGN_NOTIFICATION_TEMPLATES } from "../../lib/designFlow";
 import { ROLES, ROLE_LABELS, isDev as isDevRole, isAdminOrAbove, canManageOrgConfig, canManageTeamMembers, assignableRoles, scopeableTeamMembers } from "../../lib/permissions";
 import { filterProfilesByTeam } from "../../lib/workstationHelpers";
+import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../lib/troGiaBooking";
 import styles from "../shared.module.css";
 
 const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
@@ -42,6 +43,12 @@ export default function ConfigPage() {
       ["designTypes", "Design Types"],
       ["sizes", "Sizes"],
       ["artistProfileLinks", "External Tool Links"],
+      // Round 84 — global (not per-package) Trợ Giá Booking content, now
+      // the single edited source for the internal reference page AND the
+      // magic link's new section (see lib/troGiaBooking.js). Distinct from
+      // "Trợ Giá Booking" inside Package Terms above, which stays
+      // per-contract-type — this one's a flat list shown to every artist.
+      ["troGiaBooking", "Trợ Giá Booking"],
     ] : []),
     ...(isDev ? [["notifications", "Notifications"], ["designNotifications", "Design Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
   ];
@@ -92,6 +99,7 @@ export default function ConfigPage() {
               {section === "designTypes" && <DesignTypesSection />}
               {section === "sizes" && <SizesSection />}
               {section === "artistProfileLinks" && <ArtistProfileLinksSection />}
+              {section === "troGiaBooking" && <TroGiaBookingSection />}
               {section === "notifications" && isDev && <NotificationsSection />}
               {section === "designNotifications" && isDev && <DesignNotificationsSection />}
               {section === "sessions" && isDev && <SessionsSection />}
@@ -900,6 +908,110 @@ function MediaBookingPricingSection() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── Trợ Giá Booking (round 84) ──────────────────────────────────────────
+// A flat, admin-editable list of {title, desc, href} rows — shown to every
+// artist on the magic link (right above Partner Benefits) AND on the
+// internal reference page, both reading the same global_settings row this
+// section writes to. See lib/troGiaBooking.js for the shared shape/key.
+// No add/remove-row precedent existed elsewhere in Config before this —
+// built fresh, same save-on-blur-into-one-JSON-blob pattern
+// MediaBookingPricingSection already uses for its own nested object.
+function TroGiaBookingSection() {
+  const [items, setItems] = useState(DEFAULT_TRO_GIA_BOOKING_ITEMS);
+  const [loading, setLoading] = useState(true);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    (async () => {
+      const { data } = await supabase.from("global_settings").select("value").eq("key", TRO_GIA_BOOKING_SETTING_KEY).maybeSingle();
+      setItems(parseTroGiaBookingItems(data?.value));
+      setLoading(false);
+    })();
+  }, []);
+
+  function flashSaved() {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  async function saveAll(next) {
+    setItems(next);
+    await supabase.from("global_settings").upsert(
+      { key: TRO_GIA_BOOKING_SETTING_KEY, value: JSON.stringify(next), updated_at: new Date().toISOString() },
+      { onConflict: "key" }
+    );
+    flashSaved();
+  }
+
+  function updateItem(index, field, value) {
+    const next = items.map((it, i) => (i === index ? { ...it, [field]: value } : it));
+    saveAll(next);
+  }
+
+  function addItem() {
+    saveAll([...items, { title: "", desc: "", href: "" }]);
+  }
+
+  function removeItem(index) {
+    if (!window.confirm("Remove this row? It'll disappear from the magic link and the reference page immediately.")) return;
+    saveAll(items.filter((_, i) => i !== index));
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20, maxWidth: 640 }}>
+        Shown on every artist's magic link (right above Partner Benefits) and on the internal
+        Reference → Trợ Giá Booking page — one shared list, edited here. Changes save immediately.
+        {saved && <span style={{ color: "var(--success-fg)", fontWeight: 700, marginLeft: 8 }}>Saved</span>}
+      </p>
+
+      <div style={{ display: "grid", gap: 16, marginBottom: 16, maxWidth: 640 }}>
+        {items.map((it, i) => (
+          <div key={i} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <label className={styles.fieldLabel} style={{ margin: 0 }}>Title</label>
+              <button type="button" onClick={() => removeItem(i)} className={styles.btnSmall} style={{ fontSize: 10, padding: "3px 8px" }}>
+                Remove
+              </button>
+            </div>
+            <input
+              className={styles.input}
+              style={{ width: "100%", marginBottom: 10 }}
+              defaultValue={it.title}
+              placeholder="e.g. TRỢ GIÁ BOOKING TIKTOK CHANNEL"
+              onBlur={(e) => updateItem(i, "title", e.target.value)}
+            />
+            <label className={styles.fieldLabel}>Description</label>
+            <textarea
+              className={styles.textarea}
+              style={{ width: "100%", minHeight: 50, fontSize: 12, marginBottom: 10 }}
+              defaultValue={it.desc}
+              placeholder="e.g. HỖ TRỢ 10% - 70% CHI PHÍ TRUYỀN THÔNG"
+              onBlur={(e) => updateItem(i, "desc", e.target.value)}
+            />
+            <label className={styles.fieldLabel}>Link</label>
+            <input
+              className={styles.input}
+              style={{ width: "100%" }}
+              defaultValue={it.href}
+              placeholder="https://…"
+              onBlur={(e) => updateItem(i, "href", e.target.value)}
+            />
+          </div>
+        ))}
+        {items.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)" }}>No rows yet.</div>}
+      </div>
+
+      <button type="button" onClick={addItem} className={styles.btnSmall}>
+        + Add Row
+      </button>
     </div>
   );
 }

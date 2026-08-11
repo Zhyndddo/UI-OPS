@@ -5195,3 +5195,115 @@ correctly in the Tickets index, TypeSwitcher, and worklist counts with no furthe
 there. **Assumption**: matched the "blank template" instruction to the DID+note shape of the
 sibling Legal types exactly (including one-ticket-per-release) rather than inventing new fields —
 flagging this in case a real contract needs more fields than that later.
+
+## Round 83 — AR access to Package Actions fast-track, missing-field highlight, EP/Album DID gap fixes
+
+No SQL this round — every change is app code only.
+
+### 1. "SEND INT SUPPORT PACKAGE" / "ONLY PH" opened up to all AR
+
+These two release-detail-page buttons (`app/releases/[id]/page.js`'s `canSimulate` gate) were
+dev-only (matching the standalone dev-only Package Runner tool they mirror). Per explicit request,
+opened up to every AR team member regardless of role tier — `canSimulate` is now
+`isDev(profile) || profile?.segment === "AR"`. Both button handlers (`sendIntSupportPackage`,
+`sendOnlyPh`) already gated on the same `canSimulate` variable, so no separate changes were needed
+there — they pick up the wider access automatically. Comments/tooltips that said "Dev only" updated
+to match. The standalone Package Runner page itself is untouched — still
+dev/admin+Marketing-gated via `lib/permissions.js`'s `canRunPackageSimulator`, a separate check.
+
+### 2. New Release Setup: purple highlight on unfilled fields
+
+Every still-empty fillable field in the New Release Setup workstation table (UPC, Link Drive, Link
+LBM, Link Share, Smartlink) now gets a `#9D00FF` purple highlight (inset border + faint fill — new
+`--missing-highlight`/`--missing-highlight-bg` CSS vars in `app/globals.css`, fixed in both themes
+same reasoning as the existing `--highlight-*` "this/next week" tokens). Smartlink is exempted from
+the highlight while it's disabled by Priority Pitching mode (`needs_update`) — it isn't actually
+editable in that state, so flagging it "missing" would be misleading. The highlight clears live as
+soon as a value is typed (based on the same draft state the input itself reads from), no save
+needed to see it disappear.
+
+### 3. EP/Album DID (formerly "Track DID") — rename + package-flow gap fixes
+
+Relabeled "Track DID (Pseudo Package)" → **"EP/Album DID (Pseudo Package)"** everywhere it appears
+(release detail page's field heading + help text, dashboard list column header) — the field holds
+the PARENT EP/Album's DID being referenced, not the track's own, and the old label read backwards.
+No schema/field-name change (`releases.pseudo_package_parent_did` unchanged).
+
+**Also fixed 2 real gaps** found while verifying "removes all the package flow from that product,"
+found via code review rather than a specific bug report — a pseudo-linked release's OWN package UI
+was still leaking through in two places even though Package Actions itself was already correctly
+swapped for the inherited view:
+- The pipeline-stage badge (`PipelineControl`) and the "Package (Gói Hỗ Trợ Truyền Thông)" summary
+  box, both right above Package Actions, rendered unconditionally — a pseudo-linked track kept
+  showing its own (permanently stuck, never resolving) BRIEF & DATA status there. Now swapped for a
+  short "inherits its package from X" pointer when `pseudoParent` is set.
+- The Media Booking tab's own content (itemized package table, booking-round add UI, etc.) also
+  rendered unconditionally — a user could click into that tab on a pseudo-linked release and
+  interact with its own separate, always-empty package-builder data. Now short-circuits to a plain
+  "built and managed on the parent, not here" message instead.
+
+Both fixes are purely additive UI gating on the existing `pseudoParent` state (from the release
+detail page's live parent-resolution `useEffect`, unchanged) — no new writes, no change to which
+release's data the Booking Board/Package Runner/Media Booking ticket flow actually touch (those
+were already correctly guarded, per round 79).
+
+### 4. Trợ Giá Booking on the magic link — investigated, not a bug
+
+Checked why an existing artist-facing magic link (`app/pick-package/[token]/page.js`) doesn't show
+"Trợ Giá Booking." Two separate, unrelated things share that name:
+
+- The **standalone internal reference page** added last round (`app/tro-gia-booking/page.js`,
+  linked from the staff-only Reference page) — this was never wired into the magic link page and
+  was never intended to be; it's an internal lookup page, not artist-facing content.
+- An **existing, older, per-package-type text block** already on the magic link page
+  (`contract_type_packages.tro_gia_booking_text`, admin-edited in Config → Package Terms) — this is
+  what actually renders under a "Trợ Giá Booking" header on that page, conditionally, only for
+  whichever contract type(s) an admin has filled that text in for.
+
+The magic link page reads everything live from the database on every load — nothing is snapshotted
+at link-creation time — so "created before the add" isn't a meaningful factor for anything on this
+page; an old link renders identically to a brand-new one. If a specific magic link isn't showing a
+Trợ Giá Booking section, the most likely explanation is that `tro_gia_booking_text` is simply empty
+for that release's contract type in Config → Package Terms, not a code issue. Flagged back to the
+user directly (not a code change) since it wasn't clear whether they actually want the standalone
+reference page's content also added to the magic link — that would be new scope, not a fix.
+
+## Round 84 — Trợ Giá Booking made admin-editable and wired into the magic link
+
+Follow-up to round 83 item 4 above, after the user confirmed they want both "Trợ Giá Booking"
+things unified: the content moved into Config (matching how everything else on the magic link is
+admin-edited) as a single source of truth, and a new section added to the magic link itself, seated
+right above the "Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT" (Partner Benefits) block.
+
+One SQL migration (`add-round84-tro-gia-booking-config.sql`) — seeds the new content into the
+existing `global_settings` table (idempotent, `on conflict (key) do nothing`, so it never clobbers
+an admin's later edits made through Config). Tested against a throwaway local Postgres 16 database
+(fresh insert, re-run confirms 0 additional rows, and the stored value round-trips as valid JSON
+with all 3 items intact).
+
+New shared module `lib/troGiaBooking.js` — `TRO_GIA_BOOKING_SETTING_KEY`,
+`DEFAULT_TRO_GIA_BOOKING_ITEMS` (the 3 original items, also the in-app fallback), and
+`parseTroGiaBookingItems()` (safe JSON parse with a fallback to the defaults on anything malformed
+or missing) — imported by all 3 consumers so they can never drift out of sync again:
+
+- **Config → Trợ Giá Booking** (new tab, `app/config/page.js`, admin+ gated same as every other
+  org-config tab) — new `TroGiaBookingSection`, an add-row/remove-row list editor (title +
+  description + link per row, save-on-blur into one JSON blob in `global_settings`). No
+  add/remove-row precedent existed elsewhere in Config before this — built fresh, reusing the
+  save-on-blur/`flashSaved` conventions the rest of Config already uses.
+- **Internal Reference → Trợ Giá Booking** (`app/tro-gia-booking/page.js`) — no longer a hardcoded
+  array; now reads the same `global_settings` row live.
+- **Magic link** (`app/pick-package/[token]/page.js`) — new `TroGiaBookingSection` component
+  (collapsible, same orange-header visual treatment as the existing Partner Benefits/Media Partner
+  Note sections for consistency), rendered directly above `<PartnerBenefits />`. Renders nothing at
+  all if an admin empties the list out entirely, rather than an empty header bar. The existing
+  `global_settings` read this page already does for shared package terms was extended to include
+  the new key in the same batched query — no extra round trip.
+
+**Left alone, confirmed unrelated**: `contract_type_packages.tro_gia_booking_text` (Config →
+Package Terms' existing PER-package-type Trợ Giá Booking textarea, from round 73) — this is a
+different, older mechanism, one free-text block per contract-type tier, shown under that package's
+own itemized breakdown. The new global list from this round is a completely separate flat list
+shown once regardless of which package the artist is looking at. Both now coexist under the same
+"Trợ Giá Booking" name but serve different purposes — flagging this clearly in case it's confusing
+later, since the user's original round-83 question was exactly this kind of mix-up.

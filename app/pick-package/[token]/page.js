@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { formatDetailText } from "../../../lib/helpers";
+import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../../lib/troGiaBooking";
 import styles from "../../shared.module.css";
 
 function fmtVnd(n) {
@@ -164,6 +165,10 @@ export default function PickPackagePage() {
   const [bookingEntries, setBookingEntries] = useState([]);
   const [round, setRound] = useState("INT");
   const [sharedTerms, setSharedTerms] = useState({ a: "", conditions: "", b: "" }); // global_settings' canned blocks, shown alongside any real package's own terms_text
+  // Round 84 — global Trợ Giá Booking list (Config → Trợ Giá Booking),
+  // distinct from the per-package tro_gia_booking_text above — see
+  // lib/troGiaBooking.js and the TroGiaBookingSection component below.
+  const [troGiaBookingItems, setTroGiaBookingItems] = useState(DEFAULT_TRO_GIA_BOOKING_ITEMS);
   // The Media Booking ticket behind this link — its status_log gates
   // whether any real (built) package shows here at all (see load(): a
   // package only ever appears once the ticket has reached COMPLETE at
@@ -271,7 +276,9 @@ export default function PickPackagePage() {
       if (t.tro_gia_booking_text) troGiaByName[key] = t.tro_gia_booking_text;
     });
 
-    const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_conditions", "package_terms_shared_b"]);
+    // Round 84 — added TRO_GIA_BOOKING_SETTING_KEY to this same
+    // already-batched global_settings read rather than a separate query.
+    const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_conditions", "package_terms_shared_b", TRO_GIA_BOOKING_SETTING_KEY]);
     const settingsByKey = {};
     (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
     setSharedTerms({
@@ -279,6 +286,7 @@ export default function PickPackagePage() {
       conditions: settingsByKey.package_terms_conditions || "",
       b: settingsByKey.package_terms_shared_b || "",
     });
+    setTroGiaBookingItems(parseTroGiaBookingItems(settingsByKey[TRO_GIA_BOOKING_SETTING_KEY]));
 
     const realOptions = (realPackages || []).map((p) => {
       // INT MEDIA is a mushed package — Hạng Mục names only, never a
@@ -842,6 +850,11 @@ export default function PickPackagePage() {
 
         </CollapsibleSection>
 
+        {/* Round 84 — global Trợ Giá Booking list, admin-edited in
+            Config → Trợ Giá Booking (lib/troGiaBooking.js), seated right
+            above Partner Benefits per explicit request. */}
+        <TroGiaBookingSection items={troGiaBookingItems} defaultCollapsed={isMediaReport} />
+
         {/* Fixed partner-benefits block — same for every package, shown
             once (not duplicated per card) right under the package
             cards/confirm button, above the Booking Progress numbers when
@@ -978,6 +991,50 @@ function CollapsibleSection({ title, defaultCollapsed, children }) {
         <span style={{ fontWeight: 400, textTransform: "none", color: "var(--text-dim)" }}>{open ? "(click to collapse)" : "(click to expand)"}</span>
       </button>
       {open && children}
+    </div>
+  );
+}
+
+// Round 84 — same collapsible orange-header treatment as PartnerBenefits/
+// MediaPartnerNote below, for visual consistency, but its rows come live
+// from Config → Trợ Giá Booking (global_settings, see lib/troGiaBooking.js)
+// instead of a hardcoded array — items[] can be empty if an admin removes
+// every row, in which case the whole section just doesn't render.
+function TroGiaBookingSection({ items, defaultCollapsed }) {
+  const [open, setOpen] = useState(!defaultCollapsed);
+  if (!items || items.length === 0) return null;
+  return (
+    <div style={{ marginTop: 28 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{ width: "100%", textAlign: "left", background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase", border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
+        Trợ Giá Booking
+        <span>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div style={{ border: "1px solid var(--border)", borderTop: "none" }}>
+          {items.map((it, i) => (
+            <div
+              key={i}
+              style={{
+                padding: "10px 14px",
+                background: i % 2 === 0 ? "rgba(255,107,26,0.05)" : "transparent",
+                borderTop: i === 0 ? "none" : "1px solid #1c1c1c",
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#ff9d5c", marginBottom: 4 }}>{it.title}</div>
+              {it.desc && <div style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-line", lineHeight: 1.5, marginBottom: it.href ? 4 : 0 }}>{it.desc}</div>}
+              {it.href && (
+                <a href={it.href} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#5b9dff", wordBreak: "break-all" }}>
+                  {it.href}
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
