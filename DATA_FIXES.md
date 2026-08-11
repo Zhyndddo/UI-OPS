@@ -5602,3 +5602,97 @@ already applied globally, for every brand/release, not scoped to one artist or g
 change this yet because your message didn't say what the *new* default text should be (or whether
 you want it to replace the Round 78 one above, or be a second default for some other YouTube-
 related Chi Tiết column elsewhere). Send over the exact wording and I'll wire it in next round.
+
+## Round 86 follow-up 5 — YouTube Chi Tiết default confirmed as-is; fixed cloned packages losing their Đơn Giá
+
+No SQL this round.
+
+**Item 2 — confirmed, no change needed.** You confirmed the YouTube Ads default Chi Tiết stays
+*"Áp dụng kênh youtube nghệ sĩ thuộc MCN, MV thời lượng dưới 5 phút"*, and that it should apply to
+"the right panel and the magic link when building the ads youtube brand" — that's already exactly
+what happens today: `YOUTUBE_ADS_DEFAULT_DETAIL` seeds the YouTube Ads line's Chi Tiết at
+Summarize-time (`app/tickets/media-booking/page.js`), that value flows into the package line's
+`detail` field when the package is built, and both the internal Package Builder's right panel
+(`PackagesPanel`) and the artist-facing magic link page (`app/pick-package/[token]/page.js`) read
+that same `detail` field — so both already show it. Nothing to change.
+
+**New — cloning a package dropped Đơn Giá.** Confirmed and fixed: `createPackage()`'s clone branch
+(`app/tickets/media-booking/page.js`) copied `unit`, `quantity`, `detail`, and `amount` from the
+source package's lines onto the new cloned lines, but never copied `unit_price` (Đơn Giá) itself —
+so every cloned package came back with a blank Đơn Giá column even though Thành Tiền (amount) still
+showed the old total, and the source package's Đơn Giá was sitting right there unused. `unit_price`
+now clones along with the rest of the line.
+
+## Round 87 — Label List Hợp Tác/Hợp Đồng rework, Phụ Lục Publishing lock, booking ticket left-panel readout
+
+**SQL this round:** `add-round87-label-hop-dong.sql` — adds `labels.hop_tac_status` (jsonb, default
+`{}`), plus a one-time backfill so labels that already had tags under the old plain-array system
+read as green/done instead of suddenly showing grey. Idempotent — safe to re-run, tested against a
+throwaway local Postgres including a re-run that confirmed it doesn't clobber real status.
+
+**Items 1/2 — Label List: Genre dropped, Note is now hover+edit.** `app/labels/page.js`: the Genre
+column/field (both the create form and the table) is gone entirely — `the_loai` no longer appears
+anywhere in this page's form state or payload. Note is now the same shared hover-preview + Edit-
+modal cell (`lib/NoteCell.js`) every other ticket list in the app already uses for its Note column,
+instead of an always-visible input.
+
+**Items 3/4/5 — Hợp Tác tags are now a real send-to-legal flow with status colors, not a plain
+toggle.** New shared module `lib/labelHopTacStatus.js` holds the tag→ticket-type map and status/
+color helpers, used by the Label List, the release detail page, and the New Release page.
+
+Picking a tag (create form) or hitting a "Send HĐ …" button (existing row, in the column that used
+to be Genre) now pops up "Send to legal?" — **Yes** creates a real ticket on that tag's own Hợp
+Đồng list (Hợp Đồng Youtube / Hợp Đồng Publishing / Hợp Đồng Nhạc Số — these 3 ticket types already
+existed from Round 82, just built for a release DID; they now also accept a `labelId`/`labelName`
+in their `data`, no schema change needed since `data` is already freeform jsonb), and the tag shows
+**gold** until that ticket reaches its last status. **No** just marks the tag **green** immediately
+— "already done before this system," no ticket. The Hợp Tác column itself is no longer clickable —
+it's a fixed 3-tag status display (grey = not started, gold = ticket pending, green = done), and a
+background sync (throttled to once per 30 min, same pattern as the existing activity-year sync)
+checks in-flight tickets and flips gold to green once they finish.
+
+The release detail page's existing read-only Hợp Tác display (below the Label field) now shows the
+same 3 tags with the same status colors instead of plain uncolored pills, per your explicit "apply
+the view to the detail new release page" — same `labelHopTacStatus.js` helpers, no page-specific
+color logic duplicated.
+
+One assumption I made and didn't loop back on, flagging in case it's wrong: the "Send HĐ …" buttons
+only show for tags that haven't been started at all (grey) — a tag that's already gold (ticket sent,
+not yet done) gets no button, so there's no way to accidentally fire a second ticket for the same
+tag while one's still in flight. If you actually want a resend/retry option on gold tags too, say so
+and I'll add it.
+
+**Item 3 (continued) — Contract auto-signs off any done tag.** The "Contract Signed" manual button
+on each row is still there as a fallback, but the Contract column now shows ✓ Signed automatically
+the moment **any** of the 3 Hợp Tác tags goes green — same underlying mutation (strips the "HĐ - "
+prefix), just triggered automatically instead of requiring the manual click.
+
+**Item 6 — Publishing done locks Phụ Lục Publishing to No, Publishing only.** The moment a label's
+Hợp Đồng Publishing tag goes green (either path), every release currently under that label gets
+`gate_phu_luc_publishing` force-set to `"false"` once, and `lib/GateFields.js` now takes an optional
+`publishingHdLocked` prop that swaps that one field to the same read-only badge treatment
+`gate_phu_luc_truyen_thong` already uses — wired up on both the release detail page and the New
+Release page, so it also locks live for a brand-new release created under an already-signed label,
+not just existing ones. Youtube and Nhạc Số are **not** wired to any Phụ Lục gate yet — per your
+answer, only Publishing this round; say which gate each of the other two should lock when you're
+ready and I'll add them the same way.
+
+**Booking ticket item 4 — left grid now shows what the active package already has, doesn't
+reconstruct it.** This one needed a real design call I don't think is safe to just guess at, so I
+went with the lower-risk half of it: `app/tickets/media-booking/page.js`'s left DSP/Hạng Mục grid
+now shows a small "Already in '{package name}'" readout (Số Lượng/Đơn Giá/Thành Tiền/Chi Tiết) for
+whichever category you're on, pulled straight from the active package's own line — it updates the
+instant you switch which package tab is active on the right, so you can see at a glance whether an
+old package's numbers match what the grid currently shows before touching anything.
+
+What it does **not** do: pre-load the grid's actual entry rows from the old package. The reason is
+structural, not an oversight — `media_booking_content_entries` (the rows the grid edits) is one
+pool shared by the whole release, keyed by category/brand only, not by package; a package's line is
+already a frozen, aggregated snapshot (one quantity + one Chi Tiết + one Đơn Giá) taken at
+Summarize-time, with no record of the individual entries that produced it. There's no way to turn
+that single number back into the right set of individual rows without guessing. Making the grid
+genuinely per-package (so switching packages swaps in that package's own entry rows, editable and
+all) would mean adding a real `package_id` column to `media_booking_content_entries` and reworking
+Summarize/syncPackageLine around it — a bigger, riskier change I didn't want to make without you
+confirming that's actually what you want, versus the read-only readout above being enough. Let me
+know which one you're after.

@@ -5,76 +5,62 @@ import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { withLabelPrefix, stripLabelPrefix, hasLabelPrefix, LABEL_PREFIX } from "../../lib/labelHelpers";
 import { LABEL_HOP_TAC_OPTIONS, LABEL_PHAN_LOAI_OPTIONS } from "../../lib/pickerOptions";
+import { HOP_TAC_TICKET_TYPE, hopTacTagEntry, hopTacTagStatus, hopTacStatusColor, anyHopTacDone } from "../../lib/labelHopTacStatus";
+import { useAuth } from "../../lib/AuthContext";
 import PickSelect from "../../lib/PickSelect";
+import NoteCell from "../../lib/NoteCell";
 import { fetchAllRows } from "../../lib/helpers";
 import styles from "../shared.module.css";
 
-const EMPTY = { label_name: "", hop_tac: [], the_loai: "", phan_loai: "", contract_signed: false };
+// Round 87 — Genre dropped entirely (item 1: "drop the genre column and
+// field"). hop_tac_status (the per-tag Hợp Đồng tracking — see
+// lib/labelHopTacStatus.js) replaces plain hop_tac as the thing this form
+// actually writes; hop_tac itself is kept in sync alongside it purely so
+// nothing else reading labels.hop_tac (e.g. the release detail page's
+// read-only display) breaks.
+const EMPTY = { label_name: "", hop_tac: [], hop_tac_status: {}, phan_loai: "", contract_signed: false };
 
-// Round 66 — item 2: syncLatestActivityYears() downloads the ENTIRE
-// releases table (label, release_date for every release ever made) every
-// single time this page loads, just to recompute one derived field. That
-// was fine when the table was small; it isn't anymore, and it was making
-// this page (and only this page, since no other page re-runs a whole-
-// table sync on every visit like this) freeze up on load — worse, it
-// re-does the full download+recompute EVERY time you come back to this
-// page, even seconds after the last visit. This throttles it to once per
-// this window, persisted in localStorage (survives closing the tab, not
-// just sessionStorage) so revisiting the page shortly after doesn't repeat
-// the expensive pass.
 const LABEL_SYNC_THROTTLE_KEY = "vieent_labels_sync_last_run";
 const LABEL_SYNC_THROTTLE_MS = 6 * 60 * 60 * 1000; // 6 hours
 
+// Round 87 — separate, shorter throttle for checking whether any in-flight
+// Hợp Đồng ticket has finished (drives the gold -> green flip). Lighter
+// interval than the activity-year sync since this is the status a person
+// is actually watching change, not a background derived field.
+const HOPTAC_SYNC_THROTTLE_KEY = "vieent_labels_hoptac_sync_last_run";
+const HOPTAC_SYNC_THROTTLE_MS = 30 * 60 * 1000; // 30 minutes
+
 export default function LabelsPage() {
+  const { profile } = useAuth();
   const [labels, setLabels] = useState([]);
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState(null);
-  const [genres, setGenres] = useState([]);
+  // { mode: "create" } | { mode: "row", label } — which tag's "send to
+  // legal?" popup is open, if any.
+  const [legalPopup, setLegalPopup] = useState(null);
 
   async function load() {
     const { data } = await supabase.from("labels").select("*").order("label_name");
     setLabels(data || []);
     syncLatestActivityYears(data || []);
+    syncHopTacTicketStatuses(data || []);
   }
 
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase
-      .from("lookup_options")
-      .select("value, label")
-      .eq("active", true)
-      .eq("category", "genre")
-      .order("sort_order")
-      .then(({ data }) => setGenres(data || []));
   }, []);
 
-  // Thời gian hoạt động gần nhất — auto-computed from this label's own
-  // releases (matched by the denormalized releases.label text, same
-  // matching approach the old Curve ID lookup used), not hand-entered.
-  // Per explicit decision, this is PERSISTED to labels.latest_activity_year
-  // (not just displayed) so other queries/exports can rely on it — writes
-  // back only the labels whose stored year is actually stale, same
-  // "auto-sync on load" pattern as the Stream workstation's metrics rows.
+  // Thời gian hoạt động gần nhất — unchanged from before, see prior round's
+  // comment (kept for context): auto-computed from this label's own
+  // releases, persisted, throttled to once per 6h.
   async function syncLatestActivityYears(labelRows) {
     if (!supabase || labelRows.length === 0) return;
-
-    // Round 66 — the throttle: skip the whole expensive pass if it's
-    // already run recently. Checked (and stamped) BEFORE the fetch, not
-    // after, so a page left open mid-fetch doesn't retrigger itself, and a
-    // failed/interrupted run still counts as "tried recently" rather than
-    // hammering again on the very next reload.
     let lastRun = 0;
     try { lastRun = parseInt(window.localStorage.getItem(LABEL_SYNC_THROTTLE_KEY), 10) || 0; } catch {}
     if (Date.now() - lastRun < LABEL_SYNC_THROTTLE_MS) return;
     try { window.localStorage.setItem(LABEL_SYNC_THROTTLE_KEY, String(Date.now())); } catch {}
 
-    // Round 60 — fetchAllRows instead of a plain select(): whole-table
-    // read, no filter beyond release_date not being null, subject to
-    // Supabase's default 1000-row cap (see DATA_FIXES.md round 59/60). A
-    // truncated read here wouldn't just under-report — the sync below
-    // would happily overwrite a label's correct latest_activity_year with
-    // a stale one it wrongly believes is newer.
     const { data: rels } = await fetchAllRows(() =>
       supabase.from("releases").select("label, release_date").not("release_date", "is", null).order("id")
     );
@@ -91,8 +77,146 @@ export default function LabelsPage() {
     setLabels((prev) => prev.map((l) => (latestByLabel[l.label_name] ? { ...l, latest_activity_year: latestByLabel[l.label_name] } : l)));
   }
 
+  // Round 87 — checks every label's in-flight (gold) Hợp Đồng tickets and
+  // flips them to done (green) once their ticket's status has reached that
+  // ticket type's last status_options entry. Same "last option = the
+  // terminal/finished status" convention TicketListPage.js already relies
+  // on elsewhere in this app — there's no separate "is this ticket done"
+  // flag on the tickets table to read instead.
+  async function syncHopTacTicketStatuses(labelRows) {
+    if (!supabase || labelRows.length === 0) return;
+    let lastRun = 0;
+    try { lastRun = parseInt(window.localStorage.getItem(HOPTAC_SYNC_THROTTLE_KEY), 10) || 0; } catch {}
+    if (Date.now() - lastRun < HOPTAC_SYNC_THROTTLE_MS) return;
+    try { window.localStorage.setItem(HOPTAC_SYNC_THROTTLE_KEY, String(Date.now())); } catch {}
+
+    const pending = [];
+    labelRows.forEach((l) => {
+      Object.entries(l.hop_tac_status || {}).forEach(([tag, entry]) => {
+        if (entry?.sentToLegal && entry.ticketId && !entry.done) pending.push({ labelId: l.id, tag, ticketId: entry.ticketId });
+      });
+    });
+    if (pending.length === 0) return;
+
+    const ticketIds = [...new Set(pending.map((p) => p.ticketId))];
+    const { data: tickets } = await supabase.from("tickets").select("id, status, tab_id").in("id", ticketIds);
+    if (!tickets || tickets.length === 0) return;
+    const tabIds = [...new Set(tickets.map((t) => t.tab_id))];
+    const { data: tabs } = await supabase.from("ticket_tabs").select("id, status_options").in("id", tabIds);
+    const lastStatusByTab = {};
+    (tabs || []).forEach((t) => { lastStatusByTab[t.id] = t.status_options?.[t.status_options.length - 1]; });
+    const ticketById = {};
+    tickets.forEach((t) => { ticketById[t.id] = t; });
+
+    for (const p of pending) {
+      const ticket = ticketById[p.ticketId];
+      if (!ticket) continue;
+      const doneStatus = lastStatusByTab[ticket.tab_id];
+      if (!doneStatus || ticket.status !== doneStatus) continue;
+      const freshLabel = (labels.find((l) => l.id === p.labelId)) || labelRows.find((l) => l.id === p.labelId);
+      if (!freshLabel) continue;
+      await markTagDone(freshLabel, p.tag);
+    }
+  }
+
+  // Shared by the ticket-finished sync above and the "send to legal? No"
+  // path below — both end with a tag flipping to done and the same two
+  // cascades: auto-sign the label's overall Contract if this is its first
+  // done tag, and (Publishing only) lock Phụ Lục Publishing on every
+  // release under this label.
+  async function markTagDone(label, tag, entryPatch) {
+    const entry = { ...(label.hop_tac_status?.[tag] || {}), ...entryPatch, done: true };
+    const nextStatus = { ...(label.hop_tac_status || {}), [tag]: entry };
+    await supabase.from("labels").update({ hop_tac_status: nextStatus }).eq("id", label.id);
+    let updated = { ...label, hop_tac_status: nextStatus };
+
+    if (hasLabelPrefix(updated.label_name)) {
+      const stripped = stripLabelPrefix(updated.label_name);
+      await supabase.from("labels").update({ label_name: stripped, contract_signed: true }).eq("id", updated.id);
+      updated = { ...updated, label_name: stripped, contract_signed: true };
+    }
+    // Item 6 — Publishing only for now (see lib/labelHopTacStatus.js's
+    // publishingHdDone comment for why Youtube/Nhạc Số aren't wired up
+    // yet). Locks every release currently tagged with this label — new
+    // releases get force-locked live on the New Release / release detail
+    // pages themselves (they read the label's own hop_tac_status).
+    if (tag === "Publishing") {
+      await supabase.from("releases").update({ gate_phu_luc_publishing: "false" }).eq("label", updated.label_name);
+    }
+
+    setLabels((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+    return updated;
+  }
+
+  // Creates the Hợp Đồng ticket for tag on labelRow (label must already
+  // exist — have a real id) and returns the resulting hop_tac_status
+  // entry. Doesn't persist to `labels` itself — callers do that as part of
+  // a larger update (and, for "No", call markTagDone right after instead).
+  async function sendHopTacTicket(labelRow, tag) {
+    const typeKey = HOP_TAC_TICKET_TYPE[tag];
+    const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", typeKey).single();
+    if (!tab) return { sentToLegal: true, ticketId: null, done: false };
+    const { data: ticket } = await supabase
+      .from("tickets")
+      .insert({
+        tab_id: tab.id,
+        data: { labelId: labelRow.id, labelName: labelRow.label_name, note: "" },
+        status: tab.default_status,
+        status_log: { [tab.default_status]: new Date().toISOString() },
+        requester_segment: profile?.segment || null,
+      })
+      .select()
+      .single();
+    return { sentToLegal: true, ticketId: ticket?.id ?? null, done: false };
+  }
+
+  // "Send HĐ …" button on an existing row, or a tag re-clicked after the
+  // popup already confirmed Yes/No — resolves the tag for a label that
+  // already has an id.
+  async function decideForRow(label, tag, sendToLegal) {
+    setLegalPopup(null);
+    if (!sendToLegal) {
+      await markTagDone(label, tag);
+      // markTagDone doesn't add the tag to hop_tac itself (it only patches
+      // hop_tac_status) — do that here so the row's colored-pill list and
+      // any hop_tac readers stay in sync.
+      if (!(label.hop_tac || []).includes(tag)) {
+        const nextHopTac = [...(label.hop_tac || []), tag];
+        await supabase.from("labels").update({ hop_tac: nextHopTac }).eq("id", label.id);
+        setLabels((prev) => prev.map((l) => (l.id === label.id ? { ...l, hop_tac: nextHopTac } : l)));
+      }
+      return;
+    }
+    const entry = await sendHopTacTicket(label, tag);
+    const nextHopTac = (label.hop_tac || []).includes(tag) ? label.hop_tac : [...(label.hop_tac || []), tag];
+    const nextStatus = { ...(label.hop_tac_status || {}), [tag]: entry };
+    await supabase.from("labels").update({ hop_tac: nextHopTac, hop_tac_status: nextStatus }).eq("id", label.id);
+    setLabels((prev) => prev.map((l) => (l.id === label.id ? { ...l, hop_tac: nextHopTac, hop_tac_status: nextStatus } : l)));
+  }
+
+  // Create-form version — the label doesn't have an id yet, so this only
+  // stages the decision locally; addLabel() below does the actual ticket
+  // creation once the insert returns a real id.
+  function decideForCreate(tag, sendToLegal) {
+    setLegalPopup(null);
+    setForm((f) => ({
+      ...f,
+      hop_tac: f.hop_tac.includes(tag) ? f.hop_tac : [...f.hop_tac, tag],
+      hop_tac_status: { ...f.hop_tac_status, [tag]: { sentToLegal, ticketId: null, done: !sentToLegal, pendingCreate: sendToLegal } },
+    }));
+  }
+
   function toggleFormHopTac(tag) {
-    setForm((f) => ({ ...f, hop_tac: f.hop_tac.includes(tag) ? f.hop_tac.filter((t) => t !== tag) : [...f.hop_tac, tag] }));
+    if (form.hop_tac.includes(tag)) {
+      // Turning a tag back off — revert, no ticket exists yet at this stage.
+      setForm((f) => {
+        const nextStatus = { ...f.hop_tac_status };
+        delete nextStatus[tag];
+        return { ...f, hop_tac: f.hop_tac.filter((t) => t !== tag), hop_tac_status: nextStatus };
+      });
+      return;
+    }
+    setLegalPopup({ mode: "create", tag });
   }
 
   async function addLabel(e) {
@@ -104,25 +228,38 @@ export default function LabelsPage() {
     }
     const payload = {
       ...form,
-      // Ticking "Contract Signed" at creation skips the "HĐ - " prefix
-      // entirely, so there's nothing to click off afterward — same result
-      // as adding it un-signed and then hitting the table row's "Contract
-      // Signed" button, just in one step.
       label_name: form.contract_signed ? stripLabelPrefix(form.label_name) : withLabelPrefix(form.label_name),
-      the_loai: form.the_loai || null,
     };
-    const { error: err } = await supabase.from("labels").insert(payload);
-    if (err) setError(err.message);
-    else {
-      setForm(EMPTY);
-      load();
+    const { data: inserted, error: err } = await supabase.from("labels").insert(payload).select().single();
+    if (err) {
+      setError(err.message);
+      return;
     }
+
+    // Resolve every tag staged during creation now that a real label id
+    // exists — send-to-legal Yes tags get their ticket created here;
+    // No tags were already marked done at stage time, just need the
+    // contract/publishing cascade run once, same as any other done tag.
+    let labelRow = inserted;
+    let finalStatus = { ...(labelRow.hop_tac_status || {}) };
+    for (const tag of labelRow.hop_tac || []) {
+      const staged = finalStatus[tag];
+      if (!staged) continue;
+      if (staged.pendingCreate) {
+        const entry = await sendHopTacTicket(labelRow, tag);
+        finalStatus[tag] = entry;
+      }
+    }
+    await supabase.from("labels").update({ hop_tac_status: finalStatus }).eq("id", labelRow.id);
+    labelRow = { ...labelRow, hop_tac_status: finalStatus };
+    for (const tag of Object.keys(finalStatus)) {
+      if (finalStatus[tag]?.done) labelRow = await markTagDone(labelRow, tag, finalStatus[tag]);
+    }
+
+    setForm(EMPTY);
+    load();
   }
 
-  // label_name edits from the table only ever carry the SUFFIX now — the
-  // "HĐ - " prefix is a fixed badge outside the input, not part of what's
-  // editable, so there's nothing to validate/block anymore. Filling in
-  // Curve ID is what actually removes the prefix now, automatically.
   async function updateLabelSuffix(label, suffix) {
     const newName = hasLabelPrefix(label.label_name) ? LABEL_PREFIX + suffix : suffix;
     setLabels((prev) => prev.map((l) => (l.id === label.id ? { ...l, label_name: newName } : l)));
@@ -134,16 +271,6 @@ export default function LabelsPage() {
     await supabase.from("labels").update({ [field]: value }).eq("id", label.id);
   }
 
-  async function toggleRowHopTac(label, tag) {
-    const next = (label.hop_tac || []).includes(tag) ? (label.hop_tac || []).filter((t) => t !== tag) : [...(label.hop_tac || []), tag];
-    await updateField(label, "hop_tac", next);
-  }
-
-  // One-time, one-way action: strips the "HĐ - " prefix and marks the
-  // label as under contract. This is now the ONLY sanctioned way to remove
-  // the prefix (see validateLabelNameEdit) — no Curve ID field to gate it
-  // on anymore. Any further correction goes through direct DB edit (no
-  // dev-role reset UI, per the "Direct DB edit only" decision).
   async function signContract(label) {
     if (!window.confirm(`Mark "${label.label_name}" as contract signed? This removes the "${LABEL_PREFIX}" prefix and can't be undone here.`)) return;
     const stripped = stripLabelPrefix(label.label_name);
@@ -187,26 +314,10 @@ export default function LabelsPage() {
             <label className={styles.fieldLabel}>Hợp Tác</label>
             <TagPicker options={LABEL_HOP_TAC_OPTIONS} value={form.hop_tac} onToggle={toggleFormHopTac} />
           </div>
-          {/* Genre — new field, taking the spot PIC used to have in this
-              create row (PIC is gone from here entirely, see the table's
-              "Thời gian hoạt động gần nhất" column below). */}
-          <div className={styles.field} style={{ marginBottom: 0, minWidth: 160 }}>
-            <label className={styles.fieldLabel}>Genre</label>
-            <select className={styles.select} value={form.the_loai} onChange={(e) => setForm((f) => ({ ...f, the_loai: e.target.value }))}>
-              <option value="">— Chọn thể loại —</option>
-              {genres.map((opt) => <option key={opt.value} value={opt.value}>{opt.label || opt.value}</option>)}
-            </select>
-          </div>
           <div className={styles.field} style={{ marginBottom: 0, minWidth: 140 }}>
             <label className={styles.fieldLabel}>Phân Loại</label>
             <PickSelect styles={styles} opts={["", ...LABEL_PHAN_LOAI_OPTIONS]} value={form.phan_loai} onChange={(v) => setForm((f) => ({ ...f, phan_loai: v }))} />
           </div>
-          {/* Contract Signed at creation — toggling this on skips the
-              "HĐ - " prefix entirely instead of adding it and requiring a
-              separate click on the table row's "Contract Signed" button
-              afterward. Styled to match that same row button (styles.btnSmall)
-              rather than a plain checkbox, with an active/inactive fill so
-              its toggled state actually reads at a glance. */}
           <div className={styles.field} style={{ marginBottom: 0 }}>
             <label className={styles.fieldLabel} style={{ visibility: "hidden" }}>Contract</label>
             <button
@@ -226,8 +337,8 @@ export default function LabelsPage() {
         </form>
         <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: -2, marginBottom: 20 }}>
           New labels get "{LABEL_PREFIX}" prepended automatically — shown as a fixed badge below, not part of
-          the editable name. Click "Contract Signed" once the contract is in to remove it — one-time, can't be
-          undone from here.
+          the editable name. Contract auto-signs the moment any Hợp Tác tag goes green below — the "Contract
+          Signed" button is only there as a manual fallback.
         </p>
 
         {labels.length === 0 ? (
@@ -240,14 +351,17 @@ export default function LabelsPage() {
                 <th>Contract</th>
                 <th>Hợp Tác</th>
                 <th>Thời gian hoạt động gần nhất</th>
-                <th>Genre</th>
+                <th>Hợp Đồng</th>
                 <th>Phân Loại</th>
                 <th>Note</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {labels.map((l) => (
+              {labels.map((l) => {
+                const notStarted = LABEL_HOP_TAC_OPTIONS.filter((tag) => hopTacTagStatus(l, tag) === "none");
+                const signed = anyHopTacDone(l) || !hasLabelPrefix(l.label_name);
+                return (
                 <tr key={l.id}>
                   <td>
                     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -263,43 +377,85 @@ export default function LabelsPage() {
                     </div>
                   </td>
                   <td>
-                    {hasLabelPrefix(l.label_name) ? (
-                      <button className={styles.btnSmall} onClick={() => signContract(l)}>Contract Signed</button>
-                    ) : (
+                    {signed ? (
                       <span style={{ fontSize: 11, fontWeight: 700, color: "var(--success-fg)" }}>✓ Signed</span>
+                    ) : (
+                      <button className={styles.btnSmall} onClick={() => signContract(l)}>Contract Signed</button>
                     )}
                   </td>
                   <td style={{ minWidth: 200 }}>
-                    <TagPicker options={LABEL_HOP_TAC_OPTIONS} value={l.hop_tac || []} onToggle={(tag) => toggleRowHopTac(l, tag)} />
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {LABEL_HOP_TAC_OPTIONS.map((tag) => {
+                        const status = hopTacTagStatus(l, tag);
+                        const color = hopTacStatusColor(status);
+                        const entry = hopTacTagEntry(l, tag);
+                        return (
+                          <span
+                            key={tag}
+                            title={status === "pending" ? `Ticket #${entry.ticketId} — pending` : status === "done" ? "Hợp Đồng complete" : "Not started"}
+                            style={{ padding: "3px 10px", fontSize: 11, fontWeight: 700, borderRadius: 999, background: color.bg, color: color.fg, border: "1px solid var(--border)" }}
+                          >
+                            {tag}
+                          </span>
+                        );
+                      })}
+                    </div>
                   </td>
                   <td style={{ fontSize: 12, color: "var(--text-faint)" }} title="Auto-computed from this label's most recent release — not editable here.">
                     {l.latest_activity_year || "—"}
                   </td>
-                  <td>
-                    <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: 130 }} value={l.the_loai || ""} onChange={(e) => updateField(l, "the_loai", e.target.value)}>
-                      <option value="">—</option>
-                      {genres.map((opt) => <option key={opt.value} value={opt.value}>{opt.label || opt.value}</option>)}
-                    </select>
+                  <td style={{ minWidth: 160 }}>
+                    {notStarted.length === 0 ? (
+                      <span style={{ fontSize: 11, color: "var(--text-faint)" }}>—</span>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+                        {notStarted.map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            className={styles.btnSmall}
+                            style={{ fontSize: 10, padding: "3px 8px", whiteSpace: "nowrap" }}
+                            onClick={() => setLegalPopup({ mode: "row", label: l, tag })}
+                          >
+                            Send HĐ {tag}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </td>
                   <td>
                     <PickSelect styles={styles} opts={["", ...LABEL_PHAN_LOAI_OPTIONS]} value={l.phan_loai} onChange={(v) => updateField(l, "phan_loai", v)} style={{ padding: "4px 8px", fontSize: 12, minWidth: 110 }} />
                   </td>
-                  <td><input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 140 }} defaultValue={l.note || ""} onBlur={(e) => updateField(l, "note", e.target.value)} /></td>
+                  <td>
+                    <NoteCell value={l.note} onSave={(v) => updateField(l, "note", v)} />
+                  </td>
                   <td><button onClick={() => deleteLabel(l)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button></td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}
       </div>
     </div>
+
+    {legalPopup && (
+      <HopTacLegalPopup
+        tag={legalPopup.tag}
+        onCancel={() => setLegalPopup(null)}
+        onDecide={(sendToLegal) =>
+          legalPopup.mode === "create" ? decideForCreate(legalPopup.tag, sendToLegal) : decideForRow(legalPopup.label, legalPopup.tag, sendToLegal)
+        }
+      />
+    )}
     </AppShell>
   );
 }
 
-// Multi-select pill picker for Hợp Tác — click to toggle a tag in/out of
-// the array. Same visual language (small pill buttons) as GateToggle
-// elsewhere, but multi- not single-select.
+// Multi-select pill picker for Hợp Tác on the CREATE form only — clicking
+// an inactive tag opens the send-to-legal popup (see toggleFormHopTac);
+// existing rows show a read-only status version of this instead (colored
+// by hopTacTagStatus), no longer this clickable picker.
 function TagPicker({ options, value, onToggle }) {
   return (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -325,6 +481,37 @@ function TagPicker({ options, value, onToggle }) {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// Round 87 (item 4) — the "send to legal?" panel a tag pops up, whether
+// it's being chosen for the first time on the create form or started later
+// via a row's "Send HĐ …" button. Yes sends a real ticket to that tag's
+// Hợp Đồng list (Legal executes it); No just records the Hợp Đồng as
+// already complete outside this system, same end color (green) either way
+// once done.
+function HopTacLegalPopup({ tag, onDecide, onCancel }) {
+  return (
+    <div
+      onClick={onCancel}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 20, width: "min(420px, 90vw)" }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Hợp Đồng {tag}</div>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 0, marginBottom: 16 }}>
+          Send to legal? Yes sends a ticket to Hợp Đồng {tag} (Legal executes it — the tag turns gold until it's
+          done). No just marks it as already complete outside this system (turns green right away).
+        </p>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button type="button" onClick={onCancel} className={styles.btnSmall}>Cancel</button>
+          <button type="button" onClick={() => onDecide(false)} className={styles.btnSmall}>No</button>
+          <button type="button" onClick={() => onDecide(true)} className={styles.btnPrimary} style={{ padding: "6px 14px" }}>Yes</button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
 import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, CO_TRONG_NET_DRAFT_DEFAULTS } from "../../lib/GateFields";
 import { MV_TYPE_OPTIONS } from "../../lib/pickerOptions";
+import { publishingHdDone } from "../../lib/labelHopTacStatus";
 import PickSelect from "../../lib/PickSelect";
 import QuickCreate from "../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../lib/ReferenceInputs";
@@ -145,6 +146,25 @@ export default function NewReleasePage() {
     update("linkshare_facebook_timing", v);
     setFacebookTimingTouched(v !== "");
   }
+
+  // Round 87 item 6 — if the picked Label already has its Hợp Đồng
+  // Publishing done (existing label, contract already signed), Phụ Lục
+  // Publishing is locked to "No" here too, same as the release detail
+  // page — a brand-new release under that label needs no addendum from
+  // the start. Re-looked-up whenever the Label field actually changes.
+  const [labelRow, setLabelRow] = useState(null);
+  useEffect(() => {
+    if (!supabase || !form.label) { setLabelRow(null); return; }
+    supabase.from("labels").select("hop_tac_status").eq("label_name", form.label).maybeSingle()
+      .then(({ data }) => setLabelRow(data || null));
+  }, [form.label]);
+  const publishingHdLocked = publishingHdDone(labelRow);
+  useEffect(() => {
+    if (publishingHdLocked && form.gate_phu_luc_publishing !== "false") {
+      update("gate_phu_luc_publishing", "false");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publishingHdLocked]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -966,6 +986,7 @@ export default function NewReleasePage() {
             coTrongNetDraft={coTrongNetDraft}
             onCoTrongNetChange={(key, value) => setCoTrongNetDraft((p) => ({ ...p, [key]: value }))}
             suppressUrlFor={["gate_pre_order"]}
+            publishingHdLocked={publishingHdLocked}
           />
 
           <div className={styles.actions}>

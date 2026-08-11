@@ -874,8 +874,13 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     let lines = [];
     if (cloneFromId) {
       const source = packages.find((p) => p.id === cloneFromId);
+      // Round 86 follow-up 5 — this used to drop unit_price entirely (only
+      // unit/quantity/detail/amount were copied), so a cloned package's
+      // Đơn Giá column always came back blank even though the source
+      // line's Đơn Giá — and the amount computed from it — was right
+      // there. Đơn Giá now clones along with everything else.
       const cloneRows = (source?.media_booking_package_lines || []).map((l, i) => ({
-        package_id: pkg.id, category_id: l.category_id, brand: l.brand, unit: l.unit, quantity: l.quantity, detail: l.detail, amount: l.amount, sort_order: i,
+        package_id: pkg.id, category_id: l.category_id, brand: l.brand, unit: l.unit, quantity: l.quantity, detail: l.detail, unit_price: l.unit_price, amount: l.amount, sort_order: i,
       }));
       if (cloneRows.length > 0) {
         const { data: inserted } = await supabase.from("media_booking_package_lines").insert(cloneRows).select();
@@ -1567,6 +1572,44 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                     );
                   })()}
                 </div>
+
+                {/* Round 87 (booking ticket item 4) — the left grid used to
+                    show nothing about what's already sitting in the active
+                    package for this Hạng Mục, so fixing an OLD package
+                    meant first figuring out (or reconstructing) what its
+                    numbers were before touching anything here. This reads
+                    the active package's own line for the current category/
+                    brand directly — updates immediately when the package
+                    tab (right panel) is switched. It's a read-only mirror,
+                    not a reverse-sync: the underlying entries below are
+                    still the one shared release-wide pool (not stored per
+                    package), so this shows what the package HAS, to compare
+                    against, rather than pre-loading the grid's rows from
+                    it — see DATA_FIXES.md for why a full per-package entry
+                    history would need a real schema change. */}
+                {activePackage && (() => {
+                  const group = currentGroup();
+                  if (!group) return null;
+                  const line = lineFor(group.categoryId, group.brand);
+                  if (!line) return null;
+                  return (
+                    <div style={{ marginTop: 10, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 6 }}>
+                        Already in "{activePackage.name}"
+                      </div>
+                      <div style={{ display: "flex", gap: 20, flexWrap: "wrap", fontSize: 12 }}>
+                        <span>Số Lượng: <strong>{line.quantity ?? "—"}</strong></span>
+                        <span>Đơn Giá: <strong>{fmtVnd(line.unit_price)}</strong></span>
+                        <span>Thành Tiền: <strong>{fmtVnd(line.amount)}</strong></span>
+                        {line.detail && <span style={{ color: "var(--text-faint)" }}>Chi Tiết: {line.detail}</span>}
+                      </div>
+                      <p style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 6, marginBottom: 0 }}>
+                        Compare against the totals below before re-Summarizing — Summarize overwrites this
+                        line with whatever the grid currently shows.
+                      </p>
+                    </div>
+                  );
+                })()}
 
                 {/* Round 63 — swapped these two blocks' order per explicit
                     request ("not align on the same side as in picture 1") —

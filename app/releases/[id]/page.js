@@ -11,7 +11,8 @@ import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import UrlField from "../../../lib/UrlField";
 import { validateLabelNameEdit } from "../../../lib/labelHelpers";
-import { MV_TYPE_OPTIONS } from "../../../lib/pickerOptions";
+import { MV_TYPE_OPTIONS, LABEL_HOP_TAC_OPTIONS } from "../../../lib/pickerOptions";
+import { hopTacTagStatus, hopTacStatusColor, publishingHdDone } from "../../../lib/labelHopTacStatus";
 import PickSelect from "../../../lib/PickSelect";
 import { TICKET_TYPE_LABELS, TEAMS, REPORTING_TEAMS } from "../../../lib/teamTypes";
 import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
@@ -1384,12 +1385,25 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
   // denormalized-text lookup pattern the old Curve ID field used (matches
   // by label_name). Shown read-only right below Label, in the space that
   // opened up once Curve ID was removed from this column.
-  const [labelHopTac, setLabelHopTac] = useState(null);
+  // Round 87 — now pulls hop_tac_status (not just hop_tac) so this can show
+  // the same white/grey/gold/green status colors as the Label List itself
+  // (item 4: "This will also apply the view to the detail new release
+  // page"), and so Phụ Lục Publishing can be force-locked once this
+  // label's Hợp Đồng Publishing is done (item 6).
+  const [labelRow, setLabelRow] = useState(null);
   useEffect(() => {
-    if (!supabase || !form.label) { setLabelHopTac(null); return; }
-    supabase.from("labels").select("hop_tac").eq("label_name", form.label).maybeSingle()
-      .then(({ data }) => setLabelHopTac(data?.hop_tac || null));
+    if (!supabase || !form.label) { setLabelRow(null); return; }
+    supabase.from("labels").select("hop_tac_status").eq("label_name", form.label).maybeSingle()
+      .then(({ data }) => setLabelRow(data || null));
   }, [form.label]);
+
+  const publishingHdLocked = publishingHdDone(labelRow);
+  useEffect(() => {
+    if (publishingHdLocked && form.gate_phu_luc_publishing !== "false") {
+      update("gate_phu_luc_publishing", "false");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publishingHdLocked]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -1526,16 +1540,21 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           </Field>
           {/* Blank space that opened up below Label once Curve ID was
               removed from this column — now shows the label's Hợp Tác
-              tags (read-only; edited on the Label List itself). */}
-          {labelHopTac && labelHopTac.length > 0 && (
+              tags (read-only; edited on the Label List itself), colored by
+              status the same way the Label List shows them (Round 87). */}
+          {labelRow && (
             <div style={{ marginTop: -8, marginBottom: 16 }}>
               <label className={styles.fieldLabel}>Hợp Tác</label>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
-                {labelHopTac.map((tag) => (
-                  <span key={tag} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 700, borderRadius: 999, border: "1px solid var(--border-strong)", color: "var(--text-muted)" }}>
-                    {tag}
-                  </span>
-                ))}
+                {LABEL_HOP_TAC_OPTIONS.map((tag) => {
+                  const status = hopTacTagStatus(labelRow, tag);
+                  const color = hopTacStatusColor(status);
+                  return (
+                    <span key={tag} style={{ padding: "3px 10px", fontSize: 11, fontWeight: 700, borderRadius: 999, background: color.bg, color: color.fg, border: "1px solid var(--border)" }}>
+                      {tag}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1835,6 +1854,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           onCoTrongNetChange={onCoTrongNetChange}
           ticketMap={gateTicketMap}
           sonyPublishMetaReady={requiredMetaDoneLive === REQUIRED_META_KEYS.length}
+          publishingHdLocked={publishingHdLocked}
         />
 
         {/* Moved here from the old "Pre-release & Note" tab, right before
