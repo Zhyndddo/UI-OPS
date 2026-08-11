@@ -5307,3 +5307,46 @@ own itemized breakdown. The new global list from this round is a completely sepa
 shown once regardless of which package the artist is looking at. Both now coexist under the same
 "Trợ Giá Booking" name but serve different purposes — flagging this clearly in case it's confusing
 later, since the user's original round-83 question was exactly this kind of mix-up.
+
+## Round 85 — Team Building Survey (TEMPORARY — read this before your next round)
+
+Per explicit request, this is a **short-lived feature meant to be fully deleted** ("live there for
+a while for report out and delete in about 3-4 big fix... a shortlive function that will be delete
+from the database as well to save space"). Content transcribed from the delivered "khảo sát team
+building.xlsx": 3 parts — General (9 questions, 1-10 rating), a Destinations section (9 more
+1-10-rated items, own section label), and a single-choice "Chương trình Team Building" question
+(5 lettered options, a completely different answer pool from the 1-10 scale). Everyone can submit
+and everyone can view the report, per explicit answer ("for now, everyone"). One response per
+profile — resubmitting overwrites the previous answer (upsert on `profile_id`), per explicit answer.
+
+New sidebar entry "Team Building Survey" → `/team-building-survey`, a single page with 2 tabs:
+- **Survey** — the 18 rating questions (each with an optional collapsed "+ ghi chú" note field,
+  matching the source spreadsheet's per-row Ghi chú column) plus the 1 single-choice question.
+  Submit is disabled until every question has an answer.
+- **Report** — per explicit request, both a list AND aggregated charts: average-score horizontal
+  bars for General and Destinations (plain CSS bars, no chart library — matches the rest of the
+  app), a tally bar chart for the style question, and below that a raw expandable list, one card
+  per respondent, showing every answer + any notes.
+
+**New SQL** (`add-round85-team-building-survey.sql`) — creates `team_building_survey_responses`
+(one row per profile, `unique(profile_id)`, everything else in one `answers jsonb` blob — same
+`data jsonb` pattern the rest of the app already uses for tickets, so the question set can change
+without another migration). Idempotent, tested against a throwaway local Postgres 16 database
+(create twice — second run is a no-op via `if not exists`; inserted a row, then upserted a second
+answer onto the same `profile_id` and confirmed it overwrote rather than adding a second row, per
+the one-response-per-person requirement).
+
+**When you're done with this (~3-4 rounds from now, per your own timeline) — full teardown
+checklist:**
+1. Run **`drop-round85-team-building-survey.sql`** (also delivered, tested against the same
+   throwaway database — confirmed it drops only `team_building_survey_responses` and leaves
+   everything else untouched) — **pull whatever numbers you need out of the Report tab first**,
+   this is a permanent delete.
+2. Delete `app/team-building-survey/page.js`.
+3. Delete `lib/teamBuildingSurveyQuestions.js`.
+4. Remove the `{ label: "Team Building Survey", href: "/team-building-survey" }` line from
+   `lib/Sidebar.js`'s `NAV` array (marked with a "Round 85 — TEMPORARY" comment banner, easy to
+   find).
+
+All 3 app files are marked with the same "Round 85 — TEMPORARY" comment banner at the top so a
+future round (mine or otherwise) can find and remove every piece without hunting.
