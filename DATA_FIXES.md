@@ -5447,3 +5447,97 @@ One batched fetch (`fetchProductTagSets()` — 3 queries total, fixed cost) powe
 dashboard calls it once for every row on screen rather than one query per row. 3 new pill color
 variants added to `app/shared.module.css` (`.pillPublishing`, `.pillSplitshare`, `.pillPhuLucMg`)
 alongside the existing `.pill`/`.pillOrange`/`.pillGray`.
+
+## Round 86 follow-up — dashboard layout tweaks, Next Step Note swap, linkshare date, DID re-check
+
+No SQL this round.
+
+**Item 1 — Album Name is now a subtitle, not its own column.** Reversed the brand-new-this-round
+"Album Name" column (`app/releases/page.js`) into a small line under the release title instead,
+per explicit lean ("im leaning to the subtitle under name column") — frees up a column now that
+the Name column also carries the product tag pills.
+
+**Item 2 — Name column widened** to `minWidth: 260` (previously unset/natural width) so the title,
+Album Name subtitle, and product tag pills all have room.
+
+**Item 3 — Next Step Note: swapped which widget has team tabs.** Per explicit request + follow-up
+answer ("this one is for ar team... the other note stay in their corresponding workstation note"):
+- The field near Save on Overview (the one in your screenshot) is now a **plain textbox, no team
+  tabs** — always edits AR's own note (`note_ar`) only.
+- The top-right panel next to the header (`ReleaseNotePanel`, previously read-only, compiling every
+  team's note into one scroll list) is now the **editable, team-tabbed** one — pick a team
+  (AR/Marketing/OPS/Legal), edit that team's note, Save persists it same as everything else on the
+  page.
+
+**Item 5 — Release Date + Release Time merged into one "Release" column** (`app/releases/page.js`)
+per explicit answer ("Merge into one 'Release' column") — shows e.g. "20/8/2026 19:00", still sorts
+by `release_date` (time isn't independently sortable now that it's not its own column).
+
+**Item 6 — Linkshare note's "same day" options now carry the actual date.** `buildLinkshareNote()`
+(`lib/releaseNotes.js`) appends the release date after "Cùng Ngày"/"Cùng ngày" (e.g. "Cùng ngày
+20/08/2026") — zero-padded DD/MM/YYYY, not `fmtDate()`'s locale format (which drops the leading
+zero, e.g. "20/8/2026"). The "+4"/"+7" options are untouched — they already spell out their own
+offset.
+
+**Item 7 — DID re-check on every Save.** New `lib/didHelpers.js` (`recomputeDid()`, shared with
+`app/new-release/page.js`'s existing DID-preview logic, deduped from a second hand-kept copy).
+Per explicit request/flag response ("the problem is that the team sometimes change release date or
+the name entirely... automatically on regular save would do... don't allow user to do it, they
+won't do it") — **this deliberately reverses this app's earlier documented guarantee** that a DID
+never changes after creation (see `schema.sql`'s `set_release_did()` comment) — accepted
+explicitly, twice, after being flagged.
+
+On every regular Save on the release detail page, the DID's **prefix** (title+artist initials +
+release date) is silently re-derived from current field values; the trailing **sequence suffix
+from creation is always kept**, so it can never collide with another release. If the prefix
+actually changed, Save also **migrates every existing ticket** currently pointing at the old DID
+(`tickets.data.releaseId`) to the new one, in the same operation — confirmed necessary and
+explicitly requested, since almost every ticket type (Pitching, Splitshare, Phụ Lục MG, Sony
+Publish, Media Booking, Upload, etc.) stores this as a point-in-time snapshot string, not a live
+foreign key, so an unmigrated DID change would silently orphan every one of that release's existing
+tickets. Publishing tickets are unaffected either way — they're matched by `release.id`, not `did`
+(see item 4 above). This migration has no supporting index (`tickets.data->>releaseId` isn't
+indexed — see the dashboard-speed brainstorm reply for more on this) — fine at today's ticket
+volume, worth an index if it ever shows up slow.
+
+Any NEW ticket auto-created in the SAME save that also changed the DID (e.g. ticking a gate field
+"Yes" and editing the title in one Save) correctly uses the freshly-computed DID, not the
+about-to-be-stale one.
+
+## Round 86 follow-up 2 — dashboard load speed, INT MEDIA package builder
+
+No SQL this round.
+
+**Item 1 — Dashboard load speed.** Two changes to `app/releases/page.js`'s load effect, both from
+the brainstorm reply:
+- **Parallelized 5 independent fetches** (releases, media booking entries, labels, the pitching
+  ticket_tabs lookup, and the product-tag-pill batch fetch) with `Promise.all` instead of one after
+  another — the page's total wait used to be roughly the SUM of all 5 round trips, now it's roughly
+  the slowest single one. Only the pitching TICKETS fetch stays sequential (it genuinely needs the
+  tab id from the batch above first).
+- **`select("*")` → an explicit column list** (`RELEASE_COLUMNS`, 30 columns) — `releases` is a
+  very wide table (every workstation's own checklist/gate/confirm columns live on it too), and this
+  dashboard only ever renders a fraction of them. Verified by grepping the whole file for every
+  `r.<field>` access plus `metadataPercent()`/`uploadPercent()`/`pitchingSummary()`'s own field
+  reads (in `lib/helpers.js` and this file) — every field the page actually touches is in the list;
+  cross-checked programmatically, not just by eye.
+
+Held back for now (bigger, riskier changes, not done this round): true server-side
+pagination/filtering (today everything is one big client-side array — fine at current scale, would
+need real rework of the sort/search/filter logic to change), and adding an index for
+`tickets.data->>releaseId` (came up in the DID re-check work above — not worth it yet at today's
+ticket volume).
+
+**Item 2 — INT MEDIA's package builder panel now matches every other tier.** Per your screenshot +
+explicit request ("change that to much like of a vĩnh viễn template"): `app/tickets/media-booking/
+page.js`'s `PackagesPanel` used to render INT MEDIA packages as a "mushed" read-only list — Hạng
+Mục names only, no quantities, Chi Tiết, Đơn Giá, or Thành Tiền, just a Delete link (the
+`isIntMedia` branch, removed). INT MEDIA now renders through the exact same full editable table
+Vĩnh Viễn/Custom Years/Internal Package already use — drag-to-reorder, editable Chi Tiết/Đơn Giá,
+computed Thành Tiền, all of it.
+
+This was originally a deliberate design choice, not an oversight — flagging in case it's useful
+context later: nothing else about INT MEDIA changed. It's still an internal-only tracking tier
+(never shown to the artist on the magic link page), and the "must be a deliberate click, never
+auto-defaulted" safeguard on the package-naming popup is untouched — only how an already-built INT
+MEDIA package's lines display and edit afterward.

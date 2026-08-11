@@ -19,6 +19,7 @@ import { useAuth } from "../../../lib/AuthContext";
 import { isDev } from "../../../lib/permissions";
 import { runOne } from "../../../lib/packageSimulator";
 import { fetchProductTagSets, ProductTagPills } from "../../../lib/productTags";
+import { recomputeDid } from "../../../lib/didHelpers";
 import RelatedDidField from "../../../lib/RelatedDidField";
 import styles from "../../shared.module.css";
 
@@ -77,6 +78,11 @@ export default function ReleaseDetailPage() {
   const [artistProfileTicket, setArtistProfileTicket] = useState(null);
   const [artistProfileTypesDraft, setArtistProfileTypesDraft] = useState({ spotify: false, tiktok: false, apple: false });
   const [tab, setTab] = useState("overview");
+  // Round 86 follow-up item 3 — which team's note the top-right
+  // ReleaseNotePanel is currently showing/editing (see NOTE_PANEL_TEAMS
+  // below). Lives here, not in OverviewTab, since the panel itself renders
+  // from this component.
+  const [topNoteTeam, setTopNoteTeam] = useState(NOTE_PANEL_TEAMS[0]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [saved, setSaved] = useState(false);
@@ -402,6 +408,19 @@ export default function ReleaseDetailPage() {
     setSaving(true);
     setError(null);
 
+    // Round 86 follow-up item 7 — DID re-check. Computed ahead of the
+    // release write (same idea as sonyPublishReady below) so the new DID
+    // can ride the same write instead of a second round trip. Only the
+    // PREFIX (title/artist initials + release date) is re-derived from
+    // current field values — the trailing sequence suffix from creation
+    // is kept as-is, so this can never collide with another release. See
+    // recomputeDid()'s comment in lib/didHelpers.js for why this exists
+    // and what it deliberately breaks (the DID's earlier "never changes"
+    // guarantee) — accepted per explicit request.
+    const newDid = recomputeDid(form.did, form.title, form.main_artist, form.release_date);
+    const didChanged = newDid !== form.did;
+    const oldDid = form.did;
+
     // Sony Publish is special-cased ahead of the write: unlike every
     // other gate-linked ticket, per explicit request it only auto-creates
     // once the 4 required metadata fields (REQUIRED_META_KEYS) are ALL
@@ -420,7 +439,7 @@ export default function ReleaseDetailPage() {
     const sonyPublishReady =
       form.gate_sony_publish === "true" && !gateTicketMap.sony_publish && REQUIRED_META_KEYS.every((k) => form[k] === "true");
     const sonyPublishSendsUpload = sonyPublishReady && !form.requested;
-    const releasePatch = sonyPublishSendsUpload ? { ...form, requested: true } : form;
+    const releasePatch = { ...form, ...(sonyPublishSendsUpload ? { requested: true } : {}), ...(didChanged ? { did: newDid } : {}) };
 
     // Round 86 item 4 — Publishing, same "loop until ready" idea as Sony
     // Publish just above, but gated on the inline Giá Trị Publishing value
@@ -439,6 +458,27 @@ export default function ReleaseDetailPage() {
       return;
     }
 
+    // Round 86 follow-up item 7 — since most ticket types store this
+    // release's DID as a point-in-time snapshot string in their own data
+    // (data.releaseId), not a live foreign key, a DID prefix change here
+    // would silently orphan every ticket already pointing at the old one
+    // (Pitching, Splitshare, Media Booking, Upload, etc. — anything NOT
+    // matched by release.id, like Publishing — see lib/productTags.js's
+    // comment on that same id-vs-did split). Per explicit request, migrate
+    // every ticket's stored data.releaseId from old → new in the same
+    // save, so nothing loses its link to this release. Scans across ALL
+    // ticket types at once (no tab_id filter) rather than one query per
+    // type, and doesn't filter out deleted_at — a deleted ticket's
+    // historical record should still point at a DID that actually existed.
+    if (didChanged) {
+      const { data: staleTix } = await supabase.from("tickets").select("id, data").eq("data->>releaseId", oldDid);
+      if (staleTix && staleTix.length > 0) {
+        await Promise.all(
+          staleTix.map((t) => supabase.from("tickets").update({ data: { ...t.data, releaseId: newDid } }).eq("id", t.id))
+        );
+      }
+    }
+
     if (form.gate_pitching === "true") {
       if (pitchingTicket) {
         if (JSON.stringify(pitchingTicket.data) !== JSON.stringify(pitchingTypesDraft)) {
@@ -448,7 +488,7 @@ export default function ReleaseDetailPage() {
       } else {
         const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching").single();
         if (tab) {
-          const newData = { releaseId: form.did, priority: false, spotify: false, apple: false, nct: false, zing: false, ...pitchingTypesDraft };
+          const newData = { releaseId: newDid, priority: false, spotify: false, apple: false, nct: false, zing: false, ...pitchingTypesDraft };
           const { data: created } = await supabase
             .from("tickets")
             .insert({
@@ -483,7 +523,7 @@ export default function ReleaseDetailPage() {
             .from("tickets")
             .insert({
               tab_id: tab.id,
-              data: { releaseId: form.did, artistName: form.main_artist, email: "", ...artistProfileTypesDraft },
+              data: { releaseId: newDid, artistName: form.main_artist, email: "", ...artistProfileTypesDraft },
               status: tab.default_status,
               status_log: { [tab.default_status]: new Date().toISOString() },
               requester_segment: form.requester_segment || null,
@@ -514,7 +554,7 @@ export default function ReleaseDetailPage() {
             .from("tickets")
             .insert({
               tab_id: tab.id,
-              data: { releaseId: form.did, ...coTrongNetDraft },
+              data: { releaseId: newDid, ...coTrongNetDraft },
               status: tab.default_status,
               status_log: { [tab.default_status]: new Date().toISOString() },
               requester_segment: form.requester_segment || null,
@@ -570,7 +610,7 @@ export default function ReleaseDetailPage() {
             .from("tickets")
             .insert({
               tab_id: tab.id,
-              data: { releaseId: form.did },
+              data: { releaseId: newDid },
               status: tab.default_status,
               status_log: { [tab.default_status]: new Date().toISOString() },
               requester_segment: form.requester_segment || null,
@@ -603,7 +643,7 @@ export default function ReleaseDetailPage() {
           .from("tickets")
           .insert({
             tab_id: spTab.id,
-            data: { releaseId: form.did },
+            data: { releaseId: newDid },
             status: spTab.default_status,
             status_log: { [spTab.default_status]: new Date().toISOString() },
             requester_segment: form.requester_segment || null,
@@ -617,7 +657,7 @@ export default function ReleaseDetailPage() {
         if (uploadTab) {
           await supabase.from("tickets").insert({
             tab_id: uploadTab.id,
-            data: { releaseId: form.did, project: form.title, artist: form.main_artist, label: form.label },
+            data: { releaseId: newDid, project: form.title, artist: form.main_artist, label: form.label },
           });
         }
       }
@@ -1042,7 +1082,7 @@ export default function ReleaseDetailPage() {
             </div>
           </div>
 
-          <ReleaseNotePanel form={form} />
+          <ReleaseNotePanel form={form} update={update} team={topNoteTeam} setTeam={setTopNoteTeam} />
         </div>
 
         {error && <div className={styles.errorBox}>{error}</div>}
@@ -1188,9 +1228,16 @@ function LinkPill({ label, href }) {
 // see NOTE_FIELD_BY_TEAM below). The old shared releases.brief column
 // still exists and its prior content was copied into all 4 new columns as
 // a one-time backfill (see the migration) so nothing already written was
-// lost — it's just not read/written from here anymore. Read-only here;
-// editing happens via the Next Step Note field near Save on Overview,
-// which now has its own team picker too.
+// lost — it's just not read/written from here anymore.
+// Round 86 follow-up item 3 — swapped roles with the Overview/near-Save
+// field per explicit request: THIS panel is now the editable, team-tabbed
+// one (every team's note, one at a time via the tabs below — same picker
+// idiom the near-Save field used to have). The near-Save field (see
+// SaveBar's caller below) is now a plain single-team AR-only textbox, no
+// tabs — matches every other team's note living in "their corresponding
+// workstation" instead. Like the rest of this page's fields, edits here
+// only land in local form state — Save (the same button further down the
+// page) is still what persists them.
 // "possibly the ticket in the future too" (per the original request) is a
 // noted extension point, not built yet — there's no per-ticket note source
 // to pull from at the moment.
@@ -1206,31 +1253,36 @@ function LinkPill({ label, href }) {
 const NOTE_PANEL_TEAMS = REPORTING_TEAMS.filter((t) => t !== "Design");
 const NOTE_FIELD_BY_TEAM = { AR: "note_ar", Marketing: "note_marketing", OPS: "note_ops", Legal: "note_legal" };
 
-// Round 72 — item 1: per explicit request, this no longer switches one
-// team at a time via the left tab list — it now compiles every team's
-// note into one scrollable view at once, skipping any team whose note is
-// still blank, so there's no clicking around to see what everyone wrote.
-function ReleaseNotePanel({ form }) {
-  const entries = NOTE_PANEL_TEAMS
-    .map((t) => ({ team: t, note: form?.[NOTE_FIELD_BY_TEAM[t]] }))
-    .filter((e) => e.note && e.note.trim());
-
+function ReleaseNotePanel({ form, update, team, setTeam }) {
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 8, minWidth: 240, maxWidth: 340, height: 140, overflowY: "auto", background: "var(--bg-card)", padding: 10 }}>
-      {entries.length === 0 ? (
-        <div style={{ fontSize: 12, color: "var(--text-faint)" }}>
-          No notes yet — edit them from the Next Step Note field on Overview.
-        </div>
-      ) : (
-        entries.map(({ team, note }, i) => (
-          <div key={team} style={{ marginTop: i === 0 ? 0 : 10 }}>
-            <div style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 700, letterSpacing: 0.5, marginBottom: 4 }}>
-              {team.toUpperCase()} — NOTE
-            </div>
-            <div style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-wrap" }}>{note}</div>
-          </div>
-        ))
-      )}
+    <div style={{ border: "1px solid var(--border)", borderRadius: 8, minWidth: 240, maxWidth: 340, background: "var(--bg-card)", padding: 10 }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
+        {NOTE_PANEL_TEAMS.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTeam(t)}
+            className={styles.tabBtn}
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              fontSize: 11,
+              padding: "3px 8px",
+              fontWeight: team === t ? 700 : 400,
+              color: team === t ? "var(--accent)" : "var(--text-muted)",
+            }}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      <textarea
+        className={styles.textarea}
+        style={{ minHeight: 90 }}
+        value={form?.[NOTE_FIELD_BY_TEAM[team]] || ""}
+        onChange={(e) => update(NOTE_FIELD_BY_TEAM[team], e.target.value)}
+        placeholder="Tình trạng data, xác nhận gói HTTT..."
+      />
     </div>
   );
 }
@@ -1323,7 +1375,6 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
   const [artistsList, setArtistsList] = useState([]);
   const [labelsList, setLabelsList] = useState([]);
   const [labelDraft, setLabelDraft] = useState(form.label || "");
-  const [noteEditTeam, setNoteEditTeam] = useState(NOTE_PANEL_TEAMS[0]); // Round 68 — item 4: which team's Next Step Note is being edited
 
   useEffect(() => {
     setLabelDraft(form.label || "");
@@ -1787,35 +1838,19 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         />
 
         {/* Moved here from the old "Pre-release & Note" tab, right before
-            Save. Round 68 — item 4: now one note PER TEAM (matching the
-            read-only panel next to the header) instead of one shared
-            releases.brief field — added a small team picker so this stays
-            a single field/textarea instead of 4 stacked ones. Defaults to
-            AR (first team) same as the header panel. */}
-        <div className={styles.subheading}>Next Step Note</div>
-        <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
-          {NOTE_PANEL_TEAMS.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setNoteEditTeam(t)}
-              className={styles.tabBtn}
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                fontWeight: noteEditTeam === t ? 700 : 400,
-                color: noteEditTeam === t ? "var(--accent)" : "var(--text-muted)",
-              }}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
+            Save. Round 68 — item 4 first introduced one note PER TEAM here
+            with its own tab picker. Round 86 follow-up item 3 swapped that
+            around per explicit request: team-switching now lives on the
+            top-right ReleaseNotePanel next to the header instead (see
+            NOTE_PANEL_TEAMS/ReleaseNotePanel above) — every OTHER team's
+            note belongs in "their corresponding workstation", so this
+            Overview field is AR's own note only, plain textbox, no tabs. */}
+        <div className={styles.subheading}>Next Step Note (AR)</div>
         <Field label="">
           <textarea
             className={styles.textarea}
-            value={form[NOTE_FIELD_BY_TEAM[noteEditTeam]] || ""}
-            onChange={(e) => update(NOTE_FIELD_BY_TEAM[noteEditTeam], e.target.value)}
+            value={form[NOTE_FIELD_BY_TEAM.AR] || ""}
+            onChange={(e) => update(NOTE_FIELD_BY_TEAM.AR, e.target.value)}
             placeholder="Tình trạng data, xác nhận gói HTTT..."
           />
         </Field>

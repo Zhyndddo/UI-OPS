@@ -855,7 +855,18 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // "Summarized Hạng Mục" picker in between. ---
 
   const activePackage = packages.find((p) => p.id === activePackageId);
-  const isIntMedia = activePackage?.name === "INT MEDIA";
+  // Round 86 follow-up item 2 — INT MEDIA used to have its own `isIntMedia`
+  // flag here, driving a "mushed" read-only list in PackagesPanel (Hạng
+  // Mục names only, no quantities/pricing/detail at all). Per explicit
+  // request ("change that to much like of a vĩnh viễn template"), INT
+  // MEDIA's right panel is now the same full editable table every other
+  // tier (Vĩnh Viễn/Custom Years/Internal Package) already gets —
+  // drag-to-reorder, Chi Tiết, Đơn Giá, Thành Tiền, all editable exactly
+  // the same way — so that flag and its one call site are gone. Unrelated
+  // to PackageNamePopup's own allowIntMedia/intMediaTaken logic ("INT
+  // MEDIA must always be a deliberate click, never auto-defaulted") — that
+  // stays exactly as-is, this only changes how an already-built INT MEDIA
+  // package's lines are displayed/edited afterward.
 
   async function createPackage(name, cloneFromId) {
     const { data: pkg } = await supabase.from("media_booking_packages").insert({ release_id: release.id, name, sort_order: packages.length }).select().single();
@@ -1653,7 +1664,6 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   activePackageId={activePackageId}
                   setActivePackageId={setActivePackageId}
                   activePackage={activePackage}
-                  isIntMedia={isIntMedia}
                   namePopup={namePopup}
                   setNamePopup={setNamePopup}
                   createPackage={createPackage}
@@ -1942,11 +1952,15 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
   // tiers, so it doesn't get accidentally duplicated.
   const internalTaken = existingNames.includes("Internal Package");
   // Never auto-default to the INT MEDIA tier, even when it's offered —
-  // INT MEDIA renders its package lines read-only (names only, no
-  // quantities/pricing), so silently pre-selecting it meant clicking
-  // "Clone Package" and confirming without looking could turn a normal,
-  // fully-editable clone into a locked one by accident. INT MEDIA must
-  // always be a deliberate click now, for both "create" and "clone".
+  // it's an internal-only tracking tier (not a real customer-facing
+  // package — see allowIntMedia's own comment above), so silently
+  // pre-selecting it meant clicking "Clone Package" and confirming without
+  // looking could turn a normal clone into an internal one by accident.
+  // INT MEDIA must always be a deliberate click, for both "create" and
+  // "clone". (Round 86 follow-up item 2 — INT MEDIA's package lines are no
+  // longer read-only/names-only afterward; they're fully editable exactly
+  // like every other tier now. This safeguard is unrelated to that and
+  // stays as-is.)
   const [tierMode, setTierMode] = useState(vinhVienTaken ? "years" : "vinhVien");
   const [years, setYears] = useState("2");
   const name = tierMode === "vinhVien" ? "Độc Quyền Vĩnh Viễn" : tierMode === "intMedia" ? "INT MEDIA" : tierMode === "internal" ? "Internal Package" : `Độc Quyền ${years} năm`;
@@ -1972,7 +1986,7 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
               onClick={() => !intMediaTaken && setTierMode("intMedia")}
               disabled={intMediaTaken}
               style={tierMode === "intMedia" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}
-              title={intMediaTaken ? "Already created for this release" : "Mushed package — Hạng Mục names only, no quantities or pricing"}
+              title={intMediaTaken ? "Already created for this release" : "Internal-only tracking package — never shown to the artist"}
             >
               INT MEDIA
             </button>
@@ -2023,7 +2037,7 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
 // Renders as a plain in-flow column (not its own fixed-overlay popup) so it
 // sits beside the DSP grid instead of covering it.
 function PackagesPanel({
-  release, categories, packages, activePackageId, setActivePackageId, activePackage, isIntMedia,
+  release, categories, packages, activePackageId, setActivePackageId, activePackage,
   namePopup, setNamePopup, createPackage, deletePackage, addPrebuiltLine, deleteLine, reorderLines, updateLine,
   syncYoutubeAdsLine, onToggleRecordingStudio, magicLinkUrl, generatingLink, onGenerateLink, proposedPackage, onHide,
 }) {
@@ -2112,21 +2126,11 @@ function PackagesPanel({
               <div className={styles.emptyState}>No package yet — click "Create Package" above.</div>
             ) : (activePackage.media_booking_package_lines || []).length === 0 ? (
               <div className={styles.emptyState}>Pick a Hạng Mục on the left and click Summarize — it lands here automatically.</div>
-            ) : isIntMedia ? (
-              // INT MEDIA — a mushed package: Hạng Mục names only, no
-              // quantities, pricing, or detail at all.
-              <div style={{ display: "grid", gap: 6 }}>
-                {activePackage.media_booking_package_lines.map((line) => {
-                  const cat = categories.find((c) => c.id === line.category_id);
-                  return (
-                    <div key={line.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", fontSize: 12 }}>
-                      <span>{cat?.name || line.platform || "—"}{line.brand ? ` — ${line.brand}` : ""}</span>
-                      <button onClick={() => deleteLine(line)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 11 }}>Delete</button>
-                    </div>
-                  );
-                })}
-              </div>
             ) : (
+              // Round 86 follow-up item 2 — every tier, INT MEDIA included,
+              // now renders through this same full editable table (was a
+              // separate "mushed" names-only branch for INT MEDIA — see the
+              // comment on the removed isIntMedia flag above).
               <table className={styles.table}>
                 <thead>
                   <tr>

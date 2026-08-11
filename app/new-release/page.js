@@ -10,41 +10,12 @@ import PickSelect from "../../lib/PickSelect";
 import QuickCreate from "../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../lib/ReferenceInputs";
 import { buildLinkshareNote, defaultLinkshareFacebookTiming, defaultLinkshareTiktokTiming, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS } from "../../lib/releaseNotes";
+// Round 86 follow-up item 7 — didPreview/didPrefixFor moved into
+// lib/didHelpers.js so the release detail page's DID-recompute-on-Save
+// logic can share the exact same _field_initials() mirror instead of a
+// second hand-kept copy drifting out of sync.
+import { didPreview, didPrefixFor } from "../../lib/didHelpers";
 import styles from "./styles.module.css";
-
-// Mirrors _field_initials()/set_release_did() in schema.sql exactly, minus
-// the sequence suffix (that part is DB-only, by design — see comment at
-// the call site). Keep this in sync if the SQL rule ever changes.
-function fieldInitials(field) {
-  const words = (field || "").trim().split(/\s+/).filter(Boolean);
-  const letterFor = (w) => {
-    if (!w) return "#";
-    if (w.includes("-")) return "#";
-    return w[0].toUpperCase();
-  };
-  return letterFor(words[0]) + letterFor(words[1]);
-}
-
-function didPreview(title, mainArtist, releaseDate) {
-  const titleInit = fieldInitials(title);
-  const artistInit = fieldInitials(mainArtist);
-  const datePart = releaseDate ? releaseDate.split("-").reverse().join("") : "--------"; // input value is YYYY-MM-DD → DDMMYYYY
-  return `${titleInit}${artistInit}-${datePart}-####`;
-}
-
-// Same computation as didPreview, minus the trailing "-####" placeholder —
-// this is exactly what set_release_did() in schema.sql writes before its
-// own DB-assigned numeric suffix, so a `did like '${prefix}-%'` query finds
-// any existing release whose title+artist initials and release date match,
-// regardless of that suffix. Returns null until there's enough to compute
-// a real (non-placeholder) prefix.
-function didPrefixFor(title, mainArtist, releaseDate) {
-  if (!title?.trim() || !mainArtist?.trim() || !releaseDate) return null;
-  const titleInit = fieldInitials(title);
-  const artistInit = fieldInitials(mainArtist);
-  const datePart = releaseDate.split("-").reverse().join("");
-  return `${titleInit}${artistInit}-${datePart}`;
-}
 
 const EMPTY_FORM = {
   label: "",

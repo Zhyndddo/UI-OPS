@@ -15,6 +15,26 @@ import styles from "../shared.module.css";
 
 const CHANNELS = ["VIEENT", "ENVI"];
 
+// Round 86 follow-up item 1 (load speed) — releases is a genuinely wide
+// table (every workstation's own checklist/gate/confirm columns live on
+// it too — see schema.sql), but this dashboard only ever reads the fields
+// below (directly, or through metadataPercent()/uploadPercent()/
+// pitchingSummary() in lib/helpers.js and this file). `select("*")` was
+// pulling every column across the wire for every row on every load — this
+// cuts that payload down to what's actually rendered. Keep this list in
+// sync if the dashboard starts reading a new release field.
+const RELEASE_COLUMNS = [
+  "id", "did", "title", "main_artist", "label", "media_report_status", "project_type",
+  "pseudo_package_parent_did", "release_category", "release_date", "release_time",
+  "requester_segment", "status", "created_at",
+  // metadataPercent()
+  "meta_audio", "meta_artwork", "meta_working_files", "meta_lyric", "meta_mv", "meta_doc",
+  // uploadPercent()
+  "link_lbm", "link_share", "smartlink", "gate_pre_order", "link_preorder",
+  // pitchingSummary()/pitchingStatusFor()
+  "priority_pitching", "pitching_status_spotify", "pitching_status_apple", "pitching_status_nct", "pitching_status_zing",
+].join(", ");
+
 // Mirrors app/workstation/pitching/page.js's DONE_VALUE/CANCEL_VALUES so the
 // dashboard's "Status Pitching" column agrees with the Pitching workstation
 // about what "done"/"cancelled" mean, instead of drifting into its own
@@ -66,20 +86,47 @@ export default function ReleasesDashboard() {
   useEffect(() => {
     if (!supabase) return;
     (async () => {
-      // Round 60 — the Dashboard is the one place a truncated release list
-      // would be most visible (rows just silently missing), so this reads
-      // through fetchAllRows instead of a plain select() — see DATA_FIXES.md
-      // round 59/60 for the 1000-row default cap this works around. Sort
-      // needs a unique tiebreaker (id) for .range() pagination to be stable
-      // across requests — created_at alone can collide (e.g. a bulk import
-      // where many rows share the same timestamp).
-      const { data, error: err } = await fetchAllRows(() =>
-        supabase.from("releases").select("*").order("created_at", { ascending: false }).order("id", { ascending: true })
-      );
+      // Round 86 follow-up item 1 (load speed) — these 5 fetches don't
+      // depend on each other (each reads its own table/tab), but used to
+      // run one after another, so the page's total wait was roughly the
+      // SUM of all of them instead of just the slowest one. Running them
+      // together cuts that down to one round trip's worth of wall-clock
+      // time. Only the pitching TICKETS fetch below genuinely depends on
+      // pitchTabResult (needs its tab id first), so that one stays
+      // sequential, after this batch resolves.
+      const [releasesResult, bookingsResult, labelsResult, pitchTabResult, tagSets] = await Promise.all([
+        // Round 60 — the Dashboard is the one place a truncated release
+        // list would be most visible (rows just silently missing), so
+        // this reads through fetchAllRows instead of a plain select() —
+        // see DATA_FIXES.md round 59/60 for the 1000-row default cap this
+        // works around. Sort needs a unique tiebreaker (id) for .range()
+        // pagination to be stable across requests — created_at alone can
+        // collide (e.g. a bulk import where many rows share the same
+        // timestamp). select(RELEASE_COLUMNS) instead of select("*") —
+        // see that const's comment just above this component.
+        fetchAllRows(() =>
+          supabase.from("releases").select(RELEASE_COLUMNS).order("created_at", { ascending: false }).order("id", { ascending: true })
+        ),
+        fetchAllRows(() => supabase.from("media_booking_entries").select("release_id, status").order("id")),
+        supabase.from("labels").select("label_name").order("label_name"),
+        // Pitching tickets — one per release (matched by DID, stored oddly
+        // as data->>releaseId, same pattern as app/releases/[id]/page.js).
+        // Used to compute the "Status Pitching" column below without
+        // opening each release individually. Only the tab lookup itself
+        // can join this batch — the tickets fetch that depends on its id
+        // happens below, after this Promise.all resolves.
+        supabase.from("ticket_tabs").select("id").eq("key", "pitching").single(),
+        // Round 86 item 5 — one batched fetch (3 queries total, not one
+        // per row) for the product tag pills' Publishing/Splitshare/Phụ
+        // Lục MG ticket existence — see lib/productTags.js.
+        fetchProductTagSets(supabase),
+      ]);
+
+      const { data, error: err } = releasesResult;
       if (err) { setError(err.message); setLoading(false); return; }
       setReleases(data || []);
 
-      const { data: bookings } = await fetchAllRows(() => supabase.from("media_booking_entries").select("release_id, status").order("id"));
+      const { data: bookings } = bookingsResult;
       const grouped = {};
       (bookings || []).forEach((b) => {
         if (!grouped[b.release_id]) grouped[b.release_id] = { total: 0, done: 0 };
@@ -90,14 +137,12 @@ export default function ReleasesDashboard() {
       Object.entries(grouped).forEach(([id, g]) => (pctMap[id] = Math.round((g.done / g.total) * 100)));
       setBookingPct(pctMap);
 
-      const { data: labelRows } = await supabase.from("labels").select("label_name").order("label_name");
+      const { data: labelRows } = labelsResult;
       setLabels(labelRows || []);
 
-      // Pitching tickets — one per release (matched by DID, stored oddly as
-      // data->>releaseId, same pattern as app/releases/[id]/page.js). Used
-      // to compute the "Status Pitching" column below without opening each
-      // release individually.
-      const { data: pitchTab } = await supabase.from("ticket_tabs").select("id").eq("key", "pitching").single();
+      setProductTagSets(tagSets);
+
+      const { data: pitchTab } = pitchTabResult;
       if (pitchTab) {
         const { data: pitchTix } = await supabase
           .from("tickets")
@@ -111,11 +156,6 @@ export default function ReleasesDashboard() {
         });
         setPitchingData(map);
       }
-
-      // Round 86 item 5 — one batched fetch (3 queries total, not one per
-      // row) for the product tag pills' Publishing/Splitshare/Phụ Lục MG
-      // ticket existence — see lib/productTags.js.
-      setProductTagSets(await fetchProductTagSets(supabase));
 
       setLoading(false);
     })();
@@ -362,15 +402,21 @@ export default function ReleasesDashboard() {
                 <SortableTh label="Channel" sortKey="requester_segment" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Package" sortKey="release_category" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Label" sortKey="label" sort={sort} onToggle={toggleSort} />
-                <SortableTh label="Name" sortKey="title" sort={sort} onToggle={toggleSort} />
-                {/* Round 86 item 2 — "EP/Album DID" column hidden from this
-                    index per explicit request (the release detail page's
-                    own field is untouched — see the pseudo_package_parent_did
-                    field there). Replaced here with "Album Name", the
-                    resolved parent release's title for that same DID. */}
-                <th>Album Name</th>
+                {/* Round 86 follow-up items 1 & 2 — widened to ~1.5x its old
+                    natural (unset) width (item 2), now that both the
+                    product tag pills (item 5) and the Album Name subtitle
+                    (item 1 — see below) live in this column and need room.
+                    Album Name started as its own column (round 86 item 2)
+                    but per follow-up item 1 is now a subtitle line under
+                    the title instead, freeing up a column. */}
+                <SortableTh label="Name" sortKey="title" sort={sort} onToggle={toggleSort} style={{ minWidth: 260 }} />
                 <SortableTh label="Artist" sortKey="main_artist" sort={sort} onToggle={toggleSort} />
-                <SortableTh label="Release Date" sortKey="release_date" sort={sort} onToggle={toggleSort} />
+                {/* Round 86 follow-up item 5 — merged Release Date +
+                    Release Time into one column per explicit request
+                    ("Merge into one 'Release' column"). Still sorts by
+                    release_date — release_time is just appended for
+                    display, not a separate sortable dimension anymore. */}
+                <SortableTh label="Release" sortKey="release_date" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Status" sortKey="status" sort={sort} onToggle={toggleSort} />
                 <th>Status Pitching</th>
                 <th>Metadata</th>
@@ -428,14 +474,20 @@ export default function ReleasesDashboard() {
                       onMouseLeave={() => setHoverRelease(null)}
                     >
                       <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
+                      {/* Round 86 follow-up item 1 — Album Name as a
+                          subtitle line here instead of its own column
+                          (was a separate "Album Name" column in the first
+                          round-86 pass). */}
+                      {r.pseudo_package_parent_did && albumNameByDid.get(r.pseudo_package_parent_did) && (
+                        <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>
+                          {albumNameByDid.get(r.pseudo_package_parent_did)}
+                        </div>
+                      )}
                       {/* Round 86 item 5 — product tag pills */}
                       <ProductTagPills styles={styles} release={r} tagSets={productTagSets} style={{ marginTop: 4 }} />
                     </td>
-                    <td style={{ minWidth: 160 }}>
-                      {(r.pseudo_package_parent_did && albumNameByDid.get(r.pseudo_package_parent_did)) || "—"}
-                    </td>
                     <td>{r.main_artist}</td>
-                    <td>{fmtDate(r.release_date)}</td>
+                    <td>{fmtDate(r.release_date)}{r.release_time ? ` ${r.release_time}` : ""}</td>
                     <td>
                       <span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.12)", color: "#ff9d5c" }}>{r.status}</span>
                       {/* Round 54 — item B.1: surfaces the Booking Board's
