@@ -112,6 +112,7 @@ export default function PitchingTicketList() {
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (
             <>
+            <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
             <table className={styles.table}>
               <thead>
                 <tr>
@@ -151,6 +152,7 @@ export default function PitchingTicketList() {
                 })}
               </tbody>
             </table>
+            </div>
             <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </>
           )}

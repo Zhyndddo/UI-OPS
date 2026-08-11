@@ -395,6 +395,7 @@ export default function ReleasesDashboard() {
           <div className={styles.emptyState}>No releases match these filters.</div>
         ) : (
           <>
+          <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -534,6 +535,7 @@ export default function ReleasesDashboard() {
               })}
             </tbody>
           </table>
+          </div>
           <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
           </>
         )}

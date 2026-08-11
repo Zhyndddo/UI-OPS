@@ -2266,6 +2266,7 @@ function MediaBookingTab({ form, update, onSave, saving, entries, categories, pa
       {packageItems.length > 0 && (
         <>
           <div className={styles.subheading} style={{ marginTop: 0 }}>Chosen Package — Itemized</div>
+          <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
           <table className={styles.table} style={{ marginBottom: 24 }}>
             <thead><tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr></thead>
             <tbody>
@@ -2279,6 +2280,7 @@ function MediaBookingTab({ form, update, onSave, saving, entries, categories, pa
               ))}
             </tbody>
           </table>
+          </div>
           <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: -16, marginBottom: 24 }}>
             The confirmed package itself isn't round-scoped — it's one package, picked once. Only the booking links and Added/Booked counts below change per round.
           </p>
@@ -2571,6 +2573,7 @@ function StreamingMilestoneTab({ form }) {
           {metrics.length === 0 ? (
             <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>No stream data linked yet.</p>
           ) : (
+            <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
             <table className={styles.table} style={{ marginBottom: 24 }}>
               <thead><tr><th>Platform</th><th>Streams</th><th>Fetched</th></tr></thead>
               <tbody>
@@ -2583,6 +2586,7 @@ function StreamingMilestoneTab({ form }) {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
 
           <div className={styles.subheading}>Milestone (Chart Rank)</div>
@@ -2592,6 +2596,7 @@ function StreamingMilestoneTab({ form }) {
           {milestones.length === 0 ? (
             <p style={{ color: "var(--text-faint)", fontSize: 12 }}>No milestone entries for this DID.</p>
           ) : (
+            <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
             <table className={styles.table}>
               <thead><tr><th>Chart</th><th>Date</th><th>Rank</th><th>Platform</th></tr></thead>
               <tbody>
@@ -2605,6 +2610,7 @@ function StreamingMilestoneTab({ form }) {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </>
       )}
@@ -2656,6 +2662,7 @@ function TasklistTab({ form, bookingEntries }) {
       {grouped.map(({ team, rows }) => (
         <div key={team} style={{ marginBottom: 20 }}>
           <div className={styles.subheading} style={{ marginTop: 0 }}>{team}</div>
+          <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
           <table className={styles.table}>
             <thead>
               <tr><th>Field</th><th>Status</th></tr>
@@ -2683,6 +2690,7 @@ function TasklistTab({ form, bookingEntries }) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       ))}
     </div>

@@ -88,6 +88,7 @@ export default function TaskTablePage() {
             Every workstation and ticket type, one row each — click the row count to open that task's own page.
           </p>
 
+          <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
           <table className={styles.table} style={{ maxWidth: 640 }}>
             <thead>
               <tr>
@@ -108,6 +109,7 @@ export default function TaskTablePage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
     </AppShell>

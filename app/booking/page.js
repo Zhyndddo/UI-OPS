@@ -8,6 +8,7 @@ import { fmtDate, formatDetailText } from "../../lib/helpers";
 import TypeSwitcher from "../../lib/TypeSwitcher";
 import { usePagination } from "../../lib/usePagination";
 import Pagination from "../../lib/Pagination";
+import { useIsMobile } from "../../lib/useIsMobile";
 import styles from "../shared.module.css";
 
 // Every Hạng Mục here uses the same 2-layer pattern: pick a sub-filter
@@ -142,6 +143,16 @@ export default function BookingBoard() {
   const [expandedCell, setExpandedCell] = useState(null); // `${releaseId}:${categoryName}:${brand}` or null
   const [packagePreview, setPackagePreview] = useState(null); // release being previewed, or null
   const [bookingChannels, setBookingChannels] = useState([]); // booking_channels reference table — see BrandCell's Add Link popup
+  // Round 87 — mobile plan phase, part 2: Booking Board is the busiest
+  // table in the app (fixed columns + a dynamic per-DSP column set,
+  // sticky first column, wide enough it needs minWidth:900 even on
+  // desktop) — side-scrolling it on a phone works but means constantly
+  // swiping back and forth to compare columns on the same row. Below the
+  // breakpoint it renders as a stacked list of per-release cards instead,
+  // reusing the exact same cell components (ResultCell/MediaReportCell/
+  // BrandCell/AdsCell) with the exact same props as the table version —
+  // only the layout around them changes, not their behavior.
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const options = CATEGORY_SUBFILTERS[hangMucFilter];
@@ -672,6 +683,34 @@ export default function BookingBoard() {
             <div style={{ fontSize: 48, fontWeight: 900, color: "#1c1c1c", letterSpacing: 4 }}>EMPTY</div>
             <div style={{ color: "var(--text-dim)", marginTop: -12 }}>Không tìm thấy</div>
           </div>
+        ) : isMobile ? (
+          <>
+          <BookingBoardCards
+            releases={pagedReleases}
+            categories={categories}
+            columns={columns}
+            bookedFor={bookedFor}
+            addedFor={addedFor}
+            roundEntries={roundEntries}
+            categoryIdByName={categoryIdByName}
+            hangMucFilter={hangMucFilter}
+            subFilter={subFilter}
+            round={round}
+            phuLucStatus={phuLucStatus}
+            setPackagePreview={setPackagePreview}
+            updateReleaseNote={updateReleaseNote}
+            convertMediaReport={convertMediaReport}
+            sendArtistMediaReport={sendArtistMediaReport}
+            expandedCell={expandedCell}
+            setExpandedCell={setExpandedCell}
+            addEntry={addEntry}
+            addEntries={addEntries}
+            cycleStatus={cycleStatus}
+            bookingChannels={bookingChannels}
+            saveAdsQuantity={saveAdsQuantity}
+          />
+          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+          </>
         ) : (
           <>
           <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
@@ -837,6 +876,160 @@ export default function BookingBoard() {
       <PackagePreviewPopup release={packagePreview} categories={categories} onClose={() => setPackagePreview(null)} />
     )}
     </AppShell>
+  );
+}
+
+// Round 87 — mobile card view for Booking Board (see the isMobile comment
+// above BookingBoard's own state). One card per release instead of one
+// table row; the fixed columns (Package/Result/Note/Media Report) become
+// labeled blocks, and the dynamic per-DSP columns are grouped by their
+// Hạng Mục (categoryName) the same way the table groups them with a
+// thicker border — here that's a small section header instead. Every
+// interactive cell (ResultCell/MediaReportCell/BrandCell/AdsCell) is the
+// EXACT SAME component the table uses, same props — this only changes
+// what wraps them, not how they behave or save.
+function BookingBoardCards({
+  releases, categories, columns, bookedFor, addedFor, roundEntries, categoryIdByName,
+  hangMucFilter, subFilter, round, phuLucStatus, setPackagePreview, updateReleaseNote,
+  convertMediaReport, sendArtistMediaReport, expandedCell, setExpandedCell, addEntry, addEntries,
+  cycleStatus, bookingChannels, saveAdsQuantity,
+}) {
+  // Same grouping the table's header uses (columns are already sorted by
+  // category upstream in the `columns` useMemo) — just collected into
+  // named sections instead of a border-left marker between <th>s.
+  const groups = [];
+  columns.forEach((c) => {
+    const last = groups[groups.length - 1];
+    if (last && last.categoryName === c.categoryName) last.cols.push(c);
+    else groups.push({ categoryName: c.categoryName, cols: [c] });
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {releases.map((r) => {
+        const releasingToday = isReleasingToday(r);
+        return (
+          <div
+            key={r.id}
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              padding: 14,
+              background: releasingToday ? "var(--highlight-bg)" : "var(--bg-card)",
+            }}
+          >
+            <Link href={`/releases/${r.id}`} className={styles.rowLink} style={{ fontSize: 14, fontWeight: 700, ...(releasingToday ? { color: "var(--highlight-text)" } : {}) }}>
+              {r.title}
+            </Link>
+            <div style={{ fontSize: 11, color: releasingToday ? "var(--highlight-text-faint)" : "var(--text-faint)", marginTop: 2 }}>
+              {r.main_artist} · {r.did} · {fmtDate(r.release_date)}
+              {releasingToday && <span style={{ color: "#ff6b1a", fontWeight: 700, marginLeft: 6 }}>· TODAY</span>}
+            </div>
+            {hangMucFilter === "TikTok Channel" && subFilter === "Partner" && (
+              <span
+                className={styles.statusBadge}
+                style={{
+                  marginTop: 6, display: "inline-block",
+                  background: phuLucStatus(r) === "Đã Ký" ? "rgba(76,175,80,0.15)" : "rgba(244,67,54,0.15)",
+                  color: phuLucStatus(r) === "Đã Ký" ? "#7ee6a8" : "#ff8a80",
+                }}
+              >
+                Phụ Lục: {phuLucStatus(r)}
+              </span>
+            )}
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Package</div>
+                {r.project_type ? (
+                  <button onClick={() => setPackagePreview(r)} style={{ background: "none", border: "none", color: "var(--accent-soft)", cursor: "pointer", fontSize: 12, textAlign: "left", padding: 0 }}>
+                    {r.project_type}
+                  </button>
+                ) : (
+                  <span style={{ color: "var(--text-faint)", fontSize: 12 }}>—</span>
+                )}
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Media Report</div>
+                <MediaReportCell release={r} onConvert={convertMediaReport} onSendArtist={sendArtistMediaReport} />
+              </div>
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Result</div>
+              <ResultCell release={r} categories={categories} bookedFor={bookedFor} entries={roundEntries} categoryIdByName={categoryIdByName} />
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Note</div>
+              <input
+                className={styles.input}
+                style={{ width: "100%", boxSizing: "border-box" }}
+                defaultValue={r.booking_note || ""}
+                onBlur={(e) => updateReleaseNote(r, e.target.value)}
+              />
+            </div>
+
+            {groups.map((group) => (
+              <div key={group.categoryName} style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>
+                  {group.categoryName}
+                  <span style={{ fontWeight: 400, color: "var(--text-faint)", fontSize: 10, textTransform: "none", marginLeft: 6 }}>
+                    {round}{subFilter ? ` · ${subfilterLabel(hangMucFilter, subFilter)}` : ""}
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {group.cols.map((c) => {
+                    const cellEntries = roundEntries.filter((e) =>
+                      e.release_id === r.id &&
+                      e.category_id === categoryIdByName[c.categoryName] &&
+                      (c.brand === null || (e.channel_name || "") === (c.brand || "")) &&
+                      (c.platform == null || (e.platform || "") === c.platform) &&
+                      (c.subchannelType == null || (e.subchannel_type || "") === c.subchannelType)
+                    );
+                    return (
+                      <div key={c.key}>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>{c.label}</div>
+                        {c.categoryName === "Ads" ? (() => {
+                          const ctnLocked = c.brand === "YouTube Ads" && r.gate_co_trong_net_youtube !== "true";
+                          return (
+                            <AdsCell
+                              column={c}
+                              booked={bookedFor(r, c.categoryName, c.brand)}
+                              added={addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries)}
+                              existingEntry={cellEntries[0] || null}
+                              canEdit={hangMucFilter !== "All" && !ctnLocked}
+                              locked={ctnLocked}
+                              cellBorderLeft="none"
+                              onSave={(quantity, status) => saveAdsQuantity(r.id, c.brand, c.platform, quantity, status, cellEntries[0] || null)}
+                            />
+                          );
+                        })() : (
+                          <BrandCell
+                            release={r}
+                            column={c}
+                            booked={bookedFor(r, c.categoryName, c.brand)}
+                            cellEntries={cellEntries}
+                            expanded={expandedCell === `${r.id}:${c.key}`}
+                            onToggle={() => setExpandedCell(expandedCell === `${r.id}:${c.key}` ? null : `${r.id}:${c.key}`)}
+                            onAdd={(platform, link) => addEntry(r.id, c.categoryName, c.brand, c.platform || platform, link, c.subchannelType)}
+                            onAddBulk={(rows) => addEntries(r.id, c.categoryName, c.brand, c.platform, c.subchannelType, rows)}
+                            onCycleStatus={cycleStatus}
+                            canAdd={hangMucFilter !== "All"}
+                            cellBorderLeft="none"
+                            referenceChannels={bookingChannels}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1464,7 +1657,7 @@ function PackagePreviewPopup({ release, categories, onClose }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: 480, maxHeight: "80vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 480, width: "100%", maxHeight: "80vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
           <div>
             <div className={styles.eyebrow}>// Package</div>

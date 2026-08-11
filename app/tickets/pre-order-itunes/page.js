@@ -127,6 +127,7 @@ export default function PreOrderItunesTicketList() {
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (
             <>
+            <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
             <table className={styles.table}>
               <thead>
                 <tr><th>Request Date</th><th>Release</th><th>PIC</th><th>Status</th></tr>
@@ -164,6 +165,7 @@ export default function PreOrderItunesTicketList() {
                 })}
               </tbody>
             </table>
+            </div>
             <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </>
           )}
@@ -189,7 +191,7 @@ function PreOrderPopup({ ticket, release, tab, isExecutorView, onUpdateStatus, o
   const color = statusColor(ticket.status);
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: 480, maxHeight: "85vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 480, width: "100%", maxHeight: "85vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
           <div>
             <div className={styles.eyebrow}>// Ticket</div>

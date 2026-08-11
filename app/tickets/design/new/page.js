@@ -305,7 +305,7 @@ export default function NewDesignTicket() {
 
           {urgentConfirmOpen && (
             <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-              <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: 440 }}>
+              <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 440, width: "100%", maxHeight: "85vh", overflowY: "auto" }}>
                 <h3 style={{ fontSize: 15, fontWeight: 800, margin: "0 0 10px" }}>⚠ This request will be marked Urgent</h3>
                 <p style={{ fontSize: 13, color: "var(--text-faint)", lineHeight: 1.5 }}>
                   Either the expected deadline is sooner than the standard 2-week-day lead time (or Friday-after-18:00

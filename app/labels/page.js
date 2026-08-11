@@ -344,6 +344,7 @@ export default function LabelsPage() {
         {labels.length === 0 ? (
           <div className={styles.emptyState}>No labels yet.</div>
         ) : (
+          <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -435,6 +436,7 @@ export default function LabelsPage() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

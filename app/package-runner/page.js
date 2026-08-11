@@ -250,6 +250,7 @@ export default function PackageRunnerPage() {
               </button>
 
               {batchResults && (
+                <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
                 <table className={styles.table} style={{ marginTop: 16 }}>
                   <thead>
                     <tr>
@@ -268,6 +269,7 @@ export default function PackageRunnerPage() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
               {batchResults && (
                 <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8 }}>

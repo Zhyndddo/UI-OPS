@@ -13,6 +13,7 @@ import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import styles from "../../shared.module.css";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
+import { useIsMobile } from "../../../lib/useIsMobile";
 
 function fmtVnd(n) {
   if (n === null || n === undefined || n === "") return "—";
@@ -486,6 +487,18 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const [magicLinkUrl, setMagicLinkUrl] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showBuildPopup, setShowBuildPopup] = useState(false);
+  // Round 87 — mobile plan phase 3/4: this popup used to always show the
+  // Hạng Mục picker + DSP grid ("left panel") side by side with the
+  // Packages panel ("right panel") once Build Package was open — fine at
+  // 900-1600px wide, unusable squeezed into a phone's ~360-430px. Below
+  // the breakpoint this becomes two tabs (Data Entry / Package) instead of
+  // trying to show both at once — per your explicit call, tabs over
+  // stacking, since these two panels are meant to be compared against
+  // each other (see the "Already in package" readout below), not just
+  // read top-to-bottom. Desktop (isMobile false) is completely unaffected
+  // — mobileTab is simply never consulted.
+  const isMobile = useIsMobile();
+  const [mobileTab, setMobileTab] = useState("data"); // "data" | "package"
 
   // Package-building state — lives here now (not in a separate BuildPackagePopup
   // overlay) so the DSP grid (the real live data tool) and the Packages panel
@@ -1227,16 +1240,53 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const hasSavedPackage = packages.length > 0;
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, maxWidth: showBuildPopup ? 1600 : 900, width: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 0 : 20 }} onClick={onClose}>
+      <div
+        style={{
+          background: "var(--bg)",
+          border: isMobile ? "none" : "1px solid var(--border-strong)",
+          borderRadius: isMobile ? 0 : 10,
+          maxWidth: isMobile ? "100vw" : showBuildPopup ? 1600 : 900,
+          width: "100%",
+          height: isMobile ? "100vh" : undefined,
+          maxHeight: isMobile ? "100vh" : "88vh",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
         {loading ? (
           <div className={styles.emptyState} style={{ padding: 24 }}>Loading…</div>
         ) : (
           <>
-            <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+            {/* Round 87 — mobile tab switcher, only rendered once there's
+                actually a Package panel to switch to (showBuildPopup) and
+                only on mobile — desktop never sees this, both panels just
+                show side by side as before. */}
+            {isMobile && showBuildPopup && (
+              <div style={{ display: "flex", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+                {[["data", "Data Entry"], ["package", "Package"]].map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setMobileTab(key)}
+                    style={{
+                      flex: 1, padding: "12px 0", fontSize: 13, fontWeight: 700, cursor: "pointer",
+                      border: "none", borderBottom: mobileTab === key ? "2px solid var(--accent)" : "2px solid transparent",
+                      background: "transparent", color: mobileTab === key ? "var(--accent-soft)" : "var(--text-faint)",
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", flex: 1, overflow: "hidden", flexDirection: isMobile ? "column" : "row" }}>
+              {(!isMobile || !showBuildPopup || mobileTab === "data") && (
+              <>
               {/* LEFT — Hạng Mục picker. Narrowed a bit (was 190) when the
                   Packages panel is open, to give that panel more room. */}
-              <div style={{ width: showBuildPopup ? 160 : 190, borderRight: "1px solid var(--border)", flexShrink: 0, padding: 16, overflowY: "auto" }}>
+              <div style={{ width: isMobile ? "100%" : showBuildPopup ? 160 : 190, borderRight: isMobile ? "none" : "1px solid var(--border)", borderBottom: isMobile ? "1px solid var(--border)" : "none", flexShrink: 0, padding: 16, overflowY: "auto" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>Hạng Mục</div>
                 {categories.map((c) => {
                   const done = summarizedCategoryIds.has(c.id);
@@ -1580,33 +1630,76 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                     numbers were before touching anything here. This reads
                     the active package's own line for the current category/
                     brand directly — updates immediately when the package
-                    tab (right panel) is switched. It's a read-only mirror,
-                    not a reverse-sync: the underlying entries below are
-                    still the one shared release-wide pool (not stored per
-                    package), so this shows what the package HAS, to compare
-                    against, rather than pre-loading the grid's rows from
-                    it — see DATA_FIXES.md for why a full per-package entry
-                    history would need a real schema change. */}
+                    tab (right panel) is switched.
+                    Round 87 follow-up 5 — the underlying entries are still
+                    the one shared release-wide pool (not stored per
+                    package, and Summarize's totals can't be un-mixed back
+                    into the individual per-platform rows that made them
+                    up), so pre-loading the grid's own rows from an old
+                    package is still not possible without a real schema
+                    change (a per-package entry history table) — flagged
+                    again below for your call. What CAN be done without
+                    that: this banner is no longer read-only. Số Lượng/Đơn
+                    Giá/Chi Tiết now write straight to the package line
+                    (same updateLine() the Packages panel's own line editor
+                    uses) the moment you blur out of the field — so fixing
+                    an old package's numbers no longer requires first
+                    rebuilding the grid's entries to match and re-
+                    Summarizing; you can just correct the number right
+                    here, next to the grid you're comparing it against,
+                    without leaving this tab. Summarize (above) still
+                    overwrites these fields wholesale if clicked, same as
+                    before — this is an alternate, narrower way to fix just
+                    this one line without touching the grid at all. */}
                 {activePackage && (() => {
                   const group = currentGroup();
                   if (!group) return null;
                   const line = lineFor(group.categoryId, group.brand);
                   if (!line) return null;
+                  const isAdsLine = group.isAds;
                   return (
                     <div style={{ marginTop: 10, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px" }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 6 }}>
-                        Already in "{activePackage.name}"
+                        Already in "{activePackage.name}" — edit directly, or Summarize above to overwrite from the grid
                       </div>
-                      <div style={{ display: "flex", gap: 20, flexWrap: "wrap", fontSize: 12 }}>
-                        <span>Số Lượng: <strong>{line.quantity ?? "—"}</strong></span>
-                        <span>Đơn Giá: <strong>{fmtVnd(line.unit_price)}</strong></span>
-                        <span>Thành Tiền: <strong>{fmtVnd(line.amount)}</strong></span>
-                        {line.detail && <span style={{ color: "var(--text-faint)" }}>Chi Tiết: {line.detail}</span>}
+                      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
+                        <label style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                          Số Lượng
+                          <input
+                            key={`${line.id}-qty`}
+                            type="number"
+                            className={styles.input}
+                            style={{ display: "block", padding: "4px 8px", fontSize: 12, width: 100, marginTop: 2 }}
+                            defaultValue={line.quantity ?? ""}
+                            onBlur={(e) => updateLine(line, { quantity: e.target.value === "" ? null : Number(e.target.value) })}
+                          />
+                        </label>
+                        <label style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                          Đơn Giá
+                          <input
+                            key={`${line.id}-price`}
+                            type="number"
+                            className={styles.input}
+                            style={{ display: "block", padding: "4px 8px", fontSize: 12, width: 130, marginTop: 2 }}
+                            defaultValue={line.unit_price ?? ""}
+                            onBlur={(e) => updateLine(line, { unit_price: e.target.value === "" ? null : Number(e.target.value) })}
+                          />
+                        </label>
+                        <label style={{ fontSize: 11, color: "var(--text-faint)", flex: "1 1 200px" }}>
+                          Chi Tiết
+                          <input
+                            key={`${line.id}-detail`}
+                            className={styles.input}
+                            style={{ display: "block", padding: "4px 8px", fontSize: 12, width: "100%", marginTop: 2, boxSizing: "border-box" }}
+                            defaultValue={line.detail || ""}
+                            onBlur={(e) => updateLine(line, { detail: e.target.value || null })}
+                          />
+                        </label>
+                        <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                          Thành Tiền: <strong style={{ color: "var(--text)" }}>{fmtVnd(line.amount)}</strong>
+                          {isAdsLine && <span> (not recomputed from Số Lượng × Đơn Giá for Ads — edit Thành Tiền in the Packages panel if it needs to change)</span>}
+                        </span>
                       </div>
-                      <p style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 6, marginBottom: 0 }}>
-                        Compare against the totals below before re-Summarizing — Summarize overwrites this
-                        line with whatever the grid currently shows.
-                      </p>
                     </div>
                   );
                 })()}
@@ -1694,12 +1787,17 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   </div>
                 )}
               </div>
+              </>
+              )}
 
               {/* THIRD — Packages panel. Sits right next to the DSP grid
                   (same screen, same scroll area) instead of a separate
                   overlay on top of this one — editing an entry above and
-                  seeing its package line update are now the same view. */}
-              {showBuildPopup && (
+                  seeing its package line update are now the same view.
+                  Round 87 — on mobile this only renders while the
+                  "Package" tab is active (see the tab switcher above), one
+                  panel visible at a time instead of squeezed side by side. */}
+              {showBuildPopup && (!isMobile || mobileTab === "package") && (
                 <PackagesPanel
                   release={release}
                   categories={categories}
@@ -1722,6 +1820,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   onGenerateLink={handleGenerateLink}
                   proposedPackage={ticket.data?.proposedPackage}
                   onHide={() => setShowBuildPopup(false)}
+                  mobile={isMobile}
                 />
               )}
             </div>
@@ -1815,8 +1914,8 @@ function ClonePickerPopup({ excludeReleaseId, onPick, onClose }) {
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: 480, maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 480, width: "100%", maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
         <div className={styles.eyebrow}>// Clone from another product</div>
         <h3 style={{ fontSize: 15, fontWeight: 800, margin: "0 0 4px" }}>Pick a product with a complete package</h3>
         <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 12 }}>Only releases with a locked package that's actually been built show up here.</div>
@@ -1872,8 +1971,8 @@ function Dot2TargetsPopup({ targets, onSave, onClose }) {
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: 320 }} onClick={(e) => e.stopPropagation()}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 320, width: "100%" }} onClick={(e) => e.stopPropagation()}>
         <div className={styles.eyebrow}>// Đợt 2</div>
         <h3 style={{ fontSize: 15, fontWeight: 800, margin: "0 0 14px" }}>Targets for this release</h3>
         <div style={{ marginBottom: 12 }}>
@@ -2009,8 +2108,8 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
   const name = tierMode === "vinhVien" ? "Độc Quyền Vĩnh Viễn" : tierMode === "intMedia" ? "INT MEDIA" : tierMode === "internal" ? "Internal Package" : `Độc Quyền ${years} năm`;
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onCancel}>
-      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: 320 }} onClick={(e) => e.stopPropagation()}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onCancel}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 320, width: "100%" }} onClick={(e) => e.stopPropagation()}>
         <div className={styles.eyebrow}>// Name Package</div>
         <h3 style={{ fontSize: 15, fontWeight: 800, margin: "0 0 14px" }}>Which tier is this?</h3>
         <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
@@ -2083,6 +2182,7 @@ function PackagesPanel({
   release, categories, packages, activePackageId, setActivePackageId, activePackage,
   namePopup, setNamePopup, createPackage, deletePackage, addPrebuiltLine, deleteLine, reorderLines, updateLine,
   syncYoutubeAdsLine, onToggleRecordingStudio, magicLinkUrl, generatingLink, onGenerateLink, proposedPackage, onHide,
+  mobile,
 }) {
   const hasSavedPackage = packages.length > 0;
   // Round 54 — item A.4: drag-to-reorder. dragIndex tracks which row (by
@@ -2102,7 +2202,7 @@ function PackagesPanel({
 
   return (
     <>
-      <div style={{ width: 620, flexShrink: 0, borderLeft: "1px solid var(--border)", padding: 20, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ width: mobile ? "100%" : 620, flexShrink: 0, borderLeft: mobile ? "none" : "1px solid var(--border)", padding: 20, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
             <div>
               <div className={styles.eyebrow}>// Packages</div>

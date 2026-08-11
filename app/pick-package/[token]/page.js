@@ -645,6 +645,7 @@ export default function PickPackagePage() {
                 )}
                 {c.items?.length > 0 ? (
                   <div style={{ borderTop: "1px solid var(--border)", padding: "8px 16px" }}>
+                    <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
                     <table className={styles.table} style={{ marginTop: 8, tableLayout: "fixed", width: "100%" }}>
                       {/* Round 68 — item 3: Số Lượng (14% -> 16%, ~1.15x)
                           and Thành Tiền (18% -> 21%, ~1.15x) were clipping/
@@ -672,6 +673,7 @@ export default function PickPackagePage() {
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 ) : null}
                 {c.showSharedB && sharedTerms.b && (
@@ -950,6 +952,7 @@ export default function PickPackagePage() {
             )}
 
             {milestones.length > 0 && (
+              <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
               <table className={styles.table}>
                 <thead><tr><th>Chart</th><th>Date</th><th>Rank</th><th>Platform</th></tr></thead>
                 <tbody>
@@ -963,6 +966,7 @@ export default function PickPackagePage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         )}

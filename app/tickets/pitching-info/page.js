@@ -9,6 +9,7 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import { useIsMobile } from "../../../lib/useIsMobile";
 import styles from "../../shared.module.css";
 
 const GENRE_CATEGORIES = [
@@ -118,7 +119,11 @@ export default function PitchingInfoTicketPage() {
   );
 }
 
+const FIELD_KEYS = ["genre", "moods", "songStyles", "cultures", "instruments"];
+const FIELD_LABELS = { genre: "Genre", moods: "Moods", songStyles: "Song Styles", cultures: "Cultures", instruments: "Instruments" };
+
 function PitchingInfoTickets() {
+  const isMobile = useIsMobile();
   const [tab, setTab] = useState(null);
   const [rows, setRows] = useState([]); // { ticket, release }
   const [profiles, setProfiles] = useState([]);
@@ -226,8 +231,64 @@ function PitchingInfoTickets() {
 
         {visibleRows.length === 0 ? (
           <div className={styles.emptyState}>No tickets at this status.</div>
+        ) : isMobile ? (
+          <>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {pagedRows.map(({ ticket, release }) => {
+              const done = fieldsDone(ticket.data);
+              return (
+                <div
+                  key={ticket.id}
+                  onClick={() => setOpenTicketId(ticket.id)}
+                  style={{ cursor: "pointer", border: "1px solid var(--border)", borderRadius: 10, padding: 14, background: "var(--bg-card)" }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>{release?.title || "—"}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{release?.main_artist || "—"} · {release?.label || "—"}</div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Release Date</div>
+                      <div style={{ fontSize: 12 }}>{release?.release_date ? fmtDate(release.release_date) : "—"}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Upload Status</div>
+                      <div style={{ fontSize: 12 }}>{uploadStatus(release) || "—"}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 6 }}>Fields</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                      {FIELD_KEYS.map((key) => (
+                        <div key={key} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-faint)" }}>
+                          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: done[key] ? "#7ee6a8" : "#ffca4d" }} />
+                          {FIELD_LABELS[key]}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>PIC</div>
+                    <select
+                      className={styles.select}
+                      style={{ fontSize: 12, padding: "4px 8px", width: "100%" }}
+                      value={ticket.pic_profile_id || ""}
+                      onChange={(e) => updatePic(ticket, e.target.value)}
+                    >
+                      <option value="">— unassigned —</option>
+                      {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+          </>
         ) : (
           <>
+          <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -257,7 +318,7 @@ function PitchingInfoTickets() {
                     <td>{release?.label || "—"}</td>
                     <td>{release?.release_date ? fmtDate(release.release_date) : "—"}</td>
                     <td>{uploadStatus(release) || "—"}</td>
-                    {["genre", "moods", "songStyles", "cultures", "instruments"].map((key) => (
+                    {FIELD_KEYS.map((key) => (
                       <td key={key}>
                         <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: done[key] ? "#7ee6a8" : "#ffca4d" }} />
                       </td>
@@ -278,6 +339,7 @@ function PitchingInfoTickets() {
               })}
             </tbody>
           </table>
+          </div>
           <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
           </>
         )}

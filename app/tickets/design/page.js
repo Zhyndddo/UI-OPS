@@ -359,7 +359,7 @@ export default function DesignList() {
 
           {processModal && (
             <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={() => setProcessModal(null)}>
-              <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: 420 }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 420, width: "100%" }} onClick={(e) => e.stopPropagation()}>
                 <h3 style={{ fontSize: 15, fontWeight: 800, margin: "0 0 10px" }}>Confirm before moving to Process</h3>
                 <p style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 0 }}>Expected Deadline and PIC are both required.</p>
                 <div className={styles.field}>

@@ -102,6 +102,7 @@ export default function NewreleaseUploadList() {
           <div className={styles.emptyState}>No tickets yet.</div>
         ) : (
           <>
+          <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -162,6 +163,7 @@ export default function NewreleaseUploadList() {
               })}
             </tbody>
           </table>
+          </div>
           <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
           </>
         )}

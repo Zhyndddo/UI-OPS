@@ -5696,3 +5696,234 @@ all) would mean adding a real `package_id` column to `media_booking_content_entr
 Summarize/syncPackageLine around it — a bigger, riskier change I didn't want to make without you
 confirming that's actually what you want, versus the read-only readout above being enough. Let me
 know which one you're after.
+
+## Round 87 follow-up — Mobile plan, phase 1: app shell
+
+No SQL this round. Nothing in this app had any mobile handling before this round — no `@media`
+queries anywhere, sidebar permanently docked at a fixed 250px regardless of viewport. Full plan
+(phases, what's done vs deferred) below; this round is phase 1 only, per your call.
+
+**The plan, in order:**
+1. **App shell** (this round) — sidebar/layout usable on a phone at all.
+2. **Tables** (deferred) — most pages' `.table`s have no horizontal-scroll wrapper today, so on a
+   narrow phone they'd just overflow off-screen. Plan is a cheap universal scroll-wrapper pass
+   first, then converting the highest-traffic tables (Label List, Booking Board, ticket lists) to
+   stacked "card per row" layouts later where scrolling sideways is genuinely awkward.
+3. **Fixed-width panels** (deferred) — anything hardcoded in px (Media Booking's 620px right panel
+   being the big one) needs to go full-width below the breakpoint.
+4. **Media Booking's left/right panel, specifically** (deferred, design confirmed) — you picked
+   **tabs** (Data Entry / Package, one visible at a time) over stacking, for when we build it.
+
+**What shipped this round:**
+- New `lib/useIsMobile.js` — shared `useIsMobile()` hook (768px breakpoint, `window.matchMedia`),
+  everything else below is built on it.
+- `lib/AppShell.js` — now computes `isMobile` and owns `sidebarOpen` state; content's `marginLeft`
+  drops to 0 on mobile (was always `SIDEBAR_WIDTH`); auto-closes the drawer on any route change
+  (covers nav-link clicks, the topbar's click-to-home, and logout's redirect — not just an
+  individual link's own onClick).
+- `lib/Sidebar.js` — takes `open`/`onClose`/`mobile` props. On mobile it's an off-canvas drawer
+  (slides in via `transform`, dark backdrop behind it that closes on tap, a ✕ button added to its
+  header). On desktop `open` is always `true` and `mobile` is always `false`, so it renders exactly
+  as before — zero visual change there.
+- `lib/TopBar.js` — takes `isMobile`/`onMenuClick`; renders a ☰ button on mobile only, pinned left
+  (existing account/notification controls stay pinned right, now wrapped in their own flex group so
+  the hamburger doesn't crowd them).
+
+Desktop is untouched by all of this — every prop above defaults to the old always-open behavior, so
+nothing changes unless `isMobile` actually flips true.
+
+## Round 87 follow-up 2 — Mobile plan, phases 2–4: table scroll, and Media Booking's tabbed panels
+
+No SQL this round.
+
+**Phase 2 — tables now scroll horizontally instead of overflowing off-screen.** 22 `<table>`s
+across 16 files (including `lib/TicketListPage.js`, the shared component behind most of the
+generic ticket list pages, so that one fix covers all of those at once) were missing any kind of
+overflow handling — on a narrow phone they'd just run off the edge of the screen. Each now wraps in
+`<div className={styles.scrollBox} style={{ overflowX: "auto" }}>`, reusing the exact class this
+codebase already had for a different case (bounded-height vertical scroll boxes) specifically for
+its `.scrollBox .table th { top: 0 }` CSS override — setting `overflow-x: auto` forces the browser
+to also treat `overflow-y` as non-visible, which changes what a sticky `<thead>` sticks relative to
+(this is a real, previously-documented gotcha in this codebase's own CSS comments, not a guess).
+Files touched: `app/workstation/milestone/page.js`, `app/report/page.js`, `app/releases/page.js`,
+`app/releases/[id]/page.js`, `app/labels/page.js`, `app/package-runner/page.js`,
+`app/tickets/pitching/page.js`, `app/tickets/pitching-info/page.js`, `app/tickets/publishing/page.js`,
+`app/tickets/pre-order-itunes/page.js`, `app/tickets/phu-luc/page.js`, `app/tickets/split-share/page.js`,
+`app/tickets/newrelease-upload/page.js`, `app/pick-package/[token]/page.js`, `app/task-table/page.js`,
+`lib/TicketListPage.js`. No maxHeight/bounded-scrollbox behavior was added — this is horizontal-scroll
+only, tables still grow to their natural height and the page scrolls normally past them, same as
+before. Still deferred from the original plan: converting the busiest tables to stacked "card per
+row" layouts — scrolling sideways works but isn't the most thumb-friendly option for e.g. the
+Booking Board; flag if you want that next.
+
+**Phases 3/4 — Media Booking's package builder is now full-screen + tabbed on mobile.**
+`app/tickets/media-booking/page.js`'s `PackageBuilderPopup` (the modal with the Hạng Mục picker,
+DSP grid, and Packages panel) used to be a fixed 900–1600px-wide dialog with the DSP grid and
+Packages panel always side by side — unusable squeezed into a ~360-430px phone screen. On mobile
+now:
+- The modal goes full-screen (no border/radius/backdrop padding, fills the viewport).
+- Once "Build Package" is open, a **Data Entry / Package** tab switcher appears (your call — tabs
+  over stacking, since these two panels are meant to be compared against each other, not just read
+  top to bottom). "Data Entry" shows the Hạng Mục picker + DSP grid (stacked, full width); "Package"
+  shows the Packages panel (also full width now — its old fixed 620px is `100%` on mobile instead).
+- Before "Build Package" is even clicked, there's nothing to tab between yet, so no tabs show — just
+  the Hạng Mục picker + DSP grid, stacked and full-width.
+
+Desktop (`isMobile` false) renders exactly as before in every one of these spots — the tab switcher
+never renders, the modal keeps its old fixed max-width, the Packages panel keeps its 620px and left
+border. New shared hook `lib/useIsMobile.js` (introduced in the app-shell round) is what both of
+these builds on — no new mobile-detection logic invented here.
+
+Still deferred: everything else in the original 4-phase list that wasn't tables or Media Booking
+specifically — most other fixed-width panels/popups in the app haven't been audited yet. Say if
+there's a specific page you want checked next, or if you want a full sweep.
+
+## Round 87 follow-up 3 — Booking Board is a card list on mobile
+
+No SQL this round. Per your explicit split ("let's do the card first, then audit the rest later") —
+this round is just Booking Board's card conversion, the popup audit is still open.
+
+`app/booking/page.js` — Booking Board was the table example called out specifically (fixed columns
+plus a dynamic per-DSP column set, sticky first column, `minWidth: 900` even on desktop). Below the
+mobile breakpoint it now renders as a stacked list of per-release cards (new `BookingBoardCards`
+component in the same file) instead of the side-scrolling table:
+
+- Release title/artist/DID/date, and the Phụ Lục badge (TikTok Channel → Partner filter only), as
+  the card header — same content as the table's sticky first column.
+- Package / Media Report as a 2-up labeled block, Result and Note each full-width below.
+- The dynamic per-DSP columns are grouped by Hạng Mục (same grouping the table shows with a
+  thicker border between column groups), each with a small section header, and each column shown as
+  a labeled block with its cell underneath.
+
+The important part: every interactive cell — `ResultCell`, `MediaReportCell`, `BrandCell`, `AdsCell`
+— is the exact same component the table already used, called with the exact same props. Only the
+layout wrapping them changed (table `<td>`s → labeled `<div>` blocks); none of their own logic,
+state, or save behavior was touched, so booking/add-link/bulk-add/status-cycle all work identically
+to desktop, just laid out differently. Desktop is unaffected — `isMobile` false renders the original
+table exactly as before.
+
+Still open: the fixed-width popup audit (Note edit modal, label create/edit popups, ticket detail
+modals, confirmation dialogs, etc. — none of these have been checked yet beyond Media Booking's
+builder from the last round), and converting any other busy tables to cards if Booking Board's
+pattern turns out to be worth repeating elsewhere (Report, task-table, and the ticket lists with a
+lot of columns are the next-most-likely candidates, not done yet).
+
+## Round 87 follow-up 4 — fixed-width popup audit
+
+No SQL this round. Per "go for the auditing" — the other half of the split from the last round.
+
+Swept every centered modal overlay in the app (`position: "fixed", inset: 0` wrapping a
+content div) plus the two anchored dropdown panels (Release Picker, Quick Create), looking for
+ones that would overflow a narrow phone. The safe pattern already used elsewhere (Label's Hợp Tác
+legal popup, `NoteCell`, most of Media Booking's own popups from the earlier rounds) is either
+`maxWidth: Npx, width: "100%"` on the inner div, or `width: "min(Npx, 90vw)"` — both shrink to fit
+a phone screen instead of forcing a fixed pixel width wider than the viewport. A bare `width: Npx`
+with no cap doesn't shrink and clips or forces horizontal scroll on the whole page.
+
+Found and fixed:
+
+- `app/booking/page.js` — the package-preview popup's inner div (`width: 480`) → `maxWidth: 480,
+  width: "100%"`.
+- `app/tickets/media-booking/page.js` — three popups (`ClonePickerPopup`, `Dot2TargetsPopup`,
+  `PackageNamePopup`) each had the same width issue, plus their outer overlay was missing
+  `padding: 20` entirely (so even the shrink-to-fit fix would've touched the very edge of the
+  screen with no breathing room) — added the overlay padding and switched each inner div to
+  `maxWidth: Npx, width: "100%"`.
+- `app/tickets/design/page.js` (Process-move confirm popup) and `app/tickets/pre-order-itunes/page.js`
+  (ticket detail popup) — same `width: Npx` → `maxWidth: Npx, width: "100%"` fix.
+- `app/tickets/design/new/page.js` (Urgent-confirm popup) — same width fix, and it had no
+  `maxHeight`/`overflowY` at all (the confirm text is long), so also added `maxHeight: "85vh",
+  overflowY: "auto"` as a vertical-overflow safety net matching every other popup in the app.
+- `lib/ReleaseNotePopup.js` and `lib/GateFields.js`'s `MoTaPopup` — same width fix; both are shared
+  components used from several pages, so this covers every place that reuses them.
+- `lib/ReleasePicker.js` and `lib/QuickCreate.js` — these aren't centered modals, they're
+  absolute-positioned dropdown panels anchored under their trigger button (`top: 100%, right: 0`).
+  A fixed `width: 320`/`260` can push past the left edge of a narrow phone since they're
+  right-anchored. Changed both to `width: "min(Npx, calc(100vw - 24px))"` so the panel itself
+  never exceeds the viewport (full smart-repositioning so it never sits under the trigger
+  differently was out of scope — just making sure it doesn't clip).
+- `app/new-release/page.js` — the duplicate-release warning and Quick Create popups: added
+  `width: "100%"` next to their existing `maxWidth: 440` (had the cap but not the shrink pairing),
+  and both outer overlays were also missing `padding: 20` — added it to both.
+- `app/workstation/milestone/page.js`'s `ChartEntryPopup` (chart entry for Milestone tracking) —
+  the outer modal itself was already safe (`maxWidth: 780, width: "100%"`), but its *inside* is a
+  fixed 200px chart-picker sidebar next to the data-entry table, and on a phone the whole modal
+  shrinks to under 340px, leaving no real room for the table next to a 200px sidebar. Added
+  `useIsMobile` and made the inner layout stack vertically below the mobile breakpoint
+  (`flexDirection: "column"`, sidebar becomes full-width with a capped height and a bottom border
+  instead of a right border) — same stacking pattern already used for Media Booking's package
+  builder. Desktop is unchanged.
+
+Checked and already safe, no changes made: `app/workstation/pitching/page.js`,
+`app/tickets/pitching-info/page.js`, `app/pick-package/[token]/page.js`, `app/labels/page.js`'s
+own Hợp Tác legal popup, `lib/NoteCell.js`, `lib/Sidebar.js` (not a modal — handled in the app-shell
+round).
+
+Still open (not part of this round, flagging for later): converting other busy tables to cards
+beyond Booking Board (Report, task-table, wide ticket lists — same candidates noted last round);
+Media Booking item 4's deeper "left panel reconstructs the old package's actual rows" version is
+still just the read-only readout from Round 87, pending your call on whether the fuller version is
+worth the schema change; Youtube/Nhạc Số Phụ Lục gate mapping is still unwired (only Publishing was
+confirmed).
+
+## Round 87 follow-up 5 — busy tables → cards on mobile, Media Booking's package
+## readout is now directly editable
+
+No SQL this round.
+
+**Part 1 — extending the card pattern to the other busy tables**, same "identical cells,
+different wrapper" approach Booking Board used: every editable bit is the exact same
+input/select/NoteCell/etc. the desktop `<td>` already rendered, just called once and wrapped
+either in a `<td>` or a labeled `<div>` depending on `isMobile` — so mobile can never drift from
+what desktop already does.
+
+- `lib/TicketListPage.js` — the generic ticket list component most ticket types are thin
+  wrappers around (15 of the app's 26 ticket types use it directly: Artist Profile, Có Trong Net
+  YouTube, Discovery Mode Spotify, the 3 Hợp Đồng types, Khác, MV Spotify, Pre-order iTunes,
+  Priority Sync Lyric, Report Conflict, Sony Publish, Split Share, Stream Update). One change here
+  gives all 15 a mobile card view for free — below the breakpoint each ticket renders as a card
+  (index/date/edited-badge + status pill up top, then each preview field, then PIC/Deadline)
+  instead of a row in an 8-column table.
+- `app/tickets/phai-sinh/page.js` — the busiest bespoke table in the app (15 columns, `minWidth:
+  2000`, Type/Label/Tên Bài+DID/Artist/Contributor/Release/Description/Tác Quyền/URL/Note/LBM
+  url/Hạn Cuối/PIC/Status/Kho Nhạc Progress). Same card treatment — every field, the Kho Nhạc-
+  family greyed-out state, the Open Batch link, and the progress-pill dashboard all carry over
+  exactly, just stacked instead of side-scrolled.
+- `app/tickets/pitching-info/page.js` — its list row was mostly a read-only status-dot preview
+  (5 fields) + PIC picker, with the real editing happening in a popup (already mobile-safe from
+  the earlier audit round). Converted the list itself to cards too — song/artist header, Release
+  Date + Upload Status, the 5 status dots with their labels spelled out (dots alone don't mean
+  much without column headers once there's no table), then PIC.
+
+Checked and left alone: `app/report/page.js` and `app/task-table/page.js`'s tables are already
+narrow (2-5 columns, one capped at `maxWidth: 640`) and scroll fine as-is — converting them to
+cards wouldn't actually improve anything, so skipped rather than churn for its own sake. The
+remaining bespoke ticket tables (Design, Manual Claim, Publishing, Phụ Lục, etc.) are similarly
+narrow (2-4 columns) — flag if a specific one of these is still awkward on your phone and it can
+get the same treatment.
+
+**Part 2 — Media Booking item 4's deeper version.** The real blocker is still what Round 87's
+entry noted: `media_booking_content_entries` (the rows the left DSP grid edits) are one shared
+pool per release, not stored per package, and a package line's Summarize-time totals (Số Lượng/
+Đơn Giá/Chi Tiết) are an already-mixed sum across whatever individual platform/brand rows made
+them up — there's no way to un-mix a package's stored total back into the grid's individual rows,
+so actually pre-loading the grid from an old package still isn't possible without a real schema
+change (a per-package entry history table). Flagging that again rather than guessing at a schema
+change you haven't confirmed you want.
+
+What doesn't need that schema change, and directly answers the actual complaint ("they don't have
+to fix the left to be exact before adding or editing new things") — the "Already in..." banner
+under the left grid is no longer read-only. Số Lượng, Đơn Giá, and Chi Tiết are now real inputs
+that write straight to the package line (the same `updateLine()` the Packages panel's own line
+editor already uses) the moment you blur out of the field, and Thành Tiền recomputes and displays
+live from those (except Ads lines, which keep their Summarize-computed amount, same as
+`updateLine()` already treats them — a note under the field says so). So fixing an old package's
+numbers is now a direct edit right next to the grid you're comparing it against, instead of
+requiring you to reproduce the grid's entries first and click Summarize to overwrite the line.
+Summarize itself is unchanged — still there, still overwrites the line wholesale from the grid,
+for whenever that IS what you want.
+
+Still open: whether the full schema change (real per-package entry history, letting the grid
+itself reconstruct an old package's individual rows) is worth doing — say the word and it can be
+scoped properly; and the same busy-table candidates flagged last round if any of the narrower
+bespoke ticket tables turn out to be worth carding after all.

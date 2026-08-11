@@ -1024,7 +1024,7 @@ export default function NewReleasePage() {
           <div
             style={{
               position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
-              display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+              display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20,
             }}
           >
             <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 24, maxWidth: 440, width: "100%" }}>
@@ -1082,10 +1082,10 @@ export default function NewReleasePage() {
           <div
             style={{
               position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
-              display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+              display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20,
             }}
           >
-            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 24, maxWidth: 440 }}>
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 24, maxWidth: 440, width: "100%" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#ff9d5c", marginBottom: 10 }}>
                 ⚠ Possible duplicate release
               </div>

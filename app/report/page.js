@@ -424,21 +424,23 @@ function ReportPageInner() {
               ) : ticketStatsByType.length === 0 ? (
                 <div className={styles.emptyState}>No ticket types visible for this team.</div>
               ) : (
-                <table className={styles.table}>
-                  <thead>
-                    <tr><th>Type</th><th>Total</th><th>Not Done</th><th>Done</th></tr>
-                  </thead>
-                  <tbody>
-                    {ticketStatsByType.map((t) => (
-                      <tr key={t.key}>
-                        <td>{t.label}</td>
-                        <td>{t.total}</td>
-                        <td style={{ color: "var(--warn-fg)" }}>{t.notDone}</td>
-                        <td style={{ color: "var(--success-fg)" }}>{t.done}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+                  <table className={styles.table}>
+                    <thead>
+                      <tr><th>Type</th><th>Total</th><th>Not Done</th><th>Done</th></tr>
+                    </thead>
+                    <tbody>
+                      {ticketStatsByType.map((t) => (
+                        <tr key={t.key}>
+                          <td>{t.label}</td>
+                          <td>{t.total}</td>
+                          <td style={{ color: "var(--warn-fg)" }}>{t.notDone}</td>
+                          <td style={{ color: "var(--success-fg)" }}>{t.done}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </>
           ) : (
@@ -468,19 +470,21 @@ function ReportPageInner() {
                 {atRiskReleases.length === 0 ? (
                   <div style={{ color: "var(--text-faint)", fontSize: 12 }}>None — nothing overdue in the pipeline right now.</div>
                 ) : (
-                  <table className={styles.table}>
-                    <thead><tr><th>Release</th><th>Label</th><th>Release Date</th><th>Stage</th></tr></thead>
-                    <tbody>
-                      {atRiskReleases.slice(0, 20).map((r) => (
-                        <tr key={r.id}>
-                          <td><Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link> <span style={{ color: "var(--text-faint)", fontSize: 11 }}>· {r.main_artist}</span></td>
-                          <td style={{ fontSize: 12 }}>{r.label}</td>
-                          <td style={{ fontSize: 12, color: "#ff8a80" }}>{fmtDate(r.release_date)}</td>
-                          <td style={{ fontSize: 12 }}>{r.project_type}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+                    <table className={styles.table}>
+                      <thead><tr><th>Release</th><th>Label</th><th>Release Date</th><th>Stage</th></tr></thead>
+                      <tbody>
+                        {atRiskReleases.slice(0, 20).map((r) => (
+                          <tr key={r.id}>
+                            <td><Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link> <span style={{ color: "var(--text-faint)", fontSize: 11 }}>· {r.main_artist}</span></td>
+                            <td style={{ fontSize: 12 }}>{r.label}</td>
+                            <td style={{ fontSize: 12, color: "#ff8a80" }}>{fmtDate(r.release_date)}</td>
+                            <td style={{ fontSize: 12 }}>{r.project_type}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
                 {atRiskReleases.length > 20 && (
                   <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8 }}>+ {atRiskReleases.length - 20} more not shown.</div>
@@ -503,18 +507,20 @@ function ReportPageInner() {
                 {readyNotSent.length === 0 ? (
                   <div style={{ color: "var(--text-faint)", fontSize: 12 }}>None right now.</div>
                 ) : (
-                  <table className={styles.table}>
-                    <thead><tr><th>Release</th><th>Label</th><th>Release Date</th></tr></thead>
-                    <tbody>
-                      {readyNotSent.slice(0, 20).map((r) => (
-                        <tr key={r.id}>
-                          <td><Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link> <span style={{ color: "var(--text-faint)", fontSize: 11 }}>· {r.main_artist}</span></td>
-                          <td style={{ fontSize: 12 }}>{r.label}</td>
-                          <td style={{ fontSize: 12 }}>{fmtDate(r.release_date)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+                    <table className={styles.table}>
+                      <thead><tr><th>Release</th><th>Label</th><th>Release Date</th></tr></thead>
+                      <tbody>
+                        {readyNotSent.slice(0, 20).map((r) => (
+                          <tr key={r.id}>
+                            <td><Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link> <span style={{ color: "var(--text-faint)", fontSize: 11 }}>· {r.main_artist}</span></td>
+                            <td style={{ fontSize: 12 }}>{r.label}</td>
+                            <td style={{ fontSize: 12 }}>{fmtDate(r.release_date)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </SectionCard>
 
@@ -531,20 +537,22 @@ function ReportPageInner() {
                 {topByValue.length === 0 ? (
                   <div style={{ color: "var(--text-faint)", fontSize: 12 }}>No releases have a package value set yet.</div>
                 ) : (
-                  <table className={styles.table}>
-                    <thead><tr><th>Release</th><th>Label</th><th>Tổng Giá Trị Gói</th><th>VIEENT Hỗ Trợ</th><th>Payment Status</th></tr></thead>
-                    <tbody>
-                      {topByValue.map((r) => (
-                        <tr key={r.id}>
-                          <td><Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link> <span style={{ color: "var(--text-faint)", fontSize: 11 }}>· {r.main_artist}</span></td>
-                          <td style={{ fontSize: 12 }}>{r.label}</td>
-                          <td style={{ fontSize: 12, fontWeight: 700 }}>{fmtVnd(r.package_total_value)}</td>
-                          <td style={{ fontSize: 12 }}>{fmtVnd(r.package_vieent_support)}</td>
-                          <td style={{ fontSize: 12 }}>{r.package_payment_status}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+                    <table className={styles.table}>
+                      <thead><tr><th>Release</th><th>Label</th><th>Tổng Giá Trị Gói</th><th>VIEENT Hỗ Trợ</th><th>Payment Status</th></tr></thead>
+                      <tbody>
+                        {topByValue.map((r) => (
+                          <tr key={r.id}>
+                            <td><Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link> <span style={{ color: "var(--text-faint)", fontSize: 11 }}>· {r.main_artist}</span></td>
+                            <td style={{ fontSize: 12 }}>{r.label}</td>
+                            <td style={{ fontSize: 12, fontWeight: 700 }}>{fmtVnd(r.package_total_value)}</td>
+                            <td style={{ fontSize: 12 }}>{fmtVnd(r.package_vieent_support)}</td>
+                            <td style={{ fontSize: 12 }}>{r.package_payment_status}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </SectionCard>
             </>
