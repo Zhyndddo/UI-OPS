@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
+import { isDev } from "../../lib/permissions";
 import { fmtDate } from "../../lib/helpers";
 import {
   RATING_SCALE,
@@ -28,6 +29,10 @@ const CHART_COLORS = ["#ff6b1a", "#5b9dff", "#7ee6a8", "#ffca4d", "#e0672c", "#a
 
 export default function TeamBuildingSurveyPage() {
   const { profile } = useAuth();
+  // Round 85 follow-up — Report tab restricted to dev only, per explicit
+  // request ("hide the report, show it to only the dev"). Everyone can
+  // still fill out the Survey tab; the aggregated/raw results are dev-only.
+  const canSeeReport = isDev(profile);
   const [tab, setTab] = useState("survey");
   const [myAnswers, setMyAnswers] = useState({});
   const [loading, setLoading] = useState(true);
@@ -54,7 +59,7 @@ export default function TeamBuildingSurveyPage() {
   }, [profile?.id]);
 
   useEffect(() => {
-    if (tab !== "report" || !supabase) return;
+    if (tab !== "report" || !supabase || !canSeeReport) return;
     setReportLoading(true);
     supabase
       .from("team_building_survey_responses")
@@ -100,26 +105,28 @@ export default function TeamBuildingSurveyPage() {
             <button onClick={() => setTab("survey")} className={`${styles.tabBtn} ${tab === "survey" ? styles.tabBtnActive : ""}`} style={{ border: "1px solid var(--border)", borderRadius: 6 }}>
               Survey
             </button>
-            <button onClick={() => setTab("report")} className={`${styles.tabBtn} ${tab === "report" ? styles.tabBtnActive : ""}`} style={{ border: "1px solid var(--border)", borderRadius: 6 }}>
-              Report
-            </button>
+            {/* Round 85 follow-up — Report tab hidden from everyone except
+                dev, per explicit request. */}
+            {canSeeReport && (
+              <button onClick={() => setTab("report")} className={`${styles.tabBtn} ${tab === "report" ? styles.tabBtnActive : ""}`} style={{ border: "1px solid var(--border)", borderRadius: 6 }}>
+                Report
+              </button>
+            )}
           </div>
 
-          {tab === "survey" ? (
-            loading ? (
-              <div className={styles.emptyState}>Loading…</div>
-            ) : (
-              <SurveyForm
-                answers={myAnswers}
-                onAnswer={setAnswer}
-                onSubmit={submit}
-                saving={saving}
-                saved={saved}
-                alreadySubmitted={alreadySubmitted}
-              />
-            )
-          ) : (
+          {tab === "report" && canSeeReport ? (
             <ReportView loading={reportLoading} responses={responses} />
+          ) : loading ? (
+            <div className={styles.emptyState}>Loading…</div>
+          ) : (
+            <SurveyForm
+              answers={myAnswers}
+              onAnswer={setAnswer}
+              onSubmit={submit}
+              saving={saving}
+              saved={saved}
+              alreadySubmitted={alreadySubmitted}
+            />
           )}
         </div>
       </div>

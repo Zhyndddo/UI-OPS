@@ -5350,3 +5350,14 @@ checklist:**
 
 All 3 app files are marked with the same "Round 85 — TEMPORARY" comment banner at the top so a
 future round (mine or otherwise) can find and remove every piece without hunting.
+
+### Follow-up — Report tab restricted to dev only
+
+Per explicit request ("hide the report, show it to only the dev"), the Report tab on
+`/team-building-survey` is now gated behind `isDev(profile)` — the tab button itself is hidden for
+everyone else, and the page falls back to the Survey view if a non-dev somehow lands on `tab ===
+"report"` in local state. Everyone can still fill out/resubmit the Survey tab, unchanged. No SQL —
+this is a pure UI visibility change; the underlying data isn't newly locked down at the database
+level (this app has no RLS enabled anywhere — see schema.sql's commented-out `enable row level
+security` lines — so treat this the same as every other role gate in the app: it hides the UI, it
+doesn't cryptographically restrict the API).
