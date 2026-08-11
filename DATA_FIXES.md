@@ -5541,3 +5541,64 @@ context later: nothing else about INT MEDIA changed. It's still an internal-only
 (never shown to the artist on the magic link page), and the "must be a deliberate click, never
 auto-defaulted" safeguard on the package-naming popup is untouched — only how an already-built INT
 MEDIA package's lines display and edit afterward.
+
+## Round 86 follow-up 3 — Marketing Checklist moved above Metadata Checklist (New Release page)
+
+No SQL this round.
+
+Per explicit request ("move the bunch of the marketing button in the dashboard NEW RELEASE to be
+above the data checklist") — on `app/new-release/page.js` (the "New Release" creation form, title
+`// New Release`), the **Marketing Checklist** group (Artist Info/Artist Photo/Project Proposal
+toggles) now renders **above** the **Metadata Checklist** group (Audio/Artwork/Working Files/
+Lyric/MV/Metadata) — was the other order before. Pure reorder, no field/logic changes.
+
+Scoped to just this page, since that's what was named. The release **detail** page
+(`app/releases/[id]/page.js`'s Overview tab) has the same Marketing-Checklist-below-Metadata-
+Checklist layout too, untouched this round — say if you want that one flipped the same way.
+
+## Round 86 follow-up 4 — reverted the Marketing Checklist reorder; INT MEDIA now full-looking on the magic link page too
+
+No SQL this round.
+
+**Item 1 — reverted follow-up 3.** Per explicit request ("reverse the last round, what i meant is
+the send package button bunch") — `app/new-release/page.js` is back to its original order:
+**Metadata Checklist** first, **Marketing Checklist** second. The follow-up-3 change (and its
+"Round 86 follow-up" comment) is fully undone.
+
+I did **not** touch anything else yet, because "the send package button bunch" doesn't line up
+cleanly with what's on either page today — flagging instead of guessing:
+- On `app/releases/[id]/page.js` (the release **detail** page), the "Package Actions" block —
+  Lock editing / **Send Package Ticket to Marketing** / Send INT MEDIA Follow-up / SEND INT
+  SUPPORT PACKAGE / ONLY PH — is **already** positioned above Metadata Checklist. That move
+  happened in an earlier round (there's a "Round 79" comment right above it documenting exactly
+  this: "moved Package Actions ... up here ... per explicit request, everything about the package
+  should live in one place instead of Package Actions sitting far down the page below
+  Metadata/Marketing/Upload").
+- On `app/new-release/page.js` (the **New Release creation** page — the one follow-up 3 actually
+  touched), there is no "Send Package Ticket" button bunch at all — nothing package-related exists
+  there yet, since a release/ticket doesn't exist until the form is submitted.
+
+So: if you want the Package Actions block moved somewhere *else* on the release detail page (it's
+currently right under the Package summary box, above Name/Artist/Release Date and Metadata
+Checklist), or want a package-actions-style block added to the New Release page, let me know
+exactly where and I'll do that next round.
+
+**Item 3 — INT MEDIA on the artist-facing magic link page now looks like Vĩnh Viễn too.**
+`app/pick-package/[token]/page.js` had its own separate "mushed" rendering for INT MEDIA (Hạng Mục
+names only, no quantities/Chi Tiết/pricing, no total value) — a completely different code path from
+the internal Package Builder panel fixed in follow-up 2. Per explicit request ("adapt the look of
+vĩnh viễn package for int package on magiclink too"), that special-case branch is removed: INT
+MEDIA packages now render through the exact same itemized table as Vĩnh Viễn/every other real
+package — Hạng Mục, Số Lượng, Chi Tiết, Thành Tiền per line, plus the total value under the package
+name at the top of the card. The underlying data was already being fetched in full (`media_booking_
+package_lines(*)`) — INT MEDIA packages were just being displayed stripped-down — so this is a
+pure rendering change, no query changes needed.
+
+**Item 2 — YouTube Chi Tiết default — needs one more detail from you before I touch it.** There's
+already a YouTube Ads default Chi Tiết value from Round 78 (`YOUTUBE_ADS_DEFAULT_DETAIL` in
+`app/tickets/media-booking/page.js`: *"Áp dụng kênh youtube nghệ sĩ thuộc MCN, MV thời lượng dưới 5
+phút"*), auto-filled onto the YouTube Ads line whenever that brand's Hạng Mục (Ads) is Summarized —
+already applied globally, for every brand/release, not scoped to one artist or group. I didn't
+change this yet because your message didn't say what the *new* default text should be (or whether
+you want it to replace the Round 78 one above, or be a second default for some other YouTube-
+related Chi Tiết column elsewhere). Send over the exact wording and I'll wire it in next round.

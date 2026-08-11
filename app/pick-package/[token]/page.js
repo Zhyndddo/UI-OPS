@@ -289,8 +289,14 @@ export default function PickPackagePage() {
     setTroGiaBookingItems(parseTroGiaBookingItems(settingsByKey[TRO_GIA_BOOKING_SETTING_KEY]));
 
     const realOptions = (realPackages || []).map((p) => {
-      // INT MEDIA is a mushed package — Hạng Mục names only, never a
-      // price or a calculation, on the build side or here.
+      // Round 86 follow-up — INT MEDIA used to be a mushed package (Hạng
+      // Mục names only, never a price or calculation) both on the build
+      // side and here. Per explicit request, it now looks exactly like
+      // Vĩnh Viễn/other real packages on this magic-link page too — full
+      // itemized table with quantities and Thành Tiền, same as the
+      // internal Package Builder already shows it. `kind` stays
+      // "intMedia" (still distinct from "real") since other logic below
+      // keys off it, but rendering no longer branches on it.
       const isIntMedia = p.name === "INT MEDIA";
       const matchedTier = (p.name || "").trim().toLowerCase();
       return {
@@ -300,7 +306,7 @@ export default function PickPackagePage() {
         termsText: termsByName[matchedTier] || null,
         troGiaBookingText: troGiaByName[matchedTier] || null,
         showSharedB: SHARED_B_TIERS.includes(matchedTier),
-        totalValue: isIntMedia || !(p.media_booking_package_lines || []).some((l) => l.amount != null)
+        totalValue: !(p.media_booking_package_lines || []).some((l) => l.amount != null)
           ? null
           : p.media_booking_package_lines.reduce((sum, l) => sum + (l.amount || 0), 0),
         items: (p.media_booking_package_lines || []).map((l) => {
@@ -637,14 +643,7 @@ export default function PickPackagePage() {
                     {c.termsText && <TermsText text={c.termsText} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
                   </div>
                 )}
-                {c.kind === "intMedia" ? (
-                  // INT MEDIA — Hạng Mục names only, no numbers or pricing.
-                  <div style={{ borderTop: "1px solid var(--border)", padding: "10px 16px", display: "grid", gap: 6 }}>
-                    {c.items.map((item, i) => (
-                      <div key={i} style={{ fontSize: 12, color: "var(--text-muted)" }}>{item.category}</div>
-                    ))}
-                  </div>
-                ) : c.items?.length > 0 ? (
+                {c.items?.length > 0 ? (
                   <div style={{ borderTop: "1px solid var(--border)", padding: "8px 16px" }}>
                     <table className={styles.table} style={{ marginTop: 8, tableLayout: "fixed", width: "100%" }}>
                       {/* Round 68 — item 3: Số Lượng (14% -> 16%, ~1.15x)
