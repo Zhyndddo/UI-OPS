@@ -247,6 +247,24 @@
   color: var(--text-muted);
 }
 
+/* Round 86 item 5 — "product tag" pills (Publishing / Splitshare / Phụ
+   Lục MG), one color per type so they stay visually distinct sitting next
+   to each other under the Name column / next to the Name row. */
+.pillPublishing {
+  background: rgba(33, 150, 243, 0.15);
+  color: #5cb3ff;
+}
+
+.pillSplitshare {
+  background: rgba(156, 39, 176, 0.15);
+  color: #ce93d8;
+}
+
+.pillPhuLucMg {
+  background: var(--success-bg);
+  color: var(--success-fg);
+}
+
 .statusBadge {
   display: inline-block;
   padding: 3px 10px;

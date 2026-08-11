@@ -18,6 +18,7 @@ import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHA
 import { useAuth } from "../../../lib/AuthContext";
 import { isDev } from "../../../lib/permissions";
 import { runOne } from "../../../lib/packageSimulator";
+import { fetchProductTagSets, ProductTagPills } from "../../../lib/productTags";
 import RelatedDidField from "../../../lib/RelatedDidField";
 import styles from "../../shared.module.css";
 
@@ -101,6 +102,8 @@ export default function ReleaseDetailPage() {
   // gateTicketMap above, so saveTab() below can create any missing gate
   // tickets without an extra read per type on every single save.
   const [gateTabsMap, setGateTabsMap] = useState({});
+  // Round 86 item 5 — see lib/productTags.js
+  const [productTagSets, setProductTagSets] = useState({});
   // Có Trong Net YouTube's own draft (Teaser/Official/Short from-to/Mô Tả)
   // — same "local draft state, only written on Save" pattern as
   // pitchingTypesDraft/artistProfileTypesDraft above, seeded once from the
@@ -141,6 +144,13 @@ export default function ReleaseDetailPage() {
     }, 400);
     return () => clearTimeout(t);
   }, [form?.pseudo_package_parent_did, form?.did]);
+
+  // Round 86 item 5 — same batched fetch the dashboard uses, just for this
+  // one release's pills.
+  useEffect(() => {
+    if (!supabase) return;
+    fetchProductTagSets(supabase).then(setProductTagSets);
+  }, []);
 
   useEffect(() => {
     if (!supabase || !id) return;
@@ -243,6 +253,26 @@ export default function ReleaseDetailPage() {
             // If somehow more than one exists for a type, keep the newest.
             if (key && (!map[key] || new Date(t.created_at) > new Date(map[key].created_at))) map[key] = t;
           });
+          // Round 86 item 4 — Publishing is matched by data.releaseId ===
+          // the release's own id (its real UUID/PK), NOT its did like
+          // every other gate-linked type above — see
+          // app/tickets/publishing/page.js. The batched fetch just above
+          // filters on data->>releaseId = data.did, so it can never match
+          // a real Publishing ticket; this second lookup (only runs when
+          // the batched ticket_tabs fetch found a "publishing" tab, so it
+          // adds zero extra round trips when that type doesn't exist) gets
+          // it right and merges into the same map.
+          if (tabsMap.publishing) {
+            const { data: pubTix } = await supabase
+              .from("tickets")
+              .select("*")
+              .eq("tab_id", tabsMap.publishing.id)
+              .eq("data->>releaseId", data.id)
+              .is("deleted_at", null)
+              .order("created_at", { ascending: false })
+              .limit(1);
+            if (pubTix && pubTix[0]) map.publishing = pubTix[0];
+          }
           setGateTicketMap(map);
           if (map.co_trong_net_youtube) {
             setCoTrongNetDraft({ ...CO_TRONG_NET_DRAFT_DEFAULTS, ...map.co_trong_net_youtube.data });
@@ -392,6 +422,16 @@ export default function ReleaseDetailPage() {
     const sonyPublishSendsUpload = sonyPublishReady && !form.requested;
     const releasePatch = sonyPublishSendsUpload ? { ...form, requested: true } : form;
 
+    // Round 86 item 4 — Publishing, same "loop until ready" idea as Sony
+    // Publish just above, but gated on the inline Giá Trị Publishing value
+    // (see TEXT_GATE_FIELDS in lib/GateFields.js) instead of the Metadata
+    // Checklist. Once ready, the ticket is created with data.releaseId set
+    // to the release's own id (its real UUID/PK) — deliberately NOT
+    // form.did like every other gate-linked ticket type — matching what
+    // app/tickets/publishing/page.js's list actually looks up by.
+    const publishingReady =
+      form.gate_publishing === "true" && !gateTicketMap.publishing && (form.publishing_gia_tri || "").trim() !== "";
+
     const { error: err } = await supabase.from("releases").update(releasePatch).eq("id", id);
     if (err) {
       setSaving(false);
@@ -509,11 +549,15 @@ export default function ReleaseDetailPage() {
     // below — it carries its own Teaser/Official/Short/Mô Tả draft (see
     // coTrongNetDraft above), handled by its own block right after, same
     // reason Pitching/Artist Profile aren't in this generic loop either.
+    // gate_publishing is also excluded — see publishingReady's bespoke
+    // block below, same "gated on real required data, plus a different
+    // releaseId key" reason Sony Publish is excluded.
     const missingGateEntries = Object.entries(GATE_TICKET_TYPES).filter(
       ([gateKey, ticketType]) =>
         gateKey !== "gate_sony_publish" &&
         gateKey !== "gate_phu_luc_truyen_thong" &&
         gateKey !== "gate_co_trong_net_youtube" &&
+        gateKey !== "gate_publishing" &&
         form[gateKey] === "true" &&
         !gateTicketMap[ticketType] &&
         gateTabsMap[ticketType]
@@ -576,6 +620,27 @@ export default function ReleaseDetailPage() {
             data: { releaseId: form.did, project: form.title, artist: form.main_artist, label: form.label },
           });
         }
+      }
+    }
+
+    // Publishing — fires only when publishingReady (computed above, before
+    // the write) was true. data.releaseId is the release's own id, not its
+    // did — see publishingReady's comment above.
+    if (publishingReady) {
+      const pubTab = gateTabsMap.publishing;
+      if (pubTab) {
+        const { data: pubCreated } = await supabase
+          .from("tickets")
+          .insert({
+            tab_id: pubTab.id,
+            data: { releaseId: form.id, giaTri: form.publishing_gia_tri },
+            status: pubTab.default_status,
+            status_log: { [pubTab.default_status]: new Date().toISOString() },
+            requester_segment: form.requester_segment || null,
+          })
+          .select()
+          .single();
+        if (pubCreated) setGateTicketMap((m) => ({ ...m, publishing: pubCreated }));
       }
     }
 
@@ -952,6 +1017,8 @@ export default function ReleaseDetailPage() {
                 {form.title} — {form.main_artist}
               </h1>
             )}
+            {/* Round 86 item 5 — product tag pills, right next to the Name row */}
+            <ProductTagPills styles={styles} release={form} tagSets={productTagSets} style={{ marginBottom: 8 }} />
             <div style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: form.upc ? 4 : 14 }}>
               {form.release_date} {form.release_time}
             </div>

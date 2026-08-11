@@ -88,6 +88,13 @@ const EMPTY_FORM = {
   gate_co_trong_net_youtube: "false",
   design_content_types: [],
   split_share_entries: [],
+  // Round 86 item 4 — Publishing (distinct from Phụ Lục Publishing above).
+  // publishing_gia_tri backs the inline "Giá Trị Publishing" field GateGrid
+  // reveals once this is "true" (see TEXT_GATE_FIELDS in lib/GateFields.js)
+  // — the real ticket needs that value, so auto-create waits on it instead
+  // of firing blank like the other Legal Request types just above.
+  gate_publishing: "false",
+  publishing_gia_tri: "",
 };
 
 const EMPTY_PITCHING_TYPES = { priority: false, spotify: false, apple: false, nct: false, zing: false };
@@ -482,6 +489,27 @@ export default function NewReleasePage() {
         await supabase.from("tickets").insert({
           tab_id: pubTab.id,
           data: { releaseId: data.did },
+          status: pubTab.default_status,
+          status_log: { [pubTab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+
+    // Round 86 item 4 — Publishing. Same "gated on real required data"
+    // idea as Sony Publish just below, but on the inline Giá Trị Publishing
+    // value instead of the Metadata Checklist — and data.releaseId here is
+    // the just-inserted release's own id (data.id), NOT its did like every
+    // other gate ticket type on this page, matching what
+    // app/tickets/publishing/page.js's list actually looks up by. If left
+    // blank at creation time, app/releases/[id]/page.js's saveTab() picks
+    // this back up the moment a value is filled in and Saved.
+    if (form.gate_publishing === "true" && (form.publishing_gia_tri || "").trim() !== "") {
+      const { data: pubTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "publishing").single();
+      if (pubTab) {
+        await supabase.from("tickets").insert({
+          tab_id: pubTab.id,
+          data: { releaseId: data.id, giaTri: form.publishing_gia_tri },
           status: pubTab.default_status,
           status_log: { [pubTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,

@@ -5361,3 +5361,89 @@ this is a pure UI visibility change; the underlying data isn't newly locked down
 level (this app has no RLS enabled anywhere — see schema.sql's commented-out `enable row level
 security` lines — so treat this the same as every other role gate in the app: it hides the UI, it
 doesn't cryptographically restrict the API).
+
+## Round 86 — Khác CC as name-search, dashboard Album Name, Publishing gate field, product tag pills
+
+Came in as a 5-item batched request. Item 3 ("thêm hệ thống tag, trích từ data request") was
+**skipped** per explicit clarification ("skip that one, i mis click it") — no work done on it.
+
+**SQL to run:** `add-round86-publishing-gate.sql` — adds one column, `releases.publishing_gia_tri`
+(idempotent, tested twice against a throwaway local Postgres 16 database — second run is a
+no-op). `releases.gate_publishing` did NOT need a new migration — it already existed in every
+deployed database (added long ago, effectively retired around the Marketing-Request-split round
+as a duplicate of "Phụ Lục Publishing"); this round just puts it back to work for a different
+purpose (see item 4).
+
+### Item 1 — Khác's "Also Notify (CC)" is now a name search, not a free-typed email
+
+`lib/ProfileSearchField.js` (new) — the same live-search-combobox pattern as
+`lib/RelatedDidField.js`, searching `profiles` by name instead of `releases`. Deliberately queries
+`profiles` with **no team filter** (not `filterProfilesByTeam`, which unconditionally drops
+dev-role profiles) so it can reference dev accounts too — per explicit "allow to search reference
+from all team". Wired into both the Khác creation form (`lib/NewTicketPage.js`) and the Khác list
+view's inline row-editing (`lib/TicketListPage.js`); the list-view usage debounces writes to only
+fire on selecting a match or blurring the field (`onCommit`), not on every keystroke, since that
+path writes straight to Supabase on each call.
+
+Still defaults to "Zhyn" (`lib/ticketConfigs.js`'s `khac.alsoNotify` field), but since "Zhyn" has
+no literal `profiles` row anywhere — it's the dev-team nickname for whoever's email is
+`an.thien@vieent.vn` — the default is now resolved live: `NewTicketPage` looks up that email's real
+`profiles.name` on mount and swaps it in for the `"__ZHYN__"` marker, but only if the field is
+still untouched by the time the lookup resolves. `alsoNotify` is confirmed read by zero other code
+in the app (not wired into any notification system), so switching its stored value from email to
+name carries no breakage risk.
+
+### Item 2 — Dashboard: EP/Album DID column hidden, Album Name column added
+
+`app/releases/page.js` only — the release **detail** page's own EP/Album DID field
+(`pseudo_package_parent_did`) is untouched, still fully editable there. The dashboard's index
+column is gone (along with its inline `RelatedDidField` editor and the now-dead `updateTrackDid`
+helper), replaced by a read-only "Album Name" column: each row's `pseudo_package_parent_did`
+resolved against its parent release's `title`, via a client-side `Map` built with `useMemo` — the
+dashboard already loads the entire `releases` table into memory, so this needed no extra query.
+
+### Item 4 — New "Publishing" field in the Legal Request group (+ a real data-shape fix)
+
+Added `gate_publishing` back to `lib/GateFields.js`'s `LEGAL_REQUEST_FIELDS`, labeled "Publishing"
+— genuinely distinct from "Phụ Lục Publishing" already in that group (this is the round-72
+standalone Publishing ticket type, `app/tickets/publishing/page.js`).
+
+**The mismatch, and the fix:** every other Legal Request field's auto-create-on-Save path writes
+the release's **did** into the new ticket's `data.releaseId` — but Publishing's real ticket list
+looks tickets up by `data.releaseId === releases.id` (the actual UUID/PK), confirmed straight from
+`app/tickets/publishing/page.js`. Wiring Publishing into the generic pattern as-is would have
+created tickets the real Publishing list could never find. Fixed by excluding `gate_publishing`
+from that generic loop (same exclusion mechanism already used for Sony Publish/Phụ Lục Truyền
+Thông/Có Trong Net YouTube) and giving it its own block, in both `app/releases/[id]/page.js`'s
+Save and `app/new-release/page.js`'s creation flow, that writes `data.releaseId = release's real
+id`. The existing-ticket lookup that feeds the green "✓ Ticket Sent" link is fixed the same way —
+a second targeted query keyed on `id`, since the page's normal batched gate-ticket fetch (keyed on
+`did`) can never match a real Publishing ticket.
+
+**A second problem surfaced while implementing, resolved per your explicit answer** ("can we
+create a popup or just a field for it on creation and use that for the column"): Publishing's real
+ticket requires a "Giá Trị Publishing" value that has no inline-edit path on the Publishing list
+page — only set at creation. Auto-creating blank like Splitshare/Phụ Lục MG would have left it
+permanently unfillable outside a raw DB edit. Instead, ticking "Publishing" to Yes reveals an
+inline "Giá Trị Publishing" text field right there (same idiom `URL_GATE_FIELDS` already uses for
+Artist Photo/Project Proposal/Pre-order, just a plain value instead of a URL — see
+`TEXT_GATE_FIELDS` in `lib/GateFields.js`), backed by the new `releases.publishing_gia_tri` column.
+The real ticket only auto-creates once that field is non-blank (same "loop until ready" gating
+Sony Publish already uses for its own required-metadata condition) — carrying that value into the
+new ticket's `data.giaTri`. Until then, a small warning under the toggle says so, mirroring Sony
+Publish's own "not enough data yet" hint.
+
+### Item 5 — "Product tag" pills (Publishing / Splitshare / Phụ Lục MG)
+
+New `lib/productTags.js` — a small pill shown under the Name column on the dashboard
+(`app/releases/page.js`) and right next to the Name row on the release detail page
+(`app/releases/[id]/page.js`), one per: Publishing, Splitshare, Phụ Lục MG. A pill shows only if
+that release currently has an ACTIVE (non-deleted) ticket of that type — ticket existence is the
+authority, same as the green "✓ Ticket Sent" links already use, not any gate boolean's value.
+Publishing is matched by `release.id`, Splitshare/Phụ Lục MG by `release.did` — same mismatch as
+item 4, handled the same way (`matchBy` per tag type in `PRODUCT_TAG_TYPES`).
+
+One batched fetch (`fetchProductTagSets()` — 3 queries total, fixed cost) powers both pages; the
+dashboard calls it once for every row on screen rather than one query per row. 3 new pill color
+variants added to `app/shared.module.css` (`.pillPublishing`, `.pillSplitshare`, `.pillPhuLucMg`)
+alongside the existing `.pill`/`.pillOrange`/`.pillGray`.

@@ -6,11 +6,11 @@ import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import { fmtDate, metadataPercent, uploadPercent, fetchAllRows } from "../../lib/helpers";
 import { buildProductNote } from "../../lib/releaseNotes";
-import RelatedDidField from "../../lib/RelatedDidField";
 import { useSortableRows } from "../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../lib/SortableTh";
 import { usePagination } from "../../lib/usePagination";
 import Pagination from "../../lib/Pagination";
+import { fetchProductTagSets, ProductTagPills } from "../../lib/productTags";
 import styles from "../shared.module.css";
 
 const CHANNELS = ["VIEENT", "ENVI"];
@@ -49,6 +49,7 @@ export default function ReleasesDashboard() {
   const [bookingPct, setBookingPct] = useState({}); // release_id -> %
   const [pitchingData, setPitchingData] = useState({}); // did -> pitching ticket's data (selected types)
   const [labels, setLabels] = useState([]);
+  const [productTagSets, setProductTagSets] = useState({}); // Round 86 item 5 — see lib/productTags.js
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [savingChannel, setSavingChannel] = useState(null); // release id currently being saved
@@ -110,6 +111,11 @@ export default function ReleasesDashboard() {
         });
         setPitchingData(map);
       }
+
+      // Round 86 item 5 — one batched fetch (3 queries total, not one per
+      // row) for the product tag pills' Publishing/Splitshare/Phụ Lục MG
+      // ticket existence — see lib/productTags.js.
+      setProductTagSets(await fetchProductTagSets(supabase));
 
       setLoading(false);
     })();
@@ -190,6 +196,17 @@ export default function ReleasesDashboard() {
     }
   }, [search]);
 
+  // Round 86 item 2 — "Album Name" column resolves each row's
+  // pseudo_package_parent_did against its parent release's title. The
+  // dashboard already loads the entire releases table into memory (see
+  // fetchAllRows above), so this is a free client-side lookup — no extra
+  // query needed.
+  const albumNameByDid = useMemo(() => {
+    const map = new Map();
+    releases.forEach((r) => { if (r.did) map.set(r.did, r.title); });
+    return map;
+  }, [releases]);
+
   const filteredReleases = useMemo(() => {
     const now = new Date();
     const startOfToday = new Date(now);
@@ -258,20 +275,11 @@ export default function ReleasesDashboard() {
     setSavingChannel(null);
   }
 
-  // Round 79 — EP/Album DID (pseudo package): inline-editable straight from
-  // the dashboard row, same field as the release detail page's own EP/Album
-  // DID box (lib/RelatedDidField.js does the search/autocomplete there and
-  // here identically — both just write releases.pseudo_package_parent_did).
-  // Round 83 item 3 — relabeled from "Track DID" (see release detail
-  // page's matching rename) — this field holds the PARENT's DID, not this
-  // track's own, and setting it now correctly removes this release's own
-  // package flow entirely in favor of the parent's (release detail page
-  // gap fix, same round).
-  async function updateTrackDid(release, value) {
-    const clean = (value || "").trim();
-    setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, pseudo_package_parent_did: clean || null } : r)));
-    await supabase.from("releases").update({ pseudo_package_parent_did: clean || null }).eq("id", release.id);
-  }
+  // Round 79's updateTrackDid (inline-editable EP/Album DID straight from
+  // this dashboard row) was removed in round 86 item 2 — the column it fed
+  // is now hidden here entirely (see the "Album Name" column below); the
+  // field itself is untouched and still editable from the release detail
+  // page.
 
   const { sorted: sortedReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(sortedReleases);
@@ -355,10 +363,12 @@ export default function ReleasesDashboard() {
                 <SortableTh label="Package" sortKey="release_category" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Label" sortKey="label" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Name" sortKey="title" sort={sort} onToggle={toggleSort} />
-                {/* Round 83 item 3 — relabeled from "Track DID"; this
-                    column holds the PARENT EP/Album's DID, not this row's
-                    own. */}
-                <th>EP/Album DID</th>
+                {/* Round 86 item 2 — "EP/Album DID" column hidden from this
+                    index per explicit request (the release detail page's
+                    own field is untouched — see the pseudo_package_parent_did
+                    field there). Replaced here with "Album Name", the
+                    resolved parent release's title for that same DID. */}
+                <th>Album Name</th>
                 <SortableTh label="Artist" sortKey="main_artist" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Release Date" sortKey="release_date" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Status" sortKey="status" sort={sort} onToggle={toggleSort} />
@@ -418,13 +428,11 @@ export default function ReleasesDashboard() {
                       onMouseLeave={() => setHoverRelease(null)}
                     >
                       <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
+                      {/* Round 86 item 5 — product tag pills */}
+                      <ProductTagPills styles={styles} release={r} tagSets={productTagSets} style={{ marginTop: 4 }} />
                     </td>
-                    <td onClick={(e) => e.stopPropagation()} style={{ minWidth: 160 }}>
-                      <RelatedDidField
-                        styles={styles}
-                        value={r.pseudo_package_parent_did || ""}
-                        onChange={(v) => updateTrackDid(r, v)}
-                      />
+                    <td style={{ minWidth: 160 }}>
+                      {(r.pseudo_package_parent_did && albumNameByDid.get(r.pseudo_package_parent_did)) || "—"}
                     </td>
                     <td>{r.main_artist}</td>
                     <td>{fmtDate(r.release_date)}</td>
