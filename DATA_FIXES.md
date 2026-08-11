@@ -5149,3 +5149,49 @@ unaffected — its own call site doesn't pass the prop, so it still gets the col
 Removed the DID column from the Pitching Info ticket list table. The DID is still visible inside
 each ticket's popup detail view (unchanged) — only the list column was hidden, per the request's
 wording ("hide DID column").
+
+## Round 82 — Task Table overview, Trợ Giá Booking reference page, 3 new Legal ticket types
+
+One SQL migration this round (`add-round82-hop-dong-tickets.sql`) — item 3 seeds 3 new rows into
+`ticket_tabs`. Idempotent (`on conflict (key) do nothing`), tested against a throwaway local
+Postgres 16 database (fresh insert, then re-run to confirm the second run inserts 0 rows). `schema.sql`
+updated too so a fresh install seeds all 3 from the start.
+
+### 1. New sidebar page: Task Table
+
+New "Task Table" sidebar entry (`app/task-table/page.js`, between Report and the team's own
+ticket-type shortcuts) — a fully read-only overview, one row per workstation and one row per ticket
+type (33 rows total: 8 workstations + 22 existing ticket types + the 3 new ones from item 3 below;
+`batch_phai_sinh` excluded — retired/merged into `phai_sinh`, its route just redirects there). Two
+columns: task name, and a row count that's a clickable link straight to that task's own page. Row
+counts come from a live query per task (`tickets` filtered by tab_id for ticket types; each
+workstation's own backing table/filter, matching its real list page's query — e.g. Booking counts
+all `releases`, Upload counts `releases` where `requested = true`, Milestone counts
+`milestone_chart_entries`). `package_price` is a real placeholder page with no data behind it yet —
+counts 0 rather than querying a table that doesn't exist. Pitching's workstation and ticket-type
+rows both exist and are labeled distinctly ("— Workstation" / "— Ticket" suffix) since they're
+different lenses on related but separately-routed data, not duplicates.
+
+### 2. New reference page: Trợ Giá Booking
+
+New read-only content page (`app/tro-gia-booking/page.js`), added as a new card in the existing
+Reference page's grid (`app/reference/page.js` — this page is itself literally a table-of-contents
+of read-only reference pages, so a new entry there was the natural fit for "add a new table of
+content, just readable"). Content transcribed verbatim from the delivered `tro gia booking.xlsx`
+(Sheet1, 3 rows — TikTok Channel subsidy rates, CapCut template subsidy rate, and the ADS rate
+card — each with its original Google Sheets link). No DB call at all — same fully-static pattern as
+the existing Reference page.
+
+### 3. Three new blank Legal ticket types
+
+"Hợp Đồng Youtube", "Hợp Đồng Publishing", "Hợp Đồng Nhạc Số" — new ticket types under the Legal
+team, built as the exact same minimal shape as the existing Splitshare/Phụ Lục MG/Phụ Lục
+Publishing types (`lib/ticketConfigs.js`): DID + Note only, no bespoke fields, AR requests / Legal
+executes, one ticket per release, generic `TicketListPage`/`NewTicketPage` rendering (no bespoke
+page code needed — each is a ~6-line page file, matching Report Conflict's wiring). Wired into
+`lib/teamTypes.js` (`TEAM_TICKET_TYPES.Legal`, `TICKET_TYPE_LABELS`, `TICKET_ROUTES`) and
+`lib/notDoneCounts.js` (`DUAL_VIEW_EXECUTOR_TEAM`, same as their 3 siblings) so they show up
+correctly in the Tickets index, TypeSwitcher, and worklist counts with no further changes needed
+there. **Assumption**: matched the "blank template" instruction to the DID+note shape of the
+sibling Legal types exactly (including one-ticket-per-release) rather than inventing new fields —
+flagging this in case a real contract needs more fields than that later.
