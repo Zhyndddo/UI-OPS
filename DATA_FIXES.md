@@ -6003,3 +6003,36 @@ it does exactly what the real button does. The moment the real button scrolls ba
 actually at the bottom), the floating one disappears instead of sitting on top of it, per "if they
 are at the bottom... show it where it is as current instead." Detected via IntersectionObserver on
 the real button, no polling/scroll-listener needed.
+
+## Round 88 follow-up — Copyright Checklist replaced with a flat 3-field template
+
+No new SQL — `releases.copyright_checklist` is still the same jsonb column from Round 88 (jsonb
+has no fixed shape, so it just holds a differently-shaped value now); nothing to migrate. A
+release saved under the old nested shape just reads back blank under the new fields rather than
+crashing (`normalizeCopyrightChecklist` ignores keys it doesn't recognize).
+
+Per explicit "change of plan," the nested Owner→Who→Name→Contract-confirm-method structure from
+Round 88 is gone. All 3 rights (Quyền nhà xuất bản, Quyền của người biểu diễn, Quyền tác giả) now
+use the same flat 3-field template instead:
+
+1. **Owner** — single choice "Tự sản xuất" / "Hợp tác"; picking "Hợp tác" reveals one text field
+   below it for who.
+2. **Validity Period** — a from/to date range, with quick-preset buttons (6 tháng / 1 năm / 2 năm
+   / Vĩnh viễn) that fill both dates in one click instead of hand-picking each — "Vĩnh viễn" clears
+   the end date and marks it perpetual explicitly (so "picked perpetual on purpose" and "never
+   touched this field" don't look the same). The two date inputs are still there underneath for a
+   custom range.
+3. **Contract** — one textbox; typing/pasting a URL in there turns it into a clickable link
+   automatically (reused `lib/LinkOrEditCell.js` — Phái Sinh/Manual Claim's URL columns already
+   work exactly this way, so this isn't new UI, just reused).
+
+Same shared component (`lib/CopyrightChecklistFields.js`) on the create form and the release
+detail page, so they still can't drift apart. The index dashboard's compiled summary line updates
+to match — `Q1: Tự SX · Q2: Hợp tác · Q3: Tự SX`, still layer-1-only, same spot under the release
+title as before.
+
+The Excel template/import (Round 88 item 2) updates its Copyright Checklist columns to match the
+new shape: `<right> — Owner`, `<right> — Hợp tác với ai`, `<right> — Validity From`, `<right> —
+Validity To (hoặc "Vĩnh viễn")`, `<right> — Contract` — 5 columns × 3 rights, same as before, just
+renamed/reshaped to the new fields. "Vĩnh viễn" (or "vinh vien"/"perpetual"/"trọn đời") typed into
+a Validity To cell is recognized and sets the perpetual flag instead of failing date validation.
