@@ -9,6 +9,7 @@ import TypeSwitcher from "../../lib/TypeSwitcher";
 import { usePagination } from "../../lib/usePagination";
 import Pagination from "../../lib/Pagination";
 import { useIsMobile } from "../../lib/useIsMobile";
+import { ARTIST_PROFILE_LINKS_SETTING_KEY, DEFAULT_LINKFIRE_URL } from "../../lib/externalTools";
 import styles from "../shared.module.css";
 
 // Every Hạng Mục here uses the same 2-layer pattern: pick a sub-filter
@@ -143,6 +144,14 @@ export default function BookingBoard() {
   const [expandedCell, setExpandedCell] = useState(null); // `${releaseId}:${categoryName}:${brand}` or null
   const [packagePreview, setPackagePreview] = useState(null); // release being previewed, or null
   const [bookingChannels, setBookingChannels] = useState([]); // booking_channels reference table — see BrandCell's Add Link popup
+  // Round 91 — Linkfire's URL, admin-editable in Config → External Tool
+  // Links (same app_settings row Spotify/Apple Music/Discovery Mode
+  // already live in) instead of hardcoded here — Linkfire can change their
+  // own URL without needing another round. Starts at the known-good
+  // default and gets overwritten by load() below the moment the setting
+  // row is read, so the button is never dead while that fetch is in
+  // flight.
+  const [linkfireUrl, setLinkfireUrl] = useState(DEFAULT_LINKFIRE_URL);
   // Round 87 — mobile plan phase, part 2: Booking Board is the busiest
   // table in the app (fixed columns + a dynamic per-DSP column set,
   // sticky first column, wide enough it needs minWidth:900 even on
@@ -195,6 +204,7 @@ export default function BookingBoard() {
     // from scratch every time. Missing table/no rows just means no
     // suggestions show up; the popup still works exactly as before.
     const { data: chans } = await supabase.from("booking_channels").select("*");
+    const { data: extLinks } = await supabase.from("app_settings").select("value").eq("key", ARTIST_PROFILE_LINKS_SETTING_KEY).maybeSingle();
     // Round 79 — pseudo-package tracks (releases linked to a parent EP/Album
     // via pseudo_package_parent_did) skip the whole booking process and
     // never appear on the Booking board at all.
@@ -205,6 +215,7 @@ export default function BookingBoard() {
     setPackages(pkgs || []);
     setDot2ReleaseIds(new Set((targets || []).map((t) => t.release_id)));
     setBookingChannels(chans || []);
+    if (extLinks?.value?.linkfire) setLinkfireUrl(extLinks.value.linkfire);
     setLoading(false);
   }
 
@@ -572,7 +583,26 @@ export default function BookingBoard() {
             <div className={styles.eyebrow}>// Booking Tracker</div>
             <h1 className={styles.title} style={{ marginBottom: 0 }}>Booking Board</h1>
           </div>
-          <button className={styles.btnSecondary} onClick={exportCsv}>⇩ Export CSV</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            {/* Round 91 — Marketing's own external tool for actually
+                CREATING a link (Linkfire), opened right next to Export CSV
+                so it's in the same place they're already looking, instead
+                of hunting down the URL themselves each time. Plain new-tab
+                link, not an embed/iframe — Linkfire itself isn't part of
+                this app, this is just a fast door to it. URL is now
+                admin-editable (Config → External Tool Links) rather than
+                hardcoded — see linkfireUrl/load() above. */}
+            <a
+              href={linkfireUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.btnSecondary}
+              style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+            >
+              🔗 Linkfire
+            </a>
+            <button className={styles.btnSecondary} onClick={exportCsv}>⇩ Export CSV</button>
+          </div>
         </div>
 
         {/* Scoped to this page only (inline override, not a shared.module.css

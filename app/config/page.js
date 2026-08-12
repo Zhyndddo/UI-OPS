@@ -8,6 +8,7 @@ import { DEFAULT_DESIGN_NOTIFICATION_TEMPLATES } from "../../lib/designFlow";
 import { ROLES, ROLE_LABELS, isDev as isDevRole, isAdminOrAbove, canManageOrgConfig, canManageTeamMembers, assignableRoles, scopeableTeamMembers } from "../../lib/permissions";
 import { filterProfilesByTeam } from "../../lib/workstationHelpers";
 import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../lib/troGiaBooking";
+import { DEFAULT_LINKFIRE_URL } from "../../lib/externalTools";
 import styles from "../shared.module.css";
 
 const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
@@ -1472,10 +1473,20 @@ function SessionsSection() {
 // Mode's URL starts blank per explicit request ("just make the button,
 // I'll send the url later, the team is confirming which to use") — its
 // button renders disabled/greyed until this is filled in.
+// Round 91 — Linkfire's URL was hardcoded straight into Booking Board's
+// button (app/booking/page.js). Moved into this same admin-editable
+// app_settings row, alongside the other 3rd-party tool links here, for the
+// exact reason the comment below already gives for those — the 3rd party
+// can change their own URL without needing another round/deploy. Booking
+// Board reads this same "linkfire" key at load, falling back to
+// DEFAULT_LINKFIRE_URL (lib/externalTools.js) if the setting row hasn't
+// been touched yet (brand-new installs, or before anyone's saved a value
+// here).
 function ArtistProfileLinksSection() {
   const [spotify, setSpotify] = useState("");
   const [apple, setApple] = useState("");
   const [discoveryMode, setDiscoveryMode] = useState("");
+  const [linkfire, setLinkfire] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1486,6 +1497,7 @@ function ArtistProfileLinksSection() {
       setSpotify(data?.value?.spotify || "");
       setApple(data?.value?.apple || "");
       setDiscoveryMode(data?.value?.discoveryMode || "");
+      setLinkfire(data?.value?.linkfire || DEFAULT_LINKFIRE_URL);
       setLoading(false);
     });
   }, []);
@@ -1494,7 +1506,7 @@ function ArtistProfileLinksSection() {
     setSaving(true);
     await supabase.from("app_settings").upsert({
       key: "artist_profile_links",
-      value: { spotify: spotify.trim(), apple: apple.trim(), discoveryMode: discoveryMode.trim() },
+      value: { spotify: spotify.trim(), apple: apple.trim(), discoveryMode: discoveryMode.trim(), linkfire: linkfire.trim() },
     });
     setSaving(false);
     setSaved(true);
@@ -1520,6 +1532,10 @@ function ArtistProfileLinksSection() {
       <div className={styles.field}>
         <label className={styles.fieldLabel}>Discovery Mode Clip Tool URL</label>
         <input className={styles.input} value={discoveryMode} onChange={(e) => setDiscoveryMode(e.target.value)} placeholder="Team is still confirming which tool to use — leave blank for now" />
+      </div>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Linkfire URL (Booking Board's "🔗 Linkfire" button)</label>
+        <input className={styles.input} value={linkfire} onChange={(e) => setLinkfire(e.target.value)} placeholder={DEFAULT_LINKFIRE_URL} />
       </div>
       <button className={styles.btnPrimary} onClick={save} disabled={saving}>
         {saving ? "Saving…" : "Save"}

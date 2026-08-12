@@ -2133,20 +2133,40 @@ function UrlTab({ form, update, onSave, saving, did, releaseId }) {
             </div>
           )}
         </Field>
+        {/* Round 88 follow-up 5 — the team's own domain has been hard to
+            share/trust with artists, so links are now sometimes re-hosted
+            through a third-party link host under a custom domain instead.
+            This is that custom-domain URL, paired directly under the real
+            auto-mapped link above (same Package Offer -> Media Report name
+            toggle, since it's meant to point at that SAME link, just
+            fronted by the team's own domain) — a manually-pasted record,
+            not an automatic integration with any link-host API. */}
+        <Field label={form.media_report_status ? "Custom Domain — Media Report" : "Custom Domain — Package Offer"}>
+          <UrlField
+            styles={styles}
+            wide
+            value={form.link_media_report_custom}
+            onChange={(v) => update("link_media_report_custom", v)}
+            placeholder="https://your-custom-domain.com/…"
+          />
+          <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 3 }}>
+            Optional — paste the third-party/custom-domain short link once created; point it at the link above.
+          </div>
+        </Field>
         {urlFields.map(([key, label]) =>
           key === "smartlink" && form.needs_update ? (
             <Field key={key} label={label}>
-              <UrlField styles={styles} value={form[key]} onChange={(v) => update(key, v)} disabled disabledTitle={PRIORITY_MODE_WARNING} />
+              <UrlField styles={styles} wide value={form[key]} onChange={(v) => update(key, v)} disabled disabledTitle={PRIORITY_MODE_WARNING} />
             </Field>
           ) : (
             <Field key={key} label={label}>
-              <UrlField styles={styles} value={form[key]} onChange={(v) => update(key, v)} />
+              <UrlField styles={styles} wide value={form[key]} onChange={(v) => update(key, v)} />
             </Field>
           )
         )}
       </div>
       <Field label="URL Phụ Lục">
-        <UrlField styles={styles} value={form.link_phu_luc} onChange={(v) => update("link_phu_luc", v)} />
+        <UrlField styles={styles} wide value={form.link_phu_luc} onChange={(v) => update("link_phu_luc", v)} />
       </Field>
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
         Status Phụ Lục: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{plStatus}</span>
@@ -2161,7 +2181,7 @@ function UrlTab({ form, update, onSave, saving, did, releaseId }) {
           wrong/reverted; that field belongs to Phụ Lục Publishing only,
           left untouched again). See app/tickets/publishing/ for the list. */}
       <Field label="URL Publishing">
-        <UrlField styles={styles} value={form.link_publishing} onChange={(v) => update("link_publishing", v)} />
+        <UrlField styles={styles} wide value={form.link_publishing} onChange={(v) => update("link_publishing", v)} />
       </Field>
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -8, marginBottom: 16 }}>
         Status Publishing: <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{publishingStatusClient(form)}</span>

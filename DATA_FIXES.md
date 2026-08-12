@@ -6190,3 +6190,63 @@ only — same one-column-concat layout the "Trợ Giá Booking" section right be
 (picture 3) — while desktop keeps the exact same 2-column layout as before, completely unchanged.
 Detected the same way the rest of the mobile work in this app already does (Round 87's
 `useIsMobile()` hook, 768px breakpoint) — the same hook is now also used to fix item 3 above.
+
+## Round 91 — custom-domain sub-link for the magic link, URL tab width fix (this page only), Linkfire button on Booking Board
+
+**New SQL — separate file, run once:** `add-round91-link-media-report-custom.sql`
+
+```sql
+ALTER TABLE releases
+  ADD COLUMN IF NOT EXISTS link_media_report_custom text;
+```
+
+Tested against a local throwaway Postgres 16 database: ran once (succeeded), ran a second time
+(correctly no-op'd with an "already exists, skipping" notice), verified the column shape
+(nullable `text`, no default) and a real insert/read round-trip, then dropped the test database.
+
+**Custom-domain sub-link.** Per your note on the domain-sharing difficulty — the team's own domain
+has been hard to trust/share with artists, so links are getting re-hosted through a third-party
+link host under a custom domain instead. Added a new field, `Custom Domain — Package Offer` /
+`Custom Domain — Media Report` (same name-toggle as the field above it, since it's meant to point
+at that same underlying magic link), right under the existing auto-mapped Link Package Offer/Media
+Report field on the release detail page's URL tab. It's a plain manually-pasted URL field — once
+OPS/marketing sets up the third-party redirect for a release, paste that resulting short link here
+so it's on record next to the real one. This is not an automatic integration with any link-host's
+API (none was asked for) — just a place to keep the two paired.
+
+**URL tab width fix — this page only.** Every URL field on this tab (`lib/UrlField.js`) was
+visibly narrower than the rest of the form. Root cause: Round 80/81 capped that shared component's
+width at ~110px (single URL) / ~150px (multi-URL) specifically so a long URL couldn't stretch a
+narrow table column — a fix aimed at places like Booking Board's table cells, where `UrlField` is
+also used. The release detail page's URL tab isn't a table though — it's a full two-column form —
+so that same cap just made every field there look oddly short for no reason relevant to this page.
+Fixed by adding an opt-in `wide` prop to `UrlField` (defaults to off, so every other place already
+using it — Booking Board, ticket forms, everywhere else — is completely unaffected) and passing it
+only from this tab's own fields, which now fill their column the same way UPC/the other plain
+inputs on the same page already do.
+
+**Linkfire button on Booking Board.** Added a small "🔗 Linkfire" button next to Export CSV, top
+right of the Booking Board page — opens `https://app.linkfire.com/#/vieent-coltd/dashboard` in a
+new tab. Marketing's own tool for actually creating a link now sits in the same spot they're
+already looking at (top of the board) instead of needing the URL saved/bookmarked separately. Plain
+link to Linkfire's own site, not embedded in this app.
+
+## Round 91 follow-up — Linkfire URL moved into Config, corrected to the right link
+
+No SQL — `app_settings` (key `artist_profile_links`) already exists, same row Spotify for
+Artists/Apple Music for Artists/Discovery Mode already live in from an earlier round.
+
+Last round's Linkfire button (Booking Board, top right, next to Export CSV) had its URL hardcoded
+straight into the page. Moved it into Config → External Tool Links alongside those other 3
+external-tool links, as a new "Linkfire URL" field — same reasoning as the other 3: the 3rd party
+can change their own URL without needing another code round. Booking Board now reads this setting
+on load and falls back to a known-good default if nobody's opened Config to set it yet (brand-new
+installs, or before this round's default gets saved there for the first time).
+
+Also corrected the URL itself per your follow-up — was `https://app.linkfire.com/#/vieent-coltd/dashboard`,
+now `https://app.linkfire.com/#/vieent-music` (both the new default and, until anyone changes it in
+Config, the shown link).
+
+New shared file `lib/externalTools.js` holds the setting key + default URL constant, so both Config
+(where it's edited) and Booking Board (where it's read) import from the same place instead of one
+page reaching into another route's page file.
