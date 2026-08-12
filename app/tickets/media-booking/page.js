@@ -13,6 +13,7 @@ import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import styles from "../../shared.module.css";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
+import YoutubeAdsFields from "../../../lib/YoutubeAdsFields";
 import { useIsMobile } from "../../../lib/useIsMobile";
 
 function fmtVnd(n) {
@@ -1194,6 +1195,16 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     await supabase.from("releases").update({ recording_studio_included: next }).eq("id", release.id);
   }
 
+  // Round 93 — the AR team's YouTube URL + Booking request fields, same
+  // pair of columns as the release detail page's Có Trong Net YouTube
+  // panel and the Booking Board's YouTube Ads column popup. Immediate save
+  // straight to the release, same idiom as toggleRecordingStudio above.
+  async function saveYoutubeAdsField(field, value) {
+    if (!release) return;
+    setRelease((r) => ({ ...r, [field]: value }));
+    await supabase.from("releases").update({ [field]: value }).eq("id", release.id);
+  }
+
   async function addPrebuiltLine(addon) {
     if (!activePackage) return;
     const { data: line } = await supabase
@@ -1784,6 +1795,31 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                       )}
                     </div>
                     <div style={{ fontSize: 13, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{ticket.data.feedback.text}</div>
+                  </div>
+                )}
+
+                {/* AR Request — YouTube Ads Setup. Round 93, per explicit
+                    request: "in booking ticket -> show them in the area we
+                    use to show the artist feedback, add a small title to
+                    show who is asking that line or so for clarity". This
+                    is the AR team's own request (URL + Booking note),
+                    distinct from the artist/label feedback panel just
+                    above it — the small title exists specifically so
+                    Marketing doesn't confuse the two. Only shown once Có
+                    Trong Net YouTube is ticked on the release (same gate
+                    as the panel this mirrors on the detail page). */}
+                {release?.gate_co_trong_net_youtube === "true" && (
+                  <div style={{ marginTop: 14, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>
+                      AR Request — YouTube Ads Setup
+                    </div>
+                    <YoutubeAdsFields
+                      styles={styles}
+                      url={release.youtube_ads_url}
+                      bookingNote={release.youtube_ads_booking_note}
+                      onChangeUrl={(v) => saveYoutubeAdsField("youtube_ads_url", v)}
+                      onChangeBookingNote={(v) => saveYoutubeAdsField("youtube_ads_booking_note", v)}
+                    />
                   </div>
                 )}
               </div>

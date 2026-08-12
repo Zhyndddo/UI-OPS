@@ -538,10 +538,12 @@ export default function ReleaseDetailPage() {
       }
     }
 
-    // Có Trong Net YouTube — same "create if missing, else write-if-
-    // changed" idea as Pitching/Artist Profile above, carrying its own
-    // Teaser/Official/Short/Mô Tả draft instead of the generic {releaseId}
-    // only body the loop below uses for every other type.
+    // Có Trong Net YouTube — write-if-changed only now. Round 92, per
+    // explicit request: creating the ticket in the first place moved OFF
+    // Save entirely, onto the real "SET UP YOUTUBE" button in
+    // CoTrongNetYoutubePanel (see sendCoTrongNetYoutube below) — Save here
+    // only keeps an ALREADY-SENT ticket's Teaser/Official/Short/Mô Tả draft
+    // in sync with whatever's been edited since, same as before.
     if (form.gate_co_trong_net_youtube === "true") {
       const ctnTicket = gateTicketMap.co_trong_net_youtube;
       if (ctnTicket) {
@@ -549,22 +551,6 @@ export default function ReleaseDetailPage() {
         if (JSON.stringify(ctnTicket.data) !== JSON.stringify(newData)) {
           await supabase.from("tickets").update({ data: newData }).eq("id", ctnTicket.id);
           setGateTicketMap((m) => ({ ...m, co_trong_net_youtube: { ...ctnTicket, data: newData } }));
-        }
-      } else {
-        const tab = gateTabsMap.co_trong_net_youtube;
-        if (tab) {
-          const { data: created } = await supabase
-            .from("tickets")
-            .insert({
-              tab_id: tab.id,
-              data: { releaseId: newDid, ...coTrongNetDraft },
-              status: tab.default_status,
-              status_log: { [tab.default_status]: new Date().toISOString() },
-              requester_segment: form.requester_segment || null,
-            })
-            .select()
-            .single();
-          if (created) setGateTicketMap((m) => ({ ...m, co_trong_net_youtube: created }));
         }
       }
     }
@@ -888,7 +874,39 @@ export default function ReleaseDetailPage() {
   // lib/GateFields.js) is gone — folded into saveTab() above instead, same
   // idempotent-on-save pattern as Pitching/Artist Profile. GateTicketLink
   // now only ever displays state (sent vs. not yet), never triggers a
-  // write itself.
+  // write itself. Có Trong Net YouTube is the one exception (Round 92) —
+  // see sendCoTrongNetYoutube right below, mirroring sendPitchingInfoTicket
+  // above: a real manual button instead of an auto-create-on-Save.
+
+  // Round 92 — "Set Up YouTube" button (CoTrongNetYoutubePanel), per
+  // explicit request: ticking Có Trong Net YouTube to Yes used to
+  // silently create this ticket the next time Save succeeded — same
+  // pattern as every other Data/Marketing/Legal Request field. That's
+  // fine for a plain "log this request" ticket, but this one starts a
+  // real handoff (Operation or the label needs to go set YouTube Ads up
+  // and come back with a URL), so it now needs an explicit click, same
+  // idiom as SEND UPLOAD. Same idempotent-on-click guard as every other
+  // manual send here — a second click after the ticket already exists is
+  // a no-op. Save still keeps this ticket's Teaser/Official/Short/Mô Tả
+  // draft in sync afterward (see saveTab() above), same as before — only
+  // the FIRST creation moved off Save.
+  async function sendCoTrongNetYoutube() {
+    if (gateTicketMap.co_trong_net_youtube) return;
+    const tab = gateTabsMap.co_trong_net_youtube;
+    if (!tab) return;
+    const { data: created } = await supabase
+      .from("tickets")
+      .insert({
+        tab_id: tab.id,
+        data: { releaseId: form.did, ...coTrongNetDraft },
+        status: tab.default_status,
+        status_log: { [tab.default_status]: new Date().toISOString() },
+        requester_segment: form.requester_segment || null,
+      })
+      .select()
+      .single();
+    if (created) setGateTicketMap((m) => ({ ...m, co_trong_net_youtube: created }));
+  }
 
   // Magic link generation moved to Marketing's package spec builder (not
   // built yet) — this page only reads/displays an existing link now,
@@ -1137,6 +1155,7 @@ export default function ReleaseDetailPage() {
             onArtistProfileToggle={(key, checked) => setArtistProfileTypesDraft((p) => ({ ...p, [key]: checked }))}
             coTrongNetDraft={coTrongNetDraft}
             onCoTrongNetChange={(key, value) => setCoTrongNetDraft((p) => ({ ...p, [key]: value }))}
+            onSendCoTrongNetYoutube={sendCoTrongNetYoutube}
             gateTicketMap={gateTicketMap}
             setTab={setTab}
           />
@@ -1404,7 +1423,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, canSimulate, onSendIntSupportPackage, onSendOnlyPh, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, coTrongNetDraft, onCoTrongNetChange, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, canSimulate, onSendIntSupportPackage, onSendOnlyPh, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, coTrongNetDraft, onCoTrongNetChange, onSendCoTrongNetYoutube, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -1891,6 +1910,12 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           onArtistProfileToggle={onArtistProfileToggle}
           coTrongNetDraft={coTrongNetDraft}
           onCoTrongNetChange={onCoTrongNetChange}
+          onSendCoTrongNetYoutube={onSendCoTrongNetYoutube}
+          coTrongNetSent={!!gateTicketMap?.co_trong_net_youtube}
+          youtubeAdsUrl={form.youtube_ads_url}
+          youtubeBookingNote={form.youtube_ads_booking_note}
+          onChangeYoutubeAdsUrl={(v) => update("youtube_ads_url", v)}
+          onChangeYoutubeBookingNote={(v) => update("youtube_ads_booking_note", v)}
           ticketMap={gateTicketMap}
           sonyPublishMetaReady={requiredMetaDoneLive === REQUIRED_META_KEYS.length}
           publishingHdLocked={publishingHdLocked}
@@ -2063,7 +2088,21 @@ function CopyrightsTab({ form, update, onSave, saving }) {
   const isSingle = form.single_album_ep === "Single";
   return (
     <div>
-      <div className={styles.subheading} style={{ marginTop: 0 }}>Copyright Checklist{isSingle ? "" : " — Release-wide"}</div>
+      {/* Round 92 — AR's own general note for the product, per explicit
+          request ("count as the AR team note for the product note") —
+          not itself part of the copyright data, just living on this tab
+          since that's where it was asked for. Plain text, staged/saved
+          the same way as every other field on this tab (releases.ar_product_note). */}
+      <div className={styles.subheading} style={{ marginTop: 0 }}>AR Note</div>
+      <textarea
+        className={styles.input}
+        style={{ width: "100%", boxSizing: "border-box", minHeight: 70, resize: "vertical", fontFamily: "inherit", marginBottom: 20 }}
+        value={form.ar_product_note || ""}
+        onChange={(e) => update("ar_product_note", e.target.value)}
+        placeholder="General AR note for this product…"
+      />
+
+      <div className={styles.subheading}>Copyright Checklist{isSingle ? "" : " — Release-wide"}</div>
       <CopyrightChecklistFields
         styles={styles}
         value={form.copyright_checklist}
@@ -2092,6 +2131,11 @@ function UrlTab({ form, update, onSave, saving, did, releaseId }) {
     ["artist_photo_url", "Artist Photo URL"],
     ["project_proposal_url", "Project Proposal URL"],
     ["drive_link", "Link Drive"],
+    // Round 92 — same underlying value as the Có Trong Net YouTube panel's
+    // YouTube URL field (Data Request grid, Overview tab) and Booking
+    // Board's YouTube Ads column popup — one column, editable from any of
+    // the 3 places per explicit "add and link to the url tab" request.
+    ["youtube_ads_url", "YouTube Ads URL"],
     // Taken from / linked with the same column edited on the Pre-release
     // Workstation (app/workstation/pre-release/page.js) — that page still
     // has its own edit surface too; this is an added edit surface on the

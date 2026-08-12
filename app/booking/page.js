@@ -10,6 +10,7 @@ import { usePagination } from "../../lib/usePagination";
 import Pagination from "../../lib/Pagination";
 import { useIsMobile } from "../../lib/useIsMobile";
 import { ARTIST_PROFILE_LINKS_SETTING_KEY, DEFAULT_LINKFIRE_URL } from "../../lib/externalTools";
+import YoutubeAdsFields from "../../lib/YoutubeAdsFields";
 import styles from "../shared.module.css";
 
 // Every Hạng Mục here uses the same 2-layer pattern: pick a sub-filter
@@ -193,7 +194,10 @@ export default function BookingBoard() {
       // Round 77 — gate_co_trong_net_youtube added: locks the YouTube Ads
       // Ads-brand column when the release hasn't opted into Có Trong Net
       // YouTube on its detail page (see AdsCell's ctnLocked prop below).
-      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status, gate_co_trong_net_youtube, pseudo_package_parent_did")
+      // Round 92 — youtube_ads_url/youtube_ads_booking_note added: shown
+      // (and editable) inside the YouTube Ads column's own popup, see
+      // AdsCell's showYoutubeAdsFields prop below.
+      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status, gate_co_trong_net_youtube, youtube_ads_url, youtube_ads_booking_note, pseudo_package_parent_did")
       .order("release_date", { ascending: false });
     const { data: ents } = await supabase.from("media_booking_entries").select("*");
     const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
@@ -222,6 +226,18 @@ export default function BookingBoard() {
   async function updateReleaseNote(release, value) {
     setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, booking_note: value } : r)));
     await supabase.from("releases").update({ booking_note: value }).eq("id", release.id);
+  }
+
+  // Round 92 — YouTube URL / Booking note, edited straight from the
+  // YouTube Ads column's own popup (see AdsCell) — same shared
+  // youtube_ads_url/youtube_ads_booking_note columns the release detail
+  // page's Có Trong Net YouTube panel and the Media Booking ticket also
+  // read/write, so a value entered from any of the 3 places shows up in
+  // the other 2 immediately (next load — this table doesn't subscribe to
+  // realtime changes, same as every other field here).
+  async function updateYoutubeAdsField(release, field, value) {
+    setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, [field]: value } : r)));
+    await supabase.from("releases").update({ [field]: value }).eq("id", release.id);
   }
 
   // Round 54 — item B.1: "Convert Media Report" turns this release's
@@ -540,10 +556,17 @@ export default function BookingBoard() {
       if (!error) setEntries((prev) => prev.map((e) => (e.id === existingEntry.id ? { ...e, quantity, status } : e)));
       return { error };
     }
+    // Round 93 fix — this insert used to pass channel_type: null explicitly,
+    // which overrides the column's "not null default 'Direct'" and made
+    // EVERY first-time Ads save fail outright with a not-null violation
+    // (confirmed against a local Postgres 16 instance). Ads rows don't
+    // really have a Direct/Partner distinction, so just let the column's
+    // own default apply by omitting the key entirely, instead of forcing
+    // it to null.
     const { data, error } = await supabase
       .from("media_booking_entries")
       .insert({
-        release_id: releaseId, booking_round: round, channel_type: null,
+        release_id: releaseId, booking_round: round,
         category_id: categoryIdByName["Ads"] || null, channel_name: brand || null,
         platform: platform || null, subchannel_type: null, link: null, quantity, status,
       })
@@ -760,6 +783,7 @@ export default function BookingBoard() {
             cycleStatus={cycleStatus}
             bookingChannels={bookingChannels}
             saveAdsQuantity={saveAdsQuantity}
+            updateYoutubeAdsField={updateYoutubeAdsField}
           />
           <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
           </>
@@ -884,6 +908,11 @@ export default function BookingBoard() {
                           existingEntry={cellEntries[0] || null}
                           canEdit={hangMucFilter !== "All"}
                           locked={ctnLocked}
+                          showYoutubeAdsFields={c.brand === "YouTube Ads"}
+                          youtubeAdsUrl={r.youtube_ads_url}
+                          youtubeBookingNote={r.youtube_ads_booking_note}
+                          onSaveYoutubeAdsUrl={(v) => updateYoutubeAdsField(r, "youtube_ads_url", v)}
+                          onSaveYoutubeBookingNote={(v) => updateYoutubeAdsField(r, "youtube_ads_booking_note", v)}
                           cellBorderLeft={isGroupStart ? "2px solid #555" : "1px solid var(--border)"}
                           onSave={(quantity, status) => saveAdsQuantity(r.id, c.brand, c.platform, quantity, status, cellEntries[0] || null)}
                         />
@@ -939,7 +968,7 @@ function BookingBoardCards({
   releases, categories, columns, bookedFor, addedFor, roundEntries, categoryIdByName,
   hangMucFilter, subFilter, round, phuLucStatus, setPackagePreview, updateReleaseNote,
   convertMediaReport, sendArtistMediaReport, expandedCell, setExpandedCell, addEntry, addEntries,
-  cycleStatus, bookingChannels, saveAdsQuantity,
+  cycleStatus, bookingChannels, saveAdsQuantity, updateYoutubeAdsField,
 }) {
   // Same grouping the table's header uses (columns are already sorted by
   // category upstream in the `columns` useMemo) — just collected into
@@ -1042,6 +1071,11 @@ function BookingBoardCards({
                               existingEntry={cellEntries[0] || null}
                               canEdit={hangMucFilter !== "All"}
                               locked={ctnLocked}
+                              showYoutubeAdsFields={c.brand === "YouTube Ads"}
+                              youtubeAdsUrl={r.youtube_ads_url}
+                              youtubeBookingNote={r.youtube_ads_booking_note}
+                              onSaveYoutubeAdsUrl={(v) => updateYoutubeAdsField(r, "youtube_ads_url", v)}
+                              onSaveYoutubeBookingNote={(v) => updateYoutubeAdsField(r, "youtube_ads_booking_note", v)}
                               cellBorderLeft="none"
                               onSave={(quantity, status) => saveAdsQuantity(r.id, c.brand, c.platform, quantity, status, cellEntries[0] || null)}
                             />
@@ -1638,7 +1672,7 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
 // number of different unit not number of url"). Click opens a small popup
 // with a "Số lượng" number field and a 4-way status switch; the main cell
 // shows the number itself colored by status (not the cell background).
-function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBorderLeft, onSave }) {
+function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBorderLeft, onSave, showYoutubeAdsFields, youtubeAdsUrl, youtubeBookingNote, onSaveYoutubeAdsUrl, onSaveYoutubeBookingNote }) {
   const [open, setOpen] = useState(false);
   const [quantity, setQuantity] = useState(existingEntry?.quantity ?? "");
   const [status, setStatus] = useState(existingEntry?.status || ADS_STATUS_OPTIONS[0]);
@@ -1659,8 +1693,17 @@ function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBo
     // status was picked (there's no status picker in the locked popup below
     // anyway) — entering a number here doesn't quietly authorize the run;
     // it just records the result so it isn't lost while waiting on the gate.
-    await onSave(q, locked ? "Cancel" : status);
+    const { error } = await onSave(q, locked ? "Cancel" : status);
     setSaving(false);
+    // Round 93 fix — a failed save (e.g. the not-null violation this round
+    // fixed, or any future DB error) used to close the popup silently as if
+    // it worked, so the "result number isn't saving" bug had no visible
+    // symptom to go on. Now a failed save stays open with the number intact
+    // and tells the user plainly, instead of pretending it went through.
+    if (error) {
+      window.alert(`Save failed: ${error.message || error}. The number is still in the box — try Save again.`);
+      return;
+    }
     setOpen(false);
     if (locked) {
       window.alert('Saved. Remember to tick "Có Trong Net YouTube" on this release\'s detail page — until then this stays locked and shown as Cancel here.');
@@ -1721,6 +1764,23 @@ function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBo
                   autoFocus
                 />
               </div>
+              {showYoutubeAdsFields && (
+                // Round 93 — the AR team's YouTube URL + Booking request
+                // fields, per explicit request ("booking board, click to
+                // the youtube ads column, pop up show up, they live
+                // there"). Writes straight to the release (immediate save,
+                // no relation to the Số lượng/Status Save button below).
+                <div style={{ marginBottom: 12, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                  <YoutubeAdsFields
+                    styles={styles}
+                    url={youtubeAdsUrl}
+                    bookingNote={youtubeBookingNote}
+                    onChangeUrl={onSaveYoutubeAdsUrl}
+                    onChangeBookingNote={onSaveYoutubeBookingNote}
+                    compact
+                  />
+                </div>
+              )}
               <div style={{ display: "flex", gap: 8 }}>
                 <button className={styles.btnPrimary} style={{ flex: 1 }} onClick={handleSave} disabled={saving}>
                   {saving ? "Đang lưu…" : "Save"}
@@ -1801,6 +1861,20 @@ function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBo
                 ))}
               </div>
             </div>
+            {showYoutubeAdsFields && (
+              // Round 93 — same YouTube URL + Booking request fields as the
+              // locked popup above, immediate-save straight to the release.
+              <div style={{ marginBottom: 12, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                <YoutubeAdsFields
+                  styles={styles}
+                  url={youtubeAdsUrl}
+                  bookingNote={youtubeBookingNote}
+                  onChangeUrl={onSaveYoutubeAdsUrl}
+                  onChangeBookingNote={onSaveYoutubeBookingNote}
+                  compact
+                />
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8 }}>
               <button className={styles.btnPrimary} style={{ flex: 1 }} onClick={handleSave} disabled={saving}>
                 {saving ? "Đang lưu…" : "Save"}

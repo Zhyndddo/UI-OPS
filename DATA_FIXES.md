@@ -6250,3 +6250,71 @@ Config, the shown link).
 New shared file `lib/externalTools.js` holds the setting key + default URL constant, so both Config
 (where it's edited) and Booking Board (where it's read) import from the same place instead of one
 page reaching into another route's page file.
+
+## Round 93 — YouTube Ads manual send + URL/Booking fields across 3 surfaces, Booking Board Ads-popup save bug fix, Copyright tab AR Note + right-label suffixes
+
+**New SQL — separate file, run once:** `add-round93-youtube-ads-ar-note.sql`
+
+```sql
+ALTER TABLE releases
+  ADD COLUMN IF NOT EXISTS youtube_ads_url text,
+  ADD COLUMN IF NOT EXISTS youtube_ads_booking_note text,
+  ADD COLUMN IF NOT EXISTS ar_product_note text;
+```
+
+Tested against a local throwaway Postgres 16 database: ran once (succeeded), ran a second time
+(correctly no-op'd with "already exists, skipping" notices for all 3 columns), verified the column
+shapes (all nullable `text`, no defaults) and a real insert/read round-trip, then dropped the test
+database.
+
+**1. Có Trong Net YouTube — manual "SET UP YOUTUBE" button instead of auto-ticket-on-Save, plus
+shared YouTube URL/Booking fields across 3 places.** Ticking "Có Trong Net Youtube" on the release
+detail page used to fire the ticket the moment Save succeeded — no chance to prep anything first.
+That auto-create is now gone; the Có Trong Net YouTube panel (still shown right after ticking the
+box) instead has its own "SET UP YOUTUBE" button, matching the existing "SEND UPLOAD" button's
+pattern (manual click, greys out and reads "✓ YOUTUBE TICKET SENT" once sent, idempotent — clicking
+again does nothing).
+
+Also added a small ▶️ icon next to that panel's title — click opens a popup with 2 fields,
+**YouTube URL** and **Booking** (a free-text note). These live on the release itself
+(`youtube_ads_url` / `youtube_ads_booking_note`), so the exact same 2 fields now show up in 3 places
+that all need them at different points in the flow:
+- Release detail page — the icon+popup described above, and the YouTube URL is also mirrored onto
+  the URL tab (`YouTube Ads URL`, same wide field as the other URL tab entries) since it was
+  explicitly asked to be linked there too.
+- Booking Board — inside the existing YouTube Ads column's popup (both the locked "Cancel" state
+  and the normal state), right above the Save/Cancel buttons. Writes straight to the release the
+  moment you click out of the field (no separate Save step for these 2, independent of the Số
+  Lượng/Status Save button in the same popup).
+- Media Booking ticket — a new "AR Request — YouTube Ads Setup" panel next to the existing "Feed
+  Back Từ Đối Tác" panel, with its own small title so Marketing doesn't mistake an AR request for
+  actual artist/label feedback. Only shown once Có Trong Net YouTube is ticked on the release.
+
+The intended flow: team ticks "Có Trong Net YouTube" → Operation or the label sets up YouTube and
+returns the real URL here (AR can attach their booking request in the text field first) → AR fills
+in the URL once it's live → Marketing reads both fields when building the package and when actually
+running the ads.
+
+**2. Booking Board — Ads-column "Save" wasn't actually saving a brand-new result number.** Root
+cause: the very first time anyone entered a number for a given release/brand/metric (i.e. no
+existing row yet), the insert explicitly passed `channel_type: null` — which overrides that
+column's `not null default 'Direct'` and fails the insert outright with a not-null violation
+(reproduced and confirmed against a real local Postgres 16 table matching `media_booking_entries`'s
+schema). The popup's Save button never checked whether the save actually succeeded, so it just
+closed as if it had worked, leaving the typed number nowhere — which also explains the second half
+of the report ("the number in the column outside doesn't change color") since no row ever existed
+to derive a status color from. Fixed both halves: the insert now omits `channel_type` entirely so
+the column's own default applies instead of being forced to null, and the Save button now checks
+the save's result — on failure it keeps the popup open with your number still in the box and shows
+an alert, instead of silently closing.
+
+**3. Copyrights tab — AR Note field + relabeled right names.** Added a plain "AR Note" text area at
+the top of the Copyrights tab (`ar_product_note` on the release) — a general AR-team note on the
+product, separate from the per-track/per-item copyright checklist below it. Also extended the 3
+copyright right labels with a plain-language suffix naming who that right actually belongs to (the
+short Q1/Q2/Q3 labels used in the index summary and Booking Board's read-only preview are
+unchanged):
+- Quyền nhà xuất bản (quyền liên quan) → **Quyền nhà xuất bản (quyền liên quan) - BẢN GHI**
+- Quyền của người biểu diễn (quyền liên quan) → **Quyền của người biểu diễn (quyền liên quan) -
+  NGHỆ SĨ BIỂU DIỄN**
+- Quyền tác giả → **Quyền tác giả - TÁC GIẢ SÁNG TÁC**
