@@ -1,7 +1,7 @@
 "use client";
 
 import AppShell from "../../lib/AppShell";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
 import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, CO_TRONG_NET_DRAFT_DEFAULTS } from "../../lib/GateFields";
@@ -16,6 +16,9 @@ import { buildLinkshareNote, defaultLinkshareFacebookTiming, defaultLinkshareTik
 // logic can share the exact same _field_initials() mirror instead of a
 // second hand-kept copy drifting out of sync.
 import { didPreview, didPrefixFor } from "../../lib/didHelpers";
+import { emptyCopyrightChecklist } from "../../lib/copyrightChecklist";
+import CopyrightChecklistFields from "../../lib/CopyrightChecklistFields";
+import NewReleaseTemplateTools from "../../lib/NewReleaseTemplateTools";
 import styles from "./styles.module.css";
 
 const EMPTY_FORM = {
@@ -67,6 +70,9 @@ const EMPTY_FORM = {
   // of firing blank like the other Legal Request types just above.
   gate_publishing: "false",
   publishing_gia_tri: "",
+  // Round 88 — Copyright Checklist (Master/Vocal/Author rights) — see
+  // lib/copyrightChecklist.js for the shape.
+  copyright_checklist: emptyCopyrightChecklist(),
 };
 
 const EMPTY_PITCHING_TYPES = { priority: false, spotify: false, apple: false, nct: false, zing: false };
@@ -111,6 +117,20 @@ export default function NewReleasePage() {
   // still does the right thing afterward (go to detail page vs. reset for
   // another entry) — see performInsert()'s navMode param.
   const [duplicateWarning, setDuplicateWarning] = useState(null);
+
+  // Round 88 item 3 — floating Save button, same pattern as the release
+  // detail page's SaveBar: only shows once the real "Tạo Release" button
+  // has scrolled out of view, so there's never a duplicate visible once
+  // the person's actually scrolled down to it.
+  const submitBtnRef = useRef(null);
+  const [showFloatingSave, setShowFloatingSave] = useState(false);
+  useEffect(() => {
+    const el = submitBtnRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => setShowFloatingSave(!entry.isIntersecting), { threshold: 0 });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // Quick Create (⚡️) — a stripped-down modal for the common case of just
   // wanting a placeholder release to exist (Label/Title/Main Artist) with
@@ -658,6 +678,12 @@ export default function NewReleasePage() {
           </div>
         )}
 
+        <NewReleaseTemplateTools
+          styles={styles}
+          form={form}
+          onImport={(patch) => setForm((f) => ({ ...f, ...patch }))}
+        />
+
         <form onSubmit={(e) => handleSubmit(e, "detail")}>
           <div className={styles.grid}>
             <div className={styles.field}>
@@ -975,6 +1001,15 @@ export default function NewReleasePage() {
           <div className={styles.subheading}>Marketing Checklist</div>
           <GateGrid styles={styles} fields={MARKETING_CHECKLIST_FIELDS} form={form} update={update} />
 
+          {/* Round 88 — Copyright Checklist, living directly above Data
+              Request (the first group inside <GateFields> below), per
+              explicit request. */}
+          <CopyrightChecklistFields
+            styles={styles}
+            value={form.copyright_checklist}
+            onChange={(v) => update("copyright_checklist", v)}
+          />
+
           <GateFields
             styles={styles}
             form={form}
@@ -990,7 +1025,7 @@ export default function NewReleasePage() {
           />
 
           <div className={styles.actions}>
-            <button type="submit" className={styles.btnPrimary} disabled={submitting}>
+            <button ref={submitBtnRef} type="submit" className={styles.btnPrimary} disabled={submitting}>
               {submitting ? "Đang tạo…" : "Tạo Release"}
             </button>
             <button
@@ -1019,6 +1054,18 @@ export default function NewReleasePage() {
             </button>
           </div>
         </form>
+
+        {showFloatingSave && (
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            disabled={submitting}
+            onClick={(e) => handleSubmit(e, "detail")}
+            style={{ position: "fixed", bottom: 24, right: 24, zIndex: 250, boxShadow: "0 4px 16px rgba(0,0,0,0.45)" }}
+          >
+            {submitting ? "Đang tạo…" : "Tạo Release"}
+          </button>
+        )}
 
         {quickCreateOpen && (
           <div

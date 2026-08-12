@@ -11,6 +11,7 @@ import SortableTh, { ResetSortButton } from "../../lib/SortableTh";
 import { usePagination } from "../../lib/usePagination";
 import Pagination from "../../lib/Pagination";
 import { fetchProductTagSets, ProductTagPills } from "../../lib/productTags";
+import { copyrightChecklistSummary } from "../../lib/copyrightChecklist";
 import styles from "../shared.module.css";
 
 const CHANNELS = ["VIEENT", "ENVI"];
@@ -33,6 +34,8 @@ const RELEASE_COLUMNS = [
   "link_lbm", "link_share", "smartlink", "gate_pre_order", "link_preorder",
   // pitchingSummary()/pitchingStatusFor()
   "priority_pitching", "pitching_status_spotify", "pitching_status_apple", "pitching_status_nct", "pitching_status_zing",
+  // Round 88 — Copyright Checklist compiled summary subrow
+  "copyright_checklist",
 ].join(", ");
 
 // Mirrors app/workstation/pitching/page.js's DONE_VALUE/CANCEL_VALUES so the
@@ -486,6 +489,16 @@ export default function ReleasesDashboard() {
                       )}
                       {/* Round 86 item 5 — product tag pills */}
                       <ProductTagPills styles={styles} release={r} tagSets={productTagSets} style={{ marginTop: 4 }} />
+                      {/* Round 88 item 1d — Copyright Checklist compiled
+                          into one small subrow line ("Q1: Tự SX · Q2:
+                          HTĐQ · …"), layer-1 choice only per explicit
+                          spec. Hidden entirely once nothing's been filled
+                          in yet. */}
+                      {copyrightChecklistSummary(r.copyright_checklist) && (
+                        <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 4 }}>
+                          {copyrightChecklistSummary(r.copyright_checklist)}
+                        </div>
+                      )}
                     </td>
                     <td>{r.main_artist}</td>
                     <td>{fmtDate(r.release_date)}{r.release_time ? ` ${r.release_time}` : ""}</td>

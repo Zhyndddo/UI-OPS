@@ -5927,3 +5927,79 @@ Still open: whether the full schema change (real per-package entry history, lett
 itself reconstruct an old package's individual rows) is worth doing — say the word and it can be
 scoped properly; and the same busy-table candidates flagged last round if any of the narrower
 bespoke ticket tables turn out to be worth carding after all.
+
+## Round 88 — Copyright Checklist, Excel fast-input template, floating Save
+
+SQL this round: `add-round88-copyright-checklist.sql` (delivered separately, not zipped with app
+code, per the usual split). One column: `releases.copyright_checklist jsonb NOT NULL DEFAULT
+'{}'::jsonb`. Tested idempotent (re-run doesn't error or clobber existing data) against a local
+throwaway Postgres 16 database (`round88test`), same as every SQL round this session.
+
+**Item 1 — Copyright Checklist.** New group, living directly above Data Request (the first
+section inside `<GateFields>`) on both the New Release create form and the release detail page's
+Overview tab — same shared component (`lib/CopyrightChecklistFields.js`) on both, so they can
+never drift apart. 3 identically-shaped fields, per your spec and picture 1's category mapping:
+
+- **Quyền nhà xuất bản (quyền liên quan)** — Master/production rights (picture 1's "QUYỀN SẢN
+  XUẤT" category — Producer / Label khác / Bên thứ 3).
+- **Quyền của người biểu diễn (quyền liên quan)** — Vocal rights (picture 1's "QUYỀN BIỂU DIỄN" —
+  Ca Sĩ Tự do / Công ty quản lý / Label khác).
+- **Quyền tác giả** — Author/composition rights (picture 1's "QUYỀN TÁC GIẢ" — Tác Giả / VCPMC /
+  Publisher).
+
+Each: single choice Tự sản xuất / Hợp tác Độc quyền → if Độc quyền, a single choice for WHO (the
+3 options above) → a free-text name field for that party → a "Có hợp đồng" pair: single choice
+(Confirm qua miệng / Confirm tin nhắn / Hợp Đồng) + a text field — except picking "Confirm qua
+miệng" swaps the text field out for a warning message ("Vui lòng confirm bằng tin nhắn hoặc hợp
+đồng") instead of a fillable box, per your exact spec — a verbal-only confirmation isn't meant to
+just sit there as if it were as solid as a real message or contract.
+
+Stored as one jsonb column shaped `{ master, vocal, author }` (same pattern `labels.hop_tac_status`
+already uses) rather than a pile of new flat columns — cleaner to extend later if a 4th checklist
+item is ever needed.
+
+**Item 1d — index summary.** The release dashboard's Name column now shows a small subrow (same
+spot the product tag pills already live) compiling all 3 into one line, layer-1 choice only, per
+"no need for layer 2 choices" — e.g. `Q1: Tự SX · Q2: HTĐQ · Q3: Tự SX`. Hidden entirely for
+releases that haven't touched this checklist yet.
+
+Not built: picture 1's "Có thời hạn / Trọn đời" duration bracket next to "Hợp tác Độc quyền" —
+your own written spec listed the top-level single choice as just 2 options ("Tự sản xuất",
+"Hợp tác độc quyền (có thời hạn/vô thời hạn)"), so I took the parenthetical as part of the option's
+label text rather than a separate control, to stay literal to what was written rather than guess
+at extra scope from the picture alone. Also not built: picture 1's `#Tag` naming scheme and the
+auto green/red "Clear to Release / Block Release" engine at the bottom — the written request never
+asked for tags or an automated release gate, only the 3 checklist fields + the index summary line,
+so picture 1 was treated as a reference for the category/option structure, not a second feature
+request. Flag if either of those was actually wanted too.
+
+**Item 2 — Excel fast-input template.** New toolbar at the top of the New Release create form
+(`lib/NewReleaseTemplateTools.js`): "Download Template" builds and downloads a flat `.xlsx` (one
+header row + one example row) via the `xlsx` (SheetJS) package already used elsewhere in this app
+(`lib/BatchFileImport.js`'s same approach) — nothing uploaded anywhere, built and downloaded
+entirely in the browser. "Import Filled Template" reads a filled-in copy back in and pre-fills the
+form.
+
+Per your explicit scope answer, the template is a flat sheet — one column per field — covering
+Core Info + Metadata Checklist + the new Copyright Checklist (flattened into 5 columns per item:
+Loại / Đối tác / Tên đối tác / Có hợp đồng / Chi tiết hợp đồng). Data Request, Legal Request, and
+Marketing Checklist are excluded, per "the template only exclude all the additional request
+(legal, data, marketing)" — those stay manual on the form after import.
+
+Per your explicit answer on invalid cells: import fills in everything that matches, leaves
+anything unrecognized blank, and shows a summary of exactly which columns (by header name)
+couldn't be matched, rather than rejecting the whole file. Import matches columns **by header
+text**, not by position — deliberately, since you said you're going to take this template and
+build a nicer formatted version to send back for the import to be adjusted against; as long as the
+header text for a given field stays the same, a reordered/reformatted copy of this sheet still
+imports correctly with no code changes. Send that version over whenever it's ready and this can
+get tuned to match it exactly (e.g. if you want dropdowns/data validation baked into the cells
+themselves, multi-row/bulk import instead of one row, or different header wording).
+
+**Item 3 — floating Save.** Both the New Release create form's "Tạo Release" button and the
+release detail page's Save button (every tab reuses one shared `SaveBar` component) now also
+render as a floating button pinned bottom-right once the real button scrolls out of view — clicking
+it does exactly what the real button does. The moment the real button scrolls back into view (i.e.
+actually at the bottom), the floating one disappears instead of sitting on top of it, per "if they
+are at the bottom... show it where it is as current instead." Detected via IntersectionObserver on
+the real button, no polling/scroll-listener needed.

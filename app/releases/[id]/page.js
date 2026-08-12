@@ -22,6 +22,7 @@ import { runOne } from "../../../lib/packageSimulator";
 import { fetchProductTagSets, ProductTagPills } from "../../../lib/productTags";
 import { recomputeDid } from "../../../lib/didHelpers";
 import RelatedDidField from "../../../lib/RelatedDidField";
+import CopyrightChecklistFields from "../../../lib/CopyrightChecklistFields";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -1288,13 +1289,45 @@ function ReleaseNotePanel({ form, update, team, setTeam }) {
   );
 }
 
+// Round 88 item 3 — floating Save button. Every tab on this page ends
+// with a SaveBar, and the form itself can run long (Overview especially),
+// so per explicit request Save now also floats bottom-right — "where
+// nothing live" — so it's reachable without scrolling all the way down.
+// It only shows up once the REAL (inline) Save button has scrolled out of
+// view, via IntersectionObserver on that real button — the moment it's
+// back in view (i.e. actually at the bottom), the floating one disappears
+// so there's never two Save buttons visible at once, per "if they have a
+// view on the button, show it where it is as current instead".
 function SaveBar({ onSave, saving }) {
+  const btnRef = useRef(null);
+  const [showFloating, setShowFloating] = useState(false);
+
+  useEffect(() => {
+    const el = btnRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => setShowFloating(!entry.isIntersecting), { threshold: 0 });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <div style={{ marginTop: 20 }}>
-      <button className={styles.btnPrimary} onClick={onSave} disabled={saving}>
-        {saving ? "Saving…" : "Save"}
-      </button>
-    </div>
+    <>
+      <div style={{ marginTop: 20 }}>
+        <button ref={btnRef} className={styles.btnPrimary} onClick={onSave} disabled={saving}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+      {showFloating && (
+        <button
+          className={styles.btnPrimary}
+          onClick={onSave}
+          disabled={saving}
+          style={{ position: "fixed", bottom: 24, right: 24, zIndex: 250, boxShadow: "0 4px 16px rgba(0,0,0,0.45)" }}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      )}
+    </>
   );
 }
 
@@ -1838,6 +1871,15 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           </p>
         )}
       </div>
+
+      {/* Round 88 — Copyright Checklist, living directly above Data
+          Request (the first group inside <GateFields> below), per
+          explicit request — same shared component the create form uses. */}
+      <CopyrightChecklistFields
+        styles={styles}
+        value={form.copyright_checklist}
+        onChange={(v) => update("copyright_checklist", v)}
+      />
 
       <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
         <GateFields
