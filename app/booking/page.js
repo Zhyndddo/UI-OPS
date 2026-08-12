@@ -142,6 +142,13 @@ export default function BookingBoard() {
   const [tiktokBrandFilter, setTiktokBrandFilter] = useState(null); // layer-2 pick, TikTok Channel only — which of the picked group's 4 brands; columns (layer 3) are then that brand's 5 fixed subchannel types. Resets whenever hangMucFilter or subFilter (the group) changes, see effect below.
   const [typeFilter, setTypeFilter] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
+  // Round 94 — top-of-board Done/Not Done counter+filter. 'done' means
+  // every column CURRENTLY shown (respects hangMucFilter/subFilter/brand
+  // drill-down, same `columns` the table itself renders) that actually has
+  // a requested/booked target has added >= booked; a release with no
+  // target on any shown column doesn't count as done (nothing to finish).
+  // null = no filter, just show the two counts.
+  const [doneFilter, setDoneFilter] = useState(null); // null | 'done' | 'not_done'
   const [expandedCell, setExpandedCell] = useState(null); // `${releaseId}:${categoryName}:${brand}` or null
   const [packagePreview, setPackagePreview] = useState(null); // release being previewed, or null
   const [bookingChannels, setBookingChannels] = useState([]); // booking_channels reference table — see BrandCell's Add Link popup
@@ -191,7 +198,7 @@ export default function BookingBoard() {
     setLoading(true);
     const { data: rels } = await supabase
       .from("releases")
-// Round 77 — gate_co_trong_net_youtube added: locks the YouTube Ads
+      // Round 77 — gate_co_trong_net_youtube added: locks the YouTube Ads
       // Ads-brand column when the release hasn't opted into Có Trong Net
       // YouTube on its detail page (see AdsCell's ctnLocked prop below).
       // Round 92 — youtube_ads_url/youtube_ads_booking_note added: shown
@@ -239,6 +246,7 @@ export default function BookingBoard() {
     setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, [field]: value } : r)));
     await supabase.from("releases").update({ [field]: value }).eq("id", release.id);
   }
+
   // Round 54 — item B.1: "Convert Media Report" turns this release's
   // magic link from a "Package Offer" into a "Media Report" everywhere it's
   // named (see release.media_report_status, read by app/pick-package,
@@ -439,7 +447,31 @@ export default function BookingBoard() {
     return [];
   }, [hangMucFilter, categories, subFilter, tiktokBrandFilter]);
 
-  const filteredReleases = useMemo(() => {
+  // Round 94 — whether EVERY currently-shown column with a real target is
+  // fully booked (added >= booked). Columns with no target at all (booked
+  // null or 0) don't count either way — nothing to compare against. A
+  // release with no targeted column among those currently shown is never
+  // "done" (there's nothing finished to report), which matches how such a
+  // release already gets filtered out by the anyFilled check below anyway.
+  function isReleaseDone(r) {
+    const targeted = columns.filter((c) => {
+      const booked = bookedFor(r, c.categoryName, c.brand);
+      return booked != null && booked > 0;
+    });
+    if (targeted.length === 0) return false;
+    return targeted.every((c) => {
+      const booked = bookedFor(r, c.categoryName, c.brand);
+      const added = addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries);
+      return added >= booked;
+    });
+  }
+
+  // Split in two: preDoneFilteredReleases is everything the board would
+  // show BEFORE the Done/Not Done toggle narrows it further — the counts
+  // on those two buttons are computed off this set, so the numbers stay
+  // accurate to "what's currently in view" regardless of which done state
+  // (if any) is picked.
+  const preDoneFilteredReleases = useMemo(() => {
     return roundFilteredReleases.filter((r) => {
       if (search.trim()) {
         const q = search.trim().toLowerCase();
@@ -466,6 +498,17 @@ export default function BookingBoard() {
       return true;
     });
   }, [roundFilteredReleases, search, month, typeFilter, labelFilter, hangMucFilter, columns, packageByRelease]);
+
+  const doneCounts = useMemo(() => {
+    let done = 0;
+    preDoneFilteredReleases.forEach((r) => { if (isReleaseDone(r)) done++; });
+    return { done, notDone: preDoneFilteredReleases.length - done };
+  }, [preDoneFilteredReleases, columns, roundEntries, packageByRelease]);
+
+  const filteredReleases = useMemo(() => {
+    if (!doneFilter) return preDoneFilteredReleases;
+    return preDoneFilteredReleases.filter((r) => (doneFilter === "done" ? isReleaseDone(r) : !isReleaseDone(r)));
+  }, [preDoneFilteredReleases, doneFilter, columns, roundEntries, packageByRelease]);
 
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(filteredReleases);
 
@@ -733,11 +776,41 @@ export default function BookingBoard() {
             <option value="">Label — all</option>
             {[...new Set(releases.map((r) => r.label).filter(Boolean))].map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
-          {(search || month || typeFilter || labelFilter) && (
+          {/* Round 94 — Done/Not Done counter+filter. Done = every column
+              currently shown (respects the Hạng Mục/brand drill-down above)
+              that has a real target is fully booked; Not Done = at least
+              one shown column is still short. Click again to clear back to
+              showing both. Counts always reflect the current drill-down/
+              search/month/type/label filters, just not each other. */}
+          <div style={{ display: "flex", border: "1px solid #333", borderRadius: 6, overflow: "hidden" }}>
+            <button
+              onClick={() => setDoneFilter(doneFilter === "done" ? null : "done")}
+              title="Every shown column with a target is fully booked"
+              style={{
+                padding: "9px 14px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer",
+                background: doneFilter === "done" ? "#2e7d32" : "transparent",
+                color: doneFilter === "done" ? "#eafaea" : "#7ee6a8",
+              }}
+            >
+              ✓ Done ({doneCounts.done})
+            </button>
+            <button
+              onClick={() => setDoneFilter(doneFilter === "not_done" ? null : "not_done")}
+              title="At least one shown column is still under its target"
+              style={{
+                padding: "9px 14px", fontSize: 12, fontWeight: 700, border: "none", borderLeft: "1px solid #333", cursor: "pointer",
+                background: doneFilter === "not_done" ? "#c0392b" : "transparent",
+                color: doneFilter === "not_done" ? "#fde8e8" : "#e57373",
+              }}
+            >
+              Not Done ({doneCounts.notDone})
+            </button>
+          </div>
+          {(search || month || typeFilter || labelFilter || doneFilter) && (
             <button
               className={styles.btnSmall}
               style={{ borderColor: "#c0392b", color: "#e57373" }}
-              onClick={() => { setSearch(""); setMonth(""); setTypeFilter(""); setLabelFilter(""); }}
+              onClick={() => { setSearch(""); setMonth(""); setTypeFilter(""); setLabelFilter(""); setDoneFilter(null); }}
             >
               ✕ Clear
             </button>
@@ -873,9 +946,6 @@ export default function BookingBoard() {
                   </td>
                   <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 140, minWidth: 140, textAlign: "center" }}>
                     <NoteCell release={r} onSave={updateReleaseNote} />
-                  </td>
-                  <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>
-                    <MediaReportCell release={r} onConvert={convertMediaReport} onSendArtist={sendArtistMediaReport} />
                   </td>
                   <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>
                     <MediaReportCell release={r} onConvert={convertMediaReport} onSendArtist={sendArtistMediaReport} />

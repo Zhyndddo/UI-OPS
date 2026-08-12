@@ -866,6 +866,7 @@ export default function PickPackagePage() {
             Config → Trợ Giá Booking (lib/troGiaBooking.js), seated right
             above Partner Benefits per explicit request. */}
         <TroGiaBookingSection items={troGiaBookingItems} defaultCollapsed={isMediaReport} />
+
         {/* Fixed partner-benefits block — same for every package, shown
             once (not duplicated per card) right under the package
             cards/confirm button, above the Booking Progress numbers when
@@ -1071,35 +1072,6 @@ function PartnerBenefits({ defaultCollapsed, recordingStudioIncluded }) {
         onClick={() => setOpen((o) => !o)}
         style={{ width: "100%", textAlign: "left", background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase", border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
       >
-        Trợ Giá Booking
-        <span>{open ? "▾" : "▸"}</span>
-      </button>
-      {open && (
-        <div style={{ border: "1px solid var(--border)", borderTop: "none" }}>
-          {items.map((it, i) => (
-            <div
-              key={i}
-              style={{
-                padding: "10px 14px",
-                background: i % 2 === 0 ? "rgba(255,107,26,0.05)" : "transparent",
-                borderTop: i === 0 ? "none" : "1px solid #1c1c1c",
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 800, color: "#ff9d5c", marginBottom: 4 }}>{it.title}</div>
-              {it.desc && <div style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-line", lineHeight: 1.5, marginBottom: it.href ? 4 : 0 }}>{it.desc}</div>}
-              {it.href && (
-                <a href={it.href} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#5b9dff", wordBreak: "break-all" }}>
-                  {it.href}
-                </a>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
         Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT
         <span>{open ? "▾" : "▸"}</span>
       </button>

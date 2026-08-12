@@ -551,9 +551,6 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         // malformed value — keep the hardcoded fallback rather than crash
       }
     }
-  }
-      }
-    }
     if (rel) {
       const [{ data: rollups }, { data: pkgs }, { data: tiers }, { data: link }] = await Promise.all([
         supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", rel.id),
@@ -1779,7 +1776,6 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   </table>
                 )}
 
-
                 {/* Artist/label Feed Back, submitted via the magic-link page
                     (tickets.data.feedback = {text, submittedAt}). Shown as
                     its own panel below the main DSP-grid content so whoever
@@ -1826,7 +1822,6 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                     />
                   </div>
                 )}
-
               </div>
               </>
               )}
@@ -2074,6 +2069,12 @@ const PREBUILT_ADDONS = [
   { name: "Priority Pitching Spotify Homepage Banner", unit: "Gói", detail: "Banner Trang Chủ Spotify tháng 6 hoặc tháng 7" },
   // Round 54 — 3 more, straight off the "Quyền Lợi Dành Riêng Cho Đối Tác
   // Phát Hành VIEENT" reference sheet (same source PartnerBenefits() on the
+  // magic-link page renders from). Recording Studio was here too — round 68
+  // pulled it out into its own release-level toggle (see the Recording
+  // Studio button below, near the package tabs) since it's picked per
+  // product, not per package, and needs to show on the magic link
+  // regardless of which package the artist ends up choosing — a real
+  // package line couldn't do that.
   { name: "19 Creative Space", unit: "Gói", detail: "Không gian miễn phí để thực hiện quay phỏng vấn, live session, MV ..." },
   { name: "Pitching Playlist/Banner", unit: "Gói", detail: "Nền Tảng: Zingmp3, NCT, Spotify, Apple Music\nKết quả Pitching sẽ được cập nhật sau khi nền tảng trả kết quả về" },
 ];
