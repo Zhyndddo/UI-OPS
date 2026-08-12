@@ -17,6 +17,8 @@ import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import NotePopup from "../../../lib/ReleaseNotePopup";
+import CopyrightPreviewPopup from "../../../lib/CopyrightPreviewPopup";
+import { copyrightChecklistIsEmpty } from "../../../lib/copyrightChecklist";
 import { PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
 
@@ -36,6 +38,7 @@ export default function UploadWorkstation() {
   const [showDone, setShowDone] = useState(false);
   const [query, setQuery] = useState(""); // round 76 — quick index search box
   const [notePopup, setNotePopup] = useState(null); // { release, kind: "product" | "linkshare" } | null
+  const [copyrightPopupRelease, setCopyrightPopupRelease] = useState(null); // release | null
   const sonyPublishDids = useSonyPublishDids();
 
   useEffect(() => {
@@ -49,7 +52,9 @@ export default function UploadWorkstation() {
       .from("releases")
       .select(
         "id, did, title, main_artist, release_date, release_time, upc, drive_link, link_lbm, link_share, smartlink, link_preorder, upload_status, " +
-        "link_ugc, link_media_report, requester_segment, linkshare_tiktok_timing, linkshare_facebook_timing, needs_update"
+        "link_ugc, link_media_report, requester_segment, linkshare_tiktok_timing, linkshare_facebook_timing, needs_update, " +
+        // Round 88 2nd follow-up — Copyright popup column
+        "single_album_ep, copyright_checklist"
       )
       .eq("requested", true);
     setReleases(rels || []);
@@ -186,6 +191,9 @@ export default function UploadWorkstation() {
                       Pitching/Confirm/Pre-release/Booking. Label change
                       only, no behavior change. */}
                   <th>Upload Note</th>
+                  {/* Round 88 2nd follow-up — read-only Copyright preview,
+                      same data the release's own Copyrights tab edits. */}
+                  <th>Copyright</th>
                   <SortableTh label="Upload Status" sortKey="upload_status" sort={sort} onToggle={toggleSort} />
                   <th title={defaultPic ? `Default: ${profiles.find((p) => p.id === defaultPic)?.name}` : "No default set"}>PIC</th>
                 </tr>
@@ -193,7 +201,7 @@ export default function UploadWorkstation() {
               <tbody>
                 {pagedReleases.map((r) =>
                   sonyPublishDids.has(r.did) ? (
-                    <SonyPublishLockRow key={r.id} colSpan={7} />
+                    <SonyPublishLockRow key={r.id} colSpan={8} />
                   ) : (
                     <UploadRow
                       key={r.id}
@@ -205,6 +213,7 @@ export default function UploadWorkstation() {
                       onUpdateField={updateField}
                       onUpdatePic={updatePic}
                       onOpenNote={(kind) => setNotePopup({ release: r, kind })}
+                      onOpenCopyright={() => setCopyrightPopupRelease(r)}
                     />
                   )
                 )}
@@ -225,6 +234,9 @@ export default function UploadWorkstation() {
           onClose={() => setNotePopup(null)}
         />
       )}
+      {copyrightPopupRelease && (
+        <CopyrightPreviewPopup release={copyrightPopupRelease} onClose={() => setCopyrightPopupRelease(null)} />
+      )}
     </AppShell>
   );
 }
@@ -241,7 +253,7 @@ function missingHighlightStyle(value) {
     : { boxShadow: "inset 0 0 0 2px var(--missing-highlight)", background: "var(--missing-highlight-bg)", borderRadius: 6 };
 }
 
-function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateField, onUpdatePic, onOpenNote }) {
+function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateField, onUpdatePic, onOpenNote, onOpenCopyright }) {
   const URL_KEYS = ["drive_link", "link_lbm", "link_share", "smartlink"];
   const [drafts, setDrafts] = useState(() => {
     const initial = {};
@@ -320,6 +332,19 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateFiel
             🔗
           </button>
         </div>
+      </td>
+      <td>
+        <button
+          type="button"
+          onClick={onOpenCopyright}
+          title="Copyright — click to view (read-only)"
+          style={{
+            background: "none", border: "none", cursor: "pointer", fontSize: 16, padding: 0,
+            color: copyrightChecklistIsEmpty(release.copyright_checklist) ? "var(--text-faint)" : "var(--accent-soft)",
+          }}
+        >
+          ©
+        </button>
       </td>
       <td>
         <select className={styles.select} style={{ minWidth: 110 }} value={release.upload_status || "Running"} onChange={(e) => onUpdateField(release, "upload_status", e.target.value)}>

@@ -6036,3 +6036,79 @@ new shape: `<right> — Owner`, `<right> — Hợp tác với ai`, `<right> — 
 Validity To (hoặc "Vĩnh viễn")`, `<right> — Contract` — 5 columns × 3 rights, same as before, just
 renamed/reshaped to the new fields. "Vĩnh viễn" (or "vinh vien"/"perpetual"/"trọn đời") typed into
 a Validity To cell is recognized and sets the perpetual flag instead of failing date validation.
+
+## Round 88 follow-up 2 — Copyright Checklist field simplification, new Copyrights tab, per-track checklist, New Release Setup Copyright column
+
+**New SQL — separate file, run once:** `add-round88-track-copyright.sql`
+
+```sql
+ALTER TABLE release_tracks
+  ADD COLUMN IF NOT EXISTS copyright_checklist jsonb NOT NULL DEFAULT '{}'::jsonb;
+```
+
+`release_tracks` had no equivalent column before — `releases.copyright_checklist` already existed
+from Round 88. Tested against a local throwaway Postgres 16 database: ran once (succeeded), ran a
+second time (correctly no-op'd with an "already exists, skipping" notice, proving it's safe to
+re-run), verified the column shape and a real insert/read round-trip, then dropped the test
+database.
+
+**Field simplification, per your exact spec ("same template, just some fix"):**
+
+- **Owner** — dropped its "Tự sản xuất / Hợp tác" choice entirely. Now a single resizable
+  textbox (drag the corner to expand for a clearer view on long owner chains) — no more forcing a
+  binary choice when real ownership is often more than one name or a longer note.
+- **Validity Period** — dropped the 6 tháng / 1 năm / 2 năm / Vĩnh viễn preset buttons. Now just 2
+  date pickers (from/to), or a "Không thời hạn" checkbox that clears and disables both dates when
+  checked — exactly the 2 options you asked for, nothing else.
+- **Contract** — unchanged, still the URL-auto-linking textbox (`LinkOrEditCell`).
+
+**Big change — Copyright Checklist relocated out of the Overview tab, into a new "Copyrights" tab:**
+
+The New Release *create form* keeps the checklist exactly where it already was (right before the
+Metadata Checklist section) — per "stay where they are (for easy creation)," nothing changed there
+besides the 3 field fixes above.
+
+The release *detail page* gets a new tab, **Copyrights**, positioned right after Tổng Hợp. The
+checklist moved there wholesale (removed from the Overview tab, which now only has a one-line note
+pointing to the new tab). For a Single release, that's the whole change — the same 3-right
+checklist, just living on its own tab instead of buried in Overview.
+
+For an EP/Album, the Copyrights tab additionally shows the full tracklist underneath the
+release-wide checklist, and each track gets its own 4-field copyright block (Owner / Validity
+Period / Contract, same fields as above) directly under it. This reuses the exact same
+`TracklistSection` component the Tổng Hợp tab already used for track editing — just with a new
+`showCopyright` flag turned on — so it's one shared component and one shared set of `release_tracks`
+rows either way: editing a track's copyright info from the Copyrights tab or from the Tổng Hợp tab
+hits the same data and stays in sync automatically. Nothing needed to be duplicated.
+
+(Kept the release-wide checklist visible for EP/Album too, labeled "Release-wide," rather than
+replacing it with only the per-track version — your wording asked to *add* the track list, not
+remove the release-level one, so this is the non-destructive reading of that.)
+
+**New Release Setup workstation — Copyright column:** `app/workstation/upload/page.js` gets a new
+"Copyright" column with a small `©` icon per release (dimmed gray if nothing's filled in yet,
+accent-colored once something is). Clicking it opens a read-only popup (`lib/CopyrightPreviewPopup.js`,
+same fixed-overlay/mobile-safe pattern as every other popup in this app) showing the release-wide
+checklist — and for EP/Album, every track's checklist too, fetched lazily only when the popup is
+actually opened — mirroring exactly what the Copyrights tab shows, just not editable from here.
+
+**Excel template:** `lib/NewReleaseTemplateTools.js`'s Copyright columns updated to match the new
+4-field shape per right (Owner / Validity From / Validity To / Contract); "Không thời hạn" (or
+"khong thoi han"/"no time limit"/"vĩnh viễn"/"vinh vien"/"perpetual") typed into a Validity To cell
+is recognized and sets the checkbox instead of failing date validation. Columns are still matched
+by header text, not position, same as before.
+
+**On your load-speed question** ("if in the detail page, we make it into smaller tab, will it
+increase the load speed... e.g. suffix `~detail-link/detail`"): right now the detail page does one
+single `select("*")` fetch when it mounts, and every tab (including the new Copyrights tab) is just
+client-side state — clicking a tab flips a `tab` variable, no navigation, no re-fetch. Splitting
+tabs into real routes like you described would mean each tab click becomes a full page
+navigation instead of an instant local switch — for someone clicking between tabs on a release
+they already have open, that would almost certainly feel *slower*, not faster, since today's tab
+switch costs nothing extra at all. Where route-splitting *can* help is the opposite case: cutting
+down what loads on the very first click into a release, if some tab's data is heavy and rarely
+opened — but every tab here reads from that same one initial fetch, so there's no heavy
+per-tab payload to defer in the first place. Net: not something I'd recommend for this page as it's
+built now. If a specific tab starts getting genuinely heavy on its own data in the future (its own
+large fetch, not part of the shared payload), that would be the point to reconsider it for that one
+tab specifically, not as a blanket change to all of them.

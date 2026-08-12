@@ -27,6 +27,7 @@ import styles from "../../shared.module.css";
 
 const TABS = [
   { key: "overview", label: "Tổng Hợp" },
+  { key: "copyrights", label: "Copyrights" },
   { key: "url", label: "URL" },
   { key: "media_booking", label: "Media Booking" },
   { key: "pitching", label: "Pitching" },
@@ -1140,6 +1141,7 @@ export default function ReleaseDetailPage() {
             setTab={setTab}
           />
         )}
+        {tab === "copyrights" && <CopyrightsTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} did={form.did} releaseId={id} />}
         {tab === "media_booking" && (
           <MediaBookingTab
@@ -1872,14 +1874,9 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         )}
       </div>
 
-      {/* Round 88 — Copyright Checklist, living directly above Data
-          Request (the first group inside <GateFields> below), per
-          explicit request — same shared component the create form uses. */}
-      <CopyrightChecklistFields
-        styles={styles}
-        value={form.copyright_checklist}
-        onChange={(v) => update("copyright_checklist", v)}
-      />
+      {/* Round 88 2nd follow-up — Copyright Checklist moved out of
+          Overview into its own "Copyrights" tab (see CopyrightsTab below)
+          per explicit request; no longer rendered here. */}
 
       <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
         <GateFields
@@ -1927,7 +1924,17 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
 // CRUD (immediate-write, matching the app's default pattern elsewhere)
 // rather than going through the Overview tab's staged form/Save, since
 // these are separate rows in release_tracks, not columns on releases.
-function TracklistSection({ releaseId }) {
+//
+// Round 88 2nd follow-up — reused (unchanged) from the Overview tab, AND
+// now also rendered inside the new Copyrights tab for EP/Album releases,
+// per explicit "allow to change the list from here or the tổng hợp tab" —
+// both are just independent mounts of this same component against the
+// same release_tracks rows, so an edit from either tab is immediately
+// visible the next time the other tab loads. The `showCopyright` prop is
+// the only difference between the two call sites: Copyrights renders it
+// `true` to get each track's own copyright combo (4 fields × 3 rights)
+// underneath; Overview keeps calling it with no copyright UI at all.
+function TracklistSection({ releaseId, showCopyright = false }) {
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [artistsList, setArtistsList] = useState([]);
@@ -1973,32 +1980,74 @@ function TracklistSection({ releaseId }) {
       <div className={styles.subheading} style={{ marginTop: 0 }}>Tracklist</div>
       {tracks.length === 0 && <p style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 10 }}>No tracks added yet.</p>}
       {tracks.map((t) => (
-        <div key={t.id} style={{ display: "grid", gridTemplateColumns: "50px 2fr 1.5fr 1.5fr 32px", gap: 8, alignItems: "center", marginBottom: 8 }}>
-          <div style={{ fontSize: 12, color: "var(--text-faint)", textAlign: "center" }}>#{t.sort_order}</div>
-          <input
-            className={styles.input}
-            value={t.track_name || ""}
-            placeholder="Track name"
-            onChange={(e) => updateTrack(t, "track_name", e.target.value)}
-          />
-          <ArtistInput
-            styles={styles}
-            value={t.main_artist || ""}
-            onChange={(v) => updateTrack(t, "main_artist", v)}
-            artists={artistsList}
-            placeholder="Main artist"
-          />
-          <ArtistInput
-            styles={styles}
-            value={t.feature_artist || ""}
-            onChange={(v) => updateTrack(t, "feature_artist", v)}
-            artists={artistsList}
-            placeholder="Feature artist"
-          />
-          <button onClick={() => removeTrack(t)} className={styles.btnSmall} style={{ padding: "4px 8px" }} title="Remove track">✕</button>
+        <div key={t.id} style={{ marginBottom: showCopyright ? 16 : 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "50px 2fr 1.5fr 1.5fr 32px", gap: 8, alignItems: "center" }}>
+            <div style={{ fontSize: 12, color: "var(--text-faint)", textAlign: "center" }}>#{t.sort_order}</div>
+            <input
+              className={styles.input}
+              value={t.track_name || ""}
+              placeholder="Track name"
+              onChange={(e) => updateTrack(t, "track_name", e.target.value)}
+            />
+            <ArtistInput
+              styles={styles}
+              value={t.main_artist || ""}
+              onChange={(v) => updateTrack(t, "main_artist", v)}
+              artists={artistsList}
+              placeholder="Main artist"
+            />
+            <ArtistInput
+              styles={styles}
+              value={t.feature_artist || ""}
+              onChange={(v) => updateTrack(t, "feature_artist", v)}
+              artists={artistsList}
+              placeholder="Feature artist"
+            />
+            <button onClick={() => removeTrack(t)} className={styles.btnSmall} style={{ padding: "4px 8px" }} title="Remove track">✕</button>
+          </div>
+          {showCopyright && (
+            <div style={{ marginTop: 8, marginLeft: 58 }}>
+              <CopyrightChecklistFields
+                styles={styles}
+                compact
+                value={t.copyright_checklist}
+                onChange={(v) => updateTrack(t, "copyright_checklist", v)}
+              />
+            </div>
+          )}
         </div>
       ))}
       <button onClick={addTrack} className={styles.btnSmall}>+ Add Track</button>
+    </div>
+  );
+}
+
+// Round 88 2nd follow-up — the Copyright Checklist's own tab. Release-
+// level checklist always shows (this is "just the move" for a Single —
+// same 3 rights, same fields, previously rendered inline on Overview).
+// For EP/Album, the tracklist ALSO shows here (same TracklistSection
+// Overview already uses, just with showCopyright — see above), with each
+// track getting its own independent copyright combo underneath it, since
+// an EP/Album's individual songs can genuinely have different
+// owners/contracts from each other and from the release as a whole.
+function CopyrightsTab({ form, update, onSave, saving }) {
+  const isSingle = form.single_album_ep === "Single";
+  return (
+    <div>
+      <div className={styles.subheading} style={{ marginTop: 0 }}>Copyright Checklist{isSingle ? "" : " — Release-wide"}</div>
+      <CopyrightChecklistFields
+        styles={styles}
+        value={form.copyright_checklist}
+        onChange={(v) => update("copyright_checklist", v)}
+      />
+
+      {!isSingle && (
+        <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+          <TracklistSection releaseId={form.id} showCopyright />
+        </div>
+      )}
+
+      <SaveBar onSave={onSave} saving={saving} />
     </div>
   );
 }

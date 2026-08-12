@@ -1003,7 +1003,11 @@ export default function NewReleasePage() {
 
           {/* Round 88 — Copyright Checklist, living directly above Data
               Request (the first group inside <GateFields> below), per
-              explicit request. */}
+              explicit request — stays here on the create form even after
+              the 2nd follow-up moved its detail-page counterpart into its
+              own "Copyrights" tab, per "stay where they are (for easy
+              creation)". */}
+          <div className={styles.subheading}>Copyright Checklist</div>
           <CopyrightChecklistFields
             styles={styles}
             value={form.copyright_checklist}
