@@ -6112,3 +6112,81 @@ per-tab payload to defer in the first place. Net: not something I'd recommend fo
 built now. If a specific tab starts getting genuinely heavy on its own data in the future (its own
 large fetch, not part of the shared payload), that would be the point to reconsider it for that one
 tab specifically, not as a blanket change to all of them.
+
+## Round 88 follow-up 3 — Booking Board: YouTube Ads "Cancel" is now clickable, and TikTok Channel (and Social/Community) brand drill-downs no longer disappear releases
+
+No SQL — both fixes are pure `app/booking/page.js` logic changes, nothing in the schema changed.
+
+**Item 1 — YouTube Ads "Cancel" locked cell.** Confirmed the cause: yes, that's the "Có Trong Net
+YouTube" gate — a release that hasn't ticked it on its own detail page gets its YouTube Ads column
+forced to a plain "Cancel," same as before. What changed: it's no longer fully closed off. Clicking
+"Cancel" now opens the same quantity popup every other Ads cell uses, with a yellow reminder banner
+("Locked — 'Có Trong Net YouTube' isn't ticked on this release yet. You can still save a number
+below, but it stays shown as Cancel here until that's ticked on the release detail page."). Saving
+records the number (so it isn't lost while waiting on someone to go tick the gate) but the status
+stays forced to "Cancel" — no status picker shown here, since typing a number was never meant to
+double as authorizing the run. Once someone actually ticks the gate on the release's detail page,
+this cell switches over to the normal editable Ads cell, same as any other brand/metric. If a
+number was already saved while locked, it carries over and shows normally from there.
+
+**Item 2 — TikTok Channel brand drill-down showing empty.** Root cause: Social, Community, and
+TikTok Channel all build their booking targets differently than Ads does. When a package gets
+built, Ads keeps one target line per ad-platform brand (Facebook Ads/YouTube Ads/TikTok Ads/Spotify
+Ads each separate) — but Social's brands, Community's brands, and TikTok Channel's 8 sub-brands all
+get mushed into ONE combined target line per Hạng Mục instead (see the comment in
+`app/tickets/media-booking/page.js`'s `groupSummarizedRows`/`createPackage` — this was already how
+targets get built, not something new). That single combined line was never filed under any specific
+brand name, so `bookedFor()` — the function that looks up "how much was targeted for this
+brand/column" — came back with nothing for every individual TikTok Channel brand button, even
+though a real combined target clearly existed (which is exactly what "All" was showing you: 30).
+And since the board is set to always hide releases with no requested number for the columns
+currently shown, that "nothing found" silently hid the release completely the moment you drilled
+into any specific brand — explaining why it never showed up "in all the smaller filters."
+
+Fixed by having `bookedFor()` fall back to that one combined line whenever a brand-specific lookup
+comes back empty. Drilling into a specific TikTok Channel brand (or Social/Community brand) now
+shows the release again, with the real combined target — the same number "All" already shows —
+instead of hiding it. One thing worth knowing: because the underlying target really is one shared
+number across every sub-brand in that Hạng Mục (not a true per-brand breakdown — that data was
+never tracked that way), that same combined number will show up under whichever specific brand you
+pick, not a share proportional to that one brand alone. If a true per-brand breakdown target is
+ever wanted, that would need a change on the media-booking ticket side (where targets get built),
+not just here — flag it if that's actually needed and I'll size it properly.
+
+## Round 88 follow-up 4 — Copyright "copy to all tracks," Booking Board Note becomes icon+popup, magic link mobile fixes
+
+No SQL — all four are UI-only changes.
+
+**1. Copy current track's Copyright Checklist to every track.** On the Copyrights tab's per-track
+section (EP/Album), each track's copyright block now has a small "⧉ Copy to all tracks" button
+above it (only shown once there's more than one track). Clicking it confirms first (it overwrites
+every OTHER track's Owner/Validity/Contract fields for all 3 rights, not just fills in blanks), then
+copies that one track's copyright fields onto every other track in the release. Meant as a fast
+starting point when a whole EP/Album genuinely shares the same owner/contract — any track can still
+be edited individually afterward, this doesn't lock anything.
+
+**2. Booking Board Note column → icon + popup + hover preview.** Was a plain always-visible text
+input in every row of the busiest table in the app. Now a small 📝 icon (dimmed gray when empty,
+accent-colored once a note exists — same on/off convention as the © Copyright icon in New Release
+Setup). Hovering over it shows the current note read-only in a small floating panel, no click
+needed just to check what's there. Clicking it opens a real edit popup with a textarea and an
+explicit Save/Cancel, replacing the old save-on-blur input. Same component now used both in the
+desktop table and the mobile card view.
+
+**3. Magic link (Package Offer/Media Report) mobile — itemized table text overlap.** Root cause:
+the Số Lượng and Thành Tiền columns are set to never wrap their own text (so short values like
+"85 Bài Đăng" don't awkwardly break onto 2 lines on desktop) — but on a narrow phone width, that
+column isn't wide enough for that text at all, so it visibly spills sideways out of its own cell
+and lands on top of the Chi Tiết column's text next to it, which is what picture 1 showed. Fixed by
+letting those two columns wrap normally on mobile only (desktop is untouched) plus a small font-size
+step-down for the whole itemized table on mobile, so the numbers wrap onto a second line inside
+their own column instead of bleeding into the neighbor.
+
+**4. Magic link mobile — "Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT" now stacks on mobile.**
+This section used a fixed 220px label / detail 2-column grid, same on every screen size — fine on
+desktop, but on a phone that fixed 220px column crushed the detail column into an unreadably narrow
+strip (picture 2). It now switches to a single stacked column (label above, detail below) on mobile
+only — same one-column-concat layout the "Trợ Giá Booking" section right below it already uses
+(picture 3) — while desktop keeps the exact same 2-column layout as before, completely unchanged.
+Detected the same way the rest of the mobile work in this app already does (Round 87's
+`useIsMobile()` hook, 768px breakpoint) — the same hook is now also used to fix item 3 above.

@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { formatDetailText } from "../../../lib/helpers";
 import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../../lib/troGiaBooking";
+import { useIsMobile } from "../../../lib/useIsMobile";
 import styles from "../../shared.module.css";
 
 function fmtVnd(n) {
@@ -186,6 +187,13 @@ export default function PickPackagePage() {
   // selection is untouched; Confirm inside it is what actually calls
   // confirmChoice()).
   const [showConfirmWarning, setShowConfirmWarning] = useState(false);
+  // Round 88 follow-up 4 — mobile fix for the itemized package table below
+  // (Số Lượng/Thành Tiền are white-space:nowrap so their own short numbers
+  // never wrap — on a narrow phone width their column just isn't wide
+  // enough for that nowrap text, so it visibly overflows the cell and
+  // bleeds on top of the neighboring Chi Tiết column's text instead of
+  // wrapping to a second line).
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -660,15 +668,18 @@ export default function PickPackagePage() {
                         <col style={{ width: "21%" }} />
                       </colgroup>
                       <thead>
-                        <tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr>
+                        <tr style={isMobile ? { fontSize: 10 } : undefined}><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr>
                       </thead>
                       <tbody>
                         {c.items.map((item, i) => (
-                          <tr key={i}>
+                          <tr key={i} style={isMobile ? { fontSize: 11 } : undefined}>
                             <td style={{ wordBreak: "break-word" }}>{item.category}</td>
-                            <td style={{ whiteSpace: "nowrap" }}>{item.isNonYoutubeAdsLine ? "1 Gói" : item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
-                            <td style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "pre-line", lineHeight: 1.4 }}>{formatDetailText(item.detail) || "—"}</td>
-                            <td style={{ whiteSpace: "nowrap" }}>{fmtVnd(item.amount)}</td>
+                            {/* Round 88 follow-up 4 — nowrap dropped on mobile so a
+                                narrow column wraps this onto a 2nd line instead of
+                                overflowing sideways on top of Chi Tiết's text. */}
+                            <td style={isMobile ? { wordBreak: "break-word" } : { whiteSpace: "nowrap" }}>{item.isNonYoutubeAdsLine ? "1 Gói" : item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
+                            <td style={{ fontSize: isMobile ? 10 : 11, color: "var(--text-faint)", whiteSpace: "pre-line", lineHeight: 1.4 }}>{formatDetailText(item.detail) || "—"}</td>
+                            <td style={isMobile ? { wordBreak: "break-word" } : { whiteSpace: "nowrap" }}>{fmtVnd(item.amount)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1044,6 +1055,12 @@ function TroGiaBookingSection({ items, defaultCollapsed }) {
 
 function PartnerBenefits({ defaultCollapsed, recordingStudioIncluded }) {
   const [open, setOpen] = useState(!defaultCollapsed);
+  // Round 88 follow-up 4 — desktop keeps the 2-column label|detail grid;
+  // mobile stacks label above detail instead (same one-column-concat
+  // layout TroGiaBookingSection already uses above), so the fixed 220px
+  // label column doesn't crush the detail column on a phone. Desktop is
+  // completely untouched — this only swaps the grid's own template.
+  const isMobile = useIsMobile();
   // Round 68 — prepended, not part of PARTNER_BENEFITS itself, since
   // whether it shows depends on this release's own flag rather than being
   // fixed for every release.
@@ -1065,8 +1082,8 @@ function PartnerBenefits({ defaultCollapsed, recordingStudioIncluded }) {
             key={row.label}
             style={{
               display: "grid",
-              gridTemplateColumns: "220px 1fr",
-              gap: 16,
+              gridTemplateColumns: isMobile ? "1fr" : "220px 1fr",
+              gap: isMobile ? 4 : 16,
               padding: "10px 14px",
               background: i % 2 === 0 ? "rgba(255,107,26,0.05)" : "transparent",
               borderTop: i === 0 ? "none" : "1px solid #1c1c1c",

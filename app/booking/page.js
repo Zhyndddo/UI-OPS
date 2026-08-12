@@ -265,11 +265,33 @@ export default function BookingBoard() {
     if (!pkg) return null; // nothing locked in yet — no target to compare against
     const categoryId = categoryIdByName[categoryName];
     const lines = pkg.media_booking_package_lines || [];
-    const matching = brand === null
-      ? lines.filter((l) => l.category_id === categoryId) // "All" aggregate — every brand in this category
-      : lines.filter((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
-    if (matching.length === 0) return null;
-    return matching.reduce((sum, l) => sum + (l.quantity || 0), 0);
+    if (brand === null) {
+      const matching = lines.filter((l) => l.category_id === categoryId); // "All" aggregate — every brand in this category
+      if (matching.length === 0) return null;
+      return matching.reduce((sum, l) => sum + (l.quantity || 0), 0);
+    }
+    const brandMatching = lines.filter((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
+    if (brandMatching.length > 0) {
+      return brandMatching.reduce((sum, l) => sum + (l.quantity || 0), 0);
+    }
+    // Round 88 follow-up 3 — Social/Community/TikTok Channel all mush every
+    // one of their sub-brands into ONE combined package line (brand: "")
+    // when the package is built (see media-booking's groupSummarizedRows /
+    // createPackage — "every OTHER Hạng Mục mushes its brand rows into ONE
+    // combined package line"). Ads is the only category with a real
+    // per-brand line. That meant drilling into a specific brand here always
+    // came back with no match at all (a real target existed, just never
+    // filed under that brand name) — bookedFor returned null for every
+    // single one of that Hạng Mục's brand/sub-channel columns, which then
+    // tripped the board's "only show releases with a requested number"
+    // filter and hid the release completely, even though the aggregate
+    // "All" column clearly showed a real number. Falling back to the
+    // category's one combined line here means a specific-brand view now
+    // shows that same real (shared, not brand-broken-out) target instead of
+    // silently disappearing the release.
+    const aggregateMatching = lines.filter((l) => l.category_id === categoryId && !l.brand);
+    if (aggregateMatching.length === 0) return null;
+    return aggregateMatching.reduce((sum, l) => sum + (l.quantity || 0), 0);
   }
 
   function addedFor(release, categoryName, brand, platform, subchannelType, entryPool) {
@@ -796,13 +818,8 @@ export default function BookingBoard() {
                   <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)" }}>
                     <ResultCell release={r} categories={categories} bookedFor={bookedFor} entries={roundEntries} categoryIdByName={categoryIdByName} />
                   </td>
-                  <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 140, minWidth: 140 }}>
-                    <input
-                      className={styles.input}
-                      style={{ width: "100%", boxSizing: "border-box" }}
-                      defaultValue={r.booking_note || ""}
-                      onBlur={(e) => updateReleaseNote(r, e.target.value)}
-                    />
+                  <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 140, minWidth: 140, textAlign: "center" }}>
+                    <NoteCell release={r} onSave={updateReleaseNote} />
                   </td>
                   <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>
                     <MediaReportCell release={r} onConvert={convertMediaReport} onSendArtist={sendArtistMediaReport} />
@@ -835,7 +852,7 @@ export default function BookingBoard() {
                           booked={bookedFor(r, c.categoryName, c.brand)}
                           added={addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries)}
                           existingEntry={cellEntries[0] || null}
-                          canEdit={hangMucFilter !== "All" && !ctnLocked}
+                          canEdit={hangMucFilter !== "All"}
                           locked={ctnLocked}
                           cellBorderLeft={isGroupStart ? "2px solid #555" : "1px solid var(--border)"}
                           onSave={(quantity, status) => saveAdsQuantity(r.id, c.brand, c.platform, quantity, status, cellEntries[0] || null)}
@@ -962,12 +979,7 @@ function BookingBoardCards({
 
             <div style={{ marginTop: 12 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Note</div>
-              <input
-                className={styles.input}
-                style={{ width: "100%", boxSizing: "border-box" }}
-                defaultValue={r.booking_note || ""}
-                onBlur={(e) => updateReleaseNote(r, e.target.value)}
-              />
+              <NoteCell release={r} onSave={updateReleaseNote} />
             </div>
 
             {groups.map((group) => (
@@ -998,7 +1010,7 @@ function BookingBoardCards({
                               booked={bookedFor(r, c.categoryName, c.brand)}
                               added={addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries)}
                               existingEntry={cellEntries[0] || null}
-                              canEdit={hangMucFilter !== "All" && !ctnLocked}
+                              canEdit={hangMucFilter !== "All"}
                               locked={ctnLocked}
                               cellBorderLeft="none"
                               onSave={(quantity, status) => saveAdsQuantity(r.id, c.brand, c.platform, quantity, status, cellEntries[0] || null)}
@@ -1046,6 +1058,95 @@ function BookingBoardCards({
 // scroll distance half-covered/half-showing). Halving the cell's height
 // doesn't eliminate that effect (inherent to any sticky header + row
 // taller than one line) but cuts it roughly in half.
+// Round 88 follow-up 4 — Note column, was a plain always-visible text
+// input in every row (the busiest table in the app, so that meant a full
+// input box's worth of width in every single row whether or not anyone had
+// typed anything). Now a small icon button instead: dimmed gray when
+// empty, accent-colored once a note exists — same on/off-color convention
+// as the © Copyright icon added to New Release Setup. Hovering shows the
+// current note read-only in a small floating panel (no click needed just
+// to check what's there); clicking opens a real edit popup with a
+// textarea + explicit Save/Cancel, replacing the old save-on-blur input.
+function NoteCell({ release, onSave }) {
+  const [open, setOpen] = useState(false);
+  const [hover, setHover] = useState(false);
+  const [text, setText] = useState(release.booking_note || "");
+  const [saving, setSaving] = useState(false);
+  const hasNote = !!(release.booking_note || "").trim();
+
+  useEffect(() => {
+    setText(release.booking_note || "");
+  }, [release.booking_note]);
+
+  async function handleSave() {
+    setSaving(true);
+    await onSave(release, text);
+    setSaving(false);
+    setOpen(false);
+  }
+
+  function cancelEdit() {
+    setText(release.booking_note || "");
+    setOpen(false);
+  }
+
+  return (
+    <div style={{ position: "relative", display: "inline-block" }} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title={hasNote ? "Click to edit" : "Click to add a note"}
+        style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, padding: 0, color: hasNote ? "var(--accent-soft)" : "var(--text-faint)" }}
+      >
+        📝
+      </button>
+
+      {/* View-only hover preview — only when there's something to show and
+          the edit popup isn't already open (no point showing both). */}
+      {hover && !open && hasNote && (
+        <div
+          style={{
+            position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", marginTop: 6, zIndex: 250, width: 200,
+            background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: 8,
+            fontSize: 11, color: "var(--text-muted)", whiteSpace: "pre-line", lineHeight: 1.4, boxShadow: "0 4px 14px rgba(0,0,0,0.3)", pointerEvents: "none",
+          }}
+        >
+          {release.booking_note}
+        </div>
+      )}
+
+      {open && (
+        <>
+          <div onClick={cancelEdit} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", marginTop: 6, zIndex: 300, width: 240,
+              background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, padding: 12,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.3)", textAlign: "left",
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>Note</div>
+            <textarea
+              className={styles.input}
+              style={{ width: "100%", minHeight: 70, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              autoFocus
+            />
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button className={styles.btnPrimary} style={{ flex: 1 }} onClick={handleSave} disabled={saving}>
+                {saving ? "Đang lưu…" : "Save"}
+              </button>
+              <button className={styles.btnSmall} onClick={cancelEdit}>Cancel</button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // Round 54 — item B.1: 3-state fixed cell.
 //   no magic link yet        → nothing to convert, shows a dash
 //   link exists, not yet     → "Convert Media Report" button (special
@@ -1524,30 +1625,81 @@ function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBo
   async function handleSave() {
     setSaving(true);
     const q = quantity === "" ? null : Number(quantity);
-    await onSave(q, status);
+    // Round 88 follow-up 3 — locked stays forced to "Cancel" no matter what
+    // status was picked (there's no status picker in the locked popup below
+    // anyway) — entering a number here doesn't quietly authorize the run;
+    // it just records the result so it isn't lost while waiting on the gate.
+    await onSave(q, locked ? "Cancel" : status);
     setSaving(false);
     setOpen(false);
+    if (locked) {
+      window.alert('Saved. Remember to tick "Có Trong Net YouTube" on this release\'s detail page — until then this stays locked and shown as Cancel here.');
+    }
   }
 
-  // Round 77 — item 3: locked (Có Trong Net YouTube not ticked on the
-  // release) short-circuits the whole cell to a plain, non-interactive
-  // "Cancel" — no click handler, no popup, no quantity/status of its own,
-  // so nobody can accidentally start filling in numbers for an ad run
-  // that isn't authorized yet.
+  // Round 77 — item 3, revised Round 88 follow-up 3: locked (Có Trong Net
+  // YouTube not ticked on the release) still shows "Cancel" as the cell's
+  // resting label, since that's the real forced status until the gate is
+  // ticked — but per explicit request, it's no longer fully closed off.
+  // Clicking it opens the same quantity popup as an unlocked cell (minus
+  // the status picker, since status stays forced to "Cancel"), with a
+  // banner reminding whoever's filling it in to go tick the gate — so a
+  // result number doesn't get lost just because nobody remembered to check
+  // that box first.
   if (locked) {
     return (
       <td
         style={{
-          verticalAlign: "top", minWidth: 130,
+          verticalAlign: "top", minWidth: 130, position: "relative",
           borderLeft: cellBorderLeft || "1px solid var(--border)",
+          boxShadow: open ? "inset 0 0 0 2px var(--accent)" : "none",
         }}
       >
         <div
-          style={{ fontSize: 17, textAlign: "center", fontWeight: 600, color: ADS_STATUS_COLORS["Cancel"] }}
-          title="Locked — release hasn't ticked Có Trong Net YouTube (see release detail page)"
+          onClick={() => canEdit && setOpen(true)}
+          style={{ cursor: canEdit ? "pointer" : "default", fontSize: 17, textAlign: "center", fontWeight: 600, color: ADS_STATUS_COLORS["Cancel"] }}
+          title={`Cancel — locked (Có Trong Net YouTube not ticked on the release detail page)${existingEntry?.quantity != null ? ` — ${existingEntry.quantity}` : ""}${canEdit ? ". Click to enter a number anyway." : ""}`}
         >
-          Cancel
+          Cancel{existingEntry?.quantity != null ? ` (${existingEntry.quantity})` : ""}
         </div>
+
+        {open && (
+          <>
+            <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: "absolute", top: 0, left: "100%", marginLeft: 6, zIndex: 300, width: 250,
+                background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, padding: 12,
+                boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+              }}
+            >
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>
+                {column.label}
+              </div>
+              <div style={{ fontSize: 11, color: "#ffca4d", background: "rgba(255,202,77,0.1)", border: "1px solid #5a4a1a", borderRadius: 6, padding: "6px 8px", marginBottom: 10 }}>
+                ⚠ Locked — "Có Trong Net YouTube" isn't ticked on this release yet. You can still save a number below, but it stays shown as Cancel here until that's ticked on the release detail page.
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Số lượng</label>
+                <input
+                  type="number"
+                  className={styles.input}
+                  style={{ width: "100%", boxSizing: "border-box" }}
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className={styles.btnPrimary} style={{ flex: 1 }} onClick={handleSave} disabled={saving}>
+                  {saving ? "Đang lưu…" : "Save"}
+                </button>
+                <button className={styles.btnSmall} onClick={() => setOpen(false)}>Cancel</button>
+              </div>
+            </div>
+          </>
+        )}
       </td>
     );
   }

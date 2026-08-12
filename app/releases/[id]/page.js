@@ -1973,6 +1973,23 @@ function TracklistSection({ releaseId, showCopyright = false }) {
     await supabase.from("release_tracks").delete().eq("id", track.id);
   }
 
+  // Round 88 follow-up 4 — "copy this track's copyright fields to the
+  // whole bunch," per explicit request. Filling in Owner/Validity/Contract
+  // per-right on one track and then copying it to every other track saves
+  // re-typing the same combo N times when a whole EP/Album genuinely
+  // shares the same owner/contract — an EP/Album with per-track exceptions
+  // can still edit any individual track afterward, this is just a fast
+  // starting point, not a lock. Confirms first since it overwrites every
+  // other track's copyright fields, not just fills in blanks.
+  async function copyCopyrightToAllTracks(sourceTrack) {
+    const others = tracks.filter((t) => t.id !== sourceTrack.id);
+    if (others.length === 0) return;
+    if (!window.confirm(`Copy this track's Copyright Checklist to all ${tracks.length} tracks? This overwrites every other track's copyright fields.`)) return;
+    const value = sourceTrack.copyright_checklist;
+    setTracks((prev) => prev.map((t) => (t.id === sourceTrack.id ? t : { ...t, copyright_checklist: value })));
+    await Promise.all(others.map((t) => supabase.from("release_tracks").update({ copyright_checklist: value }).eq("id", t.id)));
+  }
+
   if (loading) return null;
 
   return (
@@ -2007,6 +2024,18 @@ function TracklistSection({ releaseId, showCopyright = false }) {
           </div>
           {showCopyright && (
             <div style={{ marginTop: 8, marginLeft: 58 }}>
+              {tracks.length > 1 && (
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+                  <button
+                    type="button"
+                    onClick={() => copyCopyrightToAllTracks(t)}
+                    className={styles.btnSmall}
+                    title="Copy this track's Copyright Checklist to every other track in this release"
+                  >
+                    ⧉ Copy to all tracks
+                  </button>
+                </div>
+              )}
               <CopyrightChecklistFields
                 styles={styles}
                 compact
