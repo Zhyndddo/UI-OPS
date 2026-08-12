@@ -8,11 +8,13 @@ import { supabase } from "../../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../../lib/helpers";
 import { useAuth } from "../../../../lib/AuthContext";
 import { isOpsTeam } from "../../../../lib/teamTypes";
+import { filterProfilesByTeam } from "../../../../lib/workstationHelpers";
 import { parseBatchPaste, BATCH_ITEM_COLUMNS } from "../../../../lib/phaiSinhBatchParse";
 import { recomputeBatchStatus, batchProgress } from "../../../../lib/batchPhaiSinhStatus";
 import { sendPing, resolvePingTargets } from "../../../../lib/pingNotification";
 import { CHILD_ITEM_STATUSES } from "../../../../lib/phaiSinhTypes";
 import BatchFileImport from "../../../../lib/BatchFileImport";
+import { canEditLockedDeadline } from "../../../../lib/permissions";
 import styles from "../../../shared.module.css";
 
 // Round 41 — extended with the Kho Nhạc workflow's own stages
@@ -42,7 +44,7 @@ export default function BatchPhaiSinhDetail() {
   useEffect(() => {
     if (!supabase || !id) return;
     load();
-    supabase.from("profiles").select("id, name").order("name").then(({ data }) => setProfiles(data || []));
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
   }, [id]);
 
   async function load() {
@@ -265,7 +267,7 @@ export default function BatchPhaiSinhDetail() {
                       <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.link_labelmaster || ""} onBlur={(e) => updateItem(item, { link_labelmaster: e.target.value })} /></td>
                       <td>
                         {isExecutorView ? (
-                          <select className={styles.select} style={{ padding: "4px 6px", fontSize: 11 }} value={item.pic_profile_id || ""} onChange={(e) => updatePic(item, e.target.value)}>
+                          <select className={styles.select} style={{ padding: "4px 6px", fontSize: 11, minWidth: "16ch" }} value={item.pic_profile_id || ""} onChange={(e) => updatePic(item, e.target.value)}>
                             <option value="">— Unassigned —</option>
                             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                           </select>
@@ -275,7 +277,7 @@ export default function BatchPhaiSinhDetail() {
                       </td>
                       <td>
                         {(() => {
-                          const deadlineLocked = item.status !== "REQUESTED" && profile?.role !== "dev" && profile?.role !== "admin";
+                          const deadlineLocked = item.status !== "REQUESTED" && !canEditLockedDeadline(profile); // round 57 — teamlead+
                           return (
                             <input
                               type="date"

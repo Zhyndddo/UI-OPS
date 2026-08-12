@@ -7,10 +7,12 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
 import { isOpsTeam } from "../../../lib/teamTypes";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { DISCOVERY_CLIP_STATUS_OPTIONS } from "../../../lib/GateFields";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
 
 // Bespoke (not the generic TicketListPage) per explicit request, laid out
@@ -36,7 +38,7 @@ export default function DiscoveryModeSpotifyTicketList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name").order("name").then(({ data }) => setProfiles(data || []));
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
     supabase.from("app_settings").select("value").eq("key", "artist_profile_links").maybeSingle().then(({ data }) => {
       setToolUrl(data?.value?.discoveryMode || "");
     });
@@ -84,6 +86,13 @@ export default function DiscoveryModeSpotifyTicketList() {
   async function updateStatus(t, newStatus) {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js).
+    if (statusNeedsNote(newStatus)) {
+      const newData = withStatusNote(t.data, newStatus);
+      if (!newData) return; // cancelled / no reason given — abort the change
+      patch.data = newData;
+    }
     setRows((prev) => prev.map((row) => (row.ticket.id === t.id ? { ...row, ticket: { ...row.ticket, ...patch } } : row)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
@@ -172,14 +181,14 @@ export default function DiscoveryModeSpotifyTicketList() {
                       <td>
                         <input
                           className={styles.input}
-                          style={{ padding: "4px 8px", fontSize: 12 }}
+                          style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }}
                           defaultValue={d.discoveryClipUrl || ""}
                           onBlur={(e) => updateTicketData(ticket, { discoveryClipUrl: e.target.value })}
                         />
                       </td>
                       <td>
                         {isExecutorView ? (
-                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={d.clipStatus || DISCOVERY_CLIP_STATUS_OPTIONS[0]} onChange={(e) => updateTicketData(ticket, { clipStatus: e.target.value })}>
+                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} value={d.clipStatus || DISCOVERY_CLIP_STATUS_OPTIONS[0]} onChange={(e) => updateTicketData(ticket, { clipStatus: e.target.value })}>
                             {DISCOVERY_CLIP_STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
                           </select>
                         ) : (
@@ -188,7 +197,7 @@ export default function DiscoveryModeSpotifyTicketList() {
                       </td>
                       <td>
                         {isExecutorView ? (
-                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.pic_profile_id || ""} onChange={(e) => updatePic(ticket, e.target.value)}>
+                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={ticket.pic_profile_id || ""} onChange={(e) => updatePic(ticket, e.target.value)}>
                             <option value="">— Unassigned —</option>
                             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                           </select>
@@ -196,7 +205,7 @@ export default function DiscoveryModeSpotifyTicketList() {
                           <span style={{ fontSize: 12 }}>{ticket.profiles?.name || "—"}</span>
                         )}
                       </td>
-                      <td>
+                      <td title={ticket.data?.note || undefined}>
                         {isExecutorView ? (
                           <select value={ticket.status} onChange={(e) => updateStatus(ticket, e.target.value)} style={{ background: color.bg, color: color.fg, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>
                             {tab?.status_options.map((s) => <option key={s} value={s}>{s}</option>)}

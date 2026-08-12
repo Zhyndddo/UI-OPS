@@ -6,9 +6,12 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import NoteCell from "../../../lib/NoteCell";
 import {
   DESIGN_STATUSES,
   statusOptionsFor,
@@ -17,6 +20,7 @@ import {
   DEFAULT_DESIGN_NOTIFICATION_TEMPLATES,
 } from "../../../lib/designFlow";
 import { resolveProfilesByEmail } from "../../../lib/pingNotification";
+import { canEditLockedDeadline } from "../../../lib/permissions";
 import styles from "../../shared.module.css";
 
 const OVERLOAD_EMAIL = "anh.duong@vieent.vn";
@@ -52,6 +56,7 @@ export default function DesignList() {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
   const [overload, setOverload] = useState(null);
   const [notifTemplates, setNotifTemplates] = useState(DEFAULT_DESIGN_NOTIFICATION_TEMPLATES);
   const [processModal, setProcessModal] = useState(null); // { ticket } | null
@@ -100,8 +105,8 @@ export default function DesignList() {
     setPlatforms(p || []);
     setTypes(t || []);
     setSizes(s || []);
-    const { data: profs } = await supabase.from("profiles").select("id, name").order("name");
-    setProfiles(profs || []);
+    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name"); // round 78
+    setProfiles(filterProfilesByTeam(profs || [], "Design"));
     setLoading(false);
   }
 
@@ -208,9 +213,9 @@ export default function DesignList() {
   }
 
   const visibleTickets = useMemo(() => {
-    if (isExecutorView) return tickets.filter((t) => t.status === statusFilter);
-    return tickets;
-  }, [tickets, isExecutorView, statusFilter]);
+    const base = isExecutorView ? tickets.filter((t) => t.status === statusFilter) : tickets;
+    return base.filter((t) => matchesQuery(t, query));
+  }, [tickets, isExecutorView, statusFilter, query]);
 
   const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
 
@@ -295,6 +300,8 @@ export default function DesignList() {
             </div>
           )}
 
+          <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
+
           {isExecutorView && tab && (
             <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
               {DESIGN_STATUSES.map((s) => (
@@ -335,7 +342,7 @@ export default function DesignList() {
                     profiles={profiles}
                     isExecutorView={isExecutorView}
                     isDev={isDev}
-                    isAdmin={profile?.role === "admin"}
+                    isAdmin={canEditLockedDeadline(profile)}
                     onUpdateData={updateData}
                     onStatusChange={handleStatusChange}
                     onUpdatePic={updatePic}
@@ -352,7 +359,7 @@ export default function DesignList() {
 
           {processModal && (
             <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={() => setProcessModal(null)}>
-              <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: 420 }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 420, width: "100%" }} onClick={(e) => e.stopPropagation()}>
                 <h3 style={{ fontSize: 15, fontWeight: 800, margin: "0 0 10px" }}>Confirm before moving to Process</h3>
                 <p style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 0 }}>Expected Deadline and PIC are both required.</p>
                 <div className={styles.field}>
@@ -431,39 +438,29 @@ function DesignRow({ ticket, platforms, types, sizes, profiles, isExecutorView, 
         <textarea className={styles.textarea} style={{ minHeight: 44, fontSize: 12, padding: "4px 8px" }} defaultValue={ticket.data?.description || ""} onBlur={(e) => onUpdateData(ticket, { description: e.target.value })} />
       </td>
       <td>
-        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.data?.platform || ""} onChange={(e) => onPlatformChange(e.target.value)}>
+        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} value={ticket.data?.platform || ""} onChange={(e) => onPlatformChange(e.target.value)}>
           <option value="">—</option>
           {platforms.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
         </select>
       </td>
       <td>
-        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.data?.designType || ""} onChange={(e) => onTypeChange(e.target.value)} disabled={!currentPlatform}>
+        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} value={ticket.data?.designType || ""} onChange={(e) => onTypeChange(e.target.value)} disabled={!currentPlatform}>
           <option value="">—</option>
           {typesForPlatform.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
         </select>
       </td>
       <td>
-        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.data?.size || ""} onChange={(e) => onUpdateData(ticket, { size: e.target.value })} disabled={!currentType}>
+        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} value={ticket.data?.size || ""} onChange={(e) => onUpdateData(ticket, { size: e.target.value })} disabled={!currentType}>
           <option value="">—</option>
           {sizesForType.map((s) => <option key={s.id} value={s.label}>{s.label}</option>)}
         </select>
       </td>
       <td style={{ minWidth: 140 }}>
-        {isExecutorView ? (
-          <textarea
-            className={styles.textarea}
-            style={{ minHeight: 44, fontSize: 11, padding: "4px 8px" }}
-            defaultValue={ticket.data?.note || ""}
-            placeholder="Note missing stuff…"
-            onBlur={(e) => onUpdateData(ticket, { note: e.target.value })}
-          />
-        ) : (
-          <span style={{ fontSize: 11, whiteSpace: "pre-line" }}>{ticket.data?.note || "—"}</span>
-        )}
+        <NoteCell value={ticket.data?.note} editable={isExecutorView} onSave={(v) => onUpdateData(ticket, { note: v })} placeholder="Note missing stuff…" />
       </td>
       <td>
         {isExecutorView ? (
-          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
+          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
             <option value="">— Unassigned —</option>
             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>

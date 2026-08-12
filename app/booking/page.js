@@ -8,6 +8,9 @@ import { fmtDate, formatDetailText } from "../../lib/helpers";
 import TypeSwitcher from "../../lib/TypeSwitcher";
 import { usePagination } from "../../lib/usePagination";
 import Pagination from "../../lib/Pagination";
+import { useIsMobile } from "../../lib/useIsMobile";
+import { ARTIST_PROFILE_LINKS_SETTING_KEY, DEFAULT_LINKFIRE_URL } from "../../lib/externalTools";
+import YoutubeAdsFields from "../../lib/YoutubeAdsFields";
 import styles from "../shared.module.css";
 
 // Every Hạng Mục here uses the same 2-layer pattern: pick a sub-filter
@@ -84,12 +87,18 @@ const ADS_METRICS = {
 // Ads cells take a quantity + a run-status instead of the Add Link popup
 // every other Hạng Mục uses. Own vocabulary/colors, distinct from the
 // link-status colors (Chưa Booking/Đã Gửi/Done) used everywhere else.
+// Round 77 — "Cancel" added: the forced status for the YouTube Ads column
+// on a release that hasn't ticked Có Trong Net YouTube on its detail page
+// (see AdsCell's ctnLocked prop) — not a manually-pickable option, so it's
+// not in ADS_STATUS_OPTIONS (the popup's own status-picker list), only in
+// the color map so the locked cell can still render in this vocabulary.
 const ADS_STATUS_OPTIONS = ["Chưa Chạy", "Đang Chạy", "Đã Chạy", "Pending"];
 const ADS_STATUS_COLORS = {
   "Chưa Chạy": "var(--text-faint)",
   "Đang Chạy": "#ffca4d",
   "Đã Chạy": "#7ee6a8",
   "Pending": "#ff9d5c",
+  "Cancel": "var(--text-dim)",
 };
 
 const ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
@@ -136,6 +145,24 @@ export default function BookingBoard() {
   const [expandedCell, setExpandedCell] = useState(null); // `${releaseId}:${categoryName}:${brand}` or null
   const [packagePreview, setPackagePreview] = useState(null); // release being previewed, or null
   const [bookingChannels, setBookingChannels] = useState([]); // booking_channels reference table — see BrandCell's Add Link popup
+  // Round 91 — Linkfire's URL, admin-editable in Config → External Tool
+  // Links (same app_settings row Spotify/Apple Music/Discovery Mode
+  // already live in) instead of hardcoded here — Linkfire can change their
+  // own URL without needing another round. Starts at the known-good
+  // default and gets overwritten by load() below the moment the setting
+  // row is read, so the button is never dead while that fetch is in
+  // flight.
+  const [linkfireUrl, setLinkfireUrl] = useState(DEFAULT_LINKFIRE_URL);
+  // Round 87 — mobile plan phase, part 2: Booking Board is the busiest
+  // table in the app (fixed columns + a dynamic per-DSP column set,
+  // sticky first column, wide enough it needs minWidth:900 even on
+  // desktop) — side-scrolling it on a phone works but means constantly
+  // swiping back and forth to compare columns on the same row. Below the
+  // breakpoint it renders as a stacked list of per-release cards instead,
+  // reusing the exact same cell components (ResultCell/MediaReportCell/
+  // BrandCell/AdsCell) with the exact same props as the table version —
+  // only the layout around them changes, not their behavior.
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const options = CATEGORY_SUBFILTERS[hangMucFilter];
@@ -164,7 +191,13 @@ export default function BookingBoard() {
     setLoading(true);
     const { data: rels } = await supabase
       .from("releases")
-      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status")
+// Round 77 — gate_co_trong_net_youtube added: locks the YouTube Ads
+      // Ads-brand column when the release hasn't opted into Có Trong Net
+      // YouTube on its detail page (see AdsCell's ctnLocked prop below).
+      // Round 92 — youtube_ads_url/youtube_ads_booking_note added: shown
+      // (and editable) inside the YouTube Ads column's own popup, see
+      // AdsCell's showYoutubeAdsFields prop below.
+      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status, gate_co_trong_net_youtube, youtube_ads_url, youtube_ads_booking_note, pseudo_package_parent_did")
       .order("release_date", { ascending: false });
     const { data: ents } = await supabase.from("media_booking_entries").select("*");
     const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
@@ -175,12 +208,18 @@ export default function BookingBoard() {
     // from scratch every time. Missing table/no rows just means no
     // suggestions show up; the popup still works exactly as before.
     const { data: chans } = await supabase.from("booking_channels").select("*");
-    setReleases(rels || []);
+    const { data: extLinks } = await supabase.from("app_settings").select("value").eq("key", ARTIST_PROFILE_LINKS_SETTING_KEY).maybeSingle();
+    // Round 79 — pseudo-package tracks (releases linked to a parent EP/Album
+    // via pseudo_package_parent_did) skip the whole booking process and
+    // never appear on the Booking board at all.
+    const filteredRels = (rels || []).filter((r) => !r.pseudo_package_parent_did);
+    setReleases(filteredRels);
     setEntries(ents || []);
     setCategories(cats || []);
     setPackages(pkgs || []);
     setDot2ReleaseIds(new Set((targets || []).map((t) => t.release_id)));
     setBookingChannels(chans || []);
+    if (extLinks?.value?.linkfire) setLinkfireUrl(extLinks.value.linkfire);
     setLoading(false);
   }
 
@@ -189,6 +228,17 @@ export default function BookingBoard() {
     await supabase.from("releases").update({ booking_note: value }).eq("id", release.id);
   }
 
+  // Round 92 — YouTube URL / Booking note, edited straight from the
+  // YouTube Ads column's own popup (see AdsCell) — same shared
+  // youtube_ads_url/youtube_ads_booking_note columns the release detail
+  // page's Có Trong Net YouTube panel and the Media Booking ticket also
+  // read/write, so a value entered from any of the 3 places shows up in
+  // the other 2 immediately (next load — this table doesn't subscribe to
+  // realtime changes, same as every other field here).
+  async function updateYoutubeAdsField(release, field, value) {
+    setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, [field]: value } : r)));
+    await supabase.from("releases").update({ [field]: value }).eq("id", release.id);
+  }
   // Round 54 — item B.1: "Convert Media Report" turns this release's
   // magic link from a "Package Offer" into a "Media Report" everywhere it's
   // named (see release.media_report_status, read by app/pick-package,
@@ -241,11 +291,33 @@ export default function BookingBoard() {
     if (!pkg) return null; // nothing locked in yet — no target to compare against
     const categoryId = categoryIdByName[categoryName];
     const lines = pkg.media_booking_package_lines || [];
-    const matching = brand === null
-      ? lines.filter((l) => l.category_id === categoryId) // "All" aggregate — every brand in this category
-      : lines.filter((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
-    if (matching.length === 0) return null;
-    return matching.reduce((sum, l) => sum + (l.quantity || 0), 0);
+    if (brand === null) {
+      const matching = lines.filter((l) => l.category_id === categoryId); // "All" aggregate — every brand in this category
+      if (matching.length === 0) return null;
+      return matching.reduce((sum, l) => sum + (l.quantity || 0), 0);
+    }
+    const brandMatching = lines.filter((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
+    if (brandMatching.length > 0) {
+      return brandMatching.reduce((sum, l) => sum + (l.quantity || 0), 0);
+    }
+    // Round 88 follow-up 3 — Social/Community/TikTok Channel all mush every
+    // one of their sub-brands into ONE combined package line (brand: "")
+    // when the package is built (see media-booking's groupSummarizedRows /
+    // createPackage — "every OTHER Hạng Mục mushes its brand rows into ONE
+    // combined package line"). Ads is the only category with a real
+    // per-brand line. That meant drilling into a specific brand here always
+    // came back with no match at all (a real target existed, just never
+    // filed under that brand name) — bookedFor returned null for every
+    // single one of that Hạng Mục's brand/sub-channel columns, which then
+    // tripped the board's "only show releases with a requested number"
+    // filter and hid the release completely, even though the aggregate
+    // "All" column clearly showed a real number. Falling back to the
+    // category's one combined line here means a specific-brand view now
+    // shows that same real (shared, not brand-broken-out) target instead of
+    // silently disappearing the release.
+    const aggregateMatching = lines.filter((l) => l.category_id === categoryId && !l.brand);
+    if (aggregateMatching.length === 0) return null;
+    return aggregateMatching.reduce((sum, l) => sum + (l.quantity || 0), 0);
   }
 
   function addedFor(release, categoryName, brand, platform, subchannelType, entryPool) {
@@ -483,10 +555,17 @@ export default function BookingBoard() {
       if (!error) setEntries((prev) => prev.map((e) => (e.id === existingEntry.id ? { ...e, quantity, status } : e)));
       return { error };
     }
+    // Round 93 fix — this insert used to pass channel_type: null explicitly,
+    // which overrides the column's "not null default 'Direct'" and made
+    // EVERY first-time Ads save fail outright with a not-null violation
+    // (confirmed against a local Postgres 16 instance). Ads rows don't
+    // really have a Direct/Partner distinction, so just let the column's
+    // own default apply by omitting the key entirely, instead of forcing
+    // it to null.
     const { data, error } = await supabase
       .from("media_booking_entries")
       .insert({
-        release_id: releaseId, booking_round: round, channel_type: null,
+        release_id: releaseId, booking_round: round,
         category_id: categoryIdByName["Ads"] || null, channel_name: brand || null,
         platform: platform || null, subchannel_type: null, link: null, quantity, status,
       })
@@ -526,7 +605,26 @@ export default function BookingBoard() {
             <div className={styles.eyebrow}>// Booking Tracker</div>
             <h1 className={styles.title} style={{ marginBottom: 0 }}>Booking Board</h1>
           </div>
-          <button className={styles.btnSecondary} onClick={exportCsv}>⇩ Export CSV</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            {/* Round 91 — Marketing's own external tool for actually
+                CREATING a link (Linkfire), opened right next to Export CSV
+                so it's in the same place they're already looking, instead
+                of hunting down the URL themselves each time. Plain new-tab
+                link, not an embed/iframe — Linkfire itself isn't part of
+                this app, this is just a fast door to it. URL is now
+                admin-editable (Config → External Tool Links) rather than
+                hardcoded — see linkfireUrl/load() above. */}
+            <a
+              href={linkfireUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.btnSecondary}
+              style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+            >
+              🔗 Linkfire
+            </a>
+            <button className={styles.btnSecondary} onClick={exportCsv}>⇩ Export CSV</button>
+          </div>
         </div>
 
         {/* Scoped to this page only (inline override, not a shared.module.css
@@ -659,6 +757,35 @@ export default function BookingBoard() {
             <div style={{ fontSize: 48, fontWeight: 900, color: "#1c1c1c", letterSpacing: 4 }}>EMPTY</div>
             <div style={{ color: "var(--text-dim)", marginTop: -12 }}>Không tìm thấy</div>
           </div>
+        ) : isMobile ? (
+          <>
+          <BookingBoardCards
+            releases={pagedReleases}
+            categories={categories}
+            columns={columns}
+            bookedFor={bookedFor}
+            addedFor={addedFor}
+            roundEntries={roundEntries}
+            categoryIdByName={categoryIdByName}
+            hangMucFilter={hangMucFilter}
+            subFilter={subFilter}
+            round={round}
+            phuLucStatus={phuLucStatus}
+            setPackagePreview={setPackagePreview}
+            updateReleaseNote={updateReleaseNote}
+            convertMediaReport={convertMediaReport}
+            sendArtistMediaReport={sendArtistMediaReport}
+            expandedCell={expandedCell}
+            setExpandedCell={setExpandedCell}
+            addEntry={addEntry}
+            addEntries={addEntries}
+            cycleStatus={cycleStatus}
+            bookingChannels={bookingChannels}
+            saveAdsQuantity={saveAdsQuantity}
+            updateYoutubeAdsField={updateYoutubeAdsField}
+          />
+          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+          </>
         ) : (
           <>
           <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
@@ -703,16 +830,19 @@ export default function BookingBoard() {
               {pagedReleases.map((r) => {
                 const releasingToday = isReleasingToday(r);
                 return (
-                <tr key={r.id} style={releasingToday ? { background: "rgba(255,107,26,0.08)" } : undefined}>
-                  <td style={{ position: "sticky", left: 0, zIndex: 1, background: releasingToday ? "#2a1c0f" : "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288, overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {/* .rowLink is `color: inherit` — on a light theme that
-                        inherited color is dark (meant for a light card),
-                        so against this cell's near-black highlight bg it
-                        went almost unreadable. Force white/orange here
-                        instead of relying on inherit, same fix on both the
-                        title link and the faint sub-text line. */}
-                    <Link href={`/releases/${r.id}`} className={styles.rowLink} style={releasingToday ? { color: "#ffffff" } : undefined}>{r.title}</Link>
-                    <div style={{ fontSize: 11, color: releasingToday ? "#ffcb9a" : "var(--text-faint)" }}>
+                <tr key={r.id} style={releasingToday ? { background: "var(--highlight-row-tint)" } : undefined}>
+                  <td style={{ position: "sticky", left: 0, zIndex: 1, background: releasingToday ? "var(--highlight-bg)" : "var(--bg)", borderRight: "2px solid var(--accent)", width: 288, minWidth: 288, maxWidth: 288, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {/* Round 77 — now the shared highlight tokens
+                        (globals.css) instead of hardcoded hex — same
+                        values as before, just centralized so Upload's
+                        identical box could be fixed the same way instead
+                        of carrying its own separate (and, until this
+                        round, broken-on-light-theme) copy. .rowLink is
+                        `color: inherit`, which on a light theme is dark —
+                        forcing var(--highlight-text) here instead of
+                        relying on inherit is what keeps this readable. */}
+                    <Link href={`/releases/${r.id}`} className={styles.rowLink} style={releasingToday ? { color: "var(--highlight-text)" } : undefined}>{r.title}</Link>
+                    <div style={{ fontSize: 11, color: releasingToday ? "var(--highlight-text-faint)" : "var(--text-faint)" }}>
                       {r.main_artist} · {r.did} · {fmtDate(r.release_date)}
                       {releasingToday && <span style={{ color: "#ff6b1a", fontWeight: 700, marginLeft: 6 }}>· TODAY</span>}
                     </div>
@@ -741,13 +871,11 @@ export default function BookingBoard() {
                   <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)" }}>
                     <ResultCell release={r} categories={categories} bookedFor={bookedFor} entries={roundEntries} categoryIdByName={categoryIdByName} />
                   </td>
-                  <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 140, minWidth: 140 }}>
-                    <input
-                      className={styles.input}
-                      style={{ width: "100%", boxSizing: "border-box" }}
-                      defaultValue={r.booking_note || ""}
-                      onBlur={(e) => updateReleaseNote(r, e.target.value)}
-                    />
+                  <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 140, minWidth: 140, textAlign: "center" }}>
+                    <NoteCell release={r} onSave={updateReleaseNote} />
+                  </td>
+                  <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>
+                    <MediaReportCell release={r} onConvert={convertMediaReport} onSendArtist={sendArtistMediaReport} />
                   </td>
                   <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>
                     <MediaReportCell release={r} onConvert={convertMediaReport} onSendArtist={sendArtistMediaReport} />
@@ -763,6 +891,16 @@ export default function BookingBoard() {
                       (c.subchannelType == null || (e.subchannel_type || "") === c.subchannelType)
                     );
                     if (c.categoryName === "Ads") {
+                      // Round 77 — item 3: YouTube Ads is locked (no
+                      // interaction, forced "Cancel" display) on any
+                      // release that hasn't ticked Có Trong Net YouTube on
+                      // its detail page — that gate is what actually
+                      // authorizes running YouTube ads for a release at
+                      // all. Locked = no entry ever gets created for it,
+                      // so it naturally sums to 0 in the "All" aggregate
+                      // alongside its Ads siblings, instead of needing any
+                      // special-case math there.
+                      const ctnLocked = c.brand === "YouTube Ads" && r.gate_co_trong_net_youtube !== "true";
                       return (
                         <AdsCell
                           key={c.key}
@@ -771,6 +909,12 @@ export default function BookingBoard() {
                           added={addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries)}
                           existingEntry={cellEntries[0] || null}
                           canEdit={hangMucFilter !== "All"}
+                          locked={ctnLocked}
+                          showYoutubeAdsFields={c.brand === "YouTube Ads"}
+                          youtubeAdsUrl={r.youtube_ads_url}
+                          youtubeBookingNote={r.youtube_ads_booking_note}
+                          onSaveYoutubeAdsUrl={(v) => updateYoutubeAdsField(r, "youtube_ads_url", v)}
+                          onSaveYoutubeBookingNote={(v) => updateYoutubeAdsField(r, "youtube_ads_booking_note", v)}
                           cellBorderLeft={isGroupStart ? "2px solid #555" : "1px solid var(--border)"}
                           onSave={(quantity, status) => saveAdsQuantity(r.id, c.brand, c.platform, quantity, status, cellEntries[0] || null)}
                         />
@@ -813,6 +957,160 @@ export default function BookingBoard() {
   );
 }
 
+// Round 87 — mobile card view for Booking Board (see the isMobile comment
+// above BookingBoard's own state). One card per release instead of one
+// table row; the fixed columns (Package/Result/Note/Media Report) become
+// labeled blocks, and the dynamic per-DSP columns are grouped by their
+// Hạng Mục (categoryName) the same way the table groups them with a
+// thicker border — here that's a small section header instead. Every
+// interactive cell (ResultCell/MediaReportCell/BrandCell/AdsCell) is the
+// EXACT SAME component the table uses, same props — this only changes
+// what wraps them, not how they behave or save.
+function BookingBoardCards({
+  releases, categories, columns, bookedFor, addedFor, roundEntries, categoryIdByName,
+  hangMucFilter, subFilter, round, phuLucStatus, setPackagePreview, updateReleaseNote,
+  convertMediaReport, sendArtistMediaReport, expandedCell, setExpandedCell, addEntry, addEntries,
+  cycleStatus, bookingChannels, saveAdsQuantity, updateYoutubeAdsField,
+}) {
+  // Same grouping the table's header uses (columns are already sorted by
+  // category upstream in the `columns` useMemo) — just collected into
+  // named sections instead of a border-left marker between <th>s.
+  const groups = [];
+  columns.forEach((c) => {
+    const last = groups[groups.length - 1];
+    if (last && last.categoryName === c.categoryName) last.cols.push(c);
+    else groups.push({ categoryName: c.categoryName, cols: [c] });
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {releases.map((r) => {
+        const releasingToday = isReleasingToday(r);
+        return (
+          <div
+            key={r.id}
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              padding: 14,
+              background: releasingToday ? "var(--highlight-bg)" : "var(--bg-card)",
+            }}
+          >
+            <Link href={`/releases/${r.id}`} className={styles.rowLink} style={{ fontSize: 14, fontWeight: 700, ...(releasingToday ? { color: "var(--highlight-text)" } : {}) }}>
+              {r.title}
+            </Link>
+            <div style={{ fontSize: 11, color: releasingToday ? "var(--highlight-text-faint)" : "var(--text-faint)", marginTop: 2 }}>
+              {r.main_artist} · {r.did} · {fmtDate(r.release_date)}
+              {releasingToday && <span style={{ color: "#ff6b1a", fontWeight: 700, marginLeft: 6 }}>· TODAY</span>}
+            </div>
+            {hangMucFilter === "TikTok Channel" && subFilter === "Partner" && (
+              <span
+                className={styles.statusBadge}
+                style={{
+                  marginTop: 6, display: "inline-block",
+                  background: phuLucStatus(r) === "Đã Ký" ? "rgba(76,175,80,0.15)" : "rgba(244,67,54,0.15)",
+                  color: phuLucStatus(r) === "Đã Ký" ? "#7ee6a8" : "#ff8a80",
+                }}
+              >
+                Phụ Lục: {phuLucStatus(r)}
+              </span>
+            )}
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Package</div>
+                {r.project_type ? (
+                  <button onClick={() => setPackagePreview(r)} style={{ background: "none", border: "none", color: "var(--accent-soft)", cursor: "pointer", fontSize: 12, textAlign: "left", padding: 0 }}>
+                    {r.project_type}
+                  </button>
+                ) : (
+                  <span style={{ color: "var(--text-faint)", fontSize: 12 }}>—</span>
+                )}
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Media Report</div>
+                <MediaReportCell release={r} onConvert={convertMediaReport} onSendArtist={sendArtistMediaReport} />
+              </div>
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Result</div>
+              <ResultCell release={r} categories={categories} bookedFor={bookedFor} entries={roundEntries} categoryIdByName={categoryIdByName} />
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Note</div>
+              <NoteCell release={r} onSave={updateReleaseNote} />
+            </div>
+
+            {groups.map((group) => (
+              <div key={group.categoryName} style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>
+                  {group.categoryName}
+                  <span style={{ fontWeight: 400, color: "var(--text-faint)", fontSize: 10, textTransform: "none", marginLeft: 6 }}>
+                    {round}{subFilter ? ` · ${subfilterLabel(hangMucFilter, subFilter)}` : ""}
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {group.cols.map((c) => {
+                    const cellEntries = roundEntries.filter((e) =>
+                      e.release_id === r.id &&
+                      e.category_id === categoryIdByName[c.categoryName] &&
+                      (c.brand === null || (e.channel_name || "") === (c.brand || "")) &&
+                      (c.platform == null || (e.platform || "") === c.platform) &&
+                      (c.subchannelType == null || (e.subchannel_type || "") === c.subchannelType)
+                    );
+                    return (
+                      <div key={c.key}>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>{c.label}</div>
+                        {c.categoryName === "Ads" ? (() => {
+                          const ctnLocked = c.brand === "YouTube Ads" && r.gate_co_trong_net_youtube !== "true";
+                          return (
+                            <AdsCell
+                              column={c}
+                              booked={bookedFor(r, c.categoryName, c.brand)}
+                              added={addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries)}
+                              existingEntry={cellEntries[0] || null}
+                              canEdit={hangMucFilter !== "All"}
+                              locked={ctnLocked}
+                              showYoutubeAdsFields={c.brand === "YouTube Ads"}
+                              youtubeAdsUrl={r.youtube_ads_url}
+                              youtubeBookingNote={r.youtube_ads_booking_note}
+                              onSaveYoutubeAdsUrl={(v) => updateYoutubeAdsField(r, "youtube_ads_url", v)}
+                              onSaveYoutubeBookingNote={(v) => updateYoutubeAdsField(r, "youtube_ads_booking_note", v)}
+                              cellBorderLeft="none"
+                              onSave={(quantity, status) => saveAdsQuantity(r.id, c.brand, c.platform, quantity, status, cellEntries[0] || null)}
+                            />
+                          );
+                        })() : (
+                          <BrandCell
+                            release={r}
+                            column={c}
+                            booked={bookedFor(r, c.categoryName, c.brand)}
+                            cellEntries={cellEntries}
+                            expanded={expandedCell === `${r.id}:${c.key}`}
+                            onToggle={() => setExpandedCell(expandedCell === `${r.id}:${c.key}` ? null : `${r.id}:${c.key}`)}
+                            onAdd={(platform, link) => addEntry(r.id, c.categoryName, c.brand, c.platform || platform, link, c.subchannelType)}
+                            onAddBulk={(rows) => addEntries(r.id, c.categoryName, c.brand, c.platform, c.subchannelType, rows)}
+                            onCycleStatus={cycleStatus}
+                            canAdd={hangMucFilter !== "All"}
+                            cellBorderLeft="none"
+                            referenceChannels={bookingChannels}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Green if fully booked (added >= booked and booked > 0), orange if a
 // target exists but isn't met yet (including added === 0), grey if
 // nothing was ever booked for that Hạng Mục. Always all 4 Hạng Mục,
@@ -826,6 +1124,95 @@ export default function BookingBoard() {
 // scroll distance half-covered/half-showing). Halving the cell's height
 // doesn't eliminate that effect (inherent to any sticky header + row
 // taller than one line) but cuts it roughly in half.
+// Round 88 follow-up 4 — Note column, was a plain always-visible text
+// input in every row (the busiest table in the app, so that meant a full
+// input box's worth of width in every single row whether or not anyone had
+// typed anything). Now a small icon button instead: dimmed gray when
+// empty, accent-colored once a note exists — same on/off-color convention
+// as the © Copyright icon added to New Release Setup. Hovering shows the
+// current note read-only in a small floating panel (no click needed just
+// to check what's there); clicking opens a real edit popup with a
+// textarea + explicit Save/Cancel, replacing the old save-on-blur input.
+function NoteCell({ release, onSave }) {
+  const [open, setOpen] = useState(false);
+  const [hover, setHover] = useState(false);
+  const [text, setText] = useState(release.booking_note || "");
+  const [saving, setSaving] = useState(false);
+  const hasNote = !!(release.booking_note || "").trim();
+
+  useEffect(() => {
+    setText(release.booking_note || "");
+  }, [release.booking_note]);
+
+  async function handleSave() {
+    setSaving(true);
+    await onSave(release, text);
+    setSaving(false);
+    setOpen(false);
+  }
+
+  function cancelEdit() {
+    setText(release.booking_note || "");
+    setOpen(false);
+  }
+
+  return (
+    <div style={{ position: "relative", display: "inline-block" }} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title={hasNote ? "Click to edit" : "Click to add a note"}
+        style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, padding: 0, color: hasNote ? "var(--accent-soft)" : "var(--text-faint)" }}
+      >
+        📝
+      </button>
+
+      {/* View-only hover preview — only when there's something to show and
+          the edit popup isn't already open (no point showing both). */}
+      {hover && !open && hasNote && (
+        <div
+          style={{
+            position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", marginTop: 6, zIndex: 250, width: 200,
+            background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: 8,
+            fontSize: 11, color: "var(--text-muted)", whiteSpace: "pre-line", lineHeight: 1.4, boxShadow: "0 4px 14px rgba(0,0,0,0.3)", pointerEvents: "none",
+          }}
+        >
+          {release.booking_note}
+        </div>
+      )}
+
+      {open && (
+        <>
+          <div onClick={cancelEdit} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", marginTop: 6, zIndex: 300, width: 240,
+              background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, padding: 12,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.3)", textAlign: "left",
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>Note</div>
+            <textarea
+              className={styles.input}
+              style={{ width: "100%", minHeight: 70, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              autoFocus
+            />
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button className={styles.btnPrimary} style={{ flex: 1 }} onClick={handleSave} disabled={saving}>
+                {saving ? "Đang lưu…" : "Save"}
+              </button>
+              <button className={styles.btnSmall} onClick={cancelEdit}>Cancel</button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // Round 54 — item B.1: 3-state fixed cell.
 //   no magic link yet        → nothing to convert, shows a dash
 //   link exists, not yet     → "Convert Media Report" button (special
@@ -1257,7 +1644,10 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
               <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 8, display: "grid", gap: 4, maxHeight: 140, overflowY: "auto" }}>
                 {cellEntries.map((e) => (
                   <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, gap: 6 }}>
-                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {/* Round 80 — minWidth: 0 lets a flex item actually
+                        shrink to its parent instead of growing to fit a
+                        long pasted link ("over-extend"). */}
+                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                       {e.platform && <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{e.platform}: </span>}
                       <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-muted)" }}>{e.link}</a>
                     </div>
@@ -1284,7 +1674,7 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
 // number of different unit not number of url"). Click opens a small popup
 // with a "Số lượng" number field and a 4-way status switch; the main cell
 // shows the number itself colored by status (not the cell background).
-function AdsCell({ column, booked, added, existingEntry, canEdit, cellBorderLeft, onSave }) {
+function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBorderLeft, onSave, showYoutubeAdsFields, youtubeAdsUrl, youtubeBookingNote, onSaveYoutubeAdsUrl, onSaveYoutubeBookingNote }) {
   const [open, setOpen] = useState(false);
   const [quantity, setQuantity] = useState(existingEntry?.quantity ?? "");
   const [status, setStatus] = useState(existingEntry?.status || ADS_STATUS_OPTIONS[0]);
@@ -1301,9 +1691,109 @@ function AdsCell({ column, booked, added, existingEntry, canEdit, cellBorderLeft
   async function handleSave() {
     setSaving(true);
     const q = quantity === "" ? null : Number(quantity);
-    await onSave(q, status);
+    // Round 88 follow-up 3 — locked stays forced to "Cancel" no matter what
+    // status was picked (there's no status picker in the locked popup below
+    // anyway) — entering a number here doesn't quietly authorize the run;
+    // it just records the result so it isn't lost while waiting on the gate.
+    const { error } = await onSave(q, locked ? "Cancel" : status);
     setSaving(false);
+    // Round 93 fix — a failed save (e.g. the not-null violation this round
+    // fixed, or any future DB error) used to close the popup silently as if
+    // it worked, so the "result number isn't saving" bug had no visible
+    // symptom to go on. Now a failed save stays open with the number intact
+    // and tells the user plainly, instead of pretending it went through.
+    if (error) {
+      window.alert(`Save failed: ${error.message || error}. The number is still in the box — try Save again.`);
+      return;
+    }
     setOpen(false);
+    if (locked) {
+      window.alert('Saved. Remember to tick "Có Trong Net YouTube" on this release\'s detail page — until then this stays locked and shown as Cancel here.');
+    }
+  }
+
+  // Round 77 — item 3, revised Round 88 follow-up 3: locked (Có Trong Net
+  // YouTube not ticked on the release) still shows "Cancel" as the cell's
+  // resting label, since that's the real forced status until the gate is
+  // ticked — but per explicit request, it's no longer fully closed off.
+  // Clicking it opens the same quantity popup as an unlocked cell (minus
+  // the status picker, since status stays forced to "Cancel"), with a
+  // banner reminding whoever's filling it in to go tick the gate — so a
+  // result number doesn't get lost just because nobody remembered to check
+  // that box first.
+  if (locked) {
+    return (
+      <td
+        style={{
+          verticalAlign: "top", minWidth: 130, position: "relative",
+          borderLeft: cellBorderLeft || "1px solid var(--border)",
+          boxShadow: open ? "inset 0 0 0 2px var(--accent)" : "none",
+        }}
+      >
+        <div
+          onClick={() => canEdit && setOpen(true)}
+          style={{ cursor: canEdit ? "pointer" : "default", fontSize: 17, textAlign: "center", fontWeight: 600, color: ADS_STATUS_COLORS["Cancel"] }}
+          title={`Cancel — locked (Có Trong Net YouTube not ticked on the release detail page)${existingEntry?.quantity != null ? ` — ${existingEntry.quantity}` : ""}${canEdit ? ". Click to enter a number anyway." : ""}`}
+        >
+          Cancel{existingEntry?.quantity != null ? ` (${existingEntry.quantity})` : ""}
+        </div>
+
+        {open && (
+          <>
+            <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: "absolute", top: 0, left: "100%", marginLeft: 6, zIndex: 300, width: 250,
+                background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, padding: 12,
+                boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+              }}
+            >
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>
+                {column.label}
+              </div>
+              <div style={{ fontSize: 11, color: "#ffca4d", background: "rgba(255,202,77,0.1)", border: "1px solid #5a4a1a", borderRadius: 6, padding: "6px 8px", marginBottom: 10 }}>
+                ⚠ Locked — "Có Trong Net YouTube" isn't ticked on this release yet. You can still save a number below, but it stays shown as Cancel here until that's ticked on the release detail page.
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Số lượng</label>
+                <input
+                  type="number"
+                  className={styles.input}
+                  style={{ width: "100%", boxSizing: "border-box" }}
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              {showYoutubeAdsFields && (
+                // Round 93 — the AR team's YouTube URL + Booking request
+                // fields, per explicit request ("booking board, click to
+                // the youtube ads column, pop up show up, they live
+                // there"). Writes straight to the release (immediate save,
+                // no relation to the Số lượng/Status Save button below).
+                <div style={{ marginBottom: 12, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                  <YoutubeAdsFields
+                    styles={styles}
+                    url={youtubeAdsUrl}
+                    bookingNote={youtubeBookingNote}
+                    onChangeUrl={onSaveYoutubeAdsUrl}
+                    onChangeBookingNote={onSaveYoutubeBookingNote}
+                    compact
+                  />
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className={styles.btnPrimary} style={{ flex: 1 }} onClick={handleSave} disabled={saving}>
+                  {saving ? "Đang lưu…" : "Save"}
+                </button>
+                <button className={styles.btnSmall} onClick={() => setOpen(false)}>Cancel</button>
+              </div>
+            </div>
+          </>
+        )}
+      </td>
+    );
   }
 
   return (
@@ -1373,6 +1863,20 @@ function AdsCell({ column, booked, added, existingEntry, canEdit, cellBorderLeft
                 ))}
               </div>
             </div>
+            {showYoutubeAdsFields && (
+              // Round 93 — same YouTube URL + Booking request fields as the
+              // locked popup above, immediate-save straight to the release.
+              <div style={{ marginBottom: 12, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                <YoutubeAdsFields
+                  styles={styles}
+                  url={youtubeAdsUrl}
+                  bookingNote={youtubeBookingNote}
+                  onChangeUrl={onSaveYoutubeAdsUrl}
+                  onChangeBookingNote={onSaveYoutubeBookingNote}
+                  compact
+                />
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8 }}>
               <button className={styles.btnPrimary} style={{ flex: 1 }} onClick={handleSave} disabled={saving}>
                 {saving ? "Đang lưu…" : "Save"}
@@ -1411,7 +1915,7 @@ function PackagePreviewPopup({ release, categories, onClose }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: 480, maxHeight: "80vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 480, width: "100%", maxHeight: "80vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
           <div>
             <div className={styles.eyebrow}>// Package</div>

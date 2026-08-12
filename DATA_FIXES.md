@@ -3786,3 +3786,230 @@ built at all (target = null everywhere) was slipping through on the "All" tab sp
 what your screenshot showed (rows like "Sao Em Không Thật Lòng" with a BRIEF & DATA package pill and
 0/— across every column). Removed the exception — the filter now applies the same way on every tab,
 including "All". `app/booking/page.js`.
+## Round 56 — Report page, user role pitch, YouTube stats auto-fetch
+
+### 1. User role levels — pitch (no code change)
+
+Answered in chat, not here — see that message for the actual recommendation (kept the existing
+3-tier exc/admin/dev model, explained what each currently gates and where a 4th tier would/wouldn't
+help). Flagging here only so it's not missing from the round's record.
+
+### 2. New "Report" sidebar item
+
+New `/report` page, added to the main sidebar nav (after Summary). Distinct from Summary — Summary is
+a live per-team "what's not done yet" worklist; Report is a read-only rollup across releases, the
+Booking Board, and package value, covering the 3 areas you picked: Release Pipeline Health, Booking
+Board Activity, Package/Revenue Value. Table + column-chart + pie-chart format, per your answer.
+Everything computed client-side from plain reads (`releases`, `media_booking_package_categories`) —
+nothing here writes anything.
+
+- **KPI row:** Total Releases, In Pipeline, Package Locked, Media Report Sent, Total Package Value,
+  Total VIEENT Support.
+- **A. Pipeline Health:** column chart by Loại Dự Án, column chart by Status, and an "At Risk" table —
+  releases whose release date has already passed while still sitting in BRIEF & DATA/DEALING.
+- **B. Booking Board Activity:** pie chart of Media Report conversion state (not converted / ready /
+  artist sent), column chart of how many releases have real (non-skipped) booking data per Hạng Mục,
+  and a "Ready — not yet sent" table (mirrors the Booking Board's own fixed column from round 54).
+- **C. Package/Revenue Value:** column chart of total package value by release month (last 12 months
+  with data), pie chart of payment status, and a top-10-by-value table.
+
+No schema changes — reads columns that already exist. New file `app/report/page.js`,
+`lib/Sidebar.js` (nav entry).
+
+### 3. Auto-fetch follower counts — YouTube only, official API
+
+Per your answer ("official APIs only"): built this for **YouTube specifically** — its Data API v3
+can look up ANY public channel's subscriber count with just an API key, no OAuth. TikTok, Instagram,
+and Facebook do NOT offer that through any official route for channels you don't own — their public
+APIs only return numbers for accounts connected via OAuth/Business verification, which only ever
+covers VIEENT's own Direct channels (and needs a real Business API integration to set up, a much
+bigger lift). If Direct-only TikTok/IG/FB stats become worth that investment later, this same route
+is the pattern to extend from, not start over.
+
+**What it does:** Booking Channels page (`/booking-channels`) gets a "↻ Refresh YouTube Stats" button
+(refreshes every YouTube row with a URL) plus a per-row ↻ button (just that one). Both call a new
+server route that hits YouTube's `channels` endpoint (resolves `/channel/UC.../`, `/@handle`, and
+legacy `/user/Username` URL shapes — `/c/CustomName` custom URLs aren't resolvable this cheaply, those
+rows get skipped with a clear reason shown in the result banner) and writes `follower_count` +
+`stats_synced_at` back. The channel row then shows "39,500 followers (synced 07/08/2026)".
+
+**Setup required before this works — I can't do this part myself (no live deploy access):**
+1. Get a YouTube Data API v3 key from Google Cloud Console — API key only, no OAuth consent screen
+   needed for this. Free tier quota is generous for this volume (a few hundred channels, refreshed
+   occasionally).
+2. Add it as the `YOUTUBE_API_KEY` environment variable in the Vercel project (Settings →
+   Environment Variables → all environments), then redeploy.
+3. `SUPABASE_SERVICE_ROLE_KEY` needs to already be set (it's what the admin-invite/delete-user
+   routes use too — if those already work, this is already set).
+
+Until `YOUTUBE_API_KEY` is set, clicking Refresh returns a clear error instead of silently doing
+nothing.
+
+**Migration:** `add-round56-channel-stats-sync.sql` — run once against the existing database.
+New file `app/api/refresh-youtube-stats/route.js`, `app/booking-channels/page.js`, `schema.sql`.
+
+## Round 57 — merge Summary into Report, real 4-tier permission system
+
+### 1. Summary merged into Report
+
+You pointed out the overlap — Summary (per-team "what's not done yet") and the new Report page were
+two separate nav entries answering related questions. Merged: Report now has two tabs, **Overview**
+(round 56's KPI cards + charts) and **Team Worklist** (round-56's-predecessor Summary content —
+New Release Total/Not Done/Done, per-type ticket table, dev-only team switcher — ported over
+unchanged, just renamed and re-homed).
+
+- Sidebar: removed the standalone "Summary" entry — just "Report" now.
+- `/summary` still works as a URL — it redirects to `/report?tab=worklist` instead of 404ing, so
+  nothing that linked or bookmarked the old page breaks.
+- `app/tools/page.js`'s demo link updated to point at `/report`.
+
+New/changed files: `app/report/page.js`, `app/summary/page.js` (now a redirect), `lib/Sidebar.js`,
+`app/tools/page.js`. No schema change.
+
+### 2. Real 4-tier permission system: exc < teamlead < admin < dev
+
+Built the actual thing this time, not just a pitch. New `lib/permissions.js` is the single source of
+truth — every role check in the app now goes through it instead of comparing `profile.role` inline.
+
+**The four tiers and what each unlocks (cumulative — each tier has everything below it, plus):**
+
+| Tier | Label | Adds |
+|---|---|---|
+| `exc` | Member | Base level. Own team's tickets/releases only. No admin capability anywhere. |
+| `teamlead` | Team Lead | Can edit a locked deadline on their own team's Phái Sinh / Batch Phái Sinh / Design tickets. Can open Config → Team and manage **their own segment only** — invite/edit members, but only up to "Member" rank (cannot grant teamlead/admin/dev, cannot touch other teams). |
+| `admin` | Admin | Full Config access — every org-wide setting (Lookup Options, Package Terms, Media Booking Pricing, Platforms, Design Types, Sizes, PIC Defaults, External Tool Links). Team management across **all** segments, can grant up to "Admin" (not "Dev"). Can delete a user or change their login email. |
+| `dev` | Dev | Everything. Cross-team ticket/workstation/report visibility, "View As" impersonation, the dangerous Config tabs (Notifications, Design Notifications, Sessions, Sidebar Label), kick/restore user, the only rank that can grant "Dev" to someone else. |
+
+**A gap this closed that wasn't part of the original ask, but fell directly out of building the
+matrix:** `/config` previously had almost no role gating at all — any `exc`-level (base) user who
+found the URL could open Team management and grant themselves admin or dev, and could edit every
+org-wide setting. That's fixed now — `/config` checks what the signed-in profile is actually allowed
+to see and only shows those tabs; a `exc` user hitting `/config` now sees an access-denied message
+instead of the settings UI.
+
+**Judgment calls, flagged explicitly:**
+- Cross-team visibility (seeing other teams' tickets/workstation) and "View As" impersonation stay
+  **dev-only**, not elevated to admin. Reasoning: org/Config management and "can see everyone's
+  operational work queue" are different kinds of access — an Admin managing settings doesn't
+  automatically need to browse every other team's tickets. Easy to change if you want Admin to have
+  it too — say so and I'll move `canViewCrossTeam`/`canImpersonate` to `isAdminOrAbove`.
+- Team Leads can only invite/manage people **in their own segment**, and can only grant the "Member"
+  role — never themselves or anyone else up to Team Lead or higher. This is enforced both in the UI
+  and server-side (the invite API route re-checks segment + target role, so it's not just a hidden
+  button).
+- Admins can grant up to "Admin" but not "Dev" — only a Dev can create another Dev. No one can grant
+  a rank equal to or above their own.
+
+**No migration needed for the role tier itself** — `profiles.role` was already a plain `text` column
+with no CHECK constraint (confirmed by reading `schema.sql`), so `"teamlead"` is just a new valid
+string value at the app layer. Nothing to run in Supabase for this part.
+
+Changed files: `lib/permissions.js` (new), `app/config/page.js`, `app/api/admin/invite-user/route.js`,
+`lib/TopBar.js`, `app/tickets/phai-sinh/page.js`, `app/tickets/batch-phai-sinh/[id]/page.js`,
+`app/tickets/design/page.js`, `scripts/bulk-create-team.js`, `schema.sql` (comment only).
+
+### 3. Phái Sinh ticket page — "Open Batch" button UI fix
+
+The button was wrapping wherever the browser felt like breaking the text inside the narrow column
+(sometimes mid-word), which looked broken. Forced a clean 2-line break instead: "Open" / "Batch ↗".
+
+The button now appears tidily and consistently. Changed file: `app/tickets/phai-sinh/page.js`. No schema change.
+
+## Round 58 — Package Runner
+
+New tool, `/package-runner` (sidebar link only shown to those who can use it): fast-tracks a
+release straight to a locked package without waiting on the artist-facing magic link — for the
+case you flagged, where Marketing has already evaluated a release and knows it's going to be Chỉ
+Phát Hành regardless, so there's no reason to sit on the normal round trip.
+
+**What it actually does under the hood:** runs the exact same commit that
+`app/pick-package/[token]/page.js`'s `confirmChoice()` runs when an artist clicks "Confirm" on
+their own magic link — same 3 writes to the release (`project_type`, `package_locked: true`,
+`package_total_value: null`), same "if this release was still sitting in BRIEF & DATA/DEALING,
+auto-create the Phụ Lục ticket" side effect. That's the reason it can't break anything downstream
+— it's not a shortcut that skips state, it's the same state-transition code path triggered
+directly instead of waiting on a click from the artist's side.
+
+**Confirmed with you:** Chỉ Phát Hành genuinely has nothing to attach (no `release_package_items`
+rows get seeded — matches how the real magic-link flow already treats it as a "simple" pick with
+no itemized breakdown, since only actual built packages via the Package Builder popup have real
+line items to seed).
+
+**Access:** admin role + Marketing segment, or dev — not every admin, since this touches
+Marketing's own release data rather than an org-wide setting (matches the round-57 principle that
+Config-org-management and hands-on operational tools are different kinds of access). New
+`canRunPackageSimulator()` in `lib/permissions.js`.
+
+**Single Release mode** (what admins get, and dev's default): DID (required, looked up against
+`releases.did`), Legacy DID (dev-only, optional — only written if the release doesn't already have
+one, never overwrites), Package (locked to "Chỉ Phát Hành" for admin; a real dropdown of every
+`contract_type` lookup option for dev). Click Run.
+
+**Batch mode** (dev-only): paste a CSV (`did,legacy_did,contract_type` — header optional, the
+latter two columns optional per row, `contract_type` defaults to Chỉ Phát Hành when blank),
+Run Batch, get a per-row result table. Batch mode never overwrites an already-locked release —
+those rows show as skipped with the reason, re-run them one at a time in Single Release if the
+override is actually intended.
+
+**Safety net:** if the target release already has `package_locked: true`, the tool refuses to
+touch it by default (won't silently clobber a real decision someone already made — whether via the
+artist's own pick or a previous run of this tool). Dev sees an explicit "overwrite anyway"
+checkbox when this happens; admin just gets the blocked message (no override available at that
+tier — this is the one judgment call I made without asking: felt like the same kind of guardrail
+as teamlead's role-assignment ceiling in round 57, easy to loosen if you want admin to have it
+too).
+
+No schema changes — every column this reads/writes already existed. New file
+`app/package-runner/page.js`, `lib/permissions.js` (`canRunPackageSimulator`), `lib/Sidebar.js`
+(conditional nav entry).
+
+## Round 59 — fix: Tickets page counters reading 0 despite real tickets existing
+
+**Root cause:** `app/tickets/page.js` pulled every non-deleted ticket's `tab_id` with a plain
+`select()` and bucket-counted client-side in JS. Supabase/PostgREST caps a plain `select()`
+response at 1000 rows by default and truncates silently past that — no error, just fewer rows
+back than actually exist. With total ticket volume across every type now apparently past that
+ceiling, most type counters read as 0; the couple that showed real numbers in your screenshot
+(Cò Trong Net YouTube, Sony Publish) just happened to have rows inside whatever arbitrary
+1000-row window came back. Each individual ticket type's own list page was never affected —
+those filter to one type each, nowhere near 1000 rows.
+
+**Fix:** switched to per-type `COUNT(*)` queries (`{ count: "exact", head: true }`) — same
+pattern already used for the sidebar's release total (`lib/Sidebar.js`) and the Workstation index
+(`app/workstation/page.js`). A count has no row cap regardless of table size, so this is correct
+now and stays correct as ticket volume keeps growing.
+
+**Also fixed:** the Report page's "Team Worklist" tab (`app/report/page.js`) had the identical
+bug — it pulled every ticket with `select("*")` (even worse, full rows not just `tab_id`) to
+compute the same per-type total/done/not-done breakdown. I ported that logic from the old
+Summary page in round 57 and it inherited the flaw without anyone hitting it yet. Rewritten the
+same way: per-type paired `COUNT(*)` queries (total, and total-matching-done-statuses), refetched
+whenever the visible team/type list changes instead of once on load.
+
+**Flagging a bigger pattern while I was in there — not fixed yet, need your call on priority:**
+grepping for the same shape (`select()` on `tickets` or `releases` with no scoping filter, no
+count/head, no pagination) turned up more places at the same latent risk, ranked by how visible
+breaking would be:
+
+- **`app/releases/page.js`** — the main Dashboard's release list itself (`select("*")`, no
+  filter). If total releases has also passed 1000 (very plausible — round 43 alone imported 472
+  in one batch, plus everything organic since), this would mean **releases silently missing from
+  the Dashboard**, which is a bigger deal than a counter being wrong. This one can't just switch
+  to a count query like the tickets fix, since the Dashboard needs the actual rows — it'd need
+  real pagination (fetching in batches of 1000 via `.range()` until exhausted).
+- **`lib/notDoneCounts.js`** (2 spots) — feeds the "not done" badges shown elsewhere in the app
+  (Workstation-adjacent counters). Same fix shape as the Dashboard: needs actual rows, not just a
+  count, since these compute per-release completeness — would need batched pagination too.
+- **`app/workstation/confirm/page.js`, `app/workstation/stream/page.js`, `app/labels/page.js`** —
+  same shape, lower urgency (used for the Workstation lists / Labels page, less immediately
+  "everyone sees this every day" than the Dashboard).
+
+None of these are confirmed broken the way the ticket counter was — I don't have a live Supabase
+connection to check whether `releases` has actually crossed 1000 rows yet. But the shape of the
+bug is identical, so if the Dashboard ever starts looking like it's missing recent releases, this
+list is where to look first. Say the word and I'll harden these the same round.
+
+No schema changes for either item.
+
+[... TRUNCATED: file contains extensive per-round notes beyond round 59 ...]
+

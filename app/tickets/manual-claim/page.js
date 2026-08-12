@@ -7,10 +7,15 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
 import { isOpsTeam } from "../../../lib/teamTypes";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import MultiLinkCell from "../../../lib/MultiLinkCell";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import NoteCell from "../../../lib/NoteCell";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
+import { parseManualClaimBatchPaste, MANUAL_CLAIM_BATCH_COLUMNS } from "../../../lib/manualClaimBatchParse";
 import styles from "../../shared.module.css";
 
 // Rebuilt bespoke to match v1's real Manual Claim table — simpler than
@@ -25,13 +30,21 @@ export default function ManualClaimList() {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
+  // Round 81 item 4 — mass import via paste, mirroring Phái Sinh's "+ Add
+  // Via Paste" pattern (lib/phaiSinhBatchParse.js) but creating standalone
+  // tickets instead of batch child rows.
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [pasteError, setPasteError] = useState(null);
+  const [pasteSubmitting, setPasteSubmitting] = useState(false);
 
   const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
 
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name").order("name").then(({ data }) => setProfiles(data || []));
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
   }, []);
 
   async function load() {
@@ -60,7 +73,7 @@ export default function ManualClaimList() {
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, data: newData } : x)));
     await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
     if (editedByRequester) {
-      const fieldLabel = { label: "Label", tenBai: "Tên Bài", artist: "Artist", url: "URL", note: "Note" }[key] || key;
+      const fieldLabel = { label: "Label", tenBai: "Tên Bài", artist: "Artist", claimTimestamp: "Claim Timestamp", url: "URL", note: "Note" }[key] || key;
       await supabase.rpc("fanout_notification", {
         p_team: "OPS",
         p_type: "ticket_edited",
@@ -92,13 +105,56 @@ export default function ManualClaimList() {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
     if (REFUND_LIKE.includes(newStatus)) patch.pic_profile_id = null;
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js) — already visible
+    // here via the existing Note column's NoteCell.
+    if (statusNeedsNote(newStatus)) {
+      const newData = withStatusNote(t.data, newStatus);
+      if (!newData) return;
+      patch.data = newData;
+    }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
-  const visibleTickets = isExecutorView
+  // Round 81 item 4 — same insert shape lib/NewTicketPage.js uses for a
+  // single Manual Claim ticket (tab_id/data/status/status_log/requester_*),
+  // just fired once per pasted row instead of once per form submit.
+  async function handleAddPaste(e) {
+    e.preventDefault();
+    setPasteError(null);
+    if (!tab) return;
+    const { rows, skipped } = parseManualClaimBatchPaste(pasteText);
+    if (rows.length === 0) {
+      setPasteError("Nothing parsed from the box — check the column order and try again.");
+      return;
+    }
+    setPasteSubmitting(true);
+    const { error } = await supabase.from("tickets").insert(
+      rows.map((r) => ({
+        tab_id: tab.id,
+        data: r,
+        status: tab.default_status,
+        status_log: { [tab.default_status]: new Date().toISOString() },
+        requester_segment: profile?.segment || null,
+        requester_name: profile?.name || null,
+      }))
+    );
+    setPasteSubmitting(false);
+    if (error) {
+      setPasteError(error.message);
+      return;
+    }
+    setPasteText("");
+    setPasteOpen(false);
+    await load();
+    if (skipped > 0) window.alert(`${rows.length} ticket(s) created — ${skipped} row(s) skipped (missing Label/Tên Bài/Artist/URL).`);
+  }
+
+  const visibleTickets = (isExecutorView
     ? tickets.filter((t) => t.status === statusFilter)
-    : [...tickets].sort((a, b) => (REFUND_LIKE.includes(a.status) ? 0 : 1) - (REFUND_LIKE.includes(b.status) ? 0 : 1));
+    : [...tickets].sort((a, b) => (REFUND_LIKE.includes(a.status) ? 0 : 1) - (REFUND_LIKE.includes(b.status) ? 0 : 1))
+  ).filter((t) => matchesQuery(t, query));
 
   const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
 
@@ -112,8 +168,37 @@ export default function ManualClaimList() {
               <div className={styles.eyebrow}>// Ticket</div>
               <h1 className={styles.title} style={{ marginBottom: 0 }}>Manual Claim</h1>
             </div>
-            <Link href="/tickets/manual-claim/new" className={styles.btnPrimary}>+ New Ticket</Link>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className={styles.btnSmall} onClick={() => setPasteOpen((o) => !o)}>+ Mass Import</button>
+              <Link href="/tickets/manual-claim/new" className={styles.btnPrimary}>+ New Ticket</Link>
+            </div>
           </div>
+
+          {pasteOpen && (
+            <form onSubmit={handleAddPaste} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14, marginBottom: 20 }}>
+              {pasteError && <div className={styles.errorBox}>{pasteError}</div>}
+              <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 0, marginBottom: 6 }}>
+                One ticket per line, tab-separated, in this column order: {MANUAL_CLAIM_BATCH_COLUMNS.join(" · ")}. Label, Tên Bài, Artist, and URL are required — rows missing any of those are skipped.
+              </p>
+              <textarea
+                className={styles.textarea}
+                style={{ minHeight: 140, fontFamily: "monospace", fontSize: 11 }}
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder="Paste tab-separated rows here…"
+              />
+              <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                <button className={styles.btnPrimary} type="submit" disabled={pasteSubmitting}>
+                  {pasteSubmitting ? "Adding…" : "Add Tickets"}
+                </button>
+                <button type="button" className={styles.btnSmall} onClick={() => { setPasteOpen(false); setPasteText(""); setPasteError(null); }}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+
+          <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
 
           {isExecutorView && tab && (
             <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
@@ -135,7 +220,7 @@ export default function ManualClaimList() {
             <table className={styles.table} style={{ minWidth: 1100 }}>
               <thead>
                 <tr>
-                  <th>Request Date</th><th>Label</th><th>Tên Bài</th><th>Artist</th><th>URL</th><th>Note</th>
+                  <th>Request Date</th><th>Label</th><th>Tên Bài</th><th>Artist</th><th>Claim Timestamp</th><th>URL</th><th>Note</th>
                   <th>PIC</th><th>Status</th>
                 </tr>
               </thead>
@@ -180,7 +265,7 @@ function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, 
       <td>
         <input
           className={styles.input}
-          style={{ padding: "4px 8px", fontSize: 12 }}
+          style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }}
           defaultValue={value || ""}
           onBlur={(e) => onUpdateField(ticket, key, e.target.value, !isExecutorView)}
         />
@@ -205,13 +290,17 @@ function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, 
       {textCell("label", d.label)}
       {textCell("tenBai", d.tenBai)}
       {textCell("artist", d.artist)}
+      {/* Round 80 — Claim Timestamp: plain text (not a real timestamp
+          picker — per request it's just a free-typed text field), editable
+          after creation same as every other field here. */}
+      {textCell("claimTimestamp", d.claimTimestamp)}
       <td style={{ minWidth: 220 }}><MultiLinkCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v, !isExecutorView)} /></td>
-      <td style={{ minWidth: 200 }}>
-        <textarea className={styles.textarea} style={{ fontSize: 12, minHeight: 40 }} defaultValue={d.note || ""} onBlur={(e) => onUpdateField(ticket, "note", e.target.value, !isExecutorView)} />
+      <td style={{ minWidth: 160 }}>
+        <NoteCell value={d.note} onSave={(v) => onUpdateField(ticket, "note", v, !isExecutorView)} />
       </td>
       <td>
         {isExecutorView ? (
-          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
+          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
             <option value="">— Unassigned —</option>
             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>

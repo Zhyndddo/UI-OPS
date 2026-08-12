@@ -7,6 +7,7 @@ import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
 import { TEAM_TICKET_TYPES, TICKET_TYPE_LABELS, TICKET_ROUTES, SHARED_TICKET_TYPES, typesForTeam } from "../../lib/teamTypes";
+import { getNotDoneCount } from "../../lib/notDoneCounts";
 import styles from "../shared.module.css";
 
 const NOTES = {
@@ -39,21 +40,25 @@ export default function TicketsIndex() {
     }
   }, [profile]);
 
+  // Round 58 fix (superseded by round 73) — this used to pull EVERY
+  // non-deleted ticket's tab_id in one plain select() and bucket-count
+  // them client-side, which silently broke past Supabase/PostgREST's
+  // default 1000-row cap; fixed then with a per-tab { count: "exact",
+  // head: true } query. Round 73 — per explicit request, this card grid
+  // now shows the NOT-DONE count (same rule as the small badge next to
+  // each tab in TypeSwitcher, see lib/notDoneCounts.js) instead of the
+  // raw total-ever-created count — a type sitting at a big number here
+  // used to just mean "lots of history," not "lots to do."
   useEffect(() => {
-    if (!supabase) return;
+    if (!supabase || !profile) return;
     (async () => {
-      const { data: tabs } = await supabase.from("ticket_tabs").select("id, key");
-      const { data: tix } = await supabase.from("tickets").select("tab_id").is("deleted_at", null);
-      const tabById = {};
-      (tabs || []).forEach((t) => (tabById[t.id] = t.key));
-      const c = {};
-      (tix || []).forEach((t) => {
-        const key = tabById[t.tab_id];
-        if (key) c[key] = (c[key] || 0) + 1;
-      });
-      setCounts(c);
+      const allTypes = [...new Set([...Object.values(TEAM_TICKET_TYPES).flat(), ...SHARED_TICKET_TYPES])];
+      const results = await Promise.all(
+        allTypes.map(async (key) => [key, await getNotDoneCount("ticket", key, profile)])
+      );
+      setCounts(Object.fromEntries(results));
     })();
-  }, []);
+  }, [profile]);
 
   if (!checkedRedirect) {
     return <AppShell><div className={styles.page}><div className={styles.container}>Loading…</div></div></AppShell>;
@@ -118,8 +123,11 @@ function CardGrid({ types, counts }) {
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{TICKET_TYPE_LABELS[key] || key}</div>
             {NOTES[key] && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{NOTES[key]}</div>}
           </div>
+          {/* Round 73 — null means "not loaded yet" or "no not-done rule
+              defined for this type" (see getNotDoneCount) — show a dash
+              instead of a misleading 0 in either case. */}
           <span style={{ fontSize: 36, fontWeight: 800, color: "var(--accent-soft)", lineHeight: 1, flexShrink: 0 }}>
-            {counts[key] ?? 0}
+            {counts[key] != null ? counts[key] : "—"}
           </span>
         </Link>
       ))}

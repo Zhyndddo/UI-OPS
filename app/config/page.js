@@ -5,13 +5,16 @@ import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
 import { DEFAULT_DESIGN_NOTIFICATION_TEMPLATES } from "../../lib/designFlow";
+import { ROLES, ROLE_LABELS, isDev as isDevRole, isAdminOrAbove, canManageOrgConfig, canManageTeamMembers, assignableRoles, scopeableTeamMembers } from "../../lib/permissions";
+import { filterProfilesByTeam } from "../../lib/workstationHelpers";
+import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../lib/troGiaBooking";
+import { DEFAULT_LINKFIRE_URL } from "../../lib/externalTools";
 import styles from "../shared.module.css";
 
 const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
 // release_category is a fixed 2-value single choice ("New Release" /
 // "Remarketing"), hardcoded directly in the New Release form and release
 // detail page — not admin-configurable via lookup_options anymore.
-const ROLES = ["exc", "admin", "dev"];
 // "OPS" split into Youtube/Publishing/Operation per explicit request — OPS
 // itself is intentionally excluded here (hidden from the profile create/
 // reassign dropdown), it's now a hidden aggregate elsewhere in the app
@@ -21,8 +24,42 @@ const TEAMS = ["AR", "Marketing", "Design", "Youtube", "Publishing", "Operation"
 
 export default function ConfigPage() {
   const { profile } = useAuth();
-  const isDev = profile?.role === "dev";
-  const [section, setSection] = useState("lookups"); // "lookups" | "team"
+  const isDev = isDevRole(profile);
+  const canOrgConfig = canManageOrgConfig(profile); // admin+ — Lookup Options, Package Terms, Pricing, Platforms, Design Types, Sizes, PIC Defaults, External Tool Links
+  const canTeam = canManageTeamMembers(profile); // teamlead+ — Team tab, scoped to own segment for teamlead
+  // Round 57 — Config used to have almost no role gating at all: any
+  // logged-in exc-level user could reach every tab except the 4 dev-only
+  // ones, including Team (where they could grant themselves admin/dev)
+  // and every org-wide setting. Tabs are now built from what THIS profile
+  // can actually do, and a plain Member (exc) with nothing to manage sees
+  // a clear message instead of a page that quietly does nothing for them.
+  const tabs = [
+    ...(canOrgConfig ? [["lookups", "Lookup Options"]] : []),
+    ...(canTeam ? [["team", "Team"]] : []),
+    ...(canOrgConfig ? [
+      ["picDefaults", "PIC Defaults"],
+      ["packageTerms", "Package Terms"],
+      ["mediaBookingPricing", "Media Booking Pricing"],
+      ["platforms", "Platforms"],
+      ["designTypes", "Design Types"],
+      ["sizes", "Sizes"],
+      ["artistProfileLinks", "External Tool Links"],
+      // Round 84 — global (not per-package) Trợ Giá Booking content, now
+      // the single edited source for the internal reference page AND the
+      // magic link's new section (see lib/troGiaBooking.js). Distinct from
+      // "Trợ Giá Booking" inside Package Terms above, which stays
+      // per-contract-type — this one's a flat list shown to every artist.
+      ["troGiaBooking", "Trợ Giá Booking"],
+    ] : []),
+    ...(isDev ? [["notifications", "Notifications"], ["designNotifications", "Design Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
+  ];
+  const [section, setSection] = useState(null);
+  useEffect(() => {
+    // Default to the first tab this profile actually has, once profile
+    // has loaded — avoids landing on a tab they can't see (or an empty
+    // "lookups" default that no longer applies to them).
+    if (section === null && tabs.length > 0) setSection(tabs[0][0]);
+  }, [tabs.map((t) => t[0]).join(","), section]);
 
   return (
     <AppShell>
@@ -30,44 +67,46 @@ export default function ConfigPage() {
         <div className={styles.container}>
           <div className={styles.eyebrow}>// Config</div>
           <h1 className={styles.title}>Config</h1>
-
-          <div style={{ display: "flex", gap: 4, marginBottom: 24, flexWrap: "wrap" }}>
-            {[
-              ["lookups", "Lookup Options"],
-              ["team", "Team"],
-              ["picDefaults", "PIC Defaults"],
-              ["packageTerms", "Package Terms"],
-              ["mediaBookingPricing", "Media Booking Pricing"],
-              ["platforms", "Platforms"],
-              ["designTypes", "Design Types"],
-              ["sizes", "Sizes"],
-              ["artistProfileLinks", "External Tool Links"],
-              ...(isDev ? [["notifications", "Notifications"], ["designNotifications", "Design Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
-            ].map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setSection(key)}
-                className={`${styles.tabBtn} ${section === key ? styles.tabBtnActive : ""}`}
-                style={{ border: "1px solid var(--border)", borderRadius: 6 }}
-              >
-                {label}
-              </button>
-            ))}
+          <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 16 }}>
+            Signed in as {ROLE_LABELS[profile?.role] || profile?.role || "—"}{profile?.segment ? ` · ${profile.segment}` : ""}
           </div>
 
-          {section === "lookups" && <LookupOptionsSection />}
-          {section === "team" && <TeamSection />}
-          {section === "picDefaults" && <PicDefaultsSection />}
-          {section === "packageTerms" && <PackageTermsSection />}
-          {section === "mediaBookingPricing" && <MediaBookingPricingSection />}
-          {section === "platforms" && <PlatformsSection />}
-          {section === "designTypes" && <DesignTypesSection />}
-          {section === "sizes" && <SizesSection />}
-          {section === "artistProfileLinks" && <ArtistProfileLinksSection />}
-          {section === "notifications" && isDev && <NotificationsSection />}
-          {section === "designNotifications" && isDev && <DesignNotificationsSection />}
-          {section === "sessions" && isDev && <SessionsSection />}
-          {section === "sidebarLabel" && isDev && <SidebarLabelSection />}
+          {tabs.length === 0 ? (
+            <div className={styles.emptyState}>
+              Nothing here to manage at your access level ({ROLE_LABELS[profile?.role] || "Member"}). If you need
+              something changed here, ask your Team Lead or an Admin.
+            </div>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 4, marginBottom: 24, flexWrap: "wrap" }}>
+                {tabs.map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setSection(key)}
+                    className={`${styles.tabBtn} ${section === key ? styles.tabBtnActive : ""}`}
+                    style={{ border: "1px solid var(--border)", borderRadius: 6 }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {section === "lookups" && <LookupOptionsSection />}
+              {section === "team" && <TeamSection profile={profile} />}
+              {section === "picDefaults" && <PicDefaultsSection />}
+              {section === "packageTerms" && <PackageTermsSection />}
+              {section === "mediaBookingPricing" && <MediaBookingPricingSection />}
+              {section === "platforms" && <PlatformsSection />}
+              {section === "designTypes" && <DesignTypesSection />}
+              {section === "sizes" && <SizesSection />}
+              {section === "artistProfileLinks" && <ArtistProfileLinksSection />}
+              {section === "troGiaBooking" && <TroGiaBookingSection />}
+              {section === "notifications" && isDev && <NotificationsSection />}
+              {section === "designNotifications" && isDev && <DesignNotificationsSection />}
+              {section === "sessions" && isDev && <SessionsSection />}
+              {section === "sidebarLabel" && isDev && <SidebarLabelSection />}
+            </>
+          )}
         </div>
       </div>
     </AppShell>
@@ -171,15 +210,26 @@ function LookupOptionsSection() {
 // The team roster — profiles need a row here BEFORE someone can sign in
 // successfully (AuthContext looks up profiles by email on login; no match
 // = "not on roster" screen). This is how people actually get access.
-function TeamSection() {
+//
+// Round 57 — was wide open to any logged-in user; now scoped by the
+// caller's role via lib/permissions: a Team Lead sees/manages only their
+// own segment and can only grant "exc" (no privilege escalation, no
+// reaching into other teams); Admin/Dev see and manage everyone, up to
+// their own assignableRoles ceiling (only Dev can grant "dev"). Deleting
+// an account or changing someone's LOGIN email stays Admin+ only even for
+// a Team Lead — those are account-security actions, not day-to-day roster
+// management (see canManageAccountSecurity usages below).
+function TeamSection({ profile }) {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState("exc");
-  const [segment, setSegment] = useState("AR");
+  const grantable = assignableRoles(profile); // e.g. ["exc"] for a Team Lead, all 4 for Dev
+  const [role, setRole] = useState(grantable[0] || "exc");
+  const [segment, setSegment] = useState(profile?.role === "teamlead" ? profile.segment : "AR");
   const [error, setError] = useState(null);
   const [inviteStatus, setInviteStatus] = useState(null);
+  const canManageAccountSecurity = isAdminOrAbove(profile); // delete account / change login email
 
   useEffect(() => {
     if (!supabase) return;
@@ -192,6 +242,7 @@ function TeamSection() {
     setProfiles(data || []);
     setLoading(false);
   }
+  const visibleProfiles = scopeableTeamMembers(profile, profiles);
 
   async function addProfile(e) {
     e.preventDefault();
@@ -201,13 +252,18 @@ function TeamSection() {
       setError("Name and email are required.");
       return;
     }
+    // A Team Lead's segment is fixed to their own team regardless of
+    // what's in state (the picker is hidden for them below, but this is
+    // the real guard — belt and suspenders with the server-side check in
+    // the invite route).
+    const effectiveSegment = profile?.role === "teamlead" ? profile.segment : segment;
     const { data: created, error: err } = await supabase
       .from("profiles")
       .insert({
         name: name.trim(),
         email: email.trim(),
         role,
-        segment: role === "dev" ? null : segment,
+        segment: role === "dev" ? null : effectiveSegment,
       })
       .select()
       .single();
@@ -329,29 +385,44 @@ function TeamSection() {
         <div className={styles.field} style={{ marginBottom: 0, minWidth: 100 }}>
           <label className={styles.fieldLabel}>Role</label>
           <select className={styles.select} value={role} onChange={(e) => setRole(e.target.value)}>
-            {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+            {grantable.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
           </select>
         </div>
+        {/* A Team Lead's segment is fixed (see effectiveSegment above) — no
+            picker for them, just a plain readout so it's clear who this
+            lands under. Admin/Dev keep the real picker, same as before. */}
         {role !== "dev" && (
-          <div className={styles.field} style={{ marginBottom: 0, minWidth: 130 }}>
-            <label className={styles.fieldLabel}>Team</label>
-            <select className={styles.select} value={segment} onChange={(e) => setSegment(e.target.value)}>
-              {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
+          profile?.role === "teamlead" ? (
+            <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "8px 0" }}>Team: {profile.segment}</div>
+          ) : (
+            <div className={styles.field} style={{ marginBottom: 0, minWidth: 130 }}>
+              <label className={styles.fieldLabel}>Team</label>
+              <select className={styles.select} value={segment} onChange={(e) => setSegment(e.target.value)}>
+                {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          )
         )}
         <button className={styles.btnPrimary} type="submit">+ Add</button>
       </form>
 
       {loading ? (
         <div className={styles.emptyState}>Loading…</div>
-      ) : profiles.length === 0 ? (
-        <div className={styles.emptyState}>No one on the roster yet — add yourself first.</div>
+      ) : visibleProfiles.length === 0 ? (
+        <div className={styles.emptyState}>{profile?.role === "teamlead" ? "No one on your team's roster yet — add someone above." : "No one on the roster yet — add yourself first."}</div>
       ) : (
         <table className={styles.table}>
           <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Signed In</th><th></th></tr></thead>
           <tbody>
-            {profiles.map((p) => (
+            {visibleProfiles.map((p) => {
+              // A person can only be re-assigned to a role the CALLER is
+              // allowed to grant — plus their own current role, so the
+              // select still shows what they actually are even if the
+              // caller couldn't have set it themselves (e.g. a Team Lead
+              // viewing a fellow "teamlead" — grantable is just ["exc"] for
+              // them, but the row still needs to display "teamlead").
+              const roleOptions = grantable.includes(p.role) ? grantable : [p.role, ...grantable];
+              return (
               <tr key={p.id}>
                 <td>
                   <input
@@ -362,22 +433,34 @@ function TeamSection() {
                   />
                 </td>
                 <td>
-                  <input
-                    className={styles.input}
-                    style={{ padding: "4px 8px", fontSize: 12, minWidth: 160 }}
-                    defaultValue={p.email}
-                    onBlur={(e) => updateEmail(p, e.target.value)}
-                    title={p.auth_id ? "Changing this also updates their login email." : "No login yet — this only changes the profile record."}
-                  />
+                  {canManageAccountSecurity ? (
+                    <input
+                      className={styles.input}
+                      style={{ padding: "4px 8px", fontSize: 12, minWidth: 160 }}
+                      defaultValue={p.email}
+                      onBlur={(e) => updateEmail(p, e.target.value)}
+                      title={p.auth_id ? "Changing this also updates their login email." : "No login yet — this only changes the profile record."}
+                    />
+                  ) : (
+                    <span style={{ fontSize: 12 }}>{p.email}</span>
+                  )}
                 </td>
                 <td>
-                  <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={p.role} onChange={(e) => updateRole(p, e.target.value)}>
-                    {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                  <select
+                    className={styles.select}
+                    style={{ padding: "4px 8px", fontSize: 12 }}
+                    value={p.role}
+                    disabled={!grantable.includes(p.role) && roleOptions.length <= 1}
+                    onChange={(e) => updateRole(p, e.target.value)}
+                  >
+                    {roleOptions.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                   </select>
                 </td>
                 <td>
                   {p.role === "dev" ? (
                     <span style={{ color: "var(--text-faint)" }}>—</span>
+                  ) : profile?.role === "teamlead" ? (
+                    <span style={{ fontSize: 12 }}>{p.segment}</span>
                   ) : (
                     <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={p.segment || ""} onChange={(e) => updateSegment(p, e.target.value)}>
                       {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -386,10 +469,13 @@ function TeamSection() {
                 </td>
                 <td>{p.auth_id ? <span style={{ color: "var(--success-fg)" }}>Yes</span> : <span style={{ color: "var(--text-faint)" }}>Not yet</span>}</td>
                 <td>
-                  <button onClick={() => deleteProfile(p)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }} title="Delete this person entirely">✕</button>
+                  {canManageAccountSecurity && (
+                    <button onClick={() => deleteProfile(p)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }} title="Delete this person entirely">✕</button>
+                  )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -412,8 +498,8 @@ function TeamSection() {
 // an admin record who owns them, ready for whenever those pages grow a
 // picker of their own.
 const PIC_WORKSTATIONS = [
-  { key: "upload", label: "Upload", wired: true },
-  { key: "pitching", label: "Pitching", wired: true },
+  { key: "upload", label: "New Release Setup", wired: true }, // round 77 — relabeled from "Upload"
+  { key: "pitching", label: "Pitching", wired: false }, // round 79 — Pitching Workstation dropped the single release-level PIC in favor of 4 per-platform PICs (set inside the popup); this default no longer has anywhere to apply
   { key: "confirm_phase1", label: "Re-Check — Phase 1", wired: true },
   { key: "confirm_phase2", label: "Re-Check — Phase 2", wired: true },
   { key: "pre_release", label: "Pre-release", wired: true },
@@ -437,10 +523,14 @@ function PicDefaultsSection() {
   async function load() {
     setLoading(true);
     const [{ data: profs }, { data: assigns }] = await Promise.all([
-      supabase.from("profiles").select("id, name").order("name"),
+      supabase.from("profiles").select("id, name, segment, role").order("name"),
       supabase.from("workstation_assignments").select("workstation, pic_profile_id").is("release_id", null).eq("column_key", "all"),
     ]);
-    setProfiles(profs || []);
+    // Round 78 — every workstation in PIC_WORKSTATIONS is OPS work (Upload/
+    // New Release Setup, Pitching, Re-Check, Pre-release, Booking, Package
+    // Price, Streaming, Milestone), so the same OPS-scoped, dev-excluded
+    // list applies to all of them — see filterProfilesByTeam.
+    setProfiles(filterProfilesByTeam(profs || [], "OPS"));
     const map = {};
     (assigns || []).forEach((a) => (map[a.workstation] = a.pic_profile_id));
     setDefaults(map);
@@ -543,7 +633,7 @@ function PackageTermsSection() {
   async function load() {
     setLoading(true);
     const [{ data: pkgs }, { data: settings }] = await Promise.all([
-      supabase.from("contract_type_packages").select("id, contract_type, terms_text").order("contract_type"),
+      supabase.from("contract_type_packages").select("id, contract_type, terms_text, tro_gia_booking_text").order("contract_type"),
       supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_conditions", "package_terms_shared_b"]),
     ]);
     setPackages(pkgs || []);
@@ -564,6 +654,18 @@ function PackageTermsSection() {
     setPackages((prev) => prev.map((p) => (p.id === pkg.id ? { ...p, terms_text: value } : p)));
     await supabase.from("contract_type_packages").update({ terms_text: value || null }).eq("id", pkg.id);
     flashSaved(pkg.id);
+  }
+
+  // Round 72 — item 4d: separate per-package field for the "Trợ Giá
+  // Booking" block on the magic link (its own text block under a package's
+  // itemized breakdown, not mixed into terms_text). Same
+  // save-on-blur/immediate-write pattern as everything else here. Supports
+  // real HTML (<br/>, <a href>, …) — see the pick-package page's TermsText
+  // for the HTML-vs-plain-text detection.
+  async function saveTroGiaBooking(pkg, value) {
+    setPackages((prev) => prev.map((p) => (p.id === pkg.id ? { ...p, tro_gia_booking_text: value } : p)));
+    await supabase.from("contract_type_packages").update({ tro_gia_booking_text: value || null }).eq("id", pkg.id);
+    flashSaved(`${pkg.id}-tgb`);
   }
 
   async function saveShared(key, value) {
@@ -597,6 +699,17 @@ function PackageTermsSection() {
               placeholder="No terms text — nothing extra shown for this package."
               onBlur={(e) => savePackageTerms(p, e.target.value)}
             />
+            <label className={styles.fieldLabel} style={{ fontSize: 11, display: "flex", justifyContent: "space-between", marginTop: 10 }}>
+              <span>Trợ Giá Booking (optional, own block below the itemized table)</span>
+              {savedKey === `${p.id}-tgb` && <span style={{ color: "var(--success-fg)", fontWeight: 400 }}>Saved</span>}
+            </label>
+            <textarea
+              className={styles.textarea}
+              style={{ width: "100%", minHeight: 60, fontSize: 12 }}
+              defaultValue={p.tro_gia_booking_text || ""}
+              placeholder="No Trợ Giá Booking rows — nothing extra shown for this package. HTML is OK here (e.g. <br/> for line breaks, real <a href> links)."
+              onBlur={(e) => saveTroGiaBooking(p, e.target.value)}
+            />
           </div>
         ))}
         {packages.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)" }}>No contract-type packages found.</div>}
@@ -607,10 +720,14 @@ function PackageTermsSection() {
       </div>
       <p style={{ fontSize: 10, color: "var(--text-dim)", marginTop: -6, marginBottom: 12 }}>
         Fixed render order on the magic-link page: Intro → Conditions → this package's own terms (above the item
-        table) → itemized breakdown table → 5/2-năm note (below the table, only shown for those 2 tiers — moved
-        here so it doesn't throw off the Hạng Mục rows lining up horizontally across package cards). Any line
-        containing "hỗ trợ 100%" (case-insensitive) in any of these 3 fields renders in the accent color instead
-        of the default grey.
+        table) → itemized breakdown table → Trợ Giá Booking (its own block, if this package has one) → 5/2-năm
+        note (below everything, only shown for those 2 tiers — moved here so it doesn't throw off the Hạng Mục
+        rows lining up horizontally across package cards). Any line containing "hỗ trợ 100%" or "điều kiện cam
+        kết"/"điều kiện 1"/"điều kiện 2" (case-insensitive) gets bolded/colored automatically, and any "NN năm"
+        duration (05 năm, 02 năm, …) gets colored automatically too — no HTML needed for those. For anything
+        else you want formatted (bold, color, a real clickable link, …), paste real HTML tags directly (e.g.
+        <code>&lt;br/&gt;</code>, <code>&lt;a href="…"&gt;text&lt;/a&gt;</code>) — any field with an HTML tag in
+        it renders as HTML instead of plain text.
       </p>
       <div style={{ display: "grid", gap: 16, maxWidth: 640 }}>
         <div>
@@ -792,6 +909,110 @@ function MediaBookingPricingSection() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── Trợ Giá Booking (round 84) ──────────────────────────────────────────
+// A flat, admin-editable list of {title, desc, href} rows — shown to every
+// artist on the magic link (right above Partner Benefits) AND on the
+// internal reference page, both reading the same global_settings row this
+// section writes to. See lib/troGiaBooking.js for the shared shape/key.
+// No add/remove-row precedent existed elsewhere in Config before this —
+// built fresh, same save-on-blur-into-one-JSON-blob pattern
+// MediaBookingPricingSection already uses for its own nested object.
+function TroGiaBookingSection() {
+  const [items, setItems] = useState(DEFAULT_TRO_GIA_BOOKING_ITEMS);
+  const [loading, setLoading] = useState(true);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    (async () => {
+      const { data } = await supabase.from("global_settings").select("value").eq("key", TRO_GIA_BOOKING_SETTING_KEY).maybeSingle();
+      setItems(parseTroGiaBookingItems(data?.value));
+      setLoading(false);
+    })();
+  }, []);
+
+  function flashSaved() {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  async function saveAll(next) {
+    setItems(next);
+    await supabase.from("global_settings").upsert(
+      { key: TRO_GIA_BOOKING_SETTING_KEY, value: JSON.stringify(next), updated_at: new Date().toISOString() },
+      { onConflict: "key" }
+    );
+    flashSaved();
+  }
+
+  function updateItem(index, field, value) {
+    const next = items.map((it, i) => (i === index ? { ...it, [field]: value } : it));
+    saveAll(next);
+  }
+
+  function addItem() {
+    saveAll([...items, { title: "", desc: "", href: "" }]);
+  }
+
+  function removeItem(index) {
+    if (!window.confirm("Remove this row? It'll disappear from the magic link and the reference page immediately.")) return;
+    saveAll(items.filter((_, i) => i !== index));
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20, maxWidth: 640 }}>
+        Shown on every artist's magic link (right above Partner Benefits) and on the internal
+        Reference → Trợ Giá Booking page — one shared list, edited here. Changes save immediately.
+        {saved && <span style={{ color: "var(--success-fg)", fontWeight: 700, marginLeft: 8 }}>Saved</span>}
+      </p>
+
+      <div style={{ display: "grid", gap: 16, marginBottom: 16, maxWidth: 640 }}>
+        {items.map((it, i) => (
+          <div key={i} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <label className={styles.fieldLabel} style={{ margin: 0 }}>Title</label>
+              <button type="button" onClick={() => removeItem(i)} className={styles.btnSmall} style={{ fontSize: 10, padding: "3px 8px" }}>
+                Remove
+              </button>
+            </div>
+            <input
+              className={styles.input}
+              style={{ width: "100%", marginBottom: 10 }}
+              defaultValue={it.title}
+              placeholder="e.g. TRỢ GIÁ BOOKING TIKTOK CHANNEL"
+              onBlur={(e) => updateItem(i, "title", e.target.value)}
+            />
+            <label className={styles.fieldLabel}>Description</label>
+            <textarea
+              className={styles.textarea}
+              style={{ width: "100%", minHeight: 50, fontSize: 12, marginBottom: 10 }}
+              defaultValue={it.desc}
+              placeholder="e.g. HỖ TRỢ 10% - 70% CHI PHÍ TRUYỀN THÔNG"
+              onBlur={(e) => updateItem(i, "desc", e.target.value)}
+            />
+            <label className={styles.fieldLabel}>Link</label>
+            <input
+              className={styles.input}
+              style={{ width: "100%" }}
+              defaultValue={it.href}
+              placeholder="https://…"
+              onBlur={(e) => updateItem(i, "href", e.target.value)}
+            />
+          </div>
+        ))}
+        {items.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)" }}>No rows yet.</div>}
+      </div>
+
+      <button type="button" onClick={addItem} className={styles.btnSmall}>
+        + Add Row
+      </button>
     </div>
   );
 }
@@ -1252,10 +1473,20 @@ function SessionsSection() {
 // Mode's URL starts blank per explicit request ("just make the button,
 // I'll send the url later, the team is confirming which to use") — its
 // button renders disabled/greyed until this is filled in.
+// Round 91 — Linkfire's URL was hardcoded straight into Booking Board's
+// button (app/booking/page.js). Moved into this same admin-editable
+// app_settings row, alongside the other 3rd-party tool links here, for the
+// exact reason the comment below already gives for those — the 3rd party
+// can change their own URL without needing another round/deploy. Booking
+// Board reads this same "linkfire" key at load, falling back to
+// DEFAULT_LINKFIRE_URL (lib/externalTools.js) if the setting row hasn't
+// been touched yet (brand-new installs, or before anyone's saved a value
+// here).
 function ArtistProfileLinksSection() {
   const [spotify, setSpotify] = useState("");
   const [apple, setApple] = useState("");
   const [discoveryMode, setDiscoveryMode] = useState("");
+  const [linkfire, setLinkfire] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1266,6 +1497,7 @@ function ArtistProfileLinksSection() {
       setSpotify(data?.value?.spotify || "");
       setApple(data?.value?.apple || "");
       setDiscoveryMode(data?.value?.discoveryMode || "");
+      setLinkfire(data?.value?.linkfire || DEFAULT_LINKFIRE_URL);
       setLoading(false);
     });
   }, []);
@@ -1274,7 +1506,7 @@ function ArtistProfileLinksSection() {
     setSaving(true);
     await supabase.from("app_settings").upsert({
       key: "artist_profile_links",
-      value: { spotify: spotify.trim(), apple: apple.trim(), discoveryMode: discoveryMode.trim() },
+      value: { spotify: spotify.trim(), apple: apple.trim(), discoveryMode: discoveryMode.trim(), linkfire: linkfire.trim() },
     });
     setSaving(false);
     setSaved(true);
@@ -1300,6 +1532,10 @@ function ArtistProfileLinksSection() {
       <div className={styles.field}>
         <label className={styles.fieldLabel}>Discovery Mode Clip Tool URL</label>
         <input className={styles.input} value={discoveryMode} onChange={(e) => setDiscoveryMode(e.target.value)} placeholder="Team is still confirming which tool to use — leave blank for now" />
+      </div>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Linkfire URL (Booking Board's "🔗 Linkfire" button)</label>
+        <input className={styles.input} value={linkfire} onChange={(e) => setLinkfire(e.target.value)} placeholder={DEFAULT_LINKFIRE_URL} />
       </div>
       <button className={styles.btnPrimary} onClick={save} disabled={saving}>
         {saving ? "Saving…" : "Save"}

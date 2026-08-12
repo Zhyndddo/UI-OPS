@@ -5,6 +5,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
+import { useIsMobile } from "../../../lib/useIsMobile";
 import styles from "../../shared.module.css";
 
 // Real platform → chart lists, straight from v1's MILESTONE_PLATFORM_TABS.
@@ -148,22 +149,24 @@ const TAG_COLOR = { IN: "var(--success-fg)", REMAIN: "#5cb3ff", RETURN: "#ffca4d
 function ReportTable({ rows }) {
   if (rows.length === 0) return <div className={styles.emptyState}>No data for today/yesterday yet.</div>;
   return (
-    <table className={styles.table}>
-      <thead><tr><th>Tag</th><th>Chart</th><th>Song</th><th>Artist</th><th>Rank</th><th>Platform</th><th>Streak</th></tr></thead>
-      <tbody>
-        {rows.map((r, i) => (
-          <tr key={i}>
-            <td><span className={styles.statusBadge} style={{ color: TAG_COLOR[r.tag], background: "var(--bg-hover)" }}>{r.tag}</span></td>
-            <td style={{ fontSize: 11 }}>{r.chart}</td>
-            <td>{r.track_title}</td>
-            <td>{r.artist || "—"}</td>
-            <td>#{r.rank}</td>
-            <td>{r.platform}</td>
-            <td>{r.streak}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+      <table className={styles.table}>
+        <thead><tr><th>Tag</th><th>Chart</th><th>Song</th><th>Artist</th><th>Rank</th><th>Platform</th><th>Streak</th></tr></thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              <td><span className={styles.statusBadge} style={{ color: TAG_COLOR[r.tag], background: "var(--bg-hover)" }}>{r.tag}</span></td>
+              <td style={{ fontSize: 11 }}>{r.chart}</td>
+              <td>{r.track_title}</td>
+              <td>{r.artist || "—"}</td>
+              <td>#{r.rank}</td>
+              <td>{r.platform}</td>
+              <td>{r.streak}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -185,28 +188,31 @@ function LogTable({ entries }) {
       {filtered.length === 0 ? (
         <div className={styles.emptyState}>No results.</div>
       ) : (
-        <table className={styles.table}>
-          <thead><tr><th>Date</th><th>Chart</th><th>Song</th><th>Artist</th><th>Rank</th><th>Platform</th><th>DID</th></tr></thead>
-          <tbody>
-            {filtered.map((e) => (
-              <tr key={e.id}>
-                <td>{fmtDate(e.entry_date)}</td>
-                <td style={{ fontSize: 11 }}>{e.chart}</td>
-                <td>{e.track_title}</td>
-                <td>{e.artist || "—"}</td>
-                <td>#{e.rank}</td>
-                <td>{e.platform}</td>
-                <td style={{ fontSize: 11, color: "var(--text-faint)" }}>{e.did || "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+          <table className={styles.table}>
+            <thead><tr><th>Date</th><th>Chart</th><th>Song</th><th>Artist</th><th>Rank</th><th>Platform</th><th>DID</th></tr></thead>
+            <tbody>
+              {filtered.map((e) => (
+                <tr key={e.id}>
+                  <td>{fmtDate(e.entry_date)}</td>
+                  <td style={{ fontSize: 11 }}>{e.chart}</td>
+                  <td>{e.track_title}</td>
+                  <td>{e.artist || "—"}</td>
+                  <td>#{e.rank}</td>
+                  <td>{e.platform}</td>
+                  <td style={{ fontSize: 11, color: "var(--text-faint)" }}>{e.did || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
 }
 
 function ChartEntryPopup({ platform, onClose, onSave }) {
+  const isMobile = useIsMobile();
   const charts = PLATFORM_CHARTS[platform];
   const [activeChart, setActiveChart] = useState(charts[0]);
   const [rowsByChart, setRowsByChart] = useState({});
@@ -241,8 +247,8 @@ function ChartEntryPopup({ platform, onClose, onSave }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 0, maxWidth: 780, width: "100%", maxHeight: "85vh", display: "flex", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ width: 200, borderRight: "1px solid var(--border)", overflowY: "auto", flexShrink: 0 }}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 0, maxWidth: 780, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ width: isMobile ? "100%" : 200, maxHeight: isMobile ? 140 : undefined, borderRight: isMobile ? "none" : "1px solid var(--border)", borderBottom: isMobile ? "1px solid var(--border)" : "none", overflowY: "auto", flexShrink: 0 }}>
           <div style={{ padding: 14, fontSize: 13, fontWeight: 800 }}>{platform}</div>
           {charts.map((c) => {
             const filled = (rowsByChart[c] || []).filter((r) => r.track_title).length;
@@ -267,20 +273,22 @@ function ChartEntryPopup({ platform, onClose, onSave }) {
             <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-faint)" }}>{activeChart}</div>
             <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer" }}>✕</button>
           </div>
-          <table className={styles.table} style={{ marginBottom: 10 }}>
-            <thead><tr><th>Song</th><th>Artist</th><th>Rank</th><th>DID</th><th></th></tr></thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i}>
-                  <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12 }} value={r.track_title} onChange={(e) => updateRow(i, "track_title", e.target.value)} /></td>
-                  <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12 }} value={r.artist} onChange={(e) => updateRow(i, "artist", e.target.value)} /></td>
-                  <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12, width: 60 }} value={r.rank} onChange={(e) => updateRow(i, "rank", e.target.value)} /></td>
-                  <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12, width: 100 }} value={r.did} onChange={(e) => updateRow(i, "did", e.target.value)} onBlur={(e) => handleDidBlur(i, e.target.value)} /></td>
-                  <td><button onClick={() => setRows(rows.filter((_, idx) => idx !== i))} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+            <table className={styles.table} style={{ marginBottom: 10 }}>
+              <thead><tr><th>Song</th><th>Artist</th><th>Rank</th><th>DID</th><th></th></tr></thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i}>
+                    <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12 }} value={r.track_title} onChange={(e) => updateRow(i, "track_title", e.target.value)} /></td>
+                    <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12 }} value={r.artist} onChange={(e) => updateRow(i, "artist", e.target.value)} /></td>
+                    <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12, width: 60 }} value={r.rank} onChange={(e) => updateRow(i, "rank", e.target.value)} /></td>
+                    <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12, width: 100 }} value={r.did} onChange={(e) => updateRow(i, "did", e.target.value)} onBlur={(e) => handleDidBlur(i, e.target.value)} /></td>
+                    <td><button onClick={() => setRows(rows.filter((_, idx) => idx !== i))} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <button className={styles.btnSmall} onClick={() => setRows([...rows, { track_title: "", artist: "", rank: "", did: "" }])}>+ Add row</button>
           <div style={{ marginTop: 20, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
             <button className={styles.btnPrimary} onClick={handleSaveAll}>Save All Charts</button>

@@ -7,10 +7,12 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
 import { isOpsTeam } from "../../../lib/teamTypes";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
 
 const ITUNES_CONVERT_URL = "https://www.vieent.com/en/ituneslink";
@@ -36,7 +38,7 @@ export default function PreOrderItunesTicketList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name").order("name").then(({ data }) => setProfiles(data || []));
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
   }, []);
 
   async function load() {
@@ -75,6 +77,13 @@ export default function PreOrderItunesTicketList() {
   async function updateStatus(t, newStatus) {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js).
+    if (statusNeedsNote(newStatus)) {
+      const newData = withStatusNote(t.data, newStatus);
+      if (!newData) return; // cancelled / no reason given — abort the change
+      patch.data = newData;
+    }
     setRows((prev) => prev.map((row) => (row.ticket.id === t.id ? { ...row, ticket: { ...row.ticket, ...patch } } : row)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
     setOpenRow((r) => (r && r.ticket.id === t.id ? { ...r, ticket: { ...r.ticket, ...patch } } : r));
@@ -118,6 +127,7 @@ export default function PreOrderItunesTicketList() {
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (
             <>
+            <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
             <table className={styles.table}>
               <thead>
                 <tr><th>Request Date</th><th>Release</th><th>PIC</th><th>Status</th></tr>
@@ -133,7 +143,7 @@ export default function PreOrderItunesTicketList() {
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
                         {isExecutorView ? (
-                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.pic_profile_id || ""} onChange={(e) => updatePic(ticket, e.target.value)}>
+                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={ticket.pic_profile_id || ""} onChange={(e) => updatePic(ticket, e.target.value)}>
                             <option value="">— Unassigned —</option>
                             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                           </select>
@@ -141,7 +151,7 @@ export default function PreOrderItunesTicketList() {
                           <span style={{ fontSize: 12 }}>{ticket.profiles?.name || "—"}</span>
                         )}
                       </td>
-                      <td onClick={(e) => e.stopPropagation()}>
+                      <td onClick={(e) => e.stopPropagation()} title={ticket.data?.note || undefined}>
                         {isExecutorView ? (
                           <select value={ticket.status} onChange={(e) => updateStatus(ticket, e.target.value)} style={{ background: color.bg, color: color.fg, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>
                             {tab?.status_options.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -155,6 +165,7 @@ export default function PreOrderItunesTicketList() {
                 })}
               </tbody>
             </table>
+            </div>
             <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
             </>
           )}
@@ -180,7 +191,7 @@ function PreOrderPopup({ ticket, release, tab, isExecutorView, onUpdateStatus, o
   const color = statusColor(ticket.status);
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: 480, maxHeight: "85vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 480, width: "100%", maxHeight: "85vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
           <div>
             <div className={styles.eyebrow}>// Ticket</div>
@@ -197,7 +208,7 @@ function PreOrderPopup({ ticket, release, tab, isExecutorView, onUpdateStatus, o
         <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>Release Info</div>
         {release ? (
           <div style={{ marginBottom: 16, fontSize: 12 }}>
-            <Link href={`/releases/${release.did}`} className={styles.rowLink}>{release.title} — {release.main_artist}</Link>
+            <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title} — {release.main_artist}</Link>
             <div style={{ color: "var(--text-faint)", marginTop: 2 }}>{release.did} · {fmtDate(release.release_date)}</div>
           </div>
         ) : (

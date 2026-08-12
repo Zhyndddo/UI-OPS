@@ -7,10 +7,12 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
 import { isOpsTeam } from "../../../lib/teamTypes";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
 
 // Bespoke (not the generic TicketListPage) per explicit request, laid out
@@ -36,7 +38,7 @@ export default function SonyPublishTicketList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name").order("name").then(({ data }) => setProfiles(data || []));
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
   }, []);
 
   async function load() {
@@ -75,6 +77,13 @@ export default function SonyPublishTicketList() {
   async function updateStatus(t, newStatus) {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js).
+    if (statusNeedsNote(newStatus)) {
+      const newData = withStatusNote(t.data, newStatus);
+      if (!newData) return; // cancelled / no reason given — abort the change
+      patch.data = newData;
+    }
     setRows((prev) => prev.map((row) => (row.ticket.id === t.id ? { ...row, ticket: { ...row.ticket, ...patch } } : row)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
@@ -157,7 +166,7 @@ export default function SonyPublishTicketList() {
                         {release ? (
                           <input
                             className={styles.input}
-                            style={{ padding: "4px 8px", fontSize: 12 }}
+                            style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }}
                             defaultValue={release.upc || ""}
                             onBlur={(e) => updateReleaseField(release, "upc", e.target.value)}
                           />
@@ -167,7 +176,7 @@ export default function SonyPublishTicketList() {
                         {release ? (
                           <input
                             className={styles.input}
-                            style={{ padding: "4px 8px", fontSize: 12 }}
+                            style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }}
                             defaultValue={release.isrc || ""}
                             onBlur={(e) => updateReleaseField(release, "isrc", e.target.value)}
                           />
@@ -175,7 +184,7 @@ export default function SonyPublishTicketList() {
                       </td>
                       <td>
                         {isExecutorView ? (
-                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={ticket.pic_profile_id || ""} onChange={(e) => updatePic(ticket, e.target.value)}>
+                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={ticket.pic_profile_id || ""} onChange={(e) => updatePic(ticket, e.target.value)}>
                             <option value="">— Unassigned —</option>
                             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                           </select>
@@ -183,7 +192,7 @@ export default function SonyPublishTicketList() {
                           <span style={{ fontSize: 12 }}>{ticket.profiles?.name || "—"}</span>
                         )}
                       </td>
-                      <td>
+                      <td title={ticket.data?.note || undefined}>
                         {isExecutorView ? (
                           <select value={ticket.status} onChange={(e) => updateStatus(ticket, e.target.value)} style={{ background: color.bg, color: color.fg, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>
                             {tab?.status_options.map((s) => <option key={s} value={s}>{s}</option>)}

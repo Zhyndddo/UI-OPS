@@ -8,6 +8,8 @@ import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import { useIsMobile } from "../../../lib/useIsMobile";
 import styles from "../../shared.module.css";
 
 const GENRE_CATEGORIES = [
@@ -117,13 +119,18 @@ export default function PitchingInfoTicketPage() {
   );
 }
 
+const FIELD_KEYS = ["genre", "moods", "songStyles", "cultures", "instruments"];
+const FIELD_LABELS = { genre: "Genre", moods: "Moods", songStyles: "Song Styles", cultures: "Cultures", instruments: "Instruments" };
+
 function PitchingInfoTickets() {
+  const isMobile = useIsMobile();
   const [tab, setTab] = useState(null);
   const [rows, setRows] = useState([]); // { ticket, release }
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
   const [openTicketId, setOpenTicketId] = useState(null);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
 
   useEffect(() => {
     if (!supabase) return;
@@ -184,7 +191,10 @@ function PitchingInfoTickets() {
     await supabase.from("tickets").update({ data: newData }).eq("id", ticket.id);
   }
 
-  const visibleRows = useMemo(() => rows.filter((row) => row.ticket.status === statusFilter), [rows, statusFilter]);
+  const visibleRows = useMemo(
+    () => rows.filter((row) => row.ticket.status === statusFilter).filter((row) => matchesQuery(row, query)),
+    [rows, statusFilter, query]
+  );
   const { pageRows: pagedRows, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleRows);
   const openRow = rows.find((row) => row.ticket.id === openTicketId) || null;
 
@@ -204,6 +214,8 @@ function PitchingInfoTickets() {
           DSP editorial tagging (Genre / Moods / Song Styles / Music Cultures / Instruments) for Spotify + Apple Music — auto-sent when Priority Pitching or Spotify is checked at New Release creation.
         </p>
 
+        <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
+
         <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
           {tab.status_options.map((s) => (
             <button
@@ -219,12 +231,70 @@ function PitchingInfoTickets() {
 
         {visibleRows.length === 0 ? (
           <div className={styles.emptyState}>No tickets at this status.</div>
+        ) : isMobile ? (
+          <>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {pagedRows.map(({ ticket, release }) => {
+              const done = fieldsDone(ticket.data);
+              return (
+                <div
+                  key={ticket.id}
+                  onClick={() => setOpenTicketId(ticket.id)}
+                  style={{ cursor: "pointer", border: "1px solid var(--border)", borderRadius: 10, padding: 14, background: "var(--bg-card)" }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>{release?.title || "—"}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{release?.main_artist || "—"} · {release?.label || "—"}</div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Release Date</div>
+                      <div style={{ fontSize: 12 }}>{release?.release_date ? fmtDate(release.release_date) : "—"}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Upload Status</div>
+                      <div style={{ fontSize: 12 }}>{uploadStatus(release) || "—"}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 6 }}>Fields</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                      {FIELD_KEYS.map((key) => (
+                        <div key={key} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-faint)" }}>
+                          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: done[key] ? "#7ee6a8" : "#ffca4d" }} />
+                          {FIELD_LABELS[key]}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>PIC</div>
+                    <select
+                      className={styles.select}
+                      style={{ fontSize: 12, padding: "4px 8px", width: "100%" }}
+                      value={ticket.pic_profile_id || ""}
+                      onChange={(e) => updatePic(ticket, e.target.value)}
+                    >
+                      <option value="">— unassigned —</option>
+                      {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+          </>
         ) : (
           <>
+          <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>DID</th>
+                {/* Round 81 item 6 — DID column hidden per explicit
+                    request; still available via each row's popup detail
+                    (release?.did is untouched there). */}
                 <th>Song</th>
                 <th>Artist</th>
                 <th>Label</th>
@@ -243,13 +313,12 @@ function PitchingInfoTickets() {
                 const done = fieldsDone(ticket.data);
                 return (
                   <tr key={ticket.id} onClick={() => setOpenTicketId(ticket.id)} style={{ cursor: "pointer" }}>
-                    <td>{release?.did || ticket.data?.releaseId || "—"}</td>
                     <td>{release?.title || "—"}</td>
                     <td>{release?.main_artist || "—"}</td>
                     <td>{release?.label || "—"}</td>
                     <td>{release?.release_date ? fmtDate(release.release_date) : "—"}</td>
                     <td>{uploadStatus(release) || "—"}</td>
-                    {["genre", "moods", "songStyles", "cultures", "instruments"].map((key) => (
+                    {FIELD_KEYS.map((key) => (
                       <td key={key}>
                         <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: done[key] ? "#7ee6a8" : "#ffca4d" }} />
                       </td>
@@ -257,7 +326,7 @@ function PitchingInfoTickets() {
                     <td onClick={(e) => e.stopPropagation()}>
                       <select
                         className={styles.select}
-                        style={{ fontSize: 11, padding: "4px 6px" }}
+                        style={{ fontSize: 11, padding: "4px 6px", minWidth: "16ch" }}
                         value={ticket.pic_profile_id || ""}
                         onChange={(e) => updatePic(ticket, e.target.value)}
                       >
@@ -270,6 +339,7 @@ function PitchingInfoTickets() {
               })}
             </tbody>
           </table>
+          </div>
           <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
           </>
         )}

@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { formatDetailText } from "../../../lib/helpers";
+import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../../lib/troGiaBooking";
+import { useIsMobile } from "../../../lib/useIsMobile";
 import styles from "../../shared.module.css";
 
 function fmtVnd(n) {
@@ -27,23 +29,27 @@ const BOOKING_ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
 // selected. Transcribed from the reference sheet; ping if any wording here
 // needs correcting and it'll get fixed in this same constant.
 const PARTNER_BENEFITS = [
-  { label: "RECORDING STUDIO", detail: "Thu âm miễn phí tại VIEENT Studio" },
+  // Round 65 — RECORDING STUDIO removed from here (was an always-shown
+  // fixed row). Round 68 — moved again: for a while it lived as an
+  // opt-in per-PACKAGE line item, but that was wrong per explicit
+  // correction — it's picked per PRODUCT (this release), not per package,
+  // so it now conditionally prepends to this same list from
+  // PartnerBenefits() below (see recordingStudioIncluded), driven by
+  // releases.recording_studio_included instead of living in this array at
+  // all.
   { label: "19 CREATIVE SPACE", detail: "Không gian miễn phí để thực hiện quay phỏng vấn, live session, MV ..." },
   { label: "PITCHING PLAYLIST/BANNER", detail: "Nền Tảng : Zingmp3, NCT, Spotify, Apple Music\nKết quả Pitching sẽ được cập nhật sau khi nền tảng trả kết quả về" },
-  {
-    label: "TRỢ GIÁ BOOKING",
-    detail: "HỖ TRỢ 10% - 70% CHI PHÍ TRUYỀN THÔNG\n(KHÔNG GIỚI HẠN SỐ LẦN HỖ TRỢ)",
-    link: { text: "LINK", href: "https://docs.google.com/spreadsheets/d/1Jyuy_QjrDAk3ToG70Ql4O-6w2WMwVPi5lFRJJjWh9JQ/edit?gid=388080288#gid=388080288" },
-    detailAfterLink: "Hỗ trợ 10% đối với kênh youtube nghệ sĩ thuộc MCN, MV thời lượng dưới 5 phút, tối thiểu 20k views\n\nHỗ trợ 5% đối với kênh youtube nghệ sĩ không thuộc MCN, MV thời lượng dưới 5 phút, tối thiểu 200k views",
-  },
-  {
-    label: "TRỢ GIÁ BOOKING ADS YOUTUBE NGOÀI GÓI HTTT",
-    detail: "* TRỢ GIÁ KHÔNG ÁP DỤNG CHO CÁC TRƯỜNG HỢP SAU:\n1. Không thoả các điều kiện trên\n2. Chạy trong 24h - 48h\n3. Các chi phí phát sinh do thay đổi so với kế hoạch ban đầu (bao gồm nhưng không giới hạn ở): Đẩy nhanh tiến độ/Fast-push, thay đổi nội dung video, thay đổi đối tượng mục tiêu hoặc tạm dừng chiến dịch) sẽ làm gián đoạn quá trình tối ưu hóa tự động của Ads. Việc này có thể dẫn đến hệ quả chi phí thực tế tăng cao hơn so với báo giá dự kiến ban đầu.",
-  },
+  // Round 68 — item 2a: TRỢ GIÁ BOOKING and TRỢ GIÁ BOOKING ADS YOUTUBE
+  // NGOÀI GÓI HTTT rows removed per explicit request.
   { label: "HỆ THỐNG QUẢN LÝ PHÁT HÀNH VÀ DOANH THU", detail: "Cung cấp tài khoản truy cập để kiểm tra\n- Catalog : VIEENT Music Dashboard\n- Xem Báo cáo Doanh thu : Royalties Analytics" },
   { label: "BẢO VỆ BẢN QUYỀN & ĐỊNH DANH NGHỆ SĨ:", detail: "- Tối ưu hóa Hồ sơ nghệ sĩ (Mapping/Verification) trên mọi nền tảng.\n- Giám sát, xử lý vi phạm bản quyền (Claim/Report) trên các nền tảng.\n- Tư vấn pháp lý các vấn đề liên quan đến quyền tác giả, quyền bản ghi." },
   { label: "THEO DÕI & BÁO CÁO ĐỊNH KỲ", detail: "- Báo cáo định kỳ về chỉ số lượt nghe của dự án và profile của nghệ sĩ.\n- Đánh giá dữ liệu để tư vấn điều chỉnh kế hoạch truyền thông kịp thời, đảm bảo hiệu quả tối đa." },
 ];
+// Round 68 — the row PartnerBenefits() prepends when
+// release.recording_studio_included is true, regardless of which package
+// was picked (it's a per-product flag, not tied to any one package's
+// terms).
+const RECORDING_STUDIO_ROW = { label: "RECORDING STUDIO", detail: "Thu âm miễn phí tại VIEENT Studio" };
 const MEDIA_PARTNER_NOTE = {
   intro: "***Logo VIEENT sẽ xuất hiện trên các tài liệu truyền thông chính thức như:\n– Bài đăng Facebook\n– Thumbnail YouTube\n*** Chia sẻ các bài đăng về artist post /congrats post hoặc tag tên VIEENT trong bài đăng Congrats/Thank You Post",
   logoLink: "https://drive.google.com/drive/folders/1Pqx0wQAssoWe2aZcilI-N9bGzZXuDjIF",
@@ -55,14 +61,35 @@ const MEDIA_PARTNER_NOTE = {
 // shows it, even though Block A still shows for every real package.
 const SHARED_B_TIERS = ["độc quyền 5 năm", "độc quyền 2 năm"];
 
-// Any terms line containing this phrase gets highlighted in the accent
-// color instead of the default muted grey — Marketing wants "HỖ TRỢ 100%
-// CHI PHÍ KHÔNG CẤN TRỪ DOANH THU" (wherever it appears across the Intro /
-// Conditions / per-package terms text, all admin-edited in Config → Shared
-// Terms) to stand out. var(--accent-soft) is already bright orange in dark
-// mode and a darker, still-readable-on-white orange in light mode — no
-// separate light/dark branching needed here.
-const HIGHLIGHT_PHRASE = "hỗ trợ 100%";
+// Any terms line containing one of these phrases gets highlighted in the
+// accent color instead of the default muted grey — Marketing wants "HỖ TRỢ
+// 100% CHI PHÍ" / "KHÔNG CẦN TRỪ DOANH THU" (wherever it appears across the
+// Intro / Conditions / per-package terms text, all admin-edited in Config →
+// Shared Terms) to stand out. var(--accent-soft) is already bright orange
+// in dark mode and a darker, still-readable-on-white orange in light mode —
+// no separate light/dark branching needed here. Round 68 — item 4a added
+// the second line ("KHÔNG CẦN TRỪ DOANH THU" sits on its own line, right
+// after "HỖ TRỢ 100% CHI PHÍ", and wasn't matching the old single phrase).
+const HIGHLIGHT_PHRASES = ["hỗ trợ 100%", "không cần trừ doanh thu"];
+
+// Round 68 — item 4b: bold, no color change. Round 72 — item 4b: the two
+// "Điều kiện N: ..." lines moved here too (used to be BOLD_NUMBERS_PHRASES
+// below, with their numbers colored orange — per explicit correction,
+// that's gone now, they're just bold like this line, normal color
+// everywhere including the numbers).
+const BOLD_ONLY_PHRASES = ["điều kiện cam kết", "điều kiện 1", "điều kiện 2"];
+
+// Round 72 — item 4c: any "NN năm" duration (05 năm, 02 năm, 01 năm, …)
+// gets its number+"năm" colored orange, wherever it shows up — replaces
+// the old digit-only BOLD_NUMBERS_PHRASES/withColoredNumbers pair (that
+// colored ANY number on the điều kiện lines above; those are now plain
+// bold instead, see BOLD_ONLY_PHRASES). Applied to every line by default
+// (not gated by a phrase list) since duration text appears in different
+// packages' own terms_text with different wording around it.
+function withColoredYears(line) {
+  const parts = line.split(/(\d+\s*năm)/gi);
+  return parts.map((part, i) => (/^\d+\s*năm$/i.test(part) ? <span key={i} style={{ color: "var(--accent-soft)" }}>{part}</span> : part));
+}
 
 // Streaming & Milestone section, below Booking Progress — read-only
 // display of release_stream_metrics (the real, actively-maintained
@@ -84,18 +111,44 @@ const STREAM_FIELD_LABELS = {
   views_fb: "Facebook — Views", creations_fb: "Facebook — Creations",
 };
 
-// Renders a terms blob line-by-line so the one line containing
-// HIGHLIGHT_PHRASE (if any) can be colored differently — everything else
-// renders exactly as before (same font size/color/line-height), just
-// broken into per-line divs instead of one whiteSpace:"pre-line" block so
-// each line can carry its own style.
+// Round 72 — item 4: "make the package term also HTML format" — any text
+// admin-pastes into Config → Shared Terms / Per-Package Terms / Trợ Giá
+// Booking that itself contains real HTML tags (<br/>, <a href>, <b>,
+// <span>, …) now renders as actual HTML instead of literal text, so admin
+// can hand-format a block (e.g. embed a real clickable link) without
+// needing a new phrase rule added here every time. Detected by a simple
+// tag-shaped regex — plain text with no "<...>" in it is completely
+// unaffected and keeps going through the line-by-line phrase logic below,
+// so nothing already in Config needs to change.
+const HTML_TAG_RE = /<\/?[a-z][\s\S]*>/i;
+
+// Renders a terms blob line-by-line so specific lines can carry their own
+// formatting — everything else renders exactly as before (same font
+// size/color/line-height), just broken into per-line divs instead of one
+// whiteSpace:"pre-line" block. Round 68 — item 4 added bold-only/
+// bold-with-colored-numbers line rules on top of the original
+// HIGHLIGHT_PHRASES one; round 72 — item 4 replaced the colored-numbers
+// rule with a colored-years rule (see withColoredYears above) and added
+// the raw-HTML passthrough above.
 function TermsText({ text, baseStyle }) {
   if (!text) return null;
-  return text.split("\n").map((line, i) => (
-    <div key={i} style={line.toLowerCase().includes(HIGHLIGHT_PHRASE) ? { ...baseStyle, color: "var(--accent-soft)", fontWeight: 700 } : baseStyle}>
-      {line || " "}
-    </div>
-  ));
+  if (HTML_TAG_RE.test(text)) {
+    return <div style={baseStyle} dangerouslySetInnerHTML={{ __html: text }} />;
+  }
+  return text.split("\n").map((line, i) => {
+    const lower = line.toLowerCase();
+    if (HIGHLIGHT_PHRASES.some((p) => lower.includes(p))) {
+      return <div key={i} style={{ ...baseStyle, color: "var(--accent-soft)", fontWeight: 700 }}>{line || " "}</div>;
+    }
+    if (BOLD_ONLY_PHRASES.some((p) => lower.includes(p))) {
+      return <div key={i} style={{ ...baseStyle, fontWeight: 700 }}>{line || " "}</div>;
+    }
+    // Round 75 — item 3: any line with a "NN năm" duration in it (e.g.
+    // "Bản ghi gốc...: 02 năm") now goes bold too, not just the number
+    // colored — per explicit request.
+    const hasYear = /\d+\s*năm/i.test(line);
+    return <div key={i} style={{ ...baseStyle, fontWeight: hasYear ? 700 : baseStyle?.fontWeight }}>{withColoredYears(line || " ")}</div>;
+  });
 }
 
 export default function PickPackagePage() {
@@ -113,6 +166,10 @@ export default function PickPackagePage() {
   const [bookingEntries, setBookingEntries] = useState([]);
   const [round, setRound] = useState("INT");
   const [sharedTerms, setSharedTerms] = useState({ a: "", conditions: "", b: "" }); // global_settings' canned blocks, shown alongside any real package's own terms_text
+  // Round 84 — global Trợ Giá Booking list (Config → Trợ Giá Booking),
+  // distinct from the per-package tro_gia_booking_text above — see
+  // lib/troGiaBooking.js and the TroGiaBookingSection component below.
+  const [troGiaBookingItems, setTroGiaBookingItems] = useState(DEFAULT_TRO_GIA_BOOKING_ITEMS);
   // The Media Booking ticket behind this link — its status_log gates
   // whether any real (built) package shows here at all (see load(): a
   // package only ever appears once the ticket has reached COMPLETE at
@@ -130,6 +187,13 @@ export default function PickPackagePage() {
   // selection is untouched; Confirm inside it is what actually calls
   // confirmChoice()).
   const [showConfirmWarning, setShowConfirmWarning] = useState(false);
+  // Round 88 follow-up 4 — mobile fix for the itemized package table below
+  // (Số Lượng/Thành Tiền are white-space:nowrap so their own short numbers
+  // never wrap — on a narrow phone width their column just isn't wide
+  // enough for that nowrap text, so it visibly overflows the cell and
+  // bleeds on top of the neighboring Chi Tiết column's text instead of
+  // wrapping to a second line).
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -186,11 +250,19 @@ export default function PickPackagePage() {
     }
     const packagesEverCompleted = !!ticketRow?.status_log?.COMPLETE;
 
+    // Round 65 — item 4: the nested media_booking_package_lines(*) embed
+    // had no explicit order, so PostgREST returned each package's lines in
+    // whatever order the DB felt like (not necessarily insertion order),
+    // which is why this page's Hạng Mục row order didn't match the
+    // drag-to-reorder order set in the Package Builder ticket. The outer
+    // .order("sort_order") only orders the packages themselves, not their
+    // nested lines — needs its own foreignTable-scoped .order() too.
     const { data: realPackagesRaw } = await supabase
       .from("media_booking_packages")
       .select("*, media_booking_package_lines(*)")
       .eq("release_id", link.release_id)
-      .order("sort_order");
+      .order("sort_order")
+      .order("sort_order", { foreignTable: "media_booking_package_lines" });
     const realPackages = packagesEverCompleted ? realPackagesRaw : [];
     const { data: pkgCategories } = await supabase.from("package_categories").select("id, name");
     const categoryNameById = {};
@@ -199,11 +271,22 @@ export default function PickPackagePage() {
     // terms_text per contract type — matched against the package's own
     // (free-typed) name. Only the 3 real Độc Quyền tiers carry one; a
     // custom-named package just shows nothing extra here.
-    const { data: termsRows } = await supabase.from("contract_type_packages").select("contract_type, terms_text");
+    // Round 72 — item 4d: tro_gia_booking_text added alongside terms_text,
+    // same per-package/admin-edited pattern (Config → Package Terms) — a
+    // separate block so Marketing can add/edit these rows without wading
+    // through the main terms_text blob, and per package like they asked.
+    const { data: termsRows } = await supabase.from("contract_type_packages").select("contract_type, terms_text, tro_gia_booking_text");
     const termsByName = {};
-    (termsRows || []).forEach((t) => { if (t.terms_text) termsByName[t.contract_type.trim().toLowerCase()] = t.terms_text; });
+    const troGiaByName = {};
+    (termsRows || []).forEach((t) => {
+      const key = t.contract_type.trim().toLowerCase();
+      if (t.terms_text) termsByName[key] = t.terms_text;
+      if (t.tro_gia_booking_text) troGiaByName[key] = t.tro_gia_booking_text;
+    });
 
-    const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_conditions", "package_terms_shared_b"]);
+    // Round 84 — added TRO_GIA_BOOKING_SETTING_KEY to this same
+    // already-batched global_settings read rather than a separate query.
+    const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_conditions", "package_terms_shared_b", TRO_GIA_BOOKING_SETTING_KEY]);
     const settingsByKey = {};
     (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
     setSharedTerms({
@@ -211,10 +294,17 @@ export default function PickPackagePage() {
       conditions: settingsByKey.package_terms_conditions || "",
       b: settingsByKey.package_terms_shared_b || "",
     });
+    setTroGiaBookingItems(parseTroGiaBookingItems(settingsByKey[TRO_GIA_BOOKING_SETTING_KEY]));
 
     const realOptions = (realPackages || []).map((p) => {
-      // INT MEDIA is a mushed package — Hạng Mục names only, never a
-      // price or a calculation, on the build side or here.
+      // Round 86 follow-up — INT MEDIA used to be a mushed package (Hạng
+      // Mục names only, never a price or calculation) both on the build
+      // side and here. Per explicit request, it now looks exactly like
+      // Vĩnh Viễn/other real packages on this magic-link page too — full
+      // itemized table with quantities and Thành Tiền, same as the
+      // internal Package Builder already shows it. `kind` stays
+      // "intMedia" (still distinct from "real") since other logic below
+      // keys off it, but rendering no longer branches on it.
       const isIntMedia = p.name === "INT MEDIA";
       const matchedTier = (p.name || "").trim().toLowerCase();
       return {
@@ -222,14 +312,30 @@ export default function PickPackagePage() {
         label: p.name,
         kind: isIntMedia ? "intMedia" : "real",
         termsText: termsByName[matchedTier] || null,
+        troGiaBookingText: troGiaByName[matchedTier] || null,
         showSharedB: SHARED_B_TIERS.includes(matchedTier),
-        totalValue: isIntMedia || !(p.media_booking_package_lines || []).some((l) => l.amount != null)
+        totalValue: !(p.media_booking_package_lines || []).some((l) => l.amount != null)
           ? null
           : p.media_booking_package_lines.reduce((sum, l) => sum + (l.amount || 0), 0),
-        items: (p.media_booking_package_lines || []).map((l) => ({
-          category: (categoryNameById[l.category_id] || l.platform || "—") + (l.brand ? ` — ${l.brand}` : ""),
-          unit: l.unit, quantity: l.quantity, detail: l.detail, amount: l.amount,
-        })),
+        items: (p.media_booking_package_lines || []).map((l) => {
+          const categoryName = categoryNameById[l.category_id] || null;
+          // Round 78 (3) — every Ads brand except YouTube Ads has never
+          // carried a real `quantity` at the package-line level (it's
+          // priced per-entry, then mushed into one lump amount — see
+          // media-booking/page.js's syncPackageLine comment), so this was
+          // rendering as a bare "—" here even though the internal package
+          // builder shows "1 Gói" for the exact same line. Not a
+          // regression from the recent YouTube Ads fixes — this table has
+          // always read the raw DB quantity — but it should match what
+          // the builder already shows instead of looking like missing
+          // data. YouTube Ads keeps showing its real quantity as before.
+          const isNonYoutubeAdsLine = categoryName === "Ads" && l.brand !== "YouTube Ads";
+          return {
+            category: (categoryName || l.platform || "—") + (l.brand ? ` — ${l.brand}` : ""),
+            unit: l.unit, quantity: l.quantity, detail: l.detail, amount: l.amount,
+            isNonYoutubeAdsLine,
+          };
+        }),
       };
     });
     const simpleOptions = SIMPLE_OPTIONS.map((name) => ({ value: name, label: name, kind: "simple", totalValue: null, items: [] }));
@@ -249,14 +355,17 @@ export default function PickPackagePage() {
     if (intMediaBuilt) {
       setSelectedValue("INT MEDIA");
       setConfirmed(true);
-    } else if (rel && !["BRIEF & DATA", "DEALING"].includes(rel.project_type)) {
+    } else if (rel && !["BRIEF & DATA", "SENT TO MARKETING", "DEALING"].includes(rel.project_type)) {
       setSelectedValue(rel.project_type);
       setConfirmed(true);
     }
 
     const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
     setCategories(cats || []);
-    const { data: items } = await supabase.from("release_package_items").select("*").eq("release_id", link.release_id);
+    // Same ordering fix as the media_booking_package_lines embed above —
+    // this table also carries a sort_order column (set at copy-time in
+    // confirmChoice() below) that was never actually being asked for.
+    const { data: items } = await supabase.from("release_package_items").select("*").eq("release_id", link.release_id).order("sort_order");
     setPackageItems(items || []);
     const { data: entries } = await supabase.from("media_booking_entries").select("*").eq("release_id", link.release_id);
     setBookingEntries(entries || []);
@@ -305,7 +414,7 @@ export default function PickPackagePage() {
   async function confirmChoice() {
     if (isLocked || !selectedValue) return;
     setPicking(true);
-    const wasPipelineStage = ["BRIEF & DATA", "DEALING"].includes(release?.project_type);
+    const wasPipelineStage = ["BRIEF & DATA", "SENT TO MARKETING", "DEALING"].includes(release?.project_type);
     const option = pickOptions.find((o) => o.value === selectedValue);
     const { error: err } = await supabase
       .from("releases")
@@ -391,7 +500,7 @@ export default function PickPackagePage() {
   // gates item B.3's default-collapsed sections below.
   const isMediaReport = !!release?.media_report_status;
   const linkName = isMediaReport ? "Media Report" : "Package Offer";
-  const isPipelineStage = ["BRIEF & DATA", "DEALING"].includes(release?.project_type);
+  const isPipelineStage = ["BRIEF & DATA", "SENT TO MARKETING", "DEALING"].includes(release?.project_type);
   const hasOtherRounds = bookingEntries.some((e) => e.booking_round === "Đợt 1" || e.booking_round === "Đợt 2");
 
   // "Rich" cards (real built packages, incl. INT MEDIA) get the wide
@@ -414,14 +523,21 @@ export default function PickPackagePage() {
             "Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT" (the big
             partner-benefits table) is untouched, still further down via
             PartnerBenefits(). */}
-        <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap", marginBottom: 20 }}>
-          <div style={{ flex: "1 1 320px" }}>
-            <div className={styles.eyebrow}>// {linkName.toLowerCase()}</div>
-            <h1 className={styles.title} style={{ marginBottom: 4 }}>
+        {/* Round 69 — item 1: header text enlarged ~1.4x (eyebrow 12->17,
+            title 28->39, artist/date line 13->18) — overridden inline
+            rather than touching styles.eyebrow/.title globally, since
+            those are shared classes used across every other page. Column
+            widened (320px -> 420px min) so the bigger title still has room
+            to stay on one line instead of wrapping. */}
+        <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap", marginBottom: 10 }}>
+          <div style={{ flex: "1 1 420px" }}>
+            <div className={styles.eyebrow} style={{ fontSize: 17 }}>// {linkName.toLowerCase()}</div>
+            <h1 className={styles.title} style={{ marginBottom: 4, fontSize: 39, whiteSpace: "nowrap" }}>
               {release?.title}
             </h1>
-            <div style={{ color: "var(--text-faint)", fontSize: 13 }}>
-              {release?.main_artist} · {release?.release_date} {release?.release_time}
+            <div style={{ color: "var(--text-faint)", fontSize: 18 }}>
+              {/* Round 69 — item 2: feature artist added, "Main ft. Feature" */}
+              {release?.main_artist}{release?.feature_artist ? ` ft. ${release.feature_artist}` : ""} · {release?.release_date} {release?.release_time}
             </div>
           </div>
           <div style={{ flex: "1 1 360px" }}>
@@ -436,7 +552,7 @@ export default function PickPackagePage() {
         )}
 
         {!isLocked && isPipelineStage && (
-          <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
+          <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16, marginTop: 0 }}>
             Current stage: <span style={{ color: "#ff9d5c" }}>{release?.project_type}</span>
           </p>
         )}
@@ -468,6 +584,16 @@ export default function PickPackagePage() {
               <div
                 key={c.value}
                 style={{
+                  // Round 68 — item 3 hardcoded this to a fixed cream
+                  // (#f7f3ee) regardless of site theme, because back then
+                  // var(--bg-card) + the hardcoded near-white title text
+                  // combined to go invisible in light mode. Round 78 — per
+                  // explicit request, reverted to theme-aware var(--bg-card)
+                  // now that the title text below is also theme-aware
+                  // (var(--text)) instead of a second hardcoded color — the
+                  // two vars are always a correctly-contrasted pair in both
+                  // themes today, so this card is a real black plate again
+                  // in dark mode instead of always-light.
                   background: selected ? "rgba(255,107,26,0.1)" : "var(--bg-card)",
                   // Every package card gets an orange stroke now (not just
                   // the selected one) so they read as a set of options to
@@ -479,21 +605,16 @@ export default function PickPackagePage() {
                   overflow: "hidden",
                 }}
               >
-                <button
-                  onClick={() => selectPackage(c.value)}
-                  disabled={isLocked || picking}
-                  style={{
-                    width: "100%",
-                    textAlign: "left",
-                    background: "none",
-                    border: "none",
-                    padding: 16,
-                    cursor: isLocked ? "not-allowed" : "pointer",
-                    opacity: isLocked && !selected ? 0.5 : 1,
-                  }}
-                >
+                {/* Round 69 — item: the whole header used to be one big
+                    clickable button (click-anywhere-to-select). Per
+                    explicit request, that's removed for clarity — this is
+                    now a plain, non-clickable info block, and the only way
+                    to pick this package is the explicit button on the
+                    right (was previously duplicated at the bottom of the
+                    card too; consolidated to just this one). */}
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: 16, opacity: isLocked && !selected ? 0.5 : 1 }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: selected ? "#ff9d5c" : "#f4f4f4" }}>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: selected ? "#ff9d5c" : "var(--text)" }}>
                       {c.label || c.value}
                     </span>
                     {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
@@ -501,7 +622,21 @@ export default function PickPackagePage() {
                       <span style={{ fontSize: 13, color: "var(--text-faint)" }}>{fmtVnd(c.totalValue)}</span>
                     )}
                   </div>
-                </button>
+                  {!isLocked && (
+                    <button
+                      onClick={() => selectPackage(c.value)}
+                      disabled={picking}
+                      style={{
+                        flexShrink: 0, padding: "8px 14px", fontSize: 12, fontWeight: 800, borderRadius: 6, cursor: "pointer", whiteSpace: "nowrap",
+                        border: selected ? "1px solid #ff6b1a" : "1px solid var(--border-strong)",
+                        background: selected ? "#ff6b1a" : "var(--bg-hover)",
+                        color: selected ? "#0a0a0a" : "var(--text-muted)",
+                      }}
+                    >
+                      {selected ? "✓ Đã Chọn" : "Chọn Gói Này"}
+                    </button>
+                  )}
+                </div>
                 {(c.termsText || sharedTerms.a || sharedTerms.conditions) && (
                   // Fixed order: intro (a) -> conditions -> this package's
                   // own terms (c, e.g. VĨNH VIỄN/03 năm). The 5/2-năm note
@@ -516,36 +651,40 @@ export default function PickPackagePage() {
                     {c.termsText && <TermsText text={c.termsText} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
                   </div>
                 )}
-                {c.kind === "intMedia" ? (
-                  // INT MEDIA — Hạng Mục names only, no numbers or pricing.
-                  <div style={{ borderTop: "1px solid var(--border)", padding: "10px 16px", display: "grid", gap: 6 }}>
-                    {c.items.map((item, i) => (
-                      <div key={i} style={{ fontSize: 12, color: "var(--text-muted)" }}>{item.category}</div>
-                    ))}
-                  </div>
-                ) : c.items?.length > 0 ? (
+                {c.items?.length > 0 ? (
                   <div style={{ borderTop: "1px solid var(--border)", padding: "8px 16px" }}>
+                    <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
                     <table className={styles.table} style={{ marginTop: 8, tableLayout: "fixed", width: "100%" }}>
+                      {/* Round 68 — item 3: Số Lượng (14% -> 16%, ~1.15x)
+                          and Thành Tiền (18% -> 21%, ~1.15x) were clipping/
+                          wrapping their own numbers ("32 Bài Đăng" and
+                          "22.400.000 đ" breaking onto 2 lines). Chi Tiết
+                          gives up the difference (46% -> 41%) — it already
+                          has the most room to spare and wraps fine. */}
                       <colgroup>
                         <col style={{ width: "22%" }} />
-                        <col style={{ width: "14%" }} />
-                        <col style={{ width: "46%" }} />
-                        <col style={{ width: "18%" }} />
+                        <col style={{ width: "16%" }} />
+                        <col style={{ width: "41%" }} />
+                        <col style={{ width: "21%" }} />
                       </colgroup>
                       <thead>
-                        <tr><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr>
+                        <tr style={isMobile ? { fontSize: 10 } : undefined}><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr>
                       </thead>
                       <tbody>
                         {c.items.map((item, i) => (
-                          <tr key={i}>
+                          <tr key={i} style={isMobile ? { fontSize: 11 } : undefined}>
                             <td style={{ wordBreak: "break-word" }}>{item.category}</td>
-                            <td>{item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
-                            <td style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "pre-line", lineHeight: 1.4 }}>{formatDetailText(item.detail) || "—"}</td>
-                            <td>{fmtVnd(item.amount)}</td>
+                            {/* Round 88 follow-up 4 — nowrap dropped on mobile so a
+                                narrow column wraps this onto a 2nd line instead of
+                                overflowing sideways on top of Chi Tiết's text. */}
+                            <td style={isMobile ? { wordBreak: "break-word" } : { whiteSpace: "nowrap" }}>{item.isNonYoutubeAdsLine ? "1 Gói" : item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
+                            <td style={{ fontSize: isMobile ? 10 : 11, color: "var(--text-faint)", whiteSpace: "pre-line", lineHeight: 1.4 }}>{formatDetailText(item.detail) || "—"}</td>
+                            <td style={isMobile ? { wordBreak: "break-word" } : { whiteSpace: "nowrap" }}>{fmtVnd(item.amount)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 ) : null}
                 {c.showSharedB && sharedTerms.b && (
@@ -553,24 +692,21 @@ export default function PickPackagePage() {
                     <TermsText text={sharedTerms.b} baseStyle={{ fontSize: 10, color: "var(--text-faint)", lineHeight: 1.5 }} />
                   </div>
                 )}
-                {/* Explicit "Chọn Gói Này" button — per explicit request,
-                    clearer than relying on the whole header area being
-                    clickable (that click-to-select still works too, this
-                    is additive). */}
-                {!isLocked && (
-                  <div style={{ borderTop: "1px solid var(--border)", padding: 12 }}>
-                    <button
-                      onClick={() => selectPackage(c.value)}
-                      disabled={picking}
-                      style={{
-                        width: "100%", padding: "10px 0", fontSize: 13, fontWeight: 800, borderRadius: 6, cursor: "pointer",
-                        border: selected ? "1px solid #ff6b1a" : "1px solid var(--border-strong)",
-                        background: selected ? "#ff6b1a" : "var(--bg-hover)",
-                        color: selected ? "#0a0a0a" : "var(--text-muted)",
-                      }}
-                    >
-                      {selected ? "✓ Đã Chọn Gói Này" : "Chọn Gói Này"}
-                    </button>
+                {/* Round 72 — item 4d: "TRỢ GIÁ BOOKING" as its own block,
+                    per package, admin-edited in Config → Package Terms
+                    (Marketing can add/edit rows there, HTML-formatted —
+                    see TermsText's HTML passthrough above). Replaces the
+                    old always-shown TRỢ GIÁ BOOKING / TRỢ GIÁ BOOKING ADS
+                    YOUTUBE rows that were removed from PARTNER_BENEFITS in
+                    round 68 — this is the "move it here" destination. */}
+                {c.troGiaBookingText && (
+                  <div style={{ borderTop: "1px solid var(--border)" }}>
+                    <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "6px 16px", textTransform: "uppercase" }}>
+                      Trợ Giá Booking
+                    </div>
+                    <div style={{ padding: "10px 16px" }}>
+                      <TermsText text={c.troGiaBookingText} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }} />
+                    </div>
                   </div>
                 )}
               </div>
@@ -595,6 +731,9 @@ export default function PickPackagePage() {
                   disabled={isLocked || picking}
                   style={{
                     textAlign: "left",
+                    // Round 78 — same revert as the rich options cards
+                    // above: theme-aware var(--bg-card) instead of the
+                    // fixed cream round 68 introduced.
                     background: selected ? "rgba(255,107,26,0.1)" : "var(--bg-card)",
                     border: selected ? "1px solid #ff6b1a" : "1px solid var(--border)",
                     borderRadius: 10,
@@ -604,7 +743,7 @@ export default function PickPackagePage() {
                   }}
                 >
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span style={{ fontSize: 14, fontWeight: 800, color: selected ? "#ff9d5c" : "#f4f4f4" }}>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: selected ? "#ff9d5c" : "var(--text)" }}>
                       {c.label || c.value}
                     </span>
                     {selected && <span style={{ fontSize: 10, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
@@ -671,8 +810,16 @@ export default function PickPackagePage() {
 
         {/* Feed Back — the alternative to confirming a pick. Sends a note
             to AR instead of/alongside picking, rather than committing to
-            a choice right now. */}
-        {!isLocked && mediaBookingTicket && (
+            a choice right now. Round 68 — item 1: also gated on !confirmed
+            now, not just !isLocked. A release confirmed via the Package
+            Runner import (Chỉ Phát Hành) sets project_type directly, which
+            flips `confirmed` true on load — but isLocked depends on
+            magicLink.locked / release.package_locked, which weren't
+            reliably true in the same moment for an imported pick, so Feed
+            Back was staying visible next to an already-"✓ Package
+            Confirmed" card. Checking !confirmed directly closes that gap
+            regardless of the isLocked timing. */}
+        {!isLocked && !confirmed && mediaBookingTicket && (
           <div style={{ marginTop: 12 }}>
             {feedbackSent ? (
               <div className={styles.successBox}>Feedback sent — your OPS/AR contact has been notified.</div>
@@ -715,13 +862,17 @@ export default function PickPackagePage() {
 
         </CollapsibleSection>
 
+        {/* Round 84 — global Trợ Giá Booking list, admin-edited in
+            Config → Trợ Giá Booking (lib/troGiaBooking.js), seated right
+            above Partner Benefits per explicit request. */}
+        <TroGiaBookingSection items={troGiaBookingItems} defaultCollapsed={isMediaReport} />
         {/* Fixed partner-benefits block — same for every package, shown
             once (not duplicated per card) right under the package
             cards/confirm button, above the Booking Progress numbers when
             that section is showing. Round 54 — collapsed by default once
             this is a Media Report, same reasoning as the Package section
             above. */}
-        <PartnerBenefits defaultCollapsed={isMediaReport} />
+        <PartnerBenefits defaultCollapsed={isMediaReport} recordingStudioIncluded={!!release?.recording_studio_included} />
 
         {confirmed && (
           <div style={{ marginTop: 32 }}>
@@ -811,6 +962,7 @@ export default function PickPackagePage() {
             )}
 
             {milestones.length > 0 && (
+              <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
               <table className={styles.table}>
                 <thead><tr><th>Chart</th><th>Date</th><th>Rank</th><th>Platform</th></tr></thead>
                 <tbody>
@@ -824,6 +976,7 @@ export default function PickPackagePage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         )}
@@ -855,8 +1008,14 @@ function CollapsibleSection({ title, defaultCollapsed, children }) {
   );
 }
 
-function PartnerBenefits({ defaultCollapsed }) {
+// Round 84 — same collapsible orange-header treatment as PartnerBenefits/
+// MediaPartnerNote below, for visual consistency, but its rows come live
+// from Config → Trợ Giá Booking (global_settings, see lib/troGiaBooking.js)
+// instead of a hardcoded array — items[] can be empty if an admin removes
+// every row, in which case the whole section just doesn't render.
+function TroGiaBookingSection({ items, defaultCollapsed }) {
   const [open, setOpen] = useState(!defaultCollapsed);
+  if (!items || items.length === 0) return null;
   return (
     <div style={{ marginTop: 28 }}>
       <button
@@ -864,18 +1023,95 @@ function PartnerBenefits({ defaultCollapsed }) {
         onClick={() => setOpen((o) => !o)}
         style={{ width: "100%", textAlign: "left", background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase", border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
       >
+        Trợ Giá Booking
+        <span>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div style={{ border: "1px solid var(--border)", borderTop: "none" }}>
+          {items.map((it, i) => (
+            <div
+              key={i}
+              style={{
+                padding: "10px 14px",
+                background: i % 2 === 0 ? "rgba(255,107,26,0.05)" : "transparent",
+                borderTop: i === 0 ? "none" : "1px solid #1c1c1c",
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#ff9d5c", marginBottom: 4 }}>{it.title}</div>
+              {it.desc && <div style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-line", lineHeight: 1.5, marginBottom: it.href ? 4 : 0 }}>{it.desc}</div>}
+              {it.href && (
+                <a href={it.href} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#5b9dff", wordBreak: "break-all" }}>
+                  {it.href}
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PartnerBenefits({ defaultCollapsed, recordingStudioIncluded }) {
+  const [open, setOpen] = useState(!defaultCollapsed);
+  // Round 88 follow-up 4 — desktop keeps the 2-column label|detail grid;
+  // mobile stacks label above detail instead (same one-column-concat
+  // layout TroGiaBookingSection already uses above), so the fixed 220px
+  // label column doesn't crush the detail column on a phone. Desktop is
+  // completely untouched — this only swaps the grid's own template.
+  const isMobile = useIsMobile();
+  // Round 68 — prepended, not part of PARTNER_BENEFITS itself, since
+  // whether it shows depends on this release's own flag rather than being
+  // fixed for every release.
+  const rows = recordingStudioIncluded ? [RECORDING_STUDIO_ROW, ...PARTNER_BENEFITS] : PARTNER_BENEFITS;
+  return (
+    <div style={{ marginTop: 28 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{ width: "100%", textAlign: "left", background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase", border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
+        Trợ Giá Booking
+        <span>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div style={{ border: "1px solid var(--border)", borderTop: "none" }}>
+          {items.map((it, i) => (
+            <div
+              key={i}
+              style={{
+                padding: "10px 14px",
+                background: i % 2 === 0 ? "rgba(255,107,26,0.05)" : "transparent",
+                borderTop: i === 0 ? "none" : "1px solid #1c1c1c",
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#ff9d5c", marginBottom: 4 }}>{it.title}</div>
+              {it.desc && <div style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-line", lineHeight: 1.5, marginBottom: it.href ? 4 : 0 }}>{it.desc}</div>}
+              {it.href && (
+                <a href={it.href} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#5b9dff", wordBreak: "break-all" }}>
+                  {it.href}
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
         Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT
         <span>{open ? "▾" : "▸"}</span>
       </button>
       {open && (
       <div style={{ border: "1px solid var(--border)", borderTop: "none" }}>
-        {PARTNER_BENEFITS.map((row, i) => (
+        {rows.map((row, i) => (
           <div
             key={row.label}
             style={{
               display: "grid",
-              gridTemplateColumns: "220px 1fr",
-              gap: 16,
+              gridTemplateColumns: isMobile ? "1fr" : "220px 1fr",
+              gap: isMobile ? 4 : 16,
               padding: "10px 14px",
               background: i % 2 === 0 ? "rgba(255,107,26,0.05)" : "transparent",
               borderTop: i === 0 ? "none" : "1px solid #1c1c1c",

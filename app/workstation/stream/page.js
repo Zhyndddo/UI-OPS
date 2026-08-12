@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
-import { fmtDate } from "../../../lib/helpers";
+import { fmtDate, fetchAllRows } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { buildStreamNote } from "../../../lib/releaseNotes";
 import styles from "../../shared.module.css";
@@ -27,13 +27,42 @@ const METRIC_GROUPS = [
 const ALL_METRIC_KEYS = METRIC_GROUPS.flatMap(([, fields]) => fields.map(([k]) => k));
 const GROUP_START_KEYS = new Set(METRIC_GROUPS.map(([, fields]) => fields[0][0]));
 
+// Round 67 — this page used to pull the ENTIRE release_stream_metrics
+// table (every release, every metric column) on every single page load,
+// then render every month's full table simultaneously — Monthly alone
+// could mean dozens of months × dozens of releases × ~10 inputs each, all
+// mounted in the DOM at once. That's a genuinely heavy synchronous React
+// commit, on top of the network cost, and is the real freeze culprit
+// here (separate from — and can't be throttled away the same as — the
+// Labels page fix in round 66, since this data is what the page actually
+// renders, not a background sync).
+//
+// Redesigned per your idea: Monthly's months are now collapsible and
+// start collapsed. A month's metrics only get fetched from the DB the
+// first time it's expanded ("running the database again"); collapsing it
+// back just stops rendering its table — the fetched data stays cached in
+// memory ("local store"), so re-expanding the same month later is instant
+// with no new query. Nothing here periodically refreshes a collapsed
+// month's cached data in the background — once fetched it just sits there
+// for the rest of the session; simplest option per your "or just don't at
+// all." Which months were open gets remembered in sessionStorage
+// (STREAM_EXPANDED_MONTHS_KEY) so a reload within the same browser
+// session re-expands (and re-fetches) exactly the months you had open —
+// "ran as much table as needed" — while a fresh session always starts
+// fully collapsed ("otherwise just normal").
+const STREAM_EXPANDED_MONTHS_KEY = "vieent_stream_expanded_months";
+
 export default function StreamWorkstation() {
   const [tab, setTab] = useState("today");
   const [releases, setReleases] = useState([]);
-  const [metrics, setMetrics] = useState({}); // release_id -> metrics row
+  const [metricsByRelease, setMetricsByRelease] = useState({}); // release_id -> metrics row, populated lazily per section
   const [supplements, setSupplements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [monthlySearch, setMonthlySearch] = useState(""); // Monthly tab only — title/artist/DID, so an old entry can be found without scrolling every month
+  const [expandedMonths, setExpandedMonths] = useState(() => new Set());
+  const [loadingMonths, setLoadingMonths] = useState(() => new Set());
+  const loadedReleaseIdsRef = useRef(new Set()); // ref, not state — needs synchronous dedup checks across rapid calls (search firing several at once)
+  const restoredExpandedRef = useRef(false); // only ever restore session state once, right after releases first load
 
   useEffect(() => {
     if (!supabase) return;
@@ -42,26 +71,18 @@ export default function StreamWorkstation() {
 
   async function load() {
     setLoading(true);
-    const { data: rels } = await supabase.from("releases").select("id, did, title, main_artist, release_date, upc, isrc, smartlink, label");
+    // Round 60 — fetchAllRows instead of a plain select(): whole-table
+    // read, no filter, subject to Supabase's default 1000-row cap (see
+    // DATA_FIXES.md round 59/60). Still needed in full here — grouping
+    // into months and the Monthly search both need every release's
+    // date/title/artist/DID up front, and that's lightweight text, not
+    // the heavy part. The heavy part (release_stream_metrics, one row per
+    // release with ~10 metric columns) is what round 67 below stopped
+    // pulling in bulk.
+    const { data: rels } = await fetchAllRows(() =>
+      supabase.from("releases").select("id, did, title, main_artist, release_date, upc, isrc, smartlink, label").order("id")
+    );
     setReleases(rels || []);
-
-    const { data: metricRows } = await supabase.from("release_stream_metrics").select("*").not("release_id", "is", null);
-    const map = {};
-    (metricRows || []).forEach((m) => (map[m.release_id] = m));
-    setMetrics(map);
-
-    // Auto-create a metrics row for any release that doesn't have one yet
-    // — matches v1's auto-sync behavior, just done once on load instead
-    // of a live listener.
-    const missing = (rels || []).filter((r) => !map[r.id]);
-    if (missing.length > 0) {
-      const { data: created } = await supabase
-        .from("release_stream_metrics")
-        .insert(missing.map((r) => ({ release_id: r.id })))
-        .select();
-      (created || []).forEach((m) => (map[m.release_id] = m));
-      setMetrics({ ...map });
-    }
 
     const { data: supp } = await supabase.from("release_stream_metrics").select("*").is("release_id", null).order("manual_release_date", { ascending: false });
     setSupplements(supp || []);
@@ -69,12 +90,58 @@ export default function StreamWorkstation() {
     setLoading(false);
   }
 
+  // Round 67 — fetches metrics rows for exactly the given release ids
+  // (a month's releases, Today Check's handful, or a search match), skips
+  // any id already cached, and auto-creates a metrics row for any of them
+  // that doesn't have one yet (same "every release gets a row" guarantee
+  // load() used to do for the whole table up front — now done lazily,
+  // scoped to only the releases actually being looked at).
+  async function ensureMetricsLoaded(ids) {
+    const missing = ids.filter((id) => !loadedReleaseIdsRef.current.has(id));
+    if (missing.length === 0) return;
+    missing.forEach((id) => loadedReleaseIdsRef.current.add(id));
+    const { data: metricRows } = await supabase.from("release_stream_metrics").select("*").in("release_id", missing);
+    const found = new Map((metricRows || []).map((m) => [m.release_id, m]));
+    const stillMissing = missing.filter((id) => !found.has(id));
+    let created = [];
+    if (stillMissing.length > 0) {
+      const { data } = await supabase.from("release_stream_metrics").insert(stillMissing.map((release_id) => ({ release_id }))).select();
+      created = data || [];
+    }
+    if (found.size > 0 || created.length > 0) {
+      setMetricsByRelease((prev) => {
+        const next = { ...prev };
+        found.forEach((m, id) => { next[id] = m; });
+        created.forEach((m) => { next[m.release_id] = m; });
+        return next;
+      });
+    }
+  }
+
+  function persistExpandedMonths(set) {
+    try { window.sessionStorage.setItem(STREAM_EXPANDED_MONTHS_KEY, JSON.stringify([...set])); } catch {}
+  }
+
+  async function toggleMonth(month, monthReleaseIds) {
+    const willOpen = !expandedMonths.has(month);
+    setExpandedMonths((prev) => {
+      const next = new Set(prev);
+      if (willOpen) next.add(month); else next.delete(month);
+      persistExpandedMonths(next);
+      return next;
+    });
+    if (!willOpen) return;
+    setLoadingMonths((prev) => new Set(prev).add(month));
+    await ensureMetricsLoaded(monthReleaseIds);
+    setLoadingMonths((prev) => { const next = new Set(prev); next.delete(month); return next; });
+  }
+
   async function updateMetric(row, field, value, isSupplement) {
     const patch = { [field]: value, updated_at: new Date().toISOString() };
     if (isSupplement) {
       setSupplements((prev) => prev.map((s) => (s.id === row.id ? { ...s, ...patch } : s)));
     } else {
-      setMetrics((prev) => ({ ...prev, [row.release_id]: { ...prev[row.release_id], ...patch } }));
+      setMetricsByRelease((prev) => ({ ...prev, [row.release_id]: { ...prev[row.release_id], ...patch } }));
     }
     await supabase.from("release_stream_metrics").update(patch).eq("id", row.id);
   }
@@ -119,18 +186,23 @@ export default function StreamWorkstation() {
         if (updErr) { window.alert(`Merge failed: ${updErr.message}`); return; }
       }
       await supabase.from("release_stream_metrics").delete().eq("id", supplementRow.id);
-      setMetrics((prev) => ({ ...prev, [release.id]: { ...targetRow, ...patch } }));
+      setMetricsByRelease((prev) => ({ ...prev, [release.id]: { ...targetRow, ...patch } }));
     } else {
       // No metrics row for that release yet (shouldn't normally happen —
-      // load() auto-creates one for every release) — repurpose this
-      // Bổ Sung row into the real one instead of losing it.
+      // ensureMetricsLoaded auto-creates one the first time that
+      // release's month/section is opened) — repurpose this Bổ Sung row
+      // into the real one instead of losing it.
       const { error: updErr } = await supabase
         .from("release_stream_metrics")
         .update({ release_id: release.id, manual_title: null, manual_artist: null, manual_release_date: null, manual_upc: null, manual_did: null })
         .eq("id", supplementRow.id);
       if (updErr) { window.alert(`Link failed: ${updErr.message}`); return; }
-      setMetrics((prev) => ({ ...prev, [release.id]: { ...supplementRow, release_id: release.id } }));
+      setMetricsByRelease((prev) => ({ ...prev, [release.id]: { ...supplementRow, release_id: release.id } }));
     }
+    // This release now has a known-good metrics row in state regardless of
+    // whether its month has ever been expanded — mark it loaded so
+    // ensureMetricsLoaded doesn't stomp it with a fresh fetch later.
+    loadedReleaseIdsRef.current.add(release.id);
     setSupplements((prev) => prev.filter((s) => s.id !== supplementRow.id));
   }
 
@@ -170,6 +242,44 @@ export default function StreamWorkstation() {
       .filter(([, rels]) => rels.length > 0);
   }, [monthlyGroups, monthlySearch]);
 
+  // Today Check is small (day-1/day-2/day-7 releases only) and is the
+  // default tab, so it's fine to just always fetch its metrics as soon as
+  // the release list is in, rather than waiting for a manual expand.
+  useEffect(() => {
+    if (todayCheckReleases.length === 0) return;
+    ensureMetricsLoaded(todayCheckReleases.map((r) => r.id));
+  }, [todayCheckReleases]);
+
+  // Round 67 — restores whichever months were expanded before (this
+  // browser session only — sessionStorage, not localStorage), and
+  // re-fetches all of them. Guarded to run exactly once, right after
+  // releases first populate — monthlyGroups needs `releases` loaded to
+  // know each remembered month's release ids.
+  useEffect(() => {
+    if (restoredExpandedRef.current || releases.length === 0) return;
+    restoredExpandedRef.current = true;
+    let saved = [];
+    try { saved = JSON.parse(window.sessionStorage.getItem(STREAM_EXPANDED_MONTHS_KEY) || "[]"); } catch {}
+    if (!Array.isArray(saved) || saved.length === 0) return;
+    const groupMap = new Map(monthlyGroups);
+    const valid = saved.filter((m) => groupMap.has(m));
+    if (valid.length === 0) return;
+    setExpandedMonths(new Set(valid));
+    setLoadingMonths(new Set(valid));
+    valid.forEach(async (m) => {
+      await ensureMetricsLoaded(groupMap.get(m).map((r) => r.id));
+      setLoadingMonths((prev) => { const next = new Set(prev); next.delete(m); return next; });
+    });
+  }, [releases, monthlyGroups]);
+
+  // While actively searching Monthly, every matched month is shown
+  // regardless of its collapsed/expanded state (see isOpen below) — load
+  // data for those too, so results aren't just names with blank numbers.
+  useEffect(() => {
+    if (!monthlySearch.trim()) return;
+    filteredMonthlyGroups.forEach(([, rels]) => ensureMetricsLoaded(rels.map((r) => r.id)));
+  }, [monthlySearch, filteredMonthlyGroups]);
+
   return (
     <AppShell>
       <div className={styles.page}>
@@ -198,7 +308,7 @@ export default function StreamWorkstation() {
               <div className={styles.emptyState}>Nothing released yesterday, day-before-yesterday, or exactly a week ago.</div>
             ) : (
               <StreamTable
-                rows={todayCheckReleases.map((r) => ({ release: r, metrics: metrics[r.id] || {} }))}
+                rows={todayCheckReleases.map((r) => ({ release: r, metrics: metricsByRelease[r.id] || {} }))}
                 onUpdate={(row, field, value) => updateMetric(row.metrics, field, value, false)}
               />
             )
@@ -214,35 +324,64 @@ export default function StreamWorkstation() {
                   onChange={(e) => setMonthlySearch(e.target.value)}
                   placeholder="Search title / artist / DID…"
                 />
-                {/* Month index — jumps straight to that month's anchor.
+                {/* Month index — jumps straight to a month AND expands it
+                    (round 67 — months start collapsed now, so a plain
+                    anchor scroll would've just landed on a closed header).
                     Hidden while searching, since search already narrows
-                    things down to a handful of months at most. */}
+                    things down to a handful of months at most, all shown
+                    open. */}
                 {!monthlySearch && (
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 20 }}>
-                    {monthlyGroups.map(([month]) => (
-                      <a
+                    {monthlyGroups.map(([month, rels]) => (
+                      <button
                         key={month}
-                        href={`#stream-month-${month}`}
+                        onClick={() => {
+                          if (!expandedMonths.has(month)) toggleMonth(month, rels.map((r) => r.id));
+                          document.getElementById(`stream-month-${month}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }}
                         className={styles.tabBtn}
-                        style={{ border: "1px solid var(--border)", borderRadius: 6, textDecoration: "none" }}
+                        style={{ border: "1px solid var(--border)", borderRadius: 6 }}
                       >
                         {month}
-                      </a>
+                      </button>
                     ))}
                   </div>
                 )}
                 {filteredMonthlyGroups.length === 0 ? (
                   <div className={styles.emptyState}>No matches for "{monthlySearch}".</div>
                 ) : (
-                  filteredMonthlyGroups.map(([month, rels]) => (
-                    <div key={month} id={`stream-month-${month}`} style={{ marginBottom: 28, scrollMarginTop: 16 }}>
-                      <div className={styles.subheading} style={{ marginTop: 0 }}>{month}</div>
-                      <StreamTable
-                        rows={rels.map((r) => ({ release: r, metrics: metrics[r.id] || {} }))}
-                        onUpdate={(row, field, value) => updateMetric(row.metrics, field, value, false)}
-                      />
-                    </div>
-                  ))
+                  filteredMonthlyGroups.map(([month, rels]) => {
+                    // Round 67 — collapsible per-month sections. Forced
+                    // open while actively searching (a filtered result
+                    // list is already small — no point re-collapsing it),
+                    // otherwise driven by expandedMonths (manual toggle or
+                    // restored from sessionStorage on load).
+                    const isOpen = !!monthlySearch.trim() || expandedMonths.has(month);
+                    const isLoading = loadingMonths.has(month) && !rels.some((r) => metricsByRelease[r.id]);
+                    return (
+                      <div key={month} id={`stream-month-${month}`} style={{ marginBottom: 12, scrollMarginTop: 16 }}>
+                        <button
+                          onClick={() => toggleMonth(month, rels.map((r) => r.id))}
+                          className={styles.subheading}
+                          style={{ marginTop: 0, marginBottom: isOpen ? 10 : 0, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: 0, width: "100%", textAlign: "left", fontFamily: "inherit" }}
+                        >
+                          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{isOpen ? "▾" : "▸"}</span>
+                          {month}
+                          <span style={{ color: "var(--text-faint)", fontWeight: 400, fontSize: 12 }}>({rels.length})</span>
+                        </button>
+                        {isOpen && (
+                          isLoading ? (
+                            <div className={styles.emptyState} style={{ padding: 12 }}>Loading…</div>
+                          ) : (
+                            <StreamTable
+                              rows={rels.map((r) => ({ release: r, metrics: metricsByRelease[r.id] || {} }))}
+                              onUpdate={(row, field, value) => updateMetric(row.metrics, field, value, false)}
+                            />
+                          )
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </>
             )

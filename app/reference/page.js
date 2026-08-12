@@ -9,6 +9,8 @@ const REFS = [
   { href: "/labels", label: "Label List", note: "Label Name, Hợp Tác, Phân Loại, ..." },
   { href: "/booking-channels", label: "Booking Channels", note: "Real channel/page handles per platform — powers the Booking popup's pick-list" },
   { href: "/package-categories", label: "Package Categories", note: "Top-level content-plan groups (Social Vieent, Community, ...) for building a package" },
+  // Round 82 item 2 — new read-only content page, see app/tro-gia-booking/page.js.
+  { href: "/tro-gia-booking", label: "Trợ Giá Booking", note: "Subsidy rates for TikTok Channel booking, CapCut templates, and ADS rate card" },
 ];
 
 export default function ReferencePage() {

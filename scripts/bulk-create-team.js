@@ -10,7 +10,7 @@
 // yourself (Slack, Zalo, whatever) instead of Supabase emailing them.
 //
 // Input is a CSV with a header row: name,email,role,segment
-//   - role: exc | admin | dev (matches ROLES in app/config/page.js)
+//   - role: exc | teamlead | admin | dev (matches ROLES in lib/permissions.js — round 57 added teamlead)
 //   - segment: AR | Marketing | OPS | Design — required unless role=dev
 //   - email can be a real address OR a placeholder/dummy one (e.g.
 //     person1@vieent.temp) if you don't have everyone's real email yet —
@@ -53,7 +53,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 }
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-const ROLES = ["exc", "admin", "dev"];
+const ROLES = ["exc", "teamlead", "admin", "dev"]; // round 57 — must match lib/permissions.js's ROLES
 const TEAMS = ["AR", "Marketing", "OPS", "Design"];
 
 function parseCsv(text) {

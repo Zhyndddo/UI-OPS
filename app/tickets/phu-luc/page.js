@@ -4,10 +4,13 @@ import AppShell from "../../../lib/AppShell";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
 
 const PHU_LUC_COLOR = {
@@ -31,11 +34,12 @@ export default function PhuLucList() {
   const [releases, setReleases] = useState({}); // id -> release
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
 
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name").order("name").then(({ data }) => setProfiles(data || []));
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "Legal"))); // round 78
   }, []);
 
   async function load() {
@@ -86,11 +90,19 @@ export default function PhuLucList() {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
     if (newStatus === "REFUND") patch.pic_profile_id = null;
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js).
+    if (statusNeedsNote(newStatus)) {
+      const newData = withStatusNote(t.data, newStatus);
+      if (!newData) return; // cancelled / no reason given — abort the change
+      patch.data = newData;
+    }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
-  const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(tickets);
+  const visibleTickets = tickets.filter((t) => matchesQuery({ ...t, release: releases[t.data?.releaseId] }, query));
+  const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
 
   return (
     <AppShell>
@@ -111,12 +123,15 @@ export default function PhuLucList() {
           PL Status is the Phụ Lục-specific document status, computed separately.
         </p>
 
+        <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
+
         {loading ? (
           <div className={styles.emptyState}>Loading…</div>
-        ) : tickets.length === 0 ? (
+        ) : visibleTickets.length === 0 ? (
           <div className={styles.emptyState}>No tickets yet.</div>
         ) : (
           <>
+          <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
           <table className={styles.table}>
             <thead>
               <tr>
@@ -145,12 +160,12 @@ export default function PhuLucList() {
                     <td>{t.data?.giaTri || "—"}</td>
                     <td>{t.data?.maPL || "—"}</td>
                     <td>
-                      <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={t.pic_profile_id || ""} onChange={(e) => updatePic(t, e.target.value)}>
+                      <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={t.pic_profile_id || ""} onChange={(e) => updatePic(t, e.target.value)}>
                         <option value="">— Unassigned —</option>
                         {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
                     </td>
-                    <td>
+                    <td title={t.data?.note || undefined}>
                       <select
                         value={status}
                         onChange={(e) => updateStatus(t, e.target.value)}
@@ -195,6 +210,7 @@ export default function PhuLucList() {
               })}
             </tbody>
           </table>
+          </div>
           <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
           </>
         )}

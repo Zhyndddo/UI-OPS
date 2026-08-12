@@ -7,10 +7,12 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
 import { isOpsTeam } from "../../../lib/teamTypes";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { ARTIST_PROFILE_PLATFORMS } from "../../../lib/GateFields";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
 
 // Bespoke (not the generic TicketListPage) per explicit request — the
@@ -39,7 +41,7 @@ export default function ArtistProfileTicketList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name").order("name").then(({ data }) => setProfiles(data || []));
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
     supabase.from("app_settings").select("value").eq("key", "artist_profile_links").maybeSingle().then(({ data }) => {
       setLinks({ spotify: data?.value?.spotify || "", apple: data?.value?.apple || "" });
     });
@@ -81,6 +83,13 @@ export default function ArtistProfileTicketList() {
   async function updateStatus(t, newStatus) {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js).
+    if (statusNeedsNote(newStatus)) {
+      const newData = withStatusNote(t.data, newStatus);
+      if (!newData) return; // cancelled / no reason given — abort the change
+      patch.data = newData;
+    }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
@@ -153,22 +162,22 @@ export default function ArtistProfileTicketList() {
                   return (
                     <tr key={t.id}>
                       <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={t.data?.artistName || ""} onBlur={(e) => updateTicketData(t, { artistName: e.target.value })} />
+                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.artistName || ""} onBlur={(e) => updateTicketData(t, { artistName: e.target.value })} />
                       </td>
                       <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={t.data?.email || ""} onBlur={(e) => updateTicketData(t, { email: e.target.value })} />
+                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.email || ""} onBlur={(e) => updateTicketData(t, { email: e.target.value })} />
                       </td>
                       {/* View-only per explicit request — "computed, not an
                           input field" — no input rendered here at all. */}
                       <td style={{ fontSize: 12, color: "var(--text-faint)" }}>{t.data?.latestSong || "—"}</td>
                       <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={t.data?.spotifyUrl || ""} onBlur={(e) => updateTicketData(t, { spotifyUrl: e.target.value })} />
+                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.spotifyUrl || ""} onBlur={(e) => updateTicketData(t, { spotifyUrl: e.target.value })} />
                       </td>
                       <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={t.data?.appleUrl || ""} onBlur={(e) => updateTicketData(t, { appleUrl: e.target.value })} />
+                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.appleUrl || ""} onBlur={(e) => updateTicketData(t, { appleUrl: e.target.value })} />
                       </td>
                       <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={t.data?.fbUrl || ""} onBlur={(e) => updateTicketData(t, { fbUrl: e.target.value })} />
+                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.fbUrl || ""} onBlur={(e) => updateTicketData(t, { fbUrl: e.target.value })} />
                       </td>
                       <td>
                         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -186,11 +195,11 @@ export default function ArtistProfileTicketList() {
                         </div>
                       </td>
                       <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12 }} defaultValue={t.data?.note || ""} onBlur={(e) => updateTicketData(t, { note: e.target.value })} />
+                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.note || ""} onBlur={(e) => updateTicketData(t, { note: e.target.value })} />
                       </td>
                       <td>
                         {isExecutorView ? (
-                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12 }} value={t.pic_profile_id || ""} onChange={(e) => updatePic(t, e.target.value)}>
+                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={t.pic_profile_id || ""} onChange={(e) => updatePic(t, e.target.value)}>
                             <option value="">— Unassigned —</option>
                             {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                           </select>
@@ -199,7 +208,7 @@ export default function ArtistProfileTicketList() {
                         )}
                       </td>
                       <td>{fmtDate(t.deadline)}</td>
-                      <td>
+                      <td title={t.data?.note || undefined}>
                         {isExecutorView ? (
                           <select value={t.status} onChange={(e) => updateStatus(t, e.target.value)} style={{ background: color.bg, color: color.fg, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>
                             {tab?.status_options.map((s) => <option key={s} value={s}>{s}</option>)}

@@ -1,50 +1,25 @@
 "use client";
 
 import AppShell from "../../lib/AppShell";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
 import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, CO_TRONG_NET_DRAFT_DEFAULTS } from "../../lib/GateFields";
 import { MV_TYPE_OPTIONS } from "../../lib/pickerOptions";
+import { publishingHdDone } from "../../lib/labelHopTacStatus";
 import PickSelect from "../../lib/PickSelect";
 import QuickCreate from "../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../lib/ReferenceInputs";
 import { buildLinkshareNote, defaultLinkshareFacebookTiming, defaultLinkshareTiktokTiming, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS } from "../../lib/releaseNotes";
+// Round 86 follow-up item 7 — didPreview/didPrefixFor moved into
+// lib/didHelpers.js so the release detail page's DID-recompute-on-Save
+// logic can share the exact same _field_initials() mirror instead of a
+// second hand-kept copy drifting out of sync.
+import { didPreview, didPrefixFor } from "../../lib/didHelpers";
+import { emptyCopyrightChecklist } from "../../lib/copyrightChecklist";
+import CopyrightChecklistFields from "../../lib/CopyrightChecklistFields";
+import NewReleaseTemplateTools from "../../lib/NewReleaseTemplateTools";
 import styles from "./styles.module.css";
-
-// Mirrors _field_initials()/set_release_did() in schema.sql exactly, minus
-// the sequence suffix (that part is DB-only, by design — see comment at
-// the call site). Keep this in sync if the SQL rule ever changes.
-function fieldInitials(field) {
-  const words = (field || "").trim().split(/\s+/).filter(Boolean);
-  const letterFor = (w) => {
-    if (!w) return "#";
-    if (w.includes("-")) return "#";
-    return w[0].toUpperCase();
-  };
-  return letterFor(words[0]) + letterFor(words[1]);
-}
-
-function didPreview(title, mainArtist, releaseDate) {
-  const titleInit = fieldInitials(title);
-  const artistInit = fieldInitials(mainArtist);
-  const datePart = releaseDate ? releaseDate.split("-").reverse().join("") : "--------"; // input value is YYYY-MM-DD → DDMMYYYY
-  return `${titleInit}${artistInit}-${datePart}-####`;
-}
-
-// Same computation as didPreview, minus the trailing "-####" placeholder —
-// this is exactly what set_release_did() in schema.sql writes before its
-// own DB-assigned numeric suffix, so a `did like '${prefix}-%'` query finds
-// any existing release whose title+artist initials and release date match,
-// regardless of that suffix. Returns null until there's enough to compute
-// a real (non-placeholder) prefix.
-function didPrefixFor(title, mainArtist, releaseDate) {
-  if (!title?.trim() || !mainArtist?.trim() || !releaseDate) return null;
-  const titleInit = fieldInitials(title);
-  const artistInit = fieldInitials(mainArtist);
-  const datePart = releaseDate.split("-").reverse().join("");
-  return `${titleInit}${artistInit}-${datePart}`;
-}
 
 const EMPTY_FORM = {
   label: "",
@@ -88,9 +63,19 @@ const EMPTY_FORM = {
   gate_co_trong_net_youtube: "false",
   design_content_types: [],
   split_share_entries: [],
+  // Round 86 item 4 — Publishing (distinct from Phụ Lục Publishing above).
+  // publishing_gia_tri backs the inline "Giá Trị Publishing" field GateGrid
+  // reveals once this is "true" (see TEXT_GATE_FIELDS in lib/GateFields.js)
+  // — the real ticket needs that value, so auto-create waits on it instead
+  // of firing blank like the other Legal Request types just above.
+  gate_publishing: "false",
+  publishing_gia_tri: "",
+  // Round 88 — Copyright Checklist (Master/Vocal/Author rights) — see
+  // lib/copyrightChecklist.js for the shape.
+  copyright_checklist: emptyCopyrightChecklist(),
 };
 
-const EMPTY_PITCHING_TYPES = { priority: false, spotify: false, nct: false, zing: false };
+const EMPTY_PITCHING_TYPES = { priority: false, spotify: false, apple: false, nct: false, zing: false };
 const EMPTY_ARTIST_PROFILE_TYPES = { spotify: false, tiktok: false, apple: false };
 
 const META_ITEMS = [
@@ -133,6 +118,20 @@ export default function NewReleasePage() {
   // another entry) — see performInsert()'s navMode param.
   const [duplicateWarning, setDuplicateWarning] = useState(null);
 
+  // Round 88 item 3 — floating Save button, same pattern as the release
+  // detail page's SaveBar: only shows once the real "Tạo Release" button
+  // has scrolled out of view, so there's never a duplicate visible once
+  // the person's actually scrolled down to it.
+  const submitBtnRef = useRef(null);
+  const [showFloatingSave, setShowFloatingSave] = useState(false);
+  useEffect(() => {
+    const el = submitBtnRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => setShowFloatingSave(!entry.isIntersecting), { threshold: 0 });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   // Quick Create (⚡️) — a stripped-down modal for the common case of just
   // wanting a placeholder release to exist (Label/Title/Main Artist) with
   // everything else filled in later on the release's own detail page.
@@ -167,6 +166,25 @@ export default function NewReleasePage() {
     update("linkshare_facebook_timing", v);
     setFacebookTimingTouched(v !== "");
   }
+
+  // Round 87 item 6 — if the picked Label already has its Hợp Đồng
+  // Publishing done (existing label, contract already signed), Phụ Lục
+  // Publishing is locked to "No" here too, same as the release detail
+  // page — a brand-new release under that label needs no addendum from
+  // the start. Re-looked-up whenever the Label field actually changes.
+  const [labelRow, setLabelRow] = useState(null);
+  useEffect(() => {
+    if (!supabase || !form.label) { setLabelRow(null); return; }
+    supabase.from("labels").select("hop_tac_status").eq("label_name", form.label).maybeSingle()
+      .then(({ data }) => setLabelRow(data || null));
+  }, [form.label]);
+  const publishingHdLocked = publishingHdDone(labelRow);
+  useEffect(() => {
+    if (publishingHdLocked && form.gate_phu_luc_publishing !== "false") {
+      update("gate_phu_luc_publishing", "false");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publishingHdLocked]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -315,6 +333,7 @@ export default function NewReleasePage() {
             releaseId: data.did,
             priority: pitchingTypes.priority,
             spotify: pitchingTypes.spotify,
+            apple: pitchingTypes.apple,
             nct: pitchingTypes.nct,
             zing: pitchingTypes.zing,
           },
@@ -488,6 +507,27 @@ export default function NewReleasePage() {
       }
     }
 
+    // Round 86 item 4 — Publishing. Same "gated on real required data"
+    // idea as Sony Publish just below, but on the inline Giá Trị Publishing
+    // value instead of the Metadata Checklist — and data.releaseId here is
+    // the just-inserted release's own id (data.id), NOT its did like every
+    // other gate ticket type on this page, matching what
+    // app/tickets/publishing/page.js's list actually looks up by. If left
+    // blank at creation time, app/releases/[id]/page.js's saveTab() picks
+    // this back up the moment a value is filled in and Saved.
+    if (form.gate_publishing === "true" && (form.publishing_gia_tri || "").trim() !== "") {
+      const { data: pubTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "publishing").single();
+      if (pubTab) {
+        await supabase.from("tickets").insert({
+          tab_id: pubTab.id,
+          data: { releaseId: data.id, giaTri: form.publishing_gia_tri },
+          status: pubTab.default_status,
+          status_log: { [pubTab.default_status]: new Date().toISOString() },
+          requester_segment: form.requester_segment || null,
+        });
+      }
+    }
+
     // gate_sony_publish = "true" is special-cased, unlike every other gate
     // ticket above — per explicit request it only auto-creates once the 4
     // required metadata fields (Audio/Artwork/Lyric/Metadata doc) are ALL
@@ -637,6 +677,12 @@ export default function NewReleasePage() {
             Release created — DID {createdDid}. The form below has been cleared for the next one.
           </div>
         )}
+
+        <NewReleaseTemplateTools
+          styles={styles}
+          form={form}
+          onImport={(patch) => setForm((f) => ({ ...f, ...patch }))}
+        />
 
         <form onSubmit={(e) => handleSubmit(e, "detail")}>
           <div className={styles.grid}>
@@ -955,6 +1001,19 @@ export default function NewReleasePage() {
           <div className={styles.subheading}>Marketing Checklist</div>
           <GateGrid styles={styles} fields={MARKETING_CHECKLIST_FIELDS} form={form} update={update} />
 
+          {/* Round 88 — Copyright Checklist, living directly above Data
+              Request (the first group inside <GateFields> below), per
+              explicit request — stays here on the create form even after
+              the 2nd follow-up moved its detail-page counterpart into its
+              own "Copyrights" tab, per "stay where they are (for easy
+              creation)". */}
+          <div className={styles.subheading}>Copyright Checklist</div>
+          <CopyrightChecklistFields
+            styles={styles}
+            value={form.copyright_checklist}
+            onChange={(v) => update("copyright_checklist", v)}
+          />
+
           <GateFields
             styles={styles}
             form={form}
@@ -966,10 +1025,11 @@ export default function NewReleasePage() {
             coTrongNetDraft={coTrongNetDraft}
             onCoTrongNetChange={(key, value) => setCoTrongNetDraft((p) => ({ ...p, [key]: value }))}
             suppressUrlFor={["gate_pre_order"]}
+            publishingHdLocked={publishingHdLocked}
           />
 
           <div className={styles.actions}>
-            <button type="submit" className={styles.btnPrimary} disabled={submitting}>
+            <button ref={submitBtnRef} type="submit" className={styles.btnPrimary} disabled={submitting}>
               {submitting ? "Đang tạo…" : "Tạo Release"}
             </button>
             <button
@@ -999,11 +1059,23 @@ export default function NewReleasePage() {
           </div>
         </form>
 
+        {showFloatingSave && (
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            disabled={submitting}
+            onClick={(e) => handleSubmit(e, "detail")}
+            style={{ position: "fixed", bottom: 24, right: 24, zIndex: 250, boxShadow: "0 4px 16px rgba(0,0,0,0.45)" }}
+          >
+            {submitting ? "Đang tạo…" : "Tạo Release"}
+          </button>
+        )}
+
         {quickCreateOpen && (
           <div
             style={{
               position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
-              display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+              display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20,
             }}
           >
             <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 24, maxWidth: 440, width: "100%" }}>
@@ -1061,10 +1133,10 @@ export default function NewReleasePage() {
           <div
             style={{
               position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
-              display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
+              display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20,
             }}
           >
-            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 24, maxWidth: 440 }}>
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 24, maxWidth: 440, width: "100%" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#ff9d5c", marginBottom: 10 }}>
                 ⚠ Possible duplicate release
               </div>

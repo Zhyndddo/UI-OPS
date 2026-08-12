@@ -206,6 +206,17 @@
   background: var(--bg-hover);
 }
 
+/* Round 80 — reusable cap for any table cell holding a raw URL/link that
+   isn't already going through UrlField/MultiLinkCell (which cap
+   themselves internally) — apply directly to a <td> to keep a long
+   pasted link from stretching its column ("over-extend"). */
+.urlCell {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .rowLink {
   color: inherit;
   text-decoration: none;
@@ -234,6 +245,24 @@
 .pillGray {
   background: var(--bg-hover);
   color: var(--text-muted);
+}
+
+/* Round 86 item 5 — "product tag" pills (Publishing / Splitshare / Phụ
+   Lục MG), one color per type so they stay visually distinct sitting next
+   to each other under the Name column / next to the Name row. */
+.pillPublishing {
+  background: rgba(33, 150, 243, 0.15);
+  color: #5cb3ff;
+}
+
+.pillSplitshare {
+  background: rgba(156, 39, 176, 0.15);
+  color: #ce93d8;
+}
+
+.pillPhuLucMg {
+  background: var(--success-bg);
+  color: var(--success-fg);
 }
 
 .statusBadge {

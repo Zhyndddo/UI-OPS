@@ -32,8 +32,38 @@ export default function BookingChannelsPage() {
   const [editValues, setEditValues] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const [typeFilter, setTypeFilter] = useState(null); // "Direct" | "Partner" | null
+  const [refreshing, setRefreshing] = useState(null); // null | "all" | a channel id
+  const [refreshResult, setRefreshResult] = useState(null);
 
   useEffect(() => { if (supabase) load(); }, []);
+
+  // Round 56 — item 3: pulls real subscriber counts from YouTube's
+  // official Data API v3 (server-side route, needs YOUTUBE_API_KEY set in
+  // Vercel — see DATA_FIXES.md). channelIds omitted = refresh every
+  // YouTube row with a URL; passed = just that one row (the per-row ↻).
+  // TikTok/Instagram/Facebook aren't offered here — those platforms don't
+  // expose follower counts for arbitrary channels through any official,
+  // non-OAuth route (see the route file's header comment for why).
+  async function refreshYoutubeStats(channelIds) {
+    setRefreshing(channelIds ? channelIds[0] : "all");
+    setRefreshResult(null);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    try {
+      const res = await fetch("/api/refresh-youtube-stats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(channelIds ? { channelIds } : {}),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Refresh failed");
+      setRefreshResult(body);
+      await load();
+    } catch (err) {
+      setRefreshResult({ error: err.message });
+    }
+    setRefreshing(null);
+  }
 
   async function load() {
     setLoading(true);
@@ -213,7 +243,32 @@ export default function BookingChannelsPage() {
           <button type="button" className={styles.btnSecondary} onClick={exportCsv} disabled={visibleChannels.length === 0}>
             ⇩ Export CSV
           </button>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            onClick={() => refreshYoutubeStats()}
+            disabled={refreshing !== null}
+            title="Pulls real subscriber counts from YouTube's Data API for every YouTube row with a URL. Needs YOUTUBE_API_KEY set on the server — see DATA_FIXES.md."
+          >
+            {refreshing === "all" ? "Refreshing…" : "↻ Refresh YouTube Stats"}
+          </button>
         </div>
+
+        {refreshResult && (
+          <div className={styles.errorBox} style={{ marginBottom: 16, background: refreshResult.error ? undefined : "var(--bg-hover)", borderColor: refreshResult.error ? undefined : "var(--border-strong)", color: refreshResult.error ? undefined : "var(--text-muted)" }}>
+            {refreshResult.error ? (
+              refreshResult.error
+            ) : (
+              <>
+                Updated {refreshResult.updated?.length || 0}
+                {refreshResult.skipped?.length > 0 && `, skipped ${refreshResult.skipped.length} (couldn't resolve URL)`}
+                {refreshResult.errors?.length > 0 && `, ${refreshResult.errors.length} error(s): ${refreshResult.errors.map((e) => `${e.name} — ${e.reason}`).join("; ")}`}
+                .
+              </>
+            )}
+            <button type="button" onClick={() => setRefreshResult(null)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", marginLeft: 10, textDecoration: "underline", fontSize: 11 }}>Dismiss</button>
+          </div>
+        )}
 
         {loading ? (
           <div className={styles.emptyState}>Loading…</div>
@@ -300,7 +355,12 @@ export default function BookingChannelsPage() {
                             {c.name} <span style={{ color: "var(--text-faint)", fontSize: 11 }}>({c.channel_type}{c.brand ? ` · ${c.brand}` : ""})</span>
                           </div>
                           <div style={{ fontSize: 11, color: "var(--text-faint)", display: "flex", gap: 10, marginTop: 2 }}>
-                            {c.follower_count != null && <span>{c.follower_count.toLocaleString()} followers</span>}
+                            {c.follower_count != null && (
+                              <span>
+                                {c.follower_count.toLocaleString()} followers
+                                {c.stats_synced_at && ` (synced ${new Date(c.stats_synced_at).toLocaleDateString("vi-VN")})`}
+                              </span>
+                            )}
                             {c.url && (
                               <a href={c.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-soft)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 260 }}>
                                 {c.url}
@@ -310,6 +370,16 @@ export default function BookingChannelsPage() {
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: 12, flexShrink: 0, alignItems: "center" }}>
+                          {c.platform === "YouTube" && c.url && (
+                            <button
+                              onClick={() => refreshYoutubeStats([c.id])}
+                              disabled={refreshing !== null}
+                              title="Refresh this channel's subscriber count from YouTube"
+                              style={{ background: "none", border: "none", color: "var(--accent-soft)", cursor: "pointer", fontSize: 11, textDecoration: "underline" }}
+                            >
+                              {refreshing === c.id ? "…" : "↻"}
+                            </button>
+                          )}
                           <button onClick={() => startEdit(c)} style={{ background: "none", border: "none", color: "var(--accent-soft)", cursor: "pointer", fontSize: 11, textDecoration: "underline" }}>Edit</button>
                           <button onClick={() => remove(c)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 14 }}>✕</button>
                         </div>
