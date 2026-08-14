@@ -6,6 +6,7 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { useIsMobile } from "../../../lib/useIsMobile";
+import { MILESTONE_HIGHLIGHT_SETTING_KEY, DEFAULT_MILESTONE_HIGHLIGHT_CONFIG, parseMilestoneHighlightConfig } from "../../../lib/milestoneHighlight";
 import styles from "../../shared.module.css";
 
 // Real platform → chart lists, straight from v1's MILESTONE_PLATFORM_TABS.
@@ -29,6 +30,11 @@ export default function MilestoneWorkstation() {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [openPlatform, setOpenPlatform] = useState(null);
+  // Round 127 — Config → Milestone's admin-editable Highlight thresholds
+  // (see lib/milestoneHighlight.js). Starts at the real system's own
+  // hardcoded defaults so the Report tab isn't empty/wrong before an
+  // admin ever opens Config.
+  const [highlightConfig, setHighlightConfig] = useState(DEFAULT_MILESTONE_HIGHLIGHT_CONFIG);
 
   useEffect(() => {
     if (!supabase) return;
@@ -39,6 +45,8 @@ export default function MilestoneWorkstation() {
     setLoading(true);
     const { data } = await supabase.from("milestone_chart_entries").select("*").order("entry_date", { ascending: false });
     setEntries(data || []);
+    const { data: cfg } = await supabase.from("app_settings").select("value").eq("key", MILESTONE_HIGHLIGHT_SETTING_KEY).maybeSingle();
+    setHighlightConfig(parseMilestoneHighlightConfig(cfg?.value));
     setLoading(false);
   }
 
@@ -47,7 +55,18 @@ export default function MilestoneWorkstation() {
       .filter((r) => r.track_title?.trim())
       .map((r) => ({
         chart, platform, entry_date: todayStr(),
-        track_title: r.track_title.trim(), artist: r.artist?.trim() || null,
+        // Round 127 — artist stays "" (not null) for entries with no
+        // artist typed, matching the codebase's established fix for this
+        // exact class of bug (see MUSHED_BRAND_CATEGORIES in
+        // app/booking/page.js): NULL is never equal to NULL in a unique
+        // constraint, so an artist column that could be null let every
+        // artist-less save silently create a NEW duplicate row instead of
+        // upserting onto the existing one — found while importing the
+        // real system's historical log (see add-round127-milestone-
+        // artist-notnull.sql), not something visible from this file
+        // alone since every read path already tolerates "" the same as
+        // null (r.artist || "—").
+        track_title: r.track_title.trim(), artist: r.artist?.trim() || "",
         rank: parseInt(r.rank, 10) || 0, did: r.did?.trim() || null,
       }));
     if (payload.length === 0) return;
@@ -57,17 +76,31 @@ export default function MilestoneWorkstation() {
     load();
   }
 
-  // Same algorithm as v1's REPORT tab / the doc's refreshDashboard script —
-  // computed client-side over the fetched history, not as a SQL view.
+  // Round 127 — rewritten to match the REAL system's refreshDashboard()
+  // Apps Script function (the team sent its source directly), not just
+  // v1's spec-approximation the way this used to be built. Still
+  // computed client-side over the fetched history rather than as a SQL
+  // view — same idiom as before, just a truer algorithm:
+  //   - IN: never appeared on this chart before today.
+  //   - RETURN: appeared before (any earlier date), but not yesterday.
+  //   - REMAIN: appeared yesterday too.
+  //   - streak: resets to 1 on IN/RETURN, +1 on REMAIN (based on the
+  //     longest run of consecutive days ending yesterday, same "walk
+  //     backward from yesterday" approach the streak already used).
+  //   - rankChange: only meaningful for REMAIN (both today's and
+  //     yesterday's rank are known) — {dir:"up"|"down"|"same", amount}.
+  //     "up" = climbed (rank NUMBER went down, e.g. #12 -> #7).
+  //   - dayIn: the date this streak run started (entry_date minus
+  //     streak-1 days) — matches the real report's "Day in" column.
   const report = useMemo(() => {
     const today = todayStr(), yesterday = daysAgoStr(1);
-    const todayRows = entries.filter((e) => e.entry_date === today);
+    const todayRowsRaw = entries.filter((e) => e.entry_date === today);
     const yesterdayRows = entries.filter((e) => e.entry_date === yesterday);
-    const todayKeys = new Set(todayRows.map((r) => key(r.chart, r.track_title, r.artist)));
-    const yesterdayKeys = new Set(yesterdayRows.map((r) => key(r.chart, r.track_title, r.artist)));
+    const yesterdayRankByKey = new Map();
+    yesterdayRows.forEach((r) => yesterdayRankByKey.set(key(r.chart, r.track_title, r.artist), r.rank));
 
-    function streakCount(k) {
-      const all = entries.filter((r) => key(r.chart, r.track_title, r.artist) === k).sort((a, b) => b.entry_date.localeCompare(a.entry_date));
+    function streakEndingYesterday(k) {
+      const all = entries.filter((r) => key(r.chart, r.track_title, r.artist) === k && r.entry_date < today).sort((a, b) => b.entry_date.localeCompare(a.entry_date));
       let streak = 0, checkDate = yesterday;
       for (const r of all) {
         if (r.entry_date === checkDate) {
@@ -79,25 +112,95 @@ export default function MilestoneWorkstation() {
       return streak;
     }
 
-    const rows = [];
-    todayRows.forEach((r) => {
+    const todayRows = todayRowsRaw.map((r) => {
       const k = key(r.chart, r.track_title, r.artist);
-      let tag, streak;
-      if (yesterdayKeys.has(k)) { tag = "REMAIN"; streak = streakCount(k) + 1; }
+      const inYesterday = yesterdayRankByKey.has(k);
+      let status;
+      if (inYesterday) status = "REMAIN";
       else {
-        const everAppeared = entries.some((x) => key(x.chart, x.track_title, x.artist) === k && x.entry_date < today);
-        if (everAppeared) { tag = "RETURN"; streak = 1; }
-        else { tag = "IN"; streak = 1; }
+        const everAppearedBefore = entries.some((x) => key(x.chart, x.track_title, x.artist) === k && x.entry_date < today);
+        status = everAppearedBefore ? "RETURN" : "IN";
       }
-      rows.push({ ...r, tag, streak });
+      const streak = inYesterday ? streakEndingYesterday(k) + 1 : 1;
+
+      let rankChange = null;
+      if (inYesterday) {
+        const diff = yesterdayRankByKey.get(k) - r.rank; // positive = climbed (lower rank number)
+        rankChange = diff > 0 ? { dir: "up", amount: diff } : diff < 0 ? { dir: "down", amount: Math.abs(diff) } : { dir: "same", amount: 0 };
+      }
+
+      const dayInDate = new Date(r.entry_date);
+      dayInDate.setDate(dayInDate.getDate() - (streak - 1));
+
+      return { ...r, status, streak, rankChange, dayIn: dayInDate.toISOString().slice(0, 10) };
     });
-    yesterdayRows.forEach((r) => {
-      const k = key(r.chart, r.track_title, r.artist);
-      if (!todayKeys.has(k)) rows.push({ ...r, tag: "OUT", streak: streakCount(k), entry_date: yesterday });
-    });
-    rows.sort((a, b) => ["IN", "REMAIN", "RETURN", "OUT"].indexOf(a.tag) - ["IN", "REMAIN", "RETURN", "OUT"].indexOf(b.tag));
-    return rows;
+
+    // OUT — kept as an additive, useful view of what fell off since
+    // yesterday. The real refreshDashboard() doesn't write these to its
+    // own output sheet, but the workflow's earlier draft already showed
+    // them and the team's never asked to drop it.
+    const todayKeys = new Set(todayRowsRaw.map((r) => key(r.chart, r.track_title, r.artist)));
+    const outRows = yesterdayRows
+      .filter((r) => !todayKeys.has(key(r.chart, r.track_title, r.artist)))
+      .map((r) => ({ ...r, status: "OUT", streak: streakEndingYesterday(key(r.chart, r.track_title, r.artist)) + 1, rankChange: null, dayIn: null, entry_date: yesterday }));
+
+    return { today, yesterday, todayRows, outRows };
   }, [entries]);
+
+  // Round 127 — the "Highlight" rule set (see lib/milestoneHighlight.js),
+  // computed straight from report.todayRows using the admin-editable
+  // thresholds. A row counts as highlight-worthy when ANY of: it's IN,
+  // it's RETURN, its rank is exactly #1, or it's REMAIN + climbed + at or
+  // better than highlightConfig.topNRank — matches the real Highlight
+  // sheet's filter formula exactly, just with the two hardcoded numbers
+  // (5, and the excluded-charts/min-count pair below) now configurable.
+  const highlight = useMemo(() => {
+    const isHighlighted = (r) =>
+      r.status === "IN" || r.status === "RETURN" || r.rank === 1 ||
+      (r.status === "REMAIN" && r.rankChange?.dir === "up" && r.rank <= highlightConfig.topNRank);
+
+    const inRows = report.todayRows.filter((r) => r.status === "IN");
+    const climbedRows = report.todayRows.filter((r) => r.status === "REMAIN" && r.rankChange?.dir === "up" && r.rank <= highlightConfig.topNRank);
+    const returnRows = report.todayRows.filter((r) => r.status === "RETURN");
+    // #1 rows are always highlighted but may already be IN/RETURN/climbed
+    // above — only add rows here that wouldn't otherwise be listed
+    // (a REMAIN #1 that didn't climb, e.g. held #1 from yesterday).
+    const alreadyListed = new Set([...inRows, ...climbedRows, ...returnRows]);
+    const topOneOnlyRows = report.todayRows.filter((r) => r.rank === 1 && !alreadyListed.has(r));
+
+    // Chart Highlight summary — per platform, every chart currently
+    // charting more than highlightConfig.minChartCount entries, excluding
+    // highlightConfig.excludedCharts.
+    const countByPlatformChart = new Map(); // platform -> chart -> count
+    report.todayRows.forEach((r) => {
+      if (highlightConfig.excludedCharts.includes(r.chart)) return;
+      const platform = r.platform || "—";
+      if (!countByPlatformChart.has(platform)) countByPlatformChart.set(platform, new Map());
+      const m = countByPlatformChart.get(platform);
+      m.set(r.chart, (m.get(r.chart) || 0) + 1);
+    });
+    const chartSummary = [];
+    for (const [platform, chartCounts] of countByPlatformChart) {
+      const charts = [...chartCounts.entries()].filter(([, count]) => count > highlightConfig.minChartCount).sort((a, b) => b[1] - a[1]);
+      if (charts.length > 0) chartSummary.push({ platform, charts });
+    }
+    chartSummary.sort((a, b) => a.platform.localeCompare(b.platform));
+
+    return { inRows, climbedRows, returnRows, topOneOnlyRows, chartSummary, isHighlighted };
+  }, [report, highlightConfig]);
+
+  // Digest grouping for the Report panel — every today row grouped by
+  // (platform, chart), matching the real report's numbered
+  // "N. Platform | Chart -- filled/depth --" sections.
+  const digest = useMemo(() => {
+    const groups = new Map(); // `${platform}||${chart}` -> rows
+    report.todayRows.forEach((r) => {
+      const gk = `${r.platform || "—"}||${r.chart}`;
+      if (!groups.has(gk)) groups.set(gk, { platform: r.platform || "—", chart: r.chart, rows: [] });
+      groups.get(gk).rows.push(r);
+    });
+    return [...groups.values()].sort((a, b) => a.platform.localeCompare(b.platform) || a.chart.localeCompare(b.chart));
+  }, [report]);
 
   return (
     <AppShell>
@@ -130,7 +233,7 @@ export default function MilestoneWorkstation() {
               ))}
             </div>
           ) : tab === "report" ? (
-            <ReportTable rows={report} />
+            <ReportAndHighlight digest={digest} highlight={highlight} report={report} highlightConfig={highlightConfig} />
           ) : (
             <LogTable entries={entries} />
           )}
@@ -146,26 +249,96 @@ export default function MilestoneWorkstation() {
 
 const TAG_COLOR = { IN: "var(--success-fg)", REMAIN: "#5cb3ff", RETURN: "#ffca4d", OUT: "var(--error-fg)" };
 
-function ReportTable({ rows }) {
-  if (rows.length === 0) return <div className={styles.emptyState}>No data for today/yesterday yet.</div>;
+function RankChangeArrow({ rankChange }) {
+  if (!rankChange || rankChange.dir === "same") return <span style={{ color: "var(--text-faint)" }}>0</span>;
+  return rankChange.dir === "up"
+    ? <span style={{ color: "var(--success-fg)" }}>↑{rankChange.amount}</span>
+    : <span style={{ color: "var(--error-fg)" }}>↓{rankChange.amount}</span>;
+}
+
+function SongLine({ r, showChart }) {
   return (
-    <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
-      <table className={styles.table}>
-        <thead><tr><th>Tag</th><th>Chart</th><th>Song</th><th>Artist</th><th>Rank</th><th>Platform</th><th>Streak</th></tr></thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i}>
-              <td><span className={styles.statusBadge} style={{ color: TAG_COLOR[r.tag], background: "var(--bg-hover)" }}>{r.tag}</span></td>
-              <td style={{ fontSize: 11 }}>{r.chart}</td>
-              <td>{r.track_title}</td>
-              <td>{r.artist || "—"}</td>
-              <td>#{r.rank}</td>
-              <td>{r.platform}</td>
-              <td>{r.streak}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "3px 0", display: "flex", flexWrap: "wrap", gap: 6, alignItems: "baseline" }}>
+      <span style={{ fontWeight: 700, color: "var(--text)" }}>#{r.rank}</span>
+      {showChart && <span style={{ color: "#ff9d5c" }}>{r.chart} |</span>}
+      <span>{r.track_title}{r.artist ? ` - ${r.artist}` : ""}</span>
+      {r.dayIn && <span style={{ color: "var(--text-faint)" }}>{fmtDate(r.dayIn)}</span>}
+      {r.rankChange && <RankChangeArrow rankChange={r.rankChange} />}
+      <span style={{ color: TAG_COLOR[r.status], fontWeight: 700 }}>{r.status}</span>
+    </div>
+  );
+}
+
+// Round 127 — the Report tab, rebuilt to match the real system's "report"
+// + "Highlight" sheets side by side, per explicit request ("showing side
+// by side for comparison is preferred"). Left = the full digest (every
+// today row, grouped by platform/chart, numbered — same shape as the
+// real report!A:I sheet). Right = Highlight (the config-driven
+// IN/climbed/RETURN sections plus the per-platform Chart Highlight
+// summary — same shape as the real Highlight sheet's O4 TEXTJOIN digest).
+function ReportAndHighlight({ digest, highlight, report, highlightConfig }) {
+  const isMobile = useIsMobile();
+  if (report.todayRows.length === 0) {
+    return <div className={styles.emptyState}>No entries for today ({fmtDate(report.today)}) yet — use the Input tab.</div>;
+  }
+  return (
+    <div style={{ display: "flex", gap: 16, flexDirection: isMobile ? "column" : "row", alignItems: "flex-start" }}>
+      {/* Report — full digest */}
+      <div style={{ flex: 1, minWidth: 0, width: isMobile ? "100%" : undefined, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: "#ff6b1a", textTransform: "uppercase", marginBottom: 10 }}>Report — {fmtDate(report.today)}</div>
+        {digest.map((g, i) => (
+          <div key={`${g.platform}||${g.chart}`} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>
+              {i + 1}. {g.platform} | {g.chart} — {g.rows.length}/{highlightConfig.chartDepth}
+            </div>
+            {g.rows.map((r) => <SongLine key={r.id} r={r} />)}
+          </div>
+        ))}
+        {report.outRows.length > 0 && (
+          <div style={{ marginTop: 14, borderTop: "1px dashed var(--border-strong)", paddingTop: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", marginBottom: 4, textTransform: "uppercase" }}>
+              Fell off since {fmtDate(report.yesterday)}
+            </div>
+            {report.outRows.map((r) => <SongLine key={r.id} r={r} showChart />)}
+          </div>
+        )}
+      </div>
+
+      {/* Highlight */}
+      <div style={{ flex: 1, minWidth: 0, width: isMobile ? "100%" : undefined, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: "#ff6b1a", textTransform: "uppercase", marginBottom: 10 }}>Highlight</div>
+
+        <HighlightSection title="Bắt Đầu Vào Chart" rows={highlight.inRows} />
+        <HighlightSection title={`Thăng Hạng (top ${highlightConfig.topNRank})`} rows={highlight.climbedRows} />
+        <HighlightSection title="Quay Lại Chart" rows={highlight.returnRows} />
+        <HighlightSection title="Giữ #1" rows={highlight.topOneOnlyRows} />
+
+        {highlight.chartSummary.length > 0 && (
+          <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", marginBottom: 6, textTransform: "uppercase" }}>Chart Highlight</div>
+            {highlight.chartSummary.map(({ platform, charts }) => (
+              <div key={platform} style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#ff9d5c", marginBottom: 2 }}>{platform}</div>
+                {charts.map(([chart, count]) => (
+                  <div key={chart} style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                    {chart} — {count}/{highlightConfig.chartDepth}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HighlightSection({ title, rows }) {
+  if (rows.length === 0) return null;
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 4, textTransform: "uppercase" }}>{title}</div>
+      {rows.map((r) => <SongLine key={r.id} r={r} showChart />)}
     </div>
   );
 }

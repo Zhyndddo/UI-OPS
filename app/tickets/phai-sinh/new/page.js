@@ -11,6 +11,8 @@ import RelatedDidField from "../../../../lib/RelatedDidField";
 import { parseBatchPaste, BATCH_ITEM_COLUMNS } from "../../../../lib/phaiSinhBatchParse";
 import BatchFileImport from "../../../../lib/BatchFileImport";
 import { PHAI_SINH_TYPE_OPTIONS, isKhoNhacType } from "../../../../lib/phaiSinhTypes";
+import CopyrightChecklistFields from "../../../../lib/CopyrightChecklistFields";
+import { emptyCopyrightChecklist, mushCopyrightChecklistToText } from "../../../../lib/copyrightChecklist";
 import styles from "../../../shared.module.css";
 
 // Round 41 — Phái Sinh and Phái Sinh (Batch) merged into one ticket type,
@@ -47,6 +49,29 @@ export default function PhaiSinhNewTicket() {
   const [releaseTime, setReleaseTime] = useState("");
   const [tacQuyen, setTacQuyen] = useState("");
   const [description, setDescription] = useState("Full CID, FB +4 ngày, TikTok +7 ngày");
+
+  // Round 95 — Tác Quyền's real input is now the same structured checklist
+  // widget as the Copyrights tab (release detail page)/New Release Setup —
+  // tacQuyenChecklist holds that structured shape. What actually gets
+  // saved into the ticket (tacQuyen, above) stays a plain string though,
+  // since that's what the ticket index table cell and every other reader
+  // of tacQuyen already expects — it's kept auto-synced to a "mushed" text
+  // block generated from the checklist (see mushCopyrightChecklistToText)
+  // UNLESS the requester types directly into the text box themselves, at
+  // which point tacQuyenTouched stops the auto-sync so their edit isn't
+  // clobbered by the next checklist change. "↻ Regenerate" resets that.
+  const [tacQuyenChecklist, setTacQuyenChecklist] = useState(emptyCopyrightChecklist());
+  const [tacQuyenTouched, setTacQuyenTouched] = useState(false);
+
+  function handleTacQuyenChecklistChange(next) {
+    setTacQuyenChecklist(next);
+    if (!tacQuyenTouched) setTacQuyen(mushCopyrightChecklistToText(next));
+  }
+
+  function regenerateTacQuyenText() {
+    setTacQuyen(mushCopyrightChecklistToText(tacQuyenChecklist));
+    setTacQuyenTouched(false);
+  }
 
   // Batch-flow-only state.
   const [pasteText, setPasteText] = useState("");
@@ -180,6 +205,31 @@ export default function PhaiSinhNewTicket() {
     else router.push("/tickets/phai-sinh");
   }
 
+  // Shared between the batch form and the single-song form below — same
+  // structured checklist + auto-synced free-text block either way, just
+  // required on the single-song form.
+  function tacQuyenField(required) {
+    return (
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Tác Quyền {required && <span className={styles.required}>*</span>}</label>
+        <CopyrightChecklistFields styles={styles} value={tacQuyenChecklist} onChange={handleTacQuyenChecklistChange} compact />
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+            <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+              Auto-filled from the checklist above — free-edit below if needed (this text is what actually saves).
+            </span>
+            <button type="button" className={styles.btnSmall} onClick={regenerateTacQuyenText}>↻ Regenerate</button>
+          </div>
+          <textarea
+            className={styles.textarea}
+            value={tacQuyen}
+            onChange={(e) => { setTacQuyen(e.target.value); setTacQuyenTouched(true); }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <AppShell>
       <div className={styles.page}>
@@ -216,11 +266,8 @@ export default function PhaiSinhNewTicket() {
                     <label className={styles.fieldLabel}>Label</label>
                     <LabelInput styles={styles} value={label} onChange={setLabel} labels={labels} placeholder="Type or pick from Label List…" />
                   </div>
-                  <div className={styles.field}>
-                    <label className={styles.fieldLabel}>Tác Quyền</label>
-                    <input className={styles.input} value={tacQuyen} onChange={(e) => setTacQuyen(e.target.value)} />
-                  </div>
                 </div>
+                {tacQuyenField(false)}
                 <div className={styles.field}>
                   <label className={styles.fieldLabel}>Description</label>
                   <textarea className={styles.textarea} value={description} onChange={(e) => setDescription(e.target.value)} />
@@ -322,10 +369,7 @@ export default function PhaiSinhNewTicket() {
                   </div>
                 </div>
 
-                <div className={styles.field}>
-                  <label className={styles.fieldLabel}>Tác Quyền <span className={styles.required}>*</span></label>
-                  <textarea className={styles.textarea} value={tacQuyen} onChange={(e) => setTacQuyen(e.target.value)} />
-                </div>
+                {tacQuyenField(true)}
                 <div className={styles.field}>
                   <label className={styles.fieldLabel}>Description</label>
                   <textarea className={styles.textarea} value={description} onChange={(e) => setDescription(e.target.value)} />

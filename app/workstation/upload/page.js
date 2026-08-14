@@ -11,6 +11,7 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import StatusCounter from "../../../lib/StatusCounter";
 import { sortByReleaseDateDesc, isThisWeekOrNext, filterProfilesByTeam } from "../../../lib/workstationHelpers";
+import { rowHighlightColor } from "../../../lib/releaseDateHighlight";
 import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { usePagination } from "../../../lib/usePagination";
@@ -210,6 +211,7 @@ export default function UploadWorkstation() {
                       isOverride={assignments[r.id] != null}
                       profiles={profiles}
                       highlight={isThisWeekOrNext(r.release_date)}
+                      dateHighlight={rowHighlightColor(r)}
                       onUpdateField={updateField}
                       onUpdatePic={updatePic}
                       onOpenNote={(kind) => setNotePopup({ release: r, kind })}
@@ -253,7 +255,7 @@ function missingHighlightStyle(value) {
     : { boxShadow: "inset 0 0 0 2px var(--missing-highlight)", background: "var(--missing-highlight-bg)", borderRadius: 6 };
 }
 
-function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateField, onUpdatePic, onOpenNote, onOpenCopyright }) {
+function UploadRow({ release, pic, isOverride, profiles, highlight, dateHighlight, onUpdateField, onUpdatePic, onOpenNote, onOpenCopyright }) {
   const URL_KEYS = ["drive_link", "link_lbm", "link_share", "smartlink"];
   const [drafts, setDrafts] = useState(() => {
     const initial = {};
@@ -268,11 +270,22 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateFiel
   // the "hard to read" bug reported. Switched to the shared highlight
   // tokens (see globals.css) — same fix Booking's "Releasing Today" row
   // already used, now shared instead of two separate hardcoded copies.
-  const rowStyle = highlight ? { background: "var(--highlight-row-tint)" } : undefined;
+  //
+  // Round 139 — `dateHighlight` (today/this-week, same rule + colors as
+  // the Re-Check workstation, see lib/releaseDateHighlight.js) takes
+  // priority over this row's own older "this or next week" tint when both
+  // apply. It's a plain background swap with no forced text color — same
+  // pattern the Re-Check workstation uses — because these are bright
+  // pastel fills, not the always-dark --highlight-bg box the forced white
+  // --highlight-text was designed to sit on.
+  const rowStyle = dateHighlight ? { background: dateHighlight } : highlight ? { background: "var(--highlight-row-tint)" } : undefined;
+  const stickyBg = dateHighlight || (highlight ? "var(--highlight-bg)" : "var(--bg)");
+  const linkColor = dateHighlight ? undefined : highlight ? "var(--highlight-text)" : undefined;
+  const faintColor = dateHighlight ? "var(--text-faint)" : highlight ? "var(--highlight-text-faint)" : "var(--text-faint)";
 
   return (
     <tr style={rowStyle}>
-      <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight ? "var(--highlight-bg)" : "var(--bg)", borderRight: "2px solid var(--accent)" }}>
+      <td style={{ position: "sticky", left: 0, zIndex: 1, background: stickyBg, borderRight: "2px solid var(--accent)" }}>
         <input
           className={styles.input}
           style={{ padding: "4px 8px", fontSize: 12, marginBottom: 4, ...missingHighlightStyle(upc) }}
@@ -290,9 +303,9 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, onUpdateFiel
             placeholder="Link Drive…"
           />
         </div>
-        <Link href={`/releases/${release.id}`} className={styles.rowLink} style={highlight ? { color: "var(--highlight-text)" } : undefined}>{release.title}</Link>
+        <Link href={`/releases/${release.id}`} className={styles.rowLink} style={linkColor ? { color: linkColor } : undefined}>{release.title}</Link>
         {highlight && <span style={{ marginLeft: 6, fontSize: 9, color: "var(--accent)", fontWeight: 700 }}>THIS/NEXT WEEK</span>}
-        <div style={{ fontSize: 11, color: highlight ? "var(--highlight-text-faint)" : "var(--text-faint)" }}>{release.main_artist} · {release.did} · {fmtDate(release.release_date)} {release.release_time}</div>
+        <div style={{ fontSize: 11, color: faintColor }}>{release.main_artist} · {release.did} · {fmtDate(release.release_date)} {release.release_time}</div>
       </td>
       <td style={{ minWidth: 180, ...missingHighlightStyle(drafts.link_lbm) }}>
         <UrlField styles={styles} value={drafts.link_lbm} onChange={(v) => setDrafts((d) => ({ ...d, link_lbm: v }))} onBlur={() => onUpdateField(release, "link_lbm", drafts.link_lbm)} />

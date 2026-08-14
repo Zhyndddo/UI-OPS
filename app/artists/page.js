@@ -5,6 +5,10 @@ import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import QuickCreate from "../../lib/QuickCreate";
 import UrlField from "../../lib/UrlField";
+import { fetchAllRows } from "../../lib/helpers";
+import { usePagination } from "../../lib/usePagination";
+import Pagination from "../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../lib/SearchBox";
 import styles from "../shared.module.css";
 
 const DSP_FIELDS = [
@@ -18,14 +22,47 @@ const DSP_FIELDS = [
 
 const EMPTY = { stage_name: "", real_name: "", email: "", label_id: "" };
 
+// Round 113 — this page only ever reads/renders the columns below (plus
+// the labels(label_name) join) — same "only select what's rendered"
+// optimization already applied to the Dashboard (see RELEASE_COLUMNS in
+// app/releases/page.js). Artists also carries phan_loai/fanpage_url/
+// youtube_url/instagram_url/company_name/type/created_at/updated_at,
+// none of which this page uses — select("*") was pulling all of those
+// across the wire on every load for nothing.
+const ARTIST_COLUMNS = [
+  "id", "stage_name", "real_name", "email", "note", "label_id",
+  "spotify_url", "apple_url", "tiktok_url", "facebook_url", "zing_url", "nct_url",
+].join(", ");
+
 export default function ArtistsPage() {
   const [artists, setArtists] = useState([]);
   const [labels, setLabels] = useState([]);
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState(null);
+  // Round 113 — quick index / search box, same shared pattern as the
+  // Labels reference table (lib/SearchBox.js's matchesQuery — pure
+  // client-side substring match against the row). Filtering happens
+  // before pagination so "page 1 of 3" reflects the filtered set, not
+  // the full table.
+  const [searchQuery, setSearchQuery] = useState("");
+  const filteredArtists = artists.filter((a) => matchesQuery(a, searchQuery));
+  const { pageRows: pagedArtists, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(filteredArtists);
 
   async function load() {
-    const { data: a } = await supabase.from("artists").select("*, labels(label_name)").order("stage_name");
+    // Round 112 — was a plain select() with no pagination anywhere: past
+    // Supabase/PostgREST's 1000-row default cap this silently truncated
+    // the list (same bug class as Round 59/60's Dashboard fix — see
+    // fetchAllRows' comment in lib/helpers.js), and even under 1000 rows,
+    // mounting every row into the DOM at once (each with 6 stateful
+    // UrlField DSP-link inputs) is what was making the page laggy to load.
+    // fetchAllRows fixes the truncation; usePagination below (same
+    // pattern as app/booking/page.js and app/releases/page.js) fixes the
+    // render-time lag by only mounting one page of rows at a time.
+    // Round 113 — select(ARTIST_COLUMNS) instead of select("*") cuts the
+    // payload down to what's actually rendered (see ARTIST_COLUMNS above).
+    const { data: a } = await fetchAllRows(() =>
+      supabase.from("artists").select(`${ARTIST_COLUMNS}, labels(label_name)`).order("stage_name").order("id")
+    );
     const { data: l } = await supabase.from("labels").select("id, label_name").order("label_name");
     setArtists(a || []);
     setLabels(l || []);
@@ -118,9 +155,16 @@ export default function ArtistsPage() {
           DSP links and Note are editable directly in the table below, after creating.
         </p>
 
+        {artists.length > 0 && (
+          <SearchBox value={searchQuery} onChange={(v) => { setSearchQuery(v); setPage(1); }} placeholder="Search artists…" />
+        )}
+
         {artists.length === 0 ? (
           <div className={styles.emptyState}>No artists yet.</div>
+        ) : filteredArtists.length === 0 ? (
+          <div className={styles.emptyState}>No artists match this search.</div>
         ) : (
+          <>
           <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
           <table className={styles.table} style={{ minWidth: 1200 }}>
             <thead>
@@ -131,12 +175,14 @@ export default function ArtistsPage() {
               </tr>
             </thead>
             <tbody>
-              {artists.map((a) => (
+              {pagedArtists.map((a) => (
                 <ArtistRow key={a.id} artist={a} labels={labels} onUpdateField={updateField} onUpdateLabel={updateLabel} onDelete={deleteArtist} />
               ))}
             </tbody>
           </table>
           </div>
+          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+          </>
         )}
       </div>
     </div>

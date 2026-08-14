@@ -151,6 +151,159 @@ function TermsText({ text, baseStyle }) {
   });
 }
 
+// Round 125 — item 3b/3c: on mobile, each Hạng Mục becomes one
+// concatenated block instead of a table row — one line per column (Số
+// Lượng/Chi Tiết/Thành Tiền), line-break separated, any column whose
+// VALUE is blank is simply omitted (the title itself never gets dropped,
+// only a genuinely-empty value). Desktop keeps the real <table> (see the
+// inline table still in the main render below) — this is a mobile-only
+// replacement, not a change to the underlying `items` data.
+//
+// Round 146 — item 4: reverted the Round 125 SL/CT abbreviations back to
+// the full "Số Lượng"/"Chi Tiết" titles (there's enough vertical room on
+// mobile now), and switched each row from inline "title: value" to
+// "title:" on its own line followed by the value on the next line — more
+// legible on a narrow phone width, especially for the multi-line Chi Tiết
+// value. Thành Tiền (price) additionally goes ~2.2x its previous font
+// size and from the muted grey text color to plain white, so the price is
+// the one thing that visually pops on the card.
+function MobilePackageItems({ items }) {
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      {items.map((item, i) => {
+        const qtyText = item.isNonYoutubeAdsLine ? "1 Gói" : item.quantity != null ? `${item.quantity} ${item.unit || ""}`.trim() : null;
+        const detailText = formatDetailText(item.detail) || null;
+        const amountText = item.amount != null ? fmtVnd(item.amount) : null;
+        return (
+          <div key={i} style={{ borderBottom: i === items.length - 1 ? "none" : "1px solid var(--border)", paddingBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text)", marginBottom: 4, wordBreak: "break-word" }}>{item.category}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
+              {qtyText && (
+                <div>
+                  <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>Số Lượng:</span><br />
+                  {qtyText}
+                </div>
+              )}
+              {detailText && (
+                <div style={{ whiteSpace: "pre-line" }}>
+                  <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>Chi Tiết:</span><br />
+                  {detailText}
+                </div>
+              )}
+              {amountText && (
+                <div>
+                  <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>TT:</span><br />
+                  <span style={{ fontSize: 24, fontWeight: 800, color: "#fff" }}>{amountText}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Round 125 — item 3a: mobile-only package picker. Desktop keeps the
+// side-by-side card grid (unchanged, further down in the main render);
+// below the breakpoint that layout doesn't fit, so this renders a tab
+// strip instead — one tab per available package (rich AND simple options
+// both, so "each tab is a package available for that product" covers
+// everything the desktop grid shows) — with the "Choose" button sitting
+// right under the active tab's title (per explicit request), same
+// warning-confirm flow untouched (selectPackage/confirmChoice are the
+// exact same page-level functions the desktop cards call).
+function MobileTabbedPackages({ options, selectedValue, confirmed, isLocked, picking, selectPackage, sharedTerms }) {
+  const [activeTab, setActiveTab] = useState(options[0]?.value || null);
+  useEffect(() => {
+    if (!options.find((o) => o.value === activeTab)) setActiveTab(options[0]?.value || null);
+  }, [options]); // eslint-disable-line react-hooks/exhaustive-deps
+  const active = options.find((o) => o.value === activeTab) || options[0];
+  if (!active) return null;
+  const selected = selectedValue === active.value;
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 4 }}>
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => setActiveTab(o.value)}
+            style={{
+              flexShrink: 0, padding: "8px 12px", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", whiteSpace: "nowrap",
+              border: activeTab === o.value ? "2px solid #ff6b1a" : "1px solid var(--border-strong)",
+              background: activeTab === o.value ? "rgba(255,107,26,0.1)" : "var(--bg-card)",
+              color: activeTab === o.value ? "#ff9d5c" : "var(--text-muted)",
+            }}
+          >
+            {o.label || o.value}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ background: selected ? "rgba(255,107,26,0.1)" : "var(--bg-card)", border: selected ? "2px solid #ff6b1a" : "1px solid rgba(255,107,26,0.5)", borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ padding: 16, opacity: isLocked && !selected ? 0.5 : 1 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 16, fontWeight: 800, color: selected ? "#ff9d5c" : "var(--text)", wordBreak: "break-word" }}>
+              {active.label || active.value}
+            </span>
+            {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
+            {active.totalValue != null && <span style={{ fontSize: 13, color: "var(--text-faint)" }}>{fmtVnd(active.totalValue)}</span>}
+            {/* Round 125 — item 3a: "Choose button still stay right under
+                the tab title" — stacked directly below the title/price
+                instead of the desktop layout's side-by-side placement. */}
+            {!isLocked && (
+              <button
+                onClick={() => selectPackage(active.value)}
+                disabled={picking}
+                style={{
+                  marginTop: 4, padding: "10px 14px", fontSize: 13, fontWeight: 800, borderRadius: 6, cursor: "pointer", width: "100%",
+                  border: selected ? "1px solid #ff6b1a" : "1px solid var(--border-strong)",
+                  background: selected ? "#ff6b1a" : "var(--bg-hover)",
+                  color: selected ? "#0a0a0a" : "var(--text-muted)",
+                }}
+              >
+                {selected ? "✓ Đã Chọn" : "Chọn Gói Này"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {(active.termsText || sharedTerms.a || sharedTerms.conditions) && (
+          <div style={{ borderTop: "1px solid var(--border)", padding: "10px 16px", background: "rgba(255,107,26,0.04)", display: "grid", gap: 8 }}>
+            {sharedTerms.a && <TermsText text={sharedTerms.a} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
+            {sharedTerms.conditions && <TermsText text={sharedTerms.conditions} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
+            {active.termsText && <TermsText text={active.termsText} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
+          </div>
+        )}
+
+        {active.items?.length > 0 && (
+          <div style={{ borderTop: "1px solid var(--border)", padding: "8px 16px" }}>
+            <MobilePackageItems items={active.items} />
+          </div>
+        )}
+
+        {active.showSharedB && sharedTerms.b && (
+          <div style={{ borderTop: "1px dashed var(--border-strong)", padding: "8px 16px" }}>
+            <TermsText text={sharedTerms.b} baseStyle={{ fontSize: 10, color: "var(--text-faint)", lineHeight: 1.5 }} />
+          </div>
+        )}
+
+        {active.troGiaBookingText && (
+          <div style={{ borderTop: "1px solid var(--border)" }}>
+            <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "6px 16px", textTransform: "uppercase" }}>
+              Trợ Giá Booking
+            </div>
+            <div style={{ padding: "10px 16px" }}>
+              <TermsText text={active.troGiaBookingText} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }} />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function PickPackagePage() {
   const { token } = useParams();
   const [magicLink, setMagicLink] = useState(null);
@@ -181,6 +334,9 @@ export default function PickPackagePage() {
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [streamMetrics, setStreamMetrics] = useState(null); // release_stream_metrics row, or null
   const [milestones, setMilestones] = useState([]); // milestone_chart_entries, matched by DID
+  // Round 106 item 4a — youtube_ads tickets matched to this release by
+  // relatedDid, shown as their own card next to the package display.
+  const [youtubeAdsTickets, setYoutubeAdsTickets] = useState([]);
   // Confirm button now opens a warning popup instead of committing
   // directly — per explicit request, to prevent a misclick locking in the
   // wrong package (Cancel here just closes the popup, the earlier
@@ -377,6 +533,27 @@ export default function PickPackagePage() {
       setMilestones(chart || []);
     }
 
+    // Round 106 item 4a — YouTube Ads tickets (lib/ticketConfigs.js's
+    // "youtube_ads" type — ads run OUTSIDE the Booking Board/Package flow
+    // entirely, no shared data with media_booking) whose relatedDid
+    // matches this release, shown as their own card right next to the
+    // normal package display — per explicit request: "add a column right
+    // next to the normal package in the magic links so that the booking
+    // number show how many has been booked and what is the result."
+    if (rel?.did) {
+      const { data: yaTab } = await supabase.from("ticket_tabs").select("id").eq("key", "youtube_ads").maybeSingle();
+      if (yaTab) {
+        const { data: yaTix } = await supabase
+          .from("tickets")
+          .select("id, status, data")
+          .eq("tab_id", yaTab.id)
+          .eq("data->>relatedDid", rel.did)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false });
+        setYoutubeAdsTickets(yaTix || []);
+      }
+    }
+
     supabase.from("magic_links").update({ last_used_at: new Date().toISOString() }).eq("id", link.id);
     setLoading(false);
   }
@@ -570,6 +747,23 @@ export default function PickPackagePage() {
           your choice.
         </p>
 
+        {/* Round 125 — item 3a: below the mobile breakpoint, the desktop
+            side-by-side card grid doesn't fit — swap to a tabbed picker
+            (one tab per package) instead, per explicit request. Desktop
+            (isMobile false) renders the exact same grid as before,
+            completely untouched below. */}
+        {isMobile ? (
+          <MobileTabbedPackages
+            options={visibleOptions}
+            selectedValue={selectedValue}
+            confirmed={confirmed}
+            isLocked={isLocked}
+            picking={picking}
+            selectPackage={selectPackage}
+            sharedTerms={sharedTerms}
+          />
+        ) : (
+        <>
         {/* All options shown at once, full breakdown always expanded — a
             side-by-side comparison, not a stack of collapsible cards. Rich
             (itemized) packages get a wide grid on the left; the always-
@@ -754,6 +948,8 @@ export default function PickPackagePage() {
           </div>
         )}
         </div>{/* end options flex row */}
+        </>
+        )}
 
         {!isLocked && selectedValue && (
           <button
@@ -875,6 +1071,55 @@ export default function PickPackagePage() {
             above. */}
         <PartnerBenefits defaultCollapsed={isMediaReport} recordingStudioIncluded={!!release?.recording_studio_included} />
 
+        {/* Round 106 item 4a — YouTube Ads (ads run outside the Booking
+            Board/Package flow, lib/ticketConfigs.js's "youtube_ads" type)
+            whose relatedDid matches this release. Independent of the
+            normal package/confirmed state — shows whenever such a ticket
+            exists. Per explicit request: shows how many has been booked
+            and what the result is, right next to the normal package. */}
+        {youtubeAdsTickets.length > 0 && (
+          <div style={{ marginTop: 32 }}>
+            <div className={styles.subheading} style={{ marginTop: 0 }}>YouTube Ads</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+              {youtubeAdsTickets.map((t) => (
+                <div key={t.id} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
+                    Đã Đặt (booked)
+                  </div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 8 }}>{t.data?.soLuong || "—"}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
+                    Kết Quả (result)
+                  </div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 13, whiteSpace: "pre-wrap" }}>{t.data?.result || "—"}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Round 110 — "compile unto the magiclink as the stage of media
+            report" — NCT and Zing each declare their own independent "Có
+            Gói" services checklist now (Pitching Workstation's Domestic
+            tab, releases.pitching_domestic_services_nct/_zing), so this
+            surfaces that same declaration here, one row per platform, once
+            either has something ticked. Independent of confirmed/package
+            state, same as the YouTube Ads card above. */}
+        {((release?.pitching_domestic_services_nct || []).length > 0 || (release?.pitching_domestic_services_zing || []).length > 0) && (
+          <div style={{ marginTop: 32 }}>
+            <div className={styles.subheading} style={{ marginTop: 0 }}>Domestic Pitching</div>
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, display: "grid", gap: 8 }}>
+              <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                <strong>NCT:</strong>{" "}
+                {(release?.pitching_domestic_services_nct || []).length > 0 ? `has ${release.pitching_domestic_services_nct.join(", ")}` : "—"}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                <strong>ZING:</strong>{" "}
+                {(release?.pitching_domestic_services_zing || []).length > 0 ? `has ${release.pitching_domestic_services_zing.join(", ")}` : "—"}
+              </div>
+            </div>
+          </div>
+        )}
+
         {confirmed && (
           <div style={{ marginTop: 32 }}>
             <div className={styles.subheading} style={{ marginTop: 0 }}>Booking Progress</div>
@@ -896,7 +1141,11 @@ export default function PickPackagePage() {
                 ))}
               </div>
             )}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+            {/* Round 125 — item 3d: utilize the mobile screen's vertical
+                length — a single column of full-width cards instead of
+                the desktop's auto-fit grid, with the number itself sized
+                up since there's now a whole row to spend on it. */}
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
               {categories.map((c) => {
                 const booked = bookedFor(c.name);
                 const added = addedFor(c.id);
@@ -907,11 +1156,11 @@ export default function PickPackagePage() {
                       {c.name}
                     </div>
                     {isDone ? (
-                      <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: 13 }}>DONE</span>
+                      <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: isMobile ? 22 : 13 }}>DONE</span>
                     ) : booked != null ? (
-                      <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{added} / {booked}</span>
+                      <span style={{ color: "var(--text-muted)", fontSize: isMobile ? 22 : 13, fontWeight: isMobile ? 800 : 400 }}>{added} / {booked}</span>
                     ) : (
-                      <span style={{ color: "var(--text-faint)", fontSize: 13 }}>{added} / —</span>
+                      <span style={{ color: "var(--text-faint)", fontSize: isMobile ? 22 : 13, fontWeight: isMobile ? 800 : 400 }}>{added} / —</span>
                     )}
                   </div>
                 );
@@ -948,13 +1197,16 @@ export default function PickPackagePage() {
             <div className={styles.subheading} style={{ marginTop: 0 }}>Streaming & Milestone</div>
 
             {streamMetrics && Object.keys(STREAM_FIELD_LABELS).some((k) => streamMetrics[k]) ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginBottom: milestones.length > 0 ? 20 : 0 }}>
+              // Round 125 — item 3d: same horizontal->vertical treatment
+              // as Booking Progress above — a single column of big-number
+              // tiles on mobile instead of the desktop's auto-fit grid.
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginBottom: milestones.length > 0 ? 20 : 0 }}>
                 {Object.entries(STREAM_FIELD_LABELS)
                   .filter(([key]) => streamMetrics[key])
                   .map(([key, label]) => (
                     <div key={key} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
                       <div style={{ fontSize: 10, color: "var(--text-faint)", marginBottom: 4, textTransform: "uppercase" }}>{label}</div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: "#f4f4f4" }}>{streamMetrics[key]}</div>
+                      <div style={{ fontSize: isMobile ? 24 : 15, fontWeight: 700, color: "#f4f4f4" }}>{streamMetrics[key]}</div>
                     </div>
                   ))}
               </div>
@@ -965,7 +1217,19 @@ export default function PickPackagePage() {
             {milestones.length > 0 && (
               <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
               <table className={styles.table}>
-                <thead><tr><th>Chart</th><th>Date</th><th>Rank</th><th>Platform</th></tr></thead>
+                {/* Round 125 — item 3e: any table's overly-long column
+                    title wraps to 2 lines, centered, on mobile instead of
+                    overflowing/forcing the table wider than the screen —
+                    this is the one real <table> left on the mobile
+                    layout (the package items table above becomes
+                    MobilePackageItems' concatenated blocks instead). */}
+                <thead>
+                  <tr style={isMobile ? { fontSize: 10 } : undefined}>
+                    {["Chart", "Date", "Rank", "Platform"].map((h) => (
+                      <th key={h} style={isMobile ? { whiteSpace: "normal", wordBreak: "break-word", textAlign: "center" } : undefined}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
                 <tbody>
                   {milestones.map((m) => (
                     <tr key={m.id}>

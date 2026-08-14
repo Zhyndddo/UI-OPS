@@ -14,70 +14,91 @@ import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import { PITCHING_DOMESTIC_SERVICES_KEY, DEFAULT_PITCHING_DOMESTIC_SERVICES, parsePitchingDomesticServices } from "../../../lib/pitchingDomesticServices";
+import { PITCHING_PIC_LIST_KEY, parsePitchingPicList, applyPitchingPicList } from "../../../lib/pitchingPicList";
 import styles from "../../shared.module.css";
 
 const STATUS_OPTS = ["", "Chưa thực hiện", "Đang thực hiện", "Đã pitching", "Không thực hiện"];
 const NCT_ZING_OPTS = ["", "Chưa thực hiện", "Đã pitching", "Không hỗ trợ", "Có gói"];
 const CANCEL_VALUES = ["Không thực hiện", "Không hỗ trợ"];
 const DONE_VALUE = "Đã pitching";
+const CO_GOI_VALUE = "Có gói";
 
-// Round 79 — redesigned from 4 tabs that mapped 1:1 to the 4 real
-// requested-flags, into 4 VISUAL tabs where the last one ("Domestic")
-// groups 2 real flags (nct + zing) together. TYPE_TABS/isTypeRequested
-// below drive tab labels + the "Requested" column's badges; DSP_COLUMNS
-// (5 real keys) is what actually drives done/cancel/status computation —
-// keeping these separate is what lets Domestic show as one tab while NCT
-// and Zing still complete independently underneath.
+// Round 106 item 5 — the top-level release-detail checkbox picker merged
+// down to 4 keys (priority/spotifyBanner/spotifyS4a/domestic — see
+// lib/GateFields.js's PITCHING_TYPES). This Workstation is where every
+// deeper mechanic still lives, per explicit confirmation — so it keeps 5
+// real, independently-tracked platforms internally (Priority Spotify and
+// Priority Apple both still get their own status/PIC/extra fields, just
+// gated by the SAME "priority" ticket flag now instead of two separate
+// ones) plus the brand-new Spotify Banner platform.
+//
+// TYPE_TABS is the workstation's own 5 platform tabs. REQUEST_FLAG_FOR maps
+// each real tab key to the ticket.data flag that gates its visibility —
+// this is the layer that absorbs the top-level merge (Priority Spotify +
+// Priority Apple both read ticket.data.priority; NCT + Zing both read
+// ticket.data.domestic) without collapsing their independent status/PIC
+// tracking underneath.
 const TYPE_TABS = [
   ["priority", "Priority Spotify"],
-  ["spotify", "Spotify (S4A)"],
   ["apple", "Priority Apple"],
+  ["spotifyBanner", "Spotify Banner"],
+  ["spotify", "Spotify S4A"],
   ["domestic", "Domestic"],
 ];
+const REQUEST_FLAG_FOR = { priority: "priority", apple: "priority", spotifyBanner: "spotifyBanner", spotify: "spotifyS4a", domestic: "domestic" };
 function isTypeRequested(ticket, key) {
-  if (key === "domestic") return !!(ticket.data?.nct || ticket.data?.zing);
-  return !!ticket.data?.[key];
+  return !!ticket.data?.[REQUEST_FLAG_FOR[key]];
 }
 function requestedVisualTypes(ticket) {
   return TYPE_TABS.filter(([key]) => isTypeRequested(ticket, key)).map(([key]) => key);
 }
 
-// The 5 real requestable platforms and their status columns on `releases`.
-// Priority/Spotify/Apple share STATUS_OPTS' vocab (has an "in progress"
-// state); NCT/Zing share NCT_ZING_OPTS' vocab (no "in progress", has "Có
-// gói" instead).
-const DSP_COLUMNS = { priority: "priority_pitching", spotify: "pitching_status_spotify", apple: "pitching_status_apple", nct: "pitching_status_nct", zing: "pitching_status_zing" };
+// The 6 real requestable platforms and their status columns on `releases`
+// ("domestic" itself isn't a real column — nct/zing are the 2 real ones
+// underneath it, same as before). Priority/Apple/Spotify Banner/Spotify S4A
+// share STATUS_OPTS' vocab (has an "in progress" state); NCT/Zing share
+// NCT_ZING_OPTS' vocab (no "in progress", has "Có gói" instead).
+const DSP_COLUMNS = { priority: "priority_pitching", apple: "pitching_status_apple", spotifyBanner: "pitching_status_spotify_banner", spotify: "pitching_status_spotify", nct: "pitching_status_nct", zing: "pitching_status_zing" };
+// Each real DSP key's requestedness now comes from its owning top-level
+// flag (see REQUEST_FLAG_FOR above), not its own same-named ticket.data
+// key — nct/zing both read ticket.data.domestic, priority/apple both read
+// ticket.data.priority.
+const REAL_TO_FLAG = { priority: "priority", apple: "priority", spotifyBanner: "spotifyBanner", spotify: "spotifyS4a", nct: "domestic", zing: "domestic" };
 function requestedRealTypes(ticket) {
-  return Object.keys(DSP_COLUMNS).filter((k) => ticket.data?.[k]);
+  return Object.keys(DSP_COLUMNS).filter((k) => !!ticket.data?.[REAL_TO_FLAG[k]]);
 }
 
-// Round 79 — each of the 4 visual tabs now owns its own PIC (a release
-// column, same immediate-write pattern as every status field below) —
-// replaces both the Pitching ticket list's ticket-level PIC and this
-// workstation's own release-level PIC (workstation_assignments), which
-// were too coarse for "individual tracking of who has which task" once
-// the work is split by platform. Domestic shares ONE PIC column across
-// both NCT and Zing, per explicit request — only the statuses stay split.
-const PIC_COLUMNS = { priority: "pitching_pic_priority", spotify: "pitching_pic_spotify", apple: "pitching_pic_apple", domestic: "pitching_pic_domestic" };
+// Round 79 — each visual tab owns its own PIC (a release column, same
+// immediate-write pattern as every status field below) — replaces both the
+// Pitching ticket list's ticket-level PIC and this workstation's own
+// release-level PIC (workstation_assignments), which were too coarse for
+// "individual tracking of who has which task" once the work is split by
+// platform. Domestic shares ONE PIC column across both NCT and Zing, per
+// explicit request — only the statuses stay split. Priority Spotify and
+// Priority Apple keep their own separate PIC columns (merging the
+// top-level REQUEST checkbox didn't merge who's actually assigned to each).
+// Round 106 item 5 — spotifyBanner gets its own new PIC column.
+const PIC_COLUMNS = { priority: "pitching_pic_priority", apple: "pitching_pic_apple", spotifyBanner: "pitching_pic_spotify_banner", spotify: "pitching_pic_spotify", domestic: "pitching_pic_domestic" };
 
-// "We already know which pitching should be done" — the ticket's own
-// requested-flags (priority/spotify/apple/nct/zing) plus its overall status
+// "We already know which pitching should be done" — each real platform's
+// owning ticket flag (see REAL_TO_FLAG) plus the ticket's overall status
 // now drive each DSP column's status automatically, per explicit request:
 //   - not requested at all      -> the DSP's own "won't do" value
-//     (Priority/Spotify/Apple: "Không thực hiện"; NCT/Zing have no exact
-//     equivalent word, closest is "Không hỗ trợ" — same CANCEL_VALUES
-//     bucket either way)
+//     (Priority/Apple/Spotify Banner/Spotify S4A: "Không thực hiện"; NCT/
+//     Zing have no exact equivalent word, closest is "Không hỗ trợ" — same
+//     CANCEL_VALUES bucket either way)
 //   - requested, ticket not yet in PROCESS -> "Chưa thực hiện"
 //   - requested, ticket IS in PROCESS -> "Đang thực hiện" for
-//     Priority/Spotify/Apple (NCT/Zing have no "in progress" option in
-//     their own vocab — STATUS_OPTS vs NCT_ZING_OPTS above — so they stay
-//     at "Chưa thực hiện" until someone picks a real NCT_ZING_OPTS value by
-//     hand)
+//     Priority/Apple/Spotify Banner/Spotify S4A (NCT/Zing have no
+//     "in progress" option in their own vocab — STATUS_OPTS vs
+//     NCT_ZING_OPTS above — so they stay at "Chưa thực hiện" until someone
+//     picks a real NCT_ZING_OPTS value by hand)
 // Only ever touches a column that's currently blank or still one of these
 // same auto-managed "not started yet" values — a real in-progress pick or
 // a completed one ("Đã pitching"/"Có gói") is never overwritten by this.
 const PRE_WORK_VALUES = ["", "Chưa thực hiện", "Đang thực hiện", "Không thực hiện", "Không hỗ trợ"];
-const IN_PROGRESS_CAPABLE = ["priority", "spotify", "apple"];
+const IN_PROGRESS_CAPABLE = ["priority", "apple", "spotifyBanner", "spotify"];
 
 function autoTargetFor(key, requested, ticketStatus) {
   if (!requested) return IN_PROGRESS_CAPABLE.includes(key) ? "Không thực hiện" : "Không hỗ trợ";
@@ -115,6 +136,10 @@ export default function PitchingWorkstation() {
   const [showDone, setShowDone] = useState(false);
   const [query, setQuery] = useState(""); // round 76 — quick index search box
   const [openTicketId, setOpenTicketId] = useState(null);
+  // Round 106 item 5 — config-editable Domestic "Có Gói" services checklist
+  // (Config → Pitching → Domestic "Có Gói" Services), default falls back to
+  // DEFAULT_PITCHING_DOMESTIC_SERVICES until load() finishes.
+  const [domesticServiceItems, setDomesticServiceItems] = useState(DEFAULT_PITCHING_DOMESTIC_SERVICES);
 
   useEffect(() => {
     if (!supabase) return;
@@ -131,7 +156,7 @@ export default function PitchingWorkstation() {
     if (dids.length > 0) {
       const { data: rels } = await supabase
         .from("releases")
-        .select("id, did, title, main_artist, release_date, release_time, upc, priority_pitching, isrc, apple_id, pitching_status_spotify, pitching_status_apple, pitching_status_nct, pitching_status_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo, pitching_note, pitching_pic_priority, pitching_pic_spotify, pitching_pic_apple, pitching_pic_domestic")
+        .select("id, did, title, main_artist, release_date, release_time, upc, priority_pitching, isrc, apple_id, pitching_status_spotify, pitching_status_apple, pitching_status_spotify_banner, pitching_status_nct, pitching_status_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo, pitching_note, pitching_pic_priority, pitching_pic_spotify, pitching_pic_apple, pitching_pic_spotify_banner, pitching_pic_domestic, pitching_domestic_services_nct, pitching_domestic_services_zing")
         .in("did", dids);
       (rels || []).forEach((r) => (releaseMap[r.did] = r));
     }
@@ -148,7 +173,7 @@ export default function PitchingWorkstation() {
       if (!row.release) return;
       const patch = {};
       Object.entries(DSP_COLUMNS).forEach(([key, col]) => {
-        const requested = !!row.ticket.data?.[key];
+        const requested = !!row.ticket.data?.[REAL_TO_FLAG[key]];
         const current = row.release[col] || "";
         if (!PRE_WORK_VALUES.includes(current)) return; // real progress/done — never touch
         const target = autoTargetFor(key, requested, row.ticket.status);
@@ -184,7 +209,17 @@ export default function PitchingWorkstation() {
     setRows(allRows);
 
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
-    setProfiles(filterProfilesByTeam(profs || [], "OPS"));
+    // Round 106 item 5 — "make a new pic list just for this one since
+    // there is multiple team join in but not all member": Config →
+    // Pitching → PIC List (blank by default) restricts who shows up as
+    // PIC here instead of the usual whole-OPS-team filter. Falls back to
+    // the normal OPS filter until an admin actually sets the list.
+    const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", [PITCHING_DOMESTIC_SERVICES_KEY, PITCHING_PIC_LIST_KEY]);
+    const settingsByKey = {};
+    (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
+    setDomesticServiceItems(parsePitchingDomesticServices(settingsByKey[PITCHING_DOMESTIC_SERVICES_KEY]));
+    const picList = parsePitchingPicList(settingsByKey[PITCHING_PIC_LIST_KEY]);
+    setProfiles(applyPitchingPicList(filterProfilesByTeam(profs || [], "OPS"), picList));
 
     setLoading(false);
   }
@@ -341,13 +376,14 @@ export default function PitchingWorkstation() {
           profiles={profiles}
           onClose={() => setOpenTicketId(null)}
           onUpdateRelease={updateRelease}
+          domesticServiceItems={domesticServiceItems}
         />
       )}
     </AppShell>
   );
 }
 
-function PitchingPopup({ row, profiles, onClose, onUpdateRelease }) {
+function PitchingPopup({ row, profiles, onClose, onUpdateRelease, domesticServiceItems }) {
   const types = TYPE_TABS.filter(([key]) => isTypeRequested(row.ticket, key));
   const [activeType, setActiveType] = useState(types[0]?.[0]);
   const release = row.release;
@@ -443,22 +479,92 @@ function PitchingPopup({ row, profiles, onClose, onUpdateRelease }) {
           </div>
         )}
 
-        {activeType === "domestic" && (
+        {/* Round 106 item 5 — new platform, "use the spotify priority [template]
+            for now, the team will send later" — same STATUS_OPTS template as
+            Priority Spotify's tab, own PIC/status columns. */}
+        {activeType === "spotifyBanner" && (
           <div className={styles.grid2}>
-            <PicField tabKey="domestic" />
-            <Field label="NCT Status">
-              <select className={styles.select} value={release?.pitching_status_nct || ""} onChange={(e) => onUpdateRelease(release, "pitching_status_nct", e.target.value)}>
-                {NCT_ZING_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
-              </select>
-            </Field>
-            <Field label="Zing Status">
-              <select className={styles.select} value={release?.pitching_status_zing || ""} onChange={(e) => onUpdateRelease(release, "pitching_status_zing", e.target.value)}>
-                {NCT_ZING_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+            <PicField tabKey="spotifyBanner" />
+            <Field label="Spotify Banner Status">
+              <select className={styles.select} value={release?.pitching_status_spotify_banner || ""} onChange={(e) => onUpdateRelease(release, "pitching_status_spotify_banner", e.target.value)}>
+                {STATUS_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
               </select>
             </Field>
           </div>
         )}
+
+        {activeType === "domestic" && (
+          <>
+          <div className={styles.grid2}>
+            <PicField tabKey="domestic" />
+          </div>
+          {/* Round 110 — NCT and Zing moved onto their own parallel pair of
+              columns (was PIC+NCT sharing a row, Zing wrapping to its own
+              row below) — per explicit request: "move the NCT and Zing to
+              same row, like a parallel". Each now also carries its own
+              independent "Có Gói" services checklist directly underneath
+              its own status, instead of one shared checklist covering
+              both — "under each if choose 'Có gói', add its own... tick." */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 12 }}>
+            <DomesticPlatformColumn
+              label="NCT Status"
+              status={release?.pitching_status_nct || ""}
+              onStatusChange={(v) => onUpdateRelease(release, "pitching_status_nct", v)}
+              services={release?.pitching_domestic_services_nct || []}
+              onServicesChange={(next) => onUpdateRelease(release, "pitching_domestic_services_nct", next)}
+              domesticServiceItems={domesticServiceItems}
+            />
+            <DomesticPlatformColumn
+              label="Zing Status"
+              status={release?.pitching_status_zing || ""}
+              onStatusChange={(v) => onUpdateRelease(release, "pitching_status_zing", v)}
+              services={release?.pitching_domestic_services_zing || []}
+              onServicesChange={(next) => onUpdateRelease(release, "pitching_domestic_services_zing", next)}
+              domesticServiceItems={domesticServiceItems}
+            />
+          </div>
+          </>
+        )}
       </div>
+    </div>
+  );
+}
+
+// Round 110 — one NCT or Zing column on the Domestic tab: its own status
+// dropdown plus, once that status is "Có gói", its own independent
+// services checklist directly underneath (was one shared checklist below
+// both platforms — see the activeType === "domestic" block above).
+function DomesticPlatformColumn({ label, status, onStatusChange, services, onServicesChange, domesticServiceItems }) {
+  return (
+    <div>
+      <Field label={label}>
+        <select className={styles.select} value={status} onChange={(e) => onStatusChange(e.target.value)}>
+          {NCT_ZING_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+        </select>
+      </Field>
+      {status === CO_GOI_VALUE && (
+        <div style={{ marginTop: 10 }}>
+          <div className={styles.fieldLabel} style={{ marginBottom: 8 }}>Có Gói — Services</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {domesticServiceItems.map((item) => {
+              const checked = services.includes(item);
+              return (
+                <label key={item} className={styles.checkboxRow}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => {
+                      const next = e.target.checked ? [...services, item] : services.filter((s) => s !== item);
+                      onServicesChange(next);
+                    }}
+                  />
+                  {item}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

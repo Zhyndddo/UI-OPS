@@ -9,6 +9,8 @@ import { HOP_TAC_TICKET_TYPE, hopTacTagEntry, hopTacTagStatus, hopTacStatusColor
 import { useAuth } from "../../lib/AuthContext";
 import PickSelect from "../../lib/PickSelect";
 import NoteCell from "../../lib/NoteCell";
+import LinkOrEditCell from "../../lib/LinkOrEditCell";
+import SearchBox, { matchesQuery } from "../../lib/SearchBox";
 import { fetchAllRows } from "../../lib/helpers";
 import styles from "../shared.module.css";
 
@@ -38,6 +40,16 @@ export default function LabelsPage() {
   // { mode: "create" } | { mode: "row", label } — which tag's "send to
   // legal?" popup is open, if any.
   const [legalPopup, setLegalPopup] = useState(null);
+  // Round 111 (item 1) — the inline create row moved into its own popup,
+  // triggered by a top-right "+ Create" button.
+  const [showCreatePopup, setShowCreatePopup] = useState(false);
+  // Round 111 (item 2) — search index that replaces the vacated create-row
+  // space: free-text quick search + a "signed contract" filter + a
+  // multi-tag Hợp Tác filter. The tag filter is explicitly AND, not OR —
+  // selecting 2+ tags only keeps labels carrying every selected tag.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [contractFilter, setContractFilter] = useState(""); // "" | "signed" | "unsigned"
+  const [selectedHopTacTags, setSelectedHopTacTags] = useState([]);
 
   async function load() {
     const { data } = await supabase.from("labels").select("*").order("label_name");
@@ -257,8 +269,23 @@ export default function LabelsPage() {
     }
 
     setForm(EMPTY);
+    setShowCreatePopup(false);
     load();
   }
+
+  function toggleHopTacFilterTag(tag) {
+    setSelectedHopTacTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
+  }
+
+  // Round 111 (item 2) — AND semantics for the tag filter: a label only
+  // survives if it carries EVERY selected tag, not just one of them.
+  const filteredLabels = labels.filter((l) => {
+    if (!matchesQuery(l, searchQuery)) return false;
+    if (contractFilter === "signed" && !(anyHopTacDone(l) || !hasLabelPrefix(l.label_name))) return false;
+    if (contractFilter === "unsigned" && (anyHopTacDone(l) || !hasLabelPrefix(l.label_name))) return false;
+    if (selectedHopTacTags.length > 0 && !selectedHopTacTags.every((t) => (l.hop_tac || []).includes(t))) return false;
+    return true;
+  });
 
   async function updateLabelSuffix(label, suffix) {
     const newName = hasLabelPrefix(label.label_name) ? LABEL_PREFIX + suffix : suffix;
@@ -300,49 +327,44 @@ export default function LabelsPage() {
     <AppShell>
     <div className={styles.page}>
       <div className={styles.container}>
-        <div className={styles.eyebrow}>// Reference Table</div>
-        <h1 className={styles.title}>Label List</h1>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          <div>
+            <div className={styles.eyebrow}>// Reference Table</div>
+            <h1 className={styles.title}>Label List</h1>
+          </div>
+          <button className={styles.btnPrimary} type="button" onClick={() => setShowCreatePopup(true)} style={{ whiteSpace: "nowrap" }}>
+            + Create
+          </button>
+        </div>
 
         {error && <div className={styles.errorBox}>{error}</div>}
 
-        <form onSubmit={addLabel} style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10, alignItems: "flex-end" }}>
-          <div className={styles.field} style={{ marginBottom: 0, minWidth: 180 }}>
-            <label className={styles.fieldLabel}>Label Name *</label>
-            <input className={styles.input} value={form.label_name} onChange={(e) => setForm((f) => ({ ...f, label_name: e.target.value }))} />
+        {/* Round 111 (item 2) — search index in the space the inline create
+            row used to occupy: free-text quick search + signed-contract
+            filter + a Hợp Tác tag filter (AND semantics — see
+            filteredLabels above). */}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
+          <SearchBox value={searchQuery} onChange={setSearchQuery} placeholder="Search labels…" />
+          <select
+            className={styles.select}
+            style={{ padding: "6px 10px", fontSize: 12, minWidth: 150, marginBottom: 12 }}
+            value={contractFilter}
+            onChange={(e) => setContractFilter(e.target.value)}
+          >
+            <option value="">Contract: All</option>
+            <option value="signed">Contract: Signed</option>
+            <option value="unsigned">Contract: Unsigned</option>
+          </select>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+            <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Hợp Tác:</span>
+            <TagPicker options={LABEL_HOP_TAC_OPTIONS} value={selectedHopTacTags} onToggle={toggleHopTacFilterTag} />
           </div>
-          <div className={styles.field} style={{ marginBottom: 0, minWidth: 220 }}>
-            <label className={styles.fieldLabel}>Hợp Tác</label>
-            <TagPicker options={LABEL_HOP_TAC_OPTIONS} value={form.hop_tac} onToggle={toggleFormHopTac} />
-          </div>
-          <div className={styles.field} style={{ marginBottom: 0, minWidth: 140 }}>
-            <label className={styles.fieldLabel}>Phân Loại</label>
-            <PickSelect styles={styles} opts={["", ...LABEL_PHAN_LOAI_OPTIONS]} value={form.phan_loai} onChange={(v) => setForm((f) => ({ ...f, phan_loai: v }))} />
-          </div>
-          <div className={styles.field} style={{ marginBottom: 0 }}>
-            <label className={styles.fieldLabel} style={{ visibility: "hidden" }}>Contract</label>
-            <button
-              type="button"
-              className={styles.btnSmall}
-              onClick={() => setForm((f) => ({ ...f, contract_signed: !f.contract_signed }))}
-              style={{
-                background: form.contract_signed ? "rgba(255,107,26,0.15)" : "transparent",
-                borderColor: form.contract_signed ? "var(--accent)" : "var(--border-strong)",
-                color: form.contract_signed ? "var(--accent)" : "var(--text-muted)",
-              }}
-            >
-              {form.contract_signed ? "✓ Contract Signed" : "Contract Signed"}
-            </button>
-          </div>
-          <button className={styles.btnPrimary} type="submit">+ Add Label</button>
-        </form>
-        <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: -2, marginBottom: 20 }}>
-          New labels get "{LABEL_PREFIX}" prepended automatically — shown as a fixed badge below, not part of
-          the editable name. Contract auto-signs the moment any Hợp Tác tag goes green below — the "Contract
-          Signed" button is only there as a manual fallback.
-        </p>
+        </div>
 
         {labels.length === 0 ? (
           <div className={styles.emptyState}>No labels yet.</div>
+        ) : filteredLabels.length === 0 ? (
+          <div className={styles.emptyState}>No labels match this search/filter.</div>
         ) : (
           <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
           <table className={styles.table}>
@@ -354,12 +376,13 @@ export default function LabelsPage() {
                 <th>Thời gian hoạt động gần nhất</th>
                 <th>Hợp Đồng</th>
                 <th>Phân Loại</th>
+                <th>Label Master File</th>
                 <th>Note</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {labels.map((l) => {
+              {filteredLabels.map((l) => {
                 const notStarted = LABEL_HOP_TAC_OPTIONS.filter((tag) => hopTacTagStatus(l, tag) === "none");
                 const signed = anyHopTacDone(l) || !hasLabelPrefix(l.label_name);
                 return (
@@ -427,6 +450,14 @@ export default function LabelsPage() {
                   <td>
                     <PickSelect styles={styles} opts={["", ...LABEL_PHAN_LOAI_OPTIONS]} value={l.phan_loai} onChange={(v) => updateField(l, "phan_loai", v)} style={{ padding: "4px 8px", fontSize: 12, minWidth: 110 }} />
                   </td>
+                  <td style={{ minWidth: 180 }}>
+                    <LinkOrEditCell
+                      styles={styles}
+                      value={l.label_master_file}
+                      placeholder="https://…"
+                      onSave={(v) => updateField(l, "label_master_file", v)}
+                    />
+                  </td>
                   <td>
                     <NoteCell value={l.note} onSave={(v) => updateField(l, "note", v)} />
                   </td>
@@ -441,6 +472,17 @@ export default function LabelsPage() {
       </div>
     </div>
 
+    {showCreatePopup && (
+      <CreateLabelPopup
+        styles={styles}
+        form={form}
+        setForm={setForm}
+        onCancel={() => setShowCreatePopup(false)}
+        onSubmit={addLabel}
+        onToggleHopTac={toggleFormHopTac}
+      />
+    )}
+
     {legalPopup && (
       <HopTacLegalPopup
         tag={legalPopup.tag}
@@ -451,6 +493,62 @@ export default function LabelsPage() {
       />
     )}
     </AppShell>
+  );
+}
+
+// Round 111 (item 1) — the old inline create row, now a popup opened by the
+// top-right "+ Create" button. Same form fields/handlers as before, just
+// relocated; addLabel() (in the parent) closes this popup on success.
+function CreateLabelPopup({ styles, form, setForm, onCancel, onSubmit, onToggleHopTac }) {
+  return (
+    <div
+      onClick={onCancel}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 20, width: "min(520px, 90vw)" }}
+      >
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Create Label</div>
+        <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className={styles.field} style={{ marginBottom: 0 }}>
+            <label className={styles.fieldLabel}>Label Name *</label>
+            <input className={styles.input} value={form.label_name} onChange={(e) => setForm((f) => ({ ...f, label_name: e.target.value }))} />
+          </div>
+          <div className={styles.field} style={{ marginBottom: 0 }}>
+            <label className={styles.fieldLabel}>Hợp Tác</label>
+            <TagPicker options={LABEL_HOP_TAC_OPTIONS} value={form.hop_tac} onToggle={onToggleHopTac} />
+          </div>
+          <div className={styles.field} style={{ marginBottom: 0 }}>
+            <label className={styles.fieldLabel}>Phân Loại</label>
+            <PickSelect styles={styles} opts={["", ...LABEL_PHAN_LOAI_OPTIONS]} value={form.phan_loai} onChange={(v) => setForm((f) => ({ ...f, phan_loai: v }))} />
+          </div>
+          <div className={styles.field} style={{ marginBottom: 0 }}>
+            <button
+              type="button"
+              className={styles.btnSmall}
+              onClick={() => setForm((f) => ({ ...f, contract_signed: !f.contract_signed }))}
+              style={{
+                background: form.contract_signed ? "rgba(255,107,26,0.15)" : "transparent",
+                borderColor: form.contract_signed ? "var(--accent)" : "var(--border-strong)",
+                color: form.contract_signed ? "var(--accent)" : "var(--text-muted)",
+              }}
+            >
+              {form.contract_signed ? "✓ Contract Signed" : "Contract Signed"}
+            </button>
+          </div>
+          <p style={{ color: "var(--text-faint)", fontSize: 11, margin: "0 0 4px" }}>
+            New labels get "{LABEL_PREFIX}" prepended automatically — shown as a fixed badge, not part of the
+            editable name. Contract auto-signs the moment any Hợp Tác tag goes green — the "Contract Signed"
+            button is only there as a manual fallback.
+          </p>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+            <button type="button" onClick={onCancel} className={styles.btnSmall}>Cancel</button>
+            <button className={styles.btnPrimary} type="submit">+ Add Label</button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -505,8 +603,9 @@ function HopTacLegalPopup({ tag, onDecide, onCancel }) {
       >
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Hợp Đồng {tag}</div>
         <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 0, marginBottom: 16 }}>
-          Send to legal? Yes sends a ticket to Hợp Đồng {tag} (Legal executes it — the tag turns gold until it's
-          done). No just marks it as already complete outside this system (turns green right away).
+          Gửi đến team Legal? Chọn Yes sẽ gửi ticket đến mục Hợp Đồng {tag} (Team Legal sẽ thực hiện nó - dấu tag sẽ
+          ở màu vàng đến khi nó hoàn thành). Chọn No sẽ đánh dấu label này đã ký Hợp Đồng {tag} bên ngoài hệ thống
+          này (dấu tag sẽ có màu xanh tương ứng hoàn thành hợp đồng ngay lập tức).
         </p>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button type="button" onClick={onCancel} className={styles.btnSmall}>Cancel</button>

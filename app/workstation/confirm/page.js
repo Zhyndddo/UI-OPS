@@ -10,6 +10,7 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import StatusCounter from "../../../lib/StatusCounter";
 import { sortByReleaseDateDesc, filterProfilesByTeam } from "../../../lib/workstationHelpers";
+import { rowHighlightColor } from "../../../lib/releaseDateHighlight";
 import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { usePagination } from "../../../lib/usePagination";
@@ -25,7 +26,22 @@ import styles from "../../shared.module.css";
 // like the release detail popup, not a tri-state gate.
 const DSP_CHECK_FIELDS = ["confirm_spotify_correct", "confirm_apple_correct", "confirm_zing_correct", "confirm_nct_correct", "confirm_fb_correct", "confirm_ytb_correct"];
 
-const SELECT_FIELDS = "id, did, title, main_artist, release_date, release_time, link_lbm, release_category, project_type, smartlink, confirm_insta_sound, confirm_tiktok_sound_updated, confirm_smartlink_updated, confirm_tag, needs_update, confirm_note, " + DSP_CHECK_FIELDS.join(", ");
+const SELECT_FIELDS = "id, did, title, main_artist, release_date, release_time, link_lbm, release_category, project_type, smartlink, upc, confirm_insta_sound, confirm_tiktok_sound_updated, confirm_smartlink_updated, confirm_tag, needs_update, confirm_note, " + DSP_CHECK_FIELDS.join(", ");
+
+// Round 135 — per explicit request: "filter out product that hasn't had
+// the UPC && smartlink filled yet" (item 1). A release only counts as
+// "ready" once BOTH are filled — same field on both Phase 1 and Phase 2
+// per the team's own confirmation ("both, since we actually have the
+// smartlink saved and linked to it. if not, then just show rows with
+// UPC is fine, should mean the same thing" — i.e. in practice the two
+// fields land together, so one shared condition on both tabs is fine).
+function hasUpcAndSmartlink(r) {
+  return !!r.upc?.trim() && !!r.smartlink?.trim();
+}
+
+// Round 135 — items 2/3: row highlight color. Logic + colors pulled out
+// into lib/releaseDateHighlight.js in Round 139 so New Release Setup can
+// share the exact same rule instead of a second, driftable copy.
 
 export default function ConfirmWorkstation() {
   const [phase, setPhase] = useState("confirm_phase1");
@@ -35,6 +51,10 @@ export default function ConfirmWorkstation() {
   const [assignments, setAssignments] = useState({}); // phase -> { release_id -> profile_id }
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
+  // Round 135 — item 1: mirrors showDone's own "leave out by default, one
+  // button restores them" idiom, just gated on hasUpcAndSmartlink instead
+  // of isDone.
+  const [showMissingUpcSmartlink, setShowMissingUpcSmartlink] = useState(false);
   const [query, setQuery] = useState(""); // round 76 — quick index search box
 
   useEffect(() => {
@@ -101,10 +121,18 @@ export default function ConfirmWorkstation() {
     return { done, notDone, cancel: 0 };
   }, [releases, phase]);
 
+  // Round 135 — item 1: count against the full unfiltered list, same
+  // convention `counts` above already uses for its own button label.
+  const missingUpcSmartlinkCount = useMemo(
+    () => releases.filter((r) => !hasUpcAndSmartlink(r)).length,
+    [releases]
+  );
+
   const filteredReleases = useMemo(() => {
-    const base = showDone ? releases : releases.filter((r) => !isDone(r));
+    let base = showDone ? releases : releases.filter((r) => !isDone(r));
+    if (!showMissingUpcSmartlink) base = base.filter((r) => hasUpcAndSmartlink(r));
     return base.filter((r) => matchesQuery(r, query));
-  }, [releases, showDone, phase, query]);
+  }, [releases, showDone, showMissingUpcSmartlink, phase, query]);
 
   const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleReleases);
@@ -132,8 +160,14 @@ export default function ConfirmWorkstation() {
 
           <StatusCounter done={counts.done} notDone={counts.notDone} cancel={counts.cancel} />
           <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
-          <button onClick={() => setShowDone((s) => !s)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
+          <button onClick={() => setShowDone((s) => !s)} className={styles.btnSmall} style={{ marginBottom: 16, marginRight: 8 }}>
             {showDone ? "Hide done rows" : `Show done rows (${counts.done})`}
+          </button>
+          {/* Round 135 — item 1: same "hidden by default, one button
+              restores" idiom as "Show done rows" just above, gated on
+              missing UPC/Smartlink instead of Done. */}
+          <button onClick={() => setShowMissingUpcSmartlink((s) => !s)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
+            {showMissingUpcSmartlink ? "Hide missing UPC/Smartlink" : `Show missing UPC/Smartlink (${missingUpcSmartlinkCount})`}
           </button>
           <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
 
@@ -164,9 +198,17 @@ export default function ConfirmWorkstation() {
                 </tr>
               </thead>
               <tbody>
-                {pagedReleases.map((r) => (
-                  <tr key={r.id}>
-                    <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>
+                {pagedReleases.map((r) => {
+                  // Round 135 — items 2/3: yellow (today) over orange
+                  // (this week) over nothing. Applied to both the row AND
+                  // the sticky first cell (which sets its own opaque
+                  // background to stay readable while scrolled — see its
+                  // own style below) so the highlight doesn't visibly
+                  // "stop" at that column.
+                  const highlight = rowHighlightColor(r);
+                  return (
+                  <tr key={r.id} style={highlight ? { background: highlight } : undefined}>
+                    <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight || "var(--bg)", borderRight: "2px solid var(--accent)" }}>
                       <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
                       <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)} {r.release_time}</div>
                     </td>
@@ -188,7 +230,8 @@ export default function ConfirmWorkstation() {
                       <input className={styles.input} style={{ minWidth: 140 }} defaultValue={r.confirm_note || ""} onBlur={(e) => updateField(r, "confirm_note", e.target.value)} />
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             </div>
@@ -218,9 +261,17 @@ export default function ConfirmWorkstation() {
                 </tr>
               </thead>
               <tbody>
-                {pagedReleases.map((r) => (
-                  <tr key={r.id}>
-                    <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>
+                {pagedReleases.map((r) => {
+                  // Round 135 — items 2/3: yellow (today) over orange
+                  // (this week) over nothing. Applied to both the row AND
+                  // the sticky first cell (which sets its own opaque
+                  // background to stay readable while scrolled — see its
+                  // own style below) so the highlight doesn't visibly
+                  // "stop" at that column.
+                  const highlight = rowHighlightColor(r);
+                  return (
+                  <tr key={r.id} style={highlight ? { background: highlight } : undefined}>
+                    <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight || "var(--bg)", borderRight: "2px solid var(--accent)" }}>
                       <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
                       <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)} {r.release_time}</div>
                     </td>
@@ -249,7 +300,8 @@ export default function ConfirmWorkstation() {
                       <input className={styles.input} style={{ minWidth: 140 }} defaultValue={r.confirm_note || ""} onBlur={(e) => updateField(r, "confirm_note", e.target.value)} />
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             </div>

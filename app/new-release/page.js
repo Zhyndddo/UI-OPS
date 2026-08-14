@@ -10,6 +10,7 @@ import { publishingHdDone } from "../../lib/labelHopTacStatus";
 import PickSelect from "../../lib/PickSelect";
 import QuickCreate from "../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../lib/ReferenceInputs";
+import ArtistTagInput from "../../lib/ArtistTagInput";
 import { buildLinkshareNote, defaultLinkshareFacebookTiming, defaultLinkshareTiktokTiming, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS } from "../../lib/releaseNotes";
 // Round 86 follow-up item 7 — didPreview/didPrefixFor moved into
 // lib/didHelpers.js so the release detail page's DID-recompute-on-Save
@@ -26,6 +27,16 @@ const EMPTY_FORM = {
   title: "",
   main_artist: "",
   feature_artist: "",
+  // Round 97 — Main/Feature Artist as tags (see lib/ArtistTagInput.js).
+  // main_artist/feature_artist above stay in sync (auto-derived, joined
+  // with ", ") for DID generation and every existing string-based reader —
+  // these arrays are the new SQL-filterable source of truth going forward.
+  main_artist_tags: [],
+  feature_artist_tags: [],
+  // Round 97 — the real gate for creating Artist Profile ticket(s), split
+  // out of gate_artist_profile ("Artist Info", now marketing-only — see
+  // lib/GateFields.js). Default "false" like every other gate.
+  gate_artist_profile_verify: "false",
   genre: "",
   requester_segment: "",
   release_category: "New Release",
@@ -75,7 +86,9 @@ const EMPTY_FORM = {
   copyright_checklist: emptyCopyrightChecklist(),
 };
 
-const EMPTY_PITCHING_TYPES = { priority: false, spotify: false, apple: false, nct: false, zing: false };
+// Round 106 item 5 — 4 merged top-level keys (was 5) — see
+// lib/GateFields.js's PITCHING_TYPES comment for the merge mapping.
+const EMPTY_PITCHING_TYPES = { priority: false, spotifyBanner: false, spotifyS4a: false, domestic: false };
 const EMPTY_ARTIST_PROFILE_TYPES = { spotify: false, tiktok: false, apple: false };
 
 const META_ITEMS = [
@@ -97,6 +110,18 @@ export default function NewReleasePage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [pitchingTypes, setPitchingTypes] = useState(EMPTY_PITCHING_TYPES);
   const [artistProfileTypes, setArtistProfileTypes] = useState(EMPTY_ARTIST_PROFILE_TYPES);
+  // Round 97 — which of the release's own Main/Feature Artist tags AR has
+  // picked to send an Artist Profile ticket for (ArtistProfileVerifyPanel).
+  // Defaults to "all tags" the first time the panel has something to show,
+  // via the effect below — AR can then uncheck ones they don't want.
+  // artistProfileVerifyTouched (round 97 follow-up) — same "touched" idiom
+  // as labelTouched below: once AR has manually checked/unchecked anything
+  // in the panel, the auto-default-to-all-selected effect stops
+  // overriding their choice on every subsequent tag add/remove. Resets
+  // when the gate goes back to "false" so ticking it "Yes" again later
+  // starts fresh at "everyone selected."
+  const [artistProfileVerifySelected, setArtistProfileVerifySelected] = useState([]);
+  const [artistProfileVerifyTouched, setArtistProfileVerifyTouched] = useState(false);
   const [coTrongNetDraft, setCoTrongNetDraft] = useState(CO_TRONG_NET_DRAFT_DEFAULTS);
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
@@ -207,7 +232,7 @@ export default function NewReleasePage() {
 
     supabase
       .from("artists")
-      .select("stage_name, labels(label_name)")
+      .select("id, stage_name, labels(label_name)")
       .order("stage_name")
       .then(({ data }) => setArtists(data || []));
 
@@ -229,20 +254,55 @@ export default function NewReleasePage() {
     }
   }
 
-  // Autofill: on leaving Main Artist, look it up in the already-loaded
-  // Artist List — if found and Label hasn't been manually edited yet,
-  // suggest its Label. Never overwrites a manual edit (matches v1's
-  // masterData_service.js behavior).
-  function handleArtistBlur() {
-    if (!form.main_artist.trim() || labelTouched) return;
-    const match = artists.find(
-      (a) => a.stage_name.toLowerCase() === form.main_artist.trim().toLowerCase()
-    );
-    if (match?.labels?.label_name) {
-      setForm((f) => ({ ...f, label: match.labels.label_name }));
-      setAutofillNote(`Label auto-filled from Artist List ("${match.stage_name}").`);
+  // Round 97 — Main/Feature Artist tags. main_artist/feature_artist (the
+  // plain-string columns everything else — DID generation, search,
+  // display — already reads) stay auto-derived from the tags, joined with
+  // ", " same as someone would've hand-typed for a multi-artist song
+  // before this round. tagsKey is "main_artist_tags" or
+  // "feature_artist_tags"; textKey is the matching string field.
+  //
+  // Same Label autofill the old free-text Main Artist field used to do
+  // on blur (see the now-removed handleArtistBlur) — now fires the moment
+  // a NEW tag is added to Main Artist specifically, since there's no blur
+  // event on a tag picker to hang it off of.
+  function updateArtistTags(tagsKey, textKey, tags) {
+    setForm((f) => ({ ...f, [tagsKey]: tags, [textKey]: tags.join(", ") }));
+    if (createdDid) setCreatedDid(null);
+    if (tagsKey === "main_artist_tags" && !labelTouched && tags.length > (form.main_artist_tags || []).length) {
+      const addedName = tags[tags.length - 1];
+      const match = artists.find((a) => a.stage_name.toLowerCase() === addedName.toLowerCase());
+      if (match?.labels?.label_name) {
+        setForm((f) => ({ ...f, label: match.labels.label_name }));
+        setAutofillNote(`Label auto-filled from Artist List ("${match.stage_name}").`);
+      }
     }
   }
+
+  // Round 97 — Artist Profile Verify's artist checklist. artistTags is the
+  // deduped union of both tag fields — a name could technically be tagged
+  // as both Main and Feature, only shown once here. Defaults to "every tag
+  // selected" the first time the panel has something to show (gate ticked
+  // "Yes" and at least one tag exists) — AR can uncheck from there.
+  const artistProfileArtistTags = [...new Set([...(form.main_artist_tags || []), ...(form.feature_artist_tags || [])])];
+  useEffect(() => {
+    if (form.gate_artist_profile_verify !== "true") {
+      // Gate went back to "false" — reset so the next time it's ticked
+      // "Yes" starts fresh at "everyone selected" again, not stuck on
+      // whatever was last unchecked.
+      if (artistProfileVerifyTouched) setArtistProfileVerifyTouched(false);
+      return;
+    }
+    if (!artistProfileVerifyTouched && artistProfileArtistTags.length > 0) {
+      setArtistProfileVerifySelected(artistProfileArtistTags);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.gate_artist_profile_verify, form.main_artist_tags, form.feature_artist_tags]);
+
+  function toggleArtistProfileArtist(name, checked) {
+    setArtistProfileVerifyTouched(true);
+    setArtistProfileVerifySelected((prev) => (checked ? [...new Set([...prev, name])] : prev.filter((n) => n !== name)));
+  }
+
 
   // navMode: 'detail' (normal Tạo Release button — always land on the new
   // release's own detail page afterward) or 'stay' (Save and Create
@@ -272,31 +332,59 @@ export default function NewReleasePage() {
       brief: form.brief || null,
     };
 
-    // Soft-lock duplicate check — same DID prefix (title+artist initials +
-    // release date) as an existing release strongly suggests this is a
-    // re-entry of the same product. Warn instead of silently creating a
-    // second one; "Confirm New Creation" bypasses this and proceeds anyway
-    // (legit remarketing/re-release cases do exist).
-    const prefix = didPrefixFor(form.title, form.main_artist, form.release_date);
+    const dup = await checkDuplicateRelease(payload);
+    if (dup) {
+      setDuplicateWarning({ ...dup, payload, trackRows, navMode });
+      return;
+    }
+
+    await performInsert(payload, trackRows, navMode);
+  }
+
+  // Round 105 — soft-lock duplicate check, now checking TWO independent
+  // signals instead of just one:
+  //   1. Same DID prefix (title+artist initials + release date) as an
+  //      existing release — the original check, strongly suggests a
+  //      re-entry of the same product on the same day.
+  //   2. Same title + main artist, REGARDLESS of release date — per
+  //      explicit request ("dedup by name + artist"), catches the case
+  //      where someone re-enters the same song under a different/updated
+  //      release date, which the DID-prefix check alone would miss
+  //      entirely (a different date means a different prefix).
+  // Either signal warns; "Confirm New Creation" still bypasses and proceeds
+  // regardless of which one fired (legit remarketing/re-release cases do
+  // exist) — same escape hatch as before, just triggered by more cases now.
+  // Returns `{ existing, reason }` or `null`; `reason` lets the warning
+  // modal explain which kind of match it found instead of always assuming
+  // it was the DID-prefix one.
+  async function checkDuplicateRelease(payload) {
+    const prefix = didPrefixFor(payload.title, payload.main_artist, payload.release_date);
     if (prefix) {
       const { data: existing } = await supabase
         .from("releases")
         .select("id, did, title, main_artist, release_date")
         .like("did", `${prefix}-%`)
         .limit(1);
-      if (existing && existing.length > 0) {
-        setDuplicateWarning({ existing: existing[0], payload, trackRows, navMode });
-        return;
-      }
+      if (existing && existing.length > 0) return { existing: existing[0], reason: "did-prefix" };
     }
-
-    await performInsert(payload, trackRows, navMode);
+    if (payload.title?.trim() && payload.main_artist?.trim()) {
+      const { data: existing } = await supabase
+        .from("releases")
+        .select("id, did, title, main_artist, release_date")
+        .ilike("title", payload.title.trim())
+        .ilike("main_artist", payload.main_artist.trim())
+        .limit(1);
+      if (existing && existing.length > 0) return { existing: existing[0], reason: "title-artist" };
+    }
+    return null;
   }
 
   function resetFormForAnother() {
     setForm(EMPTY_FORM);
     setPitchingTypes(EMPTY_PITCHING_TYPES);
     setArtistProfileTypes(EMPTY_ARTIST_PROFILE_TYPES);
+    setArtistProfileVerifySelected([]);
+    setArtistProfileVerifyTouched(false);
     setCoTrongNetDraft(CO_TRONG_NET_DRAFT_DEFAULTS);
     setLabelTouched(false);
     setAutofillNote(null);
@@ -329,13 +417,14 @@ export default function NewReleasePage() {
       if (tab) {
         await supabase.from("tickets").insert({
           tab_id: tab.id,
+          // Round 106 item 5 — 4 merged top-level keys (was 5) — see
+          // lib/GateFields.js's PITCHING_TYPES comment for the merge mapping.
           data: {
             releaseId: data.did,
             priority: pitchingTypes.priority,
-            spotify: pitchingTypes.spotify,
-            apple: pitchingTypes.apple,
-            nct: pitchingTypes.nct,
-            zing: pitchingTypes.zing,
+            spotifyBanner: pitchingTypes.spotifyBanner,
+            spotifyS4a: pitchingTypes.spotifyS4a,
+            domestic: pitchingTypes.domestic,
           },
           status: tab.default_status,
           status_log: { [tab.default_status]: new Date().toISOString() },
@@ -345,11 +434,11 @@ export default function NewReleasePage() {
 
       // Pitching Info (DSP editorial tagging — Genre/Moods/Song Styles/
       // Music Cultures/Instruments for Spotify + Apple Music) only makes
-      // sense for the 2 platforms that actually take editorial tags —
-      // Priority Pitching and Spotify, not NCT/Zing. Requester OPS,
-      // executor AR (picks it up from their ticket list, same PIC pattern
-      // as every other ticket type).
-      if (pitchingTypes.priority || pitchingTypes.spotify) {
+      // sense for the platforms that actually take editorial tags —
+      // Priority Pitching and Spotify S4A, not Domestic (NCT/Zing).
+      // Requester OPS, executor AR (picks it up from their ticket list,
+      // same PIC pattern as every other ticket type).
+      if (pitchingTypes.priority || pitchingTypes.spotifyS4a) {
         const { data: infoTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching_info").single();
         if (infoTab) {
           await supabase.from("tickets").insert({
@@ -363,20 +452,26 @@ export default function NewReleasePage() {
       }
     }
 
-    // gate_artist_profile = "true" means an Artist Profile ticket should
-    // exist for this release's main artist — created now, email left
-    // blank for OPS to fill in (not collected on this form). spotify/
-    // tiktok/apple carry the "set up on which platforms" picker's state.
-    if (form.gate_artist_profile === "true") {
+    // Round 97 — gate_artist_profile_verify = "true" means one Artist
+    // Profile ticket per artist checked in ArtistProfileVerifyPanel (not
+    // one shared ticket for the whole release anymore — see that panel's
+    // comment for why). Email left blank for OPS to fill in either way;
+    // spotify/tiktok/apple carry the "set up on which platforms" picker's
+    // state, applied identically to every ticket created here.
+    if (form.gate_artist_profile_verify === "true" && artistProfileVerifySelected.length > 0) {
       const { data: apTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
       if (apTab) {
-        await supabase.from("tickets").insert({
-          tab_id: apTab.id,
-          data: { releaseId: data.did, artistName: form.main_artist, email: "", ...artistProfileTypes },
-          status: apTab.default_status,
-          status_log: { [apTab.default_status]: new Date().toISOString() },
-          requester_segment: form.requester_segment || null,
-        });
+        await Promise.all(
+          artistProfileVerifySelected.map((artistName) =>
+            supabase.from("tickets").insert({
+              tab_id: apTab.id,
+              data: { releaseId: data.did, artistName, email: "", ...artistProfileTypes },
+              status: apTab.default_status,
+              status_log: { [apTab.default_status]: new Date().toISOString() },
+              requester_segment: form.requester_segment || null,
+            })
+          )
+        );
       }
     }
 
@@ -584,6 +679,34 @@ export default function NewReleasePage() {
   // defaulted to today. Runs the same duplicate-prefix soft-lock as the
   // full form, then always lands on the new release's detail page (same
   // as the normal button) so the rest can be filled in there.
+  // Round 99 — Quick Create's Main Artist now resolves against the
+  // artists reference table the same way the real tag picker's "+" button
+  // does, just automatically instead of needing an explicit click (Quick
+  // Create is a single fast action, not an ongoing multi-tag editing
+  // session, so auto-resolving on submit fits better here than requiring
+  // a separate quick-create step first). Exact case-insensitive match
+  // found → use that artist's real stage_name (so casing/spelling match
+  // the reference table exactly, not whatever was typed) as both
+  // main_artist and the sole main_artist_tags entry. No match → inserts a
+  // new artists row with the typed name (same insert QuickCreate.js does)
+  // and uses that. Either way, the release that Quick Create hands off to
+  // the detail page already has a real Main Artist TAG, not just text —
+  // no more landing on the detail page with an empty tag picker despite
+  // main_artist already having a name.
+  async function resolveQuickArtistTag(name) {
+    const trimmed = name.trim();
+    const match = artists.find((a) => a.stage_name.toLowerCase() === trimmed.toLowerCase());
+    if (match) return match.stage_name;
+    const { data: created, error: createErr } = await supabase.from("artists").insert({ stage_name: trimmed }).select().single();
+    if (!createErr && created) {
+      setArtists((prev) => [...prev, created]);
+      return created.stage_name;
+    }
+    // Insert failed for some reason (network hiccup, etc.) — fall back to
+    // the typed text as before this round rather than blocking creation.
+    return trimmed;
+  }
+
   async function handleQuickSubmit(e) {
     e.preventDefault();
     setQuickError(null);
@@ -597,32 +720,29 @@ export default function NewReleasePage() {
       return;
     }
 
+    setQuickSubmitting(true);
+    const resolvedArtist = await resolveQuickArtistTag(quickForm.main_artist);
+
     const todayIso = new Date().toISOString().slice(0, 10);
     const payload = {
       ...EMPTY_FORM,
       tracks: undefined,
       label: quickForm.label.trim(),
       title: quickForm.title.trim(),
-      main_artist: quickForm.main_artist.trim(),
+      main_artist: resolvedArtist,
+      main_artist_tags: [resolvedArtist],
       release_date: todayIso,
     };
     delete payload.tracks;
 
-    const prefix = didPrefixFor(payload.title, payload.main_artist, payload.release_date);
-    if (prefix) {
-      const { data: existing } = await supabase
-        .from("releases")
-        .select("id, did, title, main_artist, release_date")
-        .like("did", `${prefix}-%`)
-        .limit(1);
-      if (existing && existing.length > 0) {
-        setQuickCreateOpen(false);
-        setDuplicateWarning({ existing: existing[0], payload, trackRows: [], navMode: "detail" });
-        return;
-      }
+    const dup = await checkDuplicateRelease(payload);
+    if (dup) {
+      setQuickSubmitting(false);
+      setQuickCreateOpen(false);
+      setDuplicateWarning({ ...dup, payload, trackRows: [], navMode: "detail" });
+      return;
     }
 
-    setQuickSubmitting(true);
     await performInsert(payload, [], "detail");
     setQuickSubmitting(false);
     setQuickCreateOpen(false);
@@ -830,47 +950,26 @@ export default function NewReleasePage() {
               <label className={styles.fieldLabel}>
                 Main Artist <span className={styles.required}>*</span>
               </label>
-              <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
-                <div style={{ flex: 1 }}>
-                  <ArtistInput
-                    styles={styles}
-                    value={form.main_artist}
-                    onChange={(v) => update("main_artist", v)}
-                    onBlur={handleArtistBlur}
-                    artists={artists}
-                    placeholder="Tên nghệ sĩ chính"
-                  />
-                </div>
-                <QuickCreate
-                  kind="artist"
-                  onCreated={(newArtist) => {
-                    setArtists((prev) => [...prev, newArtist]);
-                    update("main_artist", newArtist.stage_name);
-                  }}
-                />
-              </div>
+              <ArtistTagInput
+                styles={styles}
+                value={form.main_artist_tags}
+                onChange={(tags) => updateArtistTags("main_artist_tags", "main_artist", tags)}
+                artists={artists}
+                placeholder="Tìm nghệ sĩ chính…"
+                onArtistCreated={(newArtist) => setArtists((prev) => [...prev, newArtist])}
+              />
             </div>
 
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Feature Artist</label>
-              <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
-                <div style={{ flex: 1 }}>
-                  <ArtistInput
-                    styles={styles}
-                    value={form.feature_artist}
-                    onChange={(v) => update("feature_artist", v)}
-                    artists={artists}
-                    placeholder="Tên nghệ sĩ feat (nếu có)"
-                  />
-                </div>
-                <QuickCreate
-                  kind="artist"
-                  onCreated={(newArtist) => {
-                    setArtists((prev) => [...prev, newArtist]);
-                    update("feature_artist", newArtist.stage_name);
-                  }}
-                />
-              </div>
+              <ArtistTagInput
+                styles={styles}
+                value={form.feature_artist_tags}
+                onChange={(tags) => updateArtistTags("feature_artist_tags", "feature_artist", tags)}
+                artists={artists}
+                placeholder="Tìm nghệ sĩ feat (nếu có)…"
+                onArtistCreated={(newArtist) => setArtists((prev) => [...prev, newArtist])}
+              />
             </div>
 
             <div className={styles.field}>
@@ -1022,6 +1121,9 @@ export default function NewReleasePage() {
             onPitchingToggle={(key, checked) => setPitchingTypes((p) => ({ ...p, [key]: checked }))}
             artistProfileTypes={artistProfileTypes}
             onArtistProfileToggle={(key, checked) => setArtistProfileTypes((p) => ({ ...p, [key]: checked }))}
+            artistProfileArtistTags={artistProfileArtistTags}
+            artistProfileSelected={artistProfileVerifySelected}
+            onToggleArtistProfileArtist={toggleArtistProfileArtist}
             coTrongNetDraft={coTrongNetDraft}
             onCoTrongNetChange={(key, value) => setCoTrongNetDraft((p) => ({ ...p, [key]: value }))}
             suppressUrlFor={["gate_pre_order"]}
@@ -1141,7 +1243,9 @@ export default function NewReleasePage() {
                 ⚠ Possible duplicate release
               </div>
               <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 10 }}>
-                An existing release already has a matching DID prefix (same title/artist initials and release date):
+                {duplicateWarning.reason === "title-artist"
+                  ? "An existing release already has the same Title + Main Artist (release date differs, so the DID prefix alone didn't catch it):"
+                  : "An existing release already has a matching DID prefix (same title/artist initials and release date):"}
               </p>
               <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12 }}>
                 <div style={{ fontWeight: 700, color: "var(--text-muted)" }}>{duplicateWarning.existing.title}</div>

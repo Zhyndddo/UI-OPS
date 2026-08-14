@@ -9,6 +9,9 @@ import { ROLES, ROLE_LABELS, isDev as isDevRole, isAdminOrAbove, canManageOrgCon
 import { filterProfilesByTeam } from "../../lib/workstationHelpers";
 import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../lib/troGiaBooking";
 import { DEFAULT_LINKFIRE_URL } from "../../lib/externalTools";
+import { PITCHING_DOMESTIC_SERVICES_KEY, DEFAULT_PITCHING_DOMESTIC_SERVICES, parsePitchingDomesticServices } from "../../lib/pitchingDomesticServices";
+import { PITCHING_PIC_LIST_KEY, DEFAULT_PITCHING_PIC_LIST, parsePitchingPicList } from "../../lib/pitchingPicList";
+import { MILESTONE_HIGHLIGHT_SETTING_KEY, DEFAULT_MILESTONE_HIGHLIGHT_CONFIG, parseMilestoneHighlightConfig } from "../../lib/milestoneHighlight";
 import styles from "../shared.module.css";
 
 const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
@@ -50,6 +53,16 @@ export default function ConfigPage() {
       // "Trợ Giá Booking" inside Package Terms above, which stays
       // per-contract-type — this one's a flat list shown to every artist.
       ["troGiaBooking", "Trợ Giá Booking"],
+      // Round 106 item 5 — the merged Pitching flow's 2 config-editable
+      // lists: the Domestic "Có Gói" services checklist, and the
+      // Pitching-only PIC allowlist (see lib/pitchingDomesticServices.js /
+      // lib/pitchingPicList.js).
+      ["pitchingSettings", "Pitching"],
+      // Round 127 — the Milestone workstation's "Highlight" criteria
+      // (what counts as a chart-worthy song to call out each day), now
+      // admin-editable instead of hardcoded the way the real Google
+      // Sheet system had it.
+      ["milestoneSettings", "Milestone"],
     ] : []),
     ...(isDev ? [["notifications", "Notifications"], ["designNotifications", "Design Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
   ];
@@ -101,6 +114,8 @@ export default function ConfigPage() {
               {section === "sizes" && <SizesSection />}
               {section === "artistProfileLinks" && <ArtistProfileLinksSection />}
               {section === "troGiaBooking" && <TroGiaBookingSection />}
+              {section === "pitchingSettings" && <PitchingSettingsSection />}
+              {section === "milestoneSettings" && <MilestoneHighlightSection />}
               {section === "notifications" && isDev && <NotificationsSection />}
               {section === "designNotifications" && isDev && <DesignNotificationsSection />}
               {section === "sessions" && isDev && <SessionsSection />}
@@ -785,7 +800,7 @@ function PackageTermsSection() {
 const MEDIA_BOOKING_PRICE_CATEGORIES = ["TikTok Channel", "Social", "Community"];
 const MEDIA_BOOKING_PRICE_ADS = {
   "Facebook Ads": ["Lượt tiếp cận", "Lượt tương tác", "Lượt truy cập (Link click)"],
-  "YouTube Ads": ["Thruplays (Views)"],
+  "YouTube Ads": ["Thruplay (Views)"],
   "TikTok Ads": ["Lượt tiếp cận", "Lượt xem video", "Lượt theo dõi", "Lượt truy cập (Link click)"],
   "Spotify Ads": ["HPTO", "In-Stream Audio", "In-Stream Video", "In-Feed Display", "In-Feed Video"],
 };
@@ -793,7 +808,7 @@ const MEDIA_BOOKING_PRICE_DEFAULTS = {
   categories: { "TikTok Channel": 700000, "Social": 200000, "Community": 200000 },
   ads: {
     "Facebook Ads": { "Lượt tiếp cận": 30, "Lượt tương tác": 300, "Lượt truy cập (Link click)": 2000 },
-    "YouTube Ads": { "Thruplays (Views)": 55 },
+    "YouTube Ads": { "Thruplay (Views)": 55 },
     "TikTok Ads": { "Lượt tiếp cận": 15, "Lượt xem video": 15, "Lượt theo dõi": 1500, "Lượt truy cập (Link click)": 2500 },
     "Spotify Ads": { "HPTO": 26000, "In-Stream Audio": 26000, "In-Stream Video": 26000, "In-Feed Display": 26000, "In-Feed Video": 26000 },
   },
@@ -1013,6 +1028,133 @@ function TroGiaBookingSection() {
       <button type="button" onClick={addItem} className={styles.btnSmall}>
         + Add Row
       </button>
+    </div>
+  );
+}
+
+// Round 106 item 5 — Pitching's 2 config-editable lists, both admin-only
+// (canOrgConfig-gated tab), both save immediately on change:
+//   1. Domestic "Có Gói" Services — the 8-item multi-select checklist shown
+//      on the Pitching Workstation's Domestic tab once NCT/Zing is "Có
+//      gói" (same add/remove-row array editor as TroGiaBookingSection
+//      above, just plain strings instead of {title,desc,href} objects).
+//   2. Pitching PIC List — "make a new pic list just for this one since
+//      there is multiple team join in but not all member": a checkbox
+//      picker over every OPS profile, blank by default per explicit
+//      request ("leave it blank... I will set them manually later") — once
+//      at least one profile is checked, the Pitching Workstation's PIC
+//      dropdowns show ONLY these profiles instead of the whole OPS team
+//      (see lib/pitchingPicList.js's applyPitchingPicList).
+function PitchingSettingsSection() {
+  const [services, setServices] = useState(DEFAULT_PITCHING_DOMESTIC_SERVICES);
+  const [picListIds, setPicListIds] = useState(DEFAULT_PITCHING_PIC_LIST);
+  const [profiles, setProfiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [savedServices, setSavedServices] = useState(false);
+  const [savedPicList, setSavedPicList] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    (async () => {
+      const [{ data: settingsRows }, { data: profs }] = await Promise.all([
+        supabase.from("global_settings").select("key, value").in("key", [PITCHING_DOMESTIC_SERVICES_KEY, PITCHING_PIC_LIST_KEY]),
+        supabase.from("profiles").select("id, name, segment, role").order("name"),
+      ]);
+      const settingsByKey = {};
+      (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
+      setServices(parsePitchingDomesticServices(settingsByKey[PITCHING_DOMESTIC_SERVICES_KEY]));
+      setPicListIds(parsePitchingPicList(settingsByKey[PITCHING_PIC_LIST_KEY]));
+      setProfiles(filterProfilesByTeam(profs || [], "OPS"));
+      setLoading(false);
+    })();
+  }, []);
+
+  async function saveServices(next) {
+    setServices(next);
+    await supabase.from("global_settings").upsert(
+      { key: PITCHING_DOMESTIC_SERVICES_KEY, value: JSON.stringify(next), updated_at: new Date().toISOString() },
+      { onConflict: "key" }
+    );
+    setSavedServices(true);
+    setTimeout(() => setSavedServices(false), 1500);
+  }
+  function updateServiceItem(index, value) {
+    saveServices(services.map((s, i) => (i === index ? value : s)));
+  }
+  function addServiceItem() {
+    saveServices([...services, ""]);
+  }
+  function removeServiceItem(index) {
+    if (!window.confirm("Remove this service? It'll disappear from the Domestic \"Có gói\" checklist immediately.")) return;
+    saveServices(services.filter((_, i) => i !== index));
+  }
+
+  async function savePicList(next) {
+    setPicListIds(next);
+    await supabase.from("global_settings").upsert(
+      { key: PITCHING_PIC_LIST_KEY, value: JSON.stringify(next), updated_at: new Date().toISOString() },
+      { onConflict: "key" }
+    );
+    setSavedPicList(true);
+    setTimeout(() => setSavedPicList(false), 1500);
+  }
+  function togglePic(profileId) {
+    const next = picListIds.includes(profileId) ? picListIds.filter((id) => id !== profileId) : [...picListIds, profileId];
+    savePicList(next);
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 32 }}>
+        <div className={styles.subheading} style={{ marginTop: 0 }}>Domestic "Có Gói" Services</div>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16, maxWidth: 640 }}>
+          Shown as a multiple-choice checklist on the Pitching Workstation's Domestic tab once NCT or Zing's
+          status is set to "Có gói". Changes save immediately.
+          {savedServices && <span style={{ color: "var(--success-fg)", fontWeight: 700, marginLeft: 8 }}>Saved</span>}
+        </p>
+        <div style={{ display: "grid", gap: 8, marginBottom: 12, maxWidth: 420 }}>
+          {services.map((s, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                className={styles.input}
+                style={{ flex: 1 }}
+                defaultValue={s}
+                placeholder="e.g. Banner"
+                onBlur={(e) => updateServiceItem(i, e.target.value)}
+              />
+              <button type="button" onClick={() => removeServiceItem(i)} className={styles.btnSmall} style={{ fontSize: 10, padding: "3px 8px" }}>
+                Remove
+              </button>
+            </div>
+          ))}
+          {services.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)" }}>No services yet.</div>}
+        </div>
+        <button type="button" onClick={addServiceItem} className={styles.btnSmall}>
+          + Add Service
+        </button>
+      </div>
+
+      <div>
+        <div className={styles.subheading} style={{ marginTop: 0 }}>Pitching PIC List</div>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16, maxWidth: 640 }}>
+          Restricts who shows up in the Pitching Workstation's PIC dropdowns (Priority, Priority Apple, Spotify
+          Banner, Spotify S4A, Domestic) — useful since multiple teams touch this workstation but not every
+          member should be pickable. Blank means unrestricted (falls back to the whole OPS team) — check
+          whoever should actually be selectable.
+          {savedPicList && <span style={{ color: "var(--success-fg)", fontWeight: 700, marginLeft: 8 }}>Saved</span>}
+        </p>
+        <div style={{ display: "grid", gap: 6, maxWidth: 420 }}>
+          {profiles.map((p) => (
+            <label key={p.id} className={styles.checkboxRow}>
+              <input type="checkbox" checked={picListIds.includes(p.id)} onChange={() => togglePic(p.id)} />
+              {p.name} <span style={{ color: "var(--text-faint)", fontSize: 11 }}>({p.segment})</span>
+            </label>
+          ))}
+          {profiles.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)" }}>No profiles found.</div>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1536,6 +1678,77 @@ function ArtistProfileLinksSection() {
       <div className={styles.field}>
         <label className={styles.fieldLabel}>Linkfire URL (Booking Board's "🔗 Linkfire" button)</label>
         <input className={styles.input} value={linkfire} onChange={(e) => setLinkfire(e.target.value)} placeholder={DEFAULT_LINKFIRE_URL} />
+      </div>
+      <button className={styles.btnPrimary} onClick={save} disabled={saving}>
+        {saving ? "Saving…" : "Save"}
+      </button>
+      {saved && <span style={{ marginLeft: 10, color: "var(--success-fg)", fontSize: 12 }}>Saved</span>}
+    </div>
+  );
+}
+
+// Round 127 — the Milestone workstation's "Highlight" criteria, admin-
+// editable per explicit request instead of hardcoded the way the real
+// Google Sheet system had it (see lib/milestoneHighlight.js for the
+// exact real-system numbers these default to). Same app_settings idiom
+// as ArtistProfileLinksSection right above.
+function MilestoneHighlightSection() {
+  const [topNRank, setTopNRank] = useState(DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.topNRank);
+  const [minChartCount, setMinChartCount] = useState(DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.minChartCount);
+  const [chartDepth, setChartDepth] = useState(DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.chartDepth);
+  const [excludedChartsText, setExcludedChartsText] = useState(DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.excludedCharts.join("\n"));
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.from("app_settings").select("value").eq("key", MILESTONE_HIGHLIGHT_SETTING_KEY).maybeSingle().then(({ data }) => {
+      const parsed = parseMilestoneHighlightConfig(data?.value);
+      setTopNRank(parsed.topNRank);
+      setMinChartCount(parsed.minChartCount);
+      setChartDepth(parsed.chartDepth);
+      setExcludedChartsText(parsed.excludedCharts.join("\n"));
+      setLoading(false);
+    });
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    const excludedCharts = excludedChartsText.split("\n").map((s) => s.trim()).filter(Boolean);
+    await supabase.from("app_settings").upsert({
+      key: MILESTONE_HIGHLIGHT_SETTING_KEY,
+      value: { topNRank: Number(topNRank) || DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.topNRank, minChartCount: Number(minChartCount) || DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.minChartCount, chartDepth: Number(chartDepth) || DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.chartDepth, excludedCharts },
+    });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div style={{ maxWidth: 480 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
+        What counts as "highlight-worthy" on the Milestone workstation's Report tab — a song is
+        always highlighted the moment it enters or returns to a chart, or hits #1; it's also
+        highlighted while remaining charted if it climbed AND is at or better than the rank below.
+      </p>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Highlight a climb when rank is at or better than</label>
+        <input className={styles.input} type="number" min="1" value={topNRank} onChange={(e) => setTopNRank(e.target.value)} style={{ maxWidth: 100 }} />
+      </div>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Chart summary block: only list a chart with more than this many entries</label>
+        <input className={styles.input} type="number" min="0" value={minChartCount} onChange={(e) => setMinChartCount(e.target.value)} style={{ maxWidth: 100 }} />
+      </div>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>"X / N" chart depth shown in the Report (N)</label>
+        <input className={styles.input} type="number" min="1" value={chartDepth} onChange={(e) => setChartDepth(e.target.value)} style={{ maxWidth: 100 }} />
+      </div>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Charts excluded from the summary block (one per line)</label>
+        <textarea className={styles.textarea} rows={4} value={excludedChartsText} onChange={(e) => setExcludedChartsText(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
       </div>
       <button className={styles.btnPrimary} onClick={save} disabled={saving}>
         {saving ? "Saving…" : "Save"}

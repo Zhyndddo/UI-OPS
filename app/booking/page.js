@@ -1,10 +1,11 @@
 "use client";
 
 import AppShell from "../../lib/AppShell";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
-import { fmtDate, formatDetailText } from "../../lib/helpers";
+import { fmtDate, formatDetailText, fetchAllRows } from "../../lib/helpers";
 import TypeSwitcher from "../../lib/TypeSwitcher";
 import { usePagination } from "../../lib/usePagination";
 import Pagination from "../../lib/Pagination";
@@ -56,7 +57,11 @@ const TIKTOK_CHANNEL_GROUPS = {
 // the media-booking ticket's Package Builder ("+ TIKTOK NEWS" etc.), so a
 // link added here is tagged with the exact same vocabulary the target was
 // planned against. MUST stay in sync with that file's copy.
-const TIKTOK_SUBCHANNELS = ["TIKTOK NEWS", "TIKTOK CAPCUT", "MẪU CAPCUT", "TIKTOK REUP MV", "TIKTOK LYRICS"];
+// Round 124 — reordered per explicit team request ("re-order the column
+// so the one they care more actually go first") — was TIKTOK NEWS, TIKTOK
+// CAPCUT, MẪU CAPCUT, TIKTOK REUP MV, TIKTOK LYRICS. MUST stay in sync
+// with the equivalent copy in app/tickets/media-booking/page.js.
+const TIKTOK_SUBCHANNELS = ["TIKTOK CAPCUT", "TIKTOK LYRICS", "MẪU CAPCUT", "TIKTOK NEWS", "TIKTOK REUP MV"];
 
 function tiktokGroupForBrand(brand) {
   if (TIKTOK_CHANNEL_GROUPS["In-house"].includes(brand)) return "In-house";
@@ -78,7 +83,7 @@ const PLATFORM_COLUMNS = ["Facebook", "Instagram", "TikTok", "YouTube", "Thread"
 // "platform" value here, same as it doubles as the entry-row label there).
 const ADS_METRICS = {
   "Facebook Ads": ["Lượt tiếp cận", "Lượt tương tác", "Lượt truy cập (Link click)"],
-  "YouTube Ads": ["Thruplays (Views)"],
+  "YouTube Ads": ["Thruplay (Views)"],
   "TikTok Ads": ["Lượt tiếp cận", "Lượt xem video", "Lượt theo dõi", "Lượt truy cập (Link click)"],
   "Spotify Ads": ["HPTO", "In-Stream Audio", "In-Stream Video", "In-Feed Display", "In-Feed Video"],
 };
@@ -152,6 +157,11 @@ export default function BookingBoard() {
   const [expandedCell, setExpandedCell] = useState(null); // `${releaseId}:${categoryName}:${brand}` or null
   const [packagePreview, setPackagePreview] = useState(null); // release being previewed, or null
   const [bookingChannels, setBookingChannels] = useState([]); // booking_channels reference table — see BrandCell's Add Link popup
+  // Round 125 — item 1: per-cell run status (Chưa Chạy/Đang Chạy/Đã Chạy/
+  // Pending, same vocabulary as Ads) for TikTok Channel Partner-group
+  // columns — see media_booking_channel_status. Keyed the same way the
+  // table is uniqued: `${release_id}:${category_id}:${brand}:${column_key}`.
+  const [channelStatuses, setChannelStatuses] = useState({});
   // Round 91 — Linkfire's URL, admin-editable in Config → External Tool
   // Links (same app_settings row Spotify/Apple Music/Discovery Mode
   // already live in) instead of hardcoded here — Linkfire can change their
@@ -204,11 +214,34 @@ export default function BookingBoard() {
       // Round 92 — youtube_ads_url/youtube_ads_booking_note added: shown
       // (and editable) inside the YouTube Ads column's own popup, see
       // AdsCell's showYoutubeAdsFields prop below.
-      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status, gate_co_trong_net_youtube, youtube_ads_url, youtube_ads_booking_note, pseudo_package_parent_did")
+      // Round 146 — link_ugc added: shown as a clickable 3rd row under
+      // the Release column's title/artist/DID line (both table and card
+      // views), same pattern as Pitching ticket's link_lbm row.
+      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status, gate_co_trong_net_youtube, youtube_ads_url, youtube_ads_booking_note, pseudo_package_parent_did, link_ugc")
       .order("release_date", { ascending: false });
-    const { data: ents } = await supabase.from("media_booking_entries").select("*");
+    // Round 142 — item 1: PostgREST caps a plain select() at 1000 rows and
+    // truncates silently, no error (see lib/helpers.js's fetchAllRows
+    // comment / DATA_FIXES.md round 59-60 for the original discovery of
+    // this bug class elsewhere in the app). This table easily blows past
+    // 1000 rows across 797 releases' worth of Social/Community/Ads/TikTok
+    // Channel links, and with no explicit .order() the DB was free to
+    // return rows in whatever order it liked — including one that could
+    // cut off freshly-inserted rows entirely. That's exactly the reported
+    // symptom: bulk-add a batch of links, "DONE" shows immediately off the
+    // optimistic local state, but a refresh re-runs this same truncated
+    // query and the newly added rows (never actually lost — still sitting
+    // in the DB) just don't come back in the first 1000. Paginates through
+    // every row instead, ordered by `id` for stable .range() paging.
+    const { data: ents } = await fetchAllRows(() => supabase.from("media_booking_entries").select("*").order("id"));
     const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
-    const { data: pkgs } = await supabase.from("media_booking_packages").select("id, release_id, name, media_booking_package_lines(category_id, brand, quantity)");
+    // Round 114 — metric_quantities added: real per-metric Ads targets
+    // (Facebook/TikTok/Spotify Ads), read by bookedFor() below instead of
+    // always returning null for these brands' subchannel columns.
+    // Round 120 — brand_column_quantities added: the real per-brand
+    // per-platform/per-subchannel breakdown for Social/Community/TikTok
+    // Channel's mushed line, snapshotted at Summarize time (see
+    // packageLineColumnTarget below).
+    const { data: pkgs } = await supabase.from("media_booking_packages").select("id, release_id, name, media_booking_package_lines(category_id, brand, quantity, metric_quantities, brand_column_quantities)");
     const { data: targets } = await supabase.from("media_booking_dot2_targets").select("release_id");
     // Reference channel list (see /booking-channels) — lets the Add Link
     // popup below suggest a real channel + URL instead of OPS typing both
@@ -216,6 +249,8 @@ export default function BookingBoard() {
     // suggestions show up; the popup still works exactly as before.
     const { data: chans } = await supabase.from("booking_channels").select("*");
     const { data: extLinks } = await supabase.from("app_settings").select("value").eq("key", ARTIST_PROFILE_LINKS_SETTING_KEY).maybeSingle();
+    // Round 125 — item 1: TikTok Channel Partner columns' status coloring.
+    const { data: chanStatuses } = await supabase.from("media_booking_channel_status").select("*");
     // Round 79 — pseudo-package tracks (releases linked to a parent EP/Album
     // via pseudo_package_parent_did) skip the whole booking process and
     // never appear on the Booking board at all.
@@ -227,7 +262,27 @@ export default function BookingBoard() {
     setDot2ReleaseIds(new Set((targets || []).map((t) => t.release_id)));
     setBookingChannels(chans || []);
     if (extLinks?.value?.linkfire) setLinkfireUrl(extLinks.value.linkfire);
+    const statusMap = {};
+    (chanStatuses || []).forEach((s) => {
+      statusMap[`${s.release_id}:${s.category_id}:${s.brand}:${s.column_key}`] = s.status;
+    });
+    setChannelStatuses(statusMap);
     setLoading(false);
+  }
+
+  // Round 125 — item 1: save a TikTok Channel Partner column's status,
+  // upserting on the same (release, category, brand, column) key the
+  // table is uniqued on — same "unfamiliar row -> insert, existing row ->
+  // update" idiom as saveAdsQuantity above, just against the new table.
+  async function saveChannelStatus(releaseId, categoryId, brand, columnKey, status) {
+    const key = `${releaseId}:${categoryId}:${brand}:${columnKey}`;
+    setChannelStatuses((prev) => ({ ...prev, [key]: status }));
+    await supabase
+      .from("media_booking_channel_status")
+      .upsert(
+        { release_id: releaseId, category_id: categoryId, brand, column_key: columnKey, status, updated_at: new Date().toISOString() },
+        { onConflict: "release_id,category_id,brand,column_key" }
+      );
   }
 
   async function updateReleaseNote(release, value) {
@@ -294,7 +349,76 @@ export default function BookingBoard() {
     return resolved;
   }, [packages, releases]);
 
-  function bookedFor(release, categoryName, brand) {
+  // Round 103 — added `platform`, optional (every existing call site that
+  // doesn't care still works unchanged). Fixes a second, related instance
+  // of the same "shows a number that isn't really that column's" family of
+  // bug Round 96 already fixed one layer up: every Ads brand EXCEPT
+  // YouTube Ads mushes several metrics into ONE combined package line with
+  // a single lump `quantity` (see syncPackageLine in the Media Booking
+  // ticket — `qty` is only ever real for YouTube Ads, null for every other
+  // Ads brand's line) — there is no structured per-metric number stored
+  // anywhere. The Booking Board's drilled-into-Ads columns are per-metric
+  // (Lượt tiếp cận / Lượt tương tác / Lượt truy cập, each its own column),
+  // but every one of those columns shares the exact same (categoryName,
+  // brand) pair — before this fix, bookedFor() ignored platform entirely,
+  // so all 3 sibling metric columns for a brand showed the exact SAME
+  // number the instant ANY of them had one (e.g. a real Facebook Ads
+  // Lượt tiếp cận of 5000 was also shown, wrongly, under Lượt tương tác and
+  // Lượt truy cập for that same release). Per explicit request ("no fall
+  // back... show null correctly" if a column doesn't really have a
+  // number): a platform-specific column on a multi-metric Ads brand now
+  // always reads as no-target, full stop — regardless of what the brand's
+  // combined line's `quantity` happens to be, since that figure was never
+  // that specific metric's number to begin with.
+  // Round 108 — same "ghost number" fix as Round 96/103/104's Ads case,
+  // now also applied to TikTok Channel: media_booking_package_lines has
+  // exactly ONE quantity per (category, brand) — never split per
+  // subchannel — so a real target of e.g. 15 for "TikTok Channel —
+  // TIKTOK BOLERO/MT" was showing as 15 under EVERY one of that brand's 5
+  // subchannel columns (TikTok News/CapCut/Mẫu CapCut/Reup MV/Lyrics), not
+  // just the one(s) that actually have 15 booked. Per the same explicit
+  // "no fall back... show null correctly" rule: a subchannel-drilled
+  // TikTok Channel column now always reads as no-target — the real
+  // brand-level total is still visible in the package popup and the "All"
+  // Hạng Mục aggregate rollup, just not fabricated across all 5 siblings.
+  // Round 119 (superseded by Round 120 below) briefly read this live off
+  // media_booking_content_entries — reverted per explicit follow-up
+  // request: pin to the last Summarize instead of showing whatever's
+  // currently typed into the ticket's grid before anyone's re-Summarized.
+  //
+  // Round 120 — real per-brand/per-column targets for the 3 Hạng Mục whose
+  // package line is always mushed to brand "" (Social, Community, TikTok
+  // Channel — see the Round 118 comments above for the root cause). Reads
+  // media_booking_package_lines.brand_column_quantities — a jsonb map
+  // keyed "brand::column" (e.g. "SOCIAL VIENT::Facebook") — which the
+  // Media Booking ticket now writes on every Summarize (see
+  // syncPackageLine/groupSummarizedRows there), same "recompute in full
+  // from the latest rollup rows" treatment quantity/amount already get.
+  // This is deliberately a SNAPSHOT, not live: it only updates the next
+  // time someone (re-)Summarizes that Hạng Mục, same staleness contract as
+  // every other number this board already shows (quantity, metric_quantities).
+  // A package still has to be chosen/locked for the release first — see
+  // bookedFor's own `if (!pkg) return null` gate above this, unchanged.
+  //
+  // Community's column identity is carried on `subchannelType` (not
+  // `platform` — see the columns useMemo's Round-108-era comment on why),
+  // but brand_column_quantities' keys always use whatever column name
+  // Summarize itself used (Community's own `platform` field, same
+  // PLATFORM_COLUMNS vocabulary) — so this matches against whichever of
+  // the two the caller actually passed.
+  function packageLineColumnTarget(release, categoryName, brand, platform, subchannelType) {
+    const pkg = packageByRelease[release.id];
+    if (!pkg) return null;
+    const categoryId = categoryIdByName[categoryName];
+    const lines = pkg.media_booking_package_lines || [];
+    const line = lines.find((l) => l.category_id === categoryId && (l.brand || "") === "");
+    if (!line || !line.brand_column_quantities) return null;
+    const columnKey = categoryName === "TikTok Channel" ? subchannelType : (platform ?? subchannelType);
+    const qty = line.brand_column_quantities[`${brand || ""}::${columnKey || ""}`];
+    return qty != null ? qty : null;
+  }
+
+  function bookedFor(release, categoryName, brand, platform, subchannelType) {
     const pkg = packageByRelease[release.id];
     if (!pkg) return null; // nothing locked in yet — no target to compare against
     const categoryId = categoryIdByName[categoryName];
@@ -302,30 +426,104 @@ export default function BookingBoard() {
     if (brand === null) {
       const matching = lines.filter((l) => l.category_id === categoryId); // "All" aggregate — every brand in this category
       if (matching.length === 0) return null;
-      return matching.reduce((sum, l) => sum + (l.quantity || 0), 0);
+      // Round 114 — a multi-metric Ads brand's line has quantity: null
+      // (see above), so before this it silently contributed 0 to the "All"
+      // aggregate even when it had real per-metric numbers. Fall back to
+      // summing metric_quantities' values when quantity itself is null.
+      return matching.reduce((sum, l) => {
+        if (l.quantity != null) return sum + l.quantity;
+        if (l.metric_quantities) return sum + Object.values(l.metric_quantities).reduce((s, v) => s + (v || 0), 0);
+        return sum;
+      }, 0);
     }
+    if (categoryName === "Ads" && platform && (ADS_METRICS[brand] || []).length > 1) {
+      // Round 114 — this used to always return null: every multi-metric
+      // Ads brand's combined line only ever had one lump `quantity`, never
+      // a real per-metric number (see the long comment above). That's
+      // fixed at the source now — media_booking_package_lines.metric_quantities
+      // carries the real { metric: count } map from Summarize (Round 114's
+      // SQL + app/tickets/media-booking/page.js changes) — so read that
+      // instead of fabricating (Round 96/103's fix) or silently staying
+      // blank forever (the gap this closes). Still returns null (no
+      // target) when a brand's line exists but this particular metric was
+      // never filled in — same "no fall back, show null correctly" rule
+      // as everywhere else in this function.
+      const brandMatching = lines.filter((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
+      if (brandMatching.length === 0) return null;
+      let total = 0;
+      let any = false;
+      brandMatching.forEach((l) => {
+        const v = l.metric_quantities?.[platform];
+        if (v != null) { total += v; any = true; }
+      });
+      return any ? total : null;
+    }
+    if (categoryName === "TikTok Channel" && subchannelType) {
+      // Round 120 — used to unconditionally return null here (see the
+      // long Round 108 comment above: the package line has no real
+      // per-subchannel breakdown in its plain `quantity` field). Now reads
+      // the real number from the line's brand_column_quantities snapshot
+      // instead — see packageLineColumnTarget above.
+      return packageLineColumnTarget(release, categoryName, brand, platform, subchannelType);
+    }
+    if (categoryName === "Social" || categoryName === "Community") {
+      // Round 120 — same fix as TikTok Channel just above: these two also
+      // only ever have a mushed brand-"" package line (see Round 118's
+      // comments), so the generic exact-brand-match lookup below would
+      // always find nothing for a real brand. Read the brand_column_quantities
+      // snapshot instead, same as TikTok Channel.
+      return packageLineColumnTarget(release, categoryName, brand, platform, subchannelType);
+    }
+    // Round 96 — reverted Round 88 follow-up 3's fallback to the category's
+    // combined ("" brand) line. Per explicit request: that fallback made
+    // every specific-brand column show the same shared combined number
+    // whenever a real per-brand line didn't exist, which papered over
+    // exactly the cases (like the round 89 screenshot) that need to be
+    // caught and fixed one at a time via SQL instead of silently smoothed
+    // over here. Back to: no real brand-specific target line means no
+    // number for this brand's column, full stop — same as before round 88
+    // follow-up 3.
     const brandMatching = lines.filter((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
-    if (brandMatching.length > 0) {
-      return brandMatching.reduce((sum, l) => sum + (l.quantity || 0), 0);
-    }
-    // Round 88 follow-up 3 — Social/Community/TikTok Channel all mush every
-    // one of their sub-brands into ONE combined package line (brand: "")
-    // when the package is built (see media-booking's groupSummarizedRows /
-    // createPackage — "every OTHER Hạng Mục mushes its brand rows into ONE
-    // combined package line"). Ads is the only category with a real
-    // per-brand line. That meant drilling into a specific brand here always
-    // came back with no match at all (a real target existed, just never
-    // filed under that brand name) — bookedFor returned null for every
-    // single one of that Hạng Mục's brand/sub-channel columns, which then
-    // tripped the board's "only show releases with a requested number"
-    // filter and hid the release completely, even though the aggregate
-    // "All" column clearly showed a real number. Falling back to the
-    // category's one combined line here means a specific-brand view now
-    // shows that same real (shared, not brand-broken-out) target instead of
-    // silently disappearing the release.
-    const aggregateMatching = lines.filter((l) => l.category_id === categoryId && !l.brand);
-    if (aggregateMatching.length === 0) return null;
-    return aggregateMatching.reduce((sum, l) => sum + (l.quantity || 0), 0);
+    if (brandMatching.length === 0) return null;
+    return brandMatching.reduce((sum, l) => sum + (l.quantity || 0), 0);
+  }
+
+  // Round 108 follow-up — the subchannel-null fix above means a release
+  // whose TikTok Channel brand DOES have a real lump target, but hasn't
+  // been split into any per-subchannel number, would silently disappear
+  // from the filtered list once drilled into that brand (every column's
+  // bookedFor reads null, so the "at least one column has a number" filter
+  // below excluded it) — per explicit follow-up request, that's wrong:
+  // the row should stay visible (with every subchannel column blank) so
+  // the team can SEE it has a target and go decide which subchannel to
+  // actually book it under, instead of the release just vanishing from
+  // view. This checks the brand-level line directly, bypassing the
+  // subchannel-forces-null rule — only used for the "should this row show
+  // at all" filter, never for what a column itself displays.
+  // Round 118 — Social, Community, and TikTok Channel package lines are
+  // ALWAYS stored mushed under brand: "" (see groupSummarizedRows in the
+  // Media Booking ticket — its group key for these 3 Hạng Mục is the
+  // category id alone, brand is never part of it; Ads is the one
+  // exception, keeping one real line per ad-platform brand on purpose).
+  // Before this fix, brandHasAnyTarget compared the mushed line's brand
+  // ("") against the caller's REAL brand string (e.g. "SOCIAL VIENT",
+  // "TIKTOK BOLERO/MT") — which can never match, so this fallback silently
+  // found nothing for a release that genuinely HAS a real, tool-built
+  // package, and the release vanished entirely ("Không tìm thấy") the
+  // instant the board was filtered into any specific brand under these 3
+  // categories — exactly the reported bug (package "Gửi H" showing correct
+  // 0/30 Social / 0/38 Community targets on the "All" tab, then empty once
+  // filtered to a real brand). Check the mushed "" line instead for these
+  // 3 categories — Ads is untouched, still checking the real brand as
+  // before, since it never mushes.
+  const MUSHED_BRAND_CATEGORIES = new Set(["Social", "Community", "TikTok Channel"]);
+  function brandHasAnyTarget(release, categoryName, brand) {
+    const pkg = packageByRelease[release.id];
+    if (!pkg) return false;
+    const categoryId = categoryIdByName[categoryName];
+    const lines = pkg.media_booking_package_lines || [];
+    const effectiveBrand = MUSHED_BRAND_CATEGORIES.has(categoryName) ? "" : brand;
+    return lines.some((l) => l.category_id === categoryId && (l.brand || "") === (effectiveBrand || ""));
   }
 
   function addedFor(release, categoryName, brand, platform, subchannelType, entryPool) {
@@ -455,12 +653,12 @@ export default function BookingBoard() {
   // release already gets filtered out by the anyFilled check below anyway.
   function isReleaseDone(r) {
     const targeted = columns.filter((c) => {
-      const booked = bookedFor(r, c.categoryName, c.brand);
+      const booked = bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType);
       return booked != null && booked > 0;
     });
     if (targeted.length === 0) return false;
     return targeted.every((c) => {
-      const booked = bookedFor(r, c.categoryName, c.brand);
+      const booked = bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType);
       const added = addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries);
       return added >= booked;
     });
@@ -492,12 +690,46 @@ export default function BookingBoard() {
       // every one of those come back null and correctly gets filtered out
       // there too, not just once you drill into a specific Hạng Mục/Brand.
       if (columns.length > 0) {
-        const anyFilled = columns.some((c) => bookedFor(r, c.categoryName, c.brand) != null);
+        let anyFilled = columns.some((c) => bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType) != null);
+        // Round 108 follow-up — TikTok Channel's subchannel columns always
+        // read null now (see bookedFor), so also count the brand's own
+        // lump target here — keeps a release visible (blank subchannel
+        // cells and all) as long as it has SOME real target for the
+        // brand, instead of it vanishing the moment you drill in.
+        if (!anyFilled && hangMucFilter === "TikTok Channel" && tiktokBrandFilter) {
+          anyFilled = brandHasAnyTarget(r, "TikTok Channel", tiktokBrandFilter);
+        }
+        // Round 108 follow-up 2 — same treatment for Ads, per explicit
+        // request to make this consistent: a multi-metric Ads brand's own
+        // per-metric columns always read null too (see bookedFor's Ads
+        // branch), so a release with only that brand's lump total used to
+        // disappear entirely once drilled into its metric columns. Now it
+        // stays visible (every metric column blank) so the team can see
+        // there's an unassigned number and go decide which metric it's
+        // really for — same reasoning, same fix shape as TikTok Channel
+        // above. YouTube Ads is unaffected either way — it always had a
+        // real per-metric quantity, so its column was never forced null.
+        if (!anyFilled && hangMucFilter === "Ads" && subFilter) {
+          anyFilled = brandHasAnyTarget(r, "Ads", subFilter);
+        }
+        // Round 118 — same treatment now for Social and Community: their
+        // columns are always exact-brand null too (bookedFor's generic
+        // exact-match branch, since these categories' lines only ever
+        // exist under brand ""), so without this a release with a real
+        // combined target used to disappear entirely once drilled into a
+        // specific real brand. See brandHasAnyTarget's Round 118 comment
+        // for the root cause (package lines mushed to brand "").
+        if (!anyFilled && hangMucFilter === "Social" && subFilter) {
+          anyFilled = brandHasAnyTarget(r, "Social", subFilter);
+        }
+        if (!anyFilled && hangMucFilter === "Community" && subFilter) {
+          anyFilled = brandHasAnyTarget(r, "Community", subFilter);
+        }
         if (!anyFilled) return false;
       }
       return true;
     });
-  }, [roundFilteredReleases, search, month, typeFilter, labelFilter, hangMucFilter, columns, packageByRelease]);
+  }, [roundFilteredReleases, search, month, typeFilter, labelFilter, hangMucFilter, subFilter, tiktokBrandFilter, columns, packageByRelease]);
 
   const doneCounts = useMemo(() => {
     let done = 0;
@@ -541,11 +773,23 @@ export default function BookingBoard() {
     // Partner split) — derived straight from the brand so it always agrees
     // with the group the column actually belongs to, never a leftover
     // global toggle. Every other Hạng Mục just gets null.
+    //
+    // Round 131 fix (re-applied — this line regressed back to the pre-fix
+    // version somewhere around Round 132's edits; caught live again via
+    // the exact same error: `null value in column "channel_type" ...
+    // violates not-null constraint`) — passing that null straight into
+    // the insert as `channel_type: channelTypeTag` overrides the column's
+    // own "not null default 'Direct'" for every non-TikTok-Channel
+    // category and fails outright. Only include the key when there's a
+    // real tag, otherwise omit it entirely so the column's own default
+    // applies — same fix Round 93 already used for saveAdsQuantity's
+    // insert below.
     const channelTypeTag = categoryName === "TikTok Channel" ? tiktokGroupForBrand(brand) : null;
     const { data, error } = await supabase
       .from("media_booking_entries")
       .insert({
-        release_id: releaseId, booking_round: round, channel_type: channelTypeTag,
+        release_id: releaseId, booking_round: round,
+        ...(channelTypeTag ? { channel_type: channelTypeTag } : {}),
         category_id: categoryIdByName[categoryName] || null, channel_name: brand || null,
         platform: platform || null, subchannel_type: subchannelType || null, link, status: "Chưa Booking",
       })
@@ -566,11 +810,13 @@ export default function BookingBoard() {
   // never derived from the row, since the row's channelName is still the
   // real channel/account name and both need to be stored independently.
   async function addEntries(releaseId, categoryName, brand, platformFixed, subchannelType, rows) {
+    // Round 131 fix (re-applied — see addEntry's comment above for why).
     const channelTypeTag = categoryName === "TikTok Channel" ? tiktokGroupForBrand(brand) : null;
     const payload = (rows || [])
       .filter((row) => row.link && row.link.trim())
       .map((row) => ({
-        release_id: releaseId, booking_round: round, channel_type: channelTypeTag,
+        release_id: releaseId, booking_round: round,
+        ...(channelTypeTag ? { channel_type: channelTypeTag } : {}),
         category_id: categoryIdByName[categoryName] || null, channel_name: brand || null,
         platform: platformFixed || row.channelName || null, subchannel_type: subchannelType || null,
         link: row.link.trim(), status: "Chưa Booking",
@@ -586,6 +832,45 @@ export default function BookingBoard() {
     const next = order[(order.indexOf(entry.status) + 1) % order.length];
     await supabase.from("media_booking_entries").update({ status: next }).eq("id", entry.id);
     setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, status: next } : e)));
+  }
+
+  // Round 142 — item 2: TikTok Channel columns (every brand group, not
+  // just Partner) now show ONE status for the whole column instead of a
+  // separate cycle button per URL — per explicit request, editing a
+  // single link's status one at a time didn't make sense once a column
+  // could hold 20+ of them. Same 3-step vocabulary/order as cycleStatus
+  // above, just applied to every entry in the column at once — advances
+  // from whatever the FIRST entry's current status is (the column's own
+  // "representative" status once this control is the only way to change
+  // it going forward). Social/Community columns are unaffected — they
+  // keep the original per-row cycleStatus behavior.
+  async function cycleStatusAll(entriesInColumn) {
+    if (entriesInColumn.length === 0) return;
+    const order = ["Chưa Booking", "Đã Gửi", "Done"];
+    const next = order[(order.indexOf(entriesInColumn[0].status) + 1) % order.length];
+    const ids = entriesInColumn.map((e) => e.id);
+    await supabase.from("media_booking_entries").update({ status: next }).in("id", ids);
+    setEntries((prev) => prev.map((e) => (ids.includes(e.id) ? { ...e, status: next } : e)));
+  }
+
+  // Round 132 — per explicit request: once a link was added under any
+  // BrandCell column (Social/Community/TikTok Channel — every column that
+  // goes through addEntry/addEntries, not just Ads' AdsCell which already
+  // supports re-saving via handleSave), there was no way to fix a typo or
+  // wrong URL, or the channel name on a hasChannelCol column (TikTok
+  // Channel/Community) — only the status could be changed (cycleStatus
+  // above), and a wrong entry could never be removed at all. These two
+  // close that gap, used by BrandCell's new inline edit/delete UI.
+  async function updateEntry(entry, patch) {
+    const { error } = await supabase.from("media_booking_entries").update(patch).eq("id", entry.id);
+    if (!error) setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, ...patch } : e)));
+    return { error };
+  }
+
+  async function deleteEntry(entry) {
+    const { error } = await supabase.from("media_booking_entries").delete().eq("id", entry.id);
+    if (!error) setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+    return { error };
   }
 
   // Ads quantity + status — upserts by finding the one existing row for
@@ -624,7 +909,7 @@ export default function BookingBoard() {
       const row = [r.did || "", r.title, r.main_artist];
       columns.forEach((c) => {
         row.push(addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries));
-        row.push(bookedFor(r, c.categoryName, c.brand) ?? "—");
+        row.push(bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType) ?? "—");
       });
       rows.push(row);
     });
@@ -669,6 +954,21 @@ export default function BookingBoard() {
             <button className={styles.btnSecondary} onClick={exportCsv}>⇩ Export CSV</button>
           </div>
         </div>
+
+        {/* Round 108 — the "Showing X–Y of Z" count used to only live at
+            the bottom of the table (inside Pagination), which meant
+            scrolling all the way down just to see how many rows are in the
+            current filtered view — per explicit request, moved up here,
+            top-right, right under the topbar. Pagination itself still
+            renders at the bottom for the actual prev/next controls, with
+            hideCount so the count isn't shown twice. */}
+        {totalRows > 0 && (
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8, marginTop: -8 }}>
+            <div style={{ fontSize: 12, color: "var(--text-faint)" }}>
+              Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, totalRows)} of {totalRows}
+            </div>
+          </div>
+        )}
 
         {/* Scoped to this page only (inline override, not a shared.module.css
             change) — bumped from the default 22px so the 4 headline numbers
@@ -857,7 +1157,7 @@ export default function BookingBoard() {
             saveAdsQuantity={saveAdsQuantity}
             updateYoutubeAdsField={updateYoutubeAdsField}
           />
-          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} hideCount />
           </>
         ) : (
           <>
@@ -919,6 +1219,16 @@ export default function BookingBoard() {
                       {r.main_artist} · {r.did} · {fmtDate(r.release_date)}
                       {releasingToday && <span style={{ color: "#ff6b1a", fontWeight: 700, marginLeft: 6 }}>· TODAY</span>}
                     </div>
+                    {/* Round 146 — Link Sound TikTok (link_ugc) as a
+                        clickable 3rd row, same pattern as Pitching
+                        ticket's link_lbm row. */}
+                    {r.link_ugc && (
+                      <div>
+                        <a href={r.link_ugc} target="_blank" rel="noopener noreferrer" style={{ color: releasingToday ? "var(--highlight-text-faint)" : "var(--accent-soft)", fontSize: 11 }}>
+                          {r.link_ugc}
+                        </a>
+                      </div>
+                    )}
                     {hangMucFilter === "TikTok Channel" && subFilter === "Partner" && (
                       <span
                         className={styles.statusBadge}
@@ -975,7 +1285,7 @@ export default function BookingBoard() {
                         <AdsCell
                           key={c.key}
                           column={c}
-                          booked={bookedFor(r, c.categoryName, c.brand)}
+                          booked={bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType)}
                           added={addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries)}
                           existingEntry={cellEntries[0] || null}
                           canEdit={hangMucFilter !== "All"}
@@ -990,21 +1300,35 @@ export default function BookingBoard() {
                         />
                       );
                     }
+                    // Round 125 — item 1: TikTok Channel Partner-group
+                    // columns (all 4 sub-brands, all 5 subchannel columns)
+                    // additionally show/edit a run status, same 4-way
+                    // vocabulary/coloring as the YouTube Ads column — on
+                    // top of, not instead of, the existing Add Link popup
+                    // (explicit "Keep links, just add status coloring").
+                    const isPartnerTikTok = c.categoryName === "TikTok Channel" && TIKTOK_CHANNEL_GROUPS.Partner.includes(c.brand);
+                    const channelStatusKey = `${r.id}:${categoryIdByName[c.categoryName]}:${c.brand}:${c.subchannelType}`;
                     return (
                       <BrandCell
                         key={c.key}
                         release={r}
                         column={c}
-                        booked={bookedFor(r, c.categoryName, c.brand)}
+                        booked={bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType)}
                         cellEntries={cellEntries}
                         expanded={expandedCell === `${r.id}:${c.key}`}
                         onToggle={() => setExpandedCell(expandedCell === `${r.id}:${c.key}` ? null : `${r.id}:${c.key}`)}
                         onAdd={(platform, link) => addEntry(r.id, c.categoryName, c.brand, c.platform || platform, link, c.subchannelType)}
                         onAddBulk={(rows) => addEntries(r.id, c.categoryName, c.brand, c.platform, c.subchannelType, rows)}
                         onCycleStatus={cycleStatus}
+                        onCycleStatusAll={cycleStatusAll}
+                        onUpdateEntry={updateEntry}
+                        onDeleteEntry={deleteEntry}
                         canAdd={hangMucFilter !== "All"}
                         cellBorderLeft={isGroupStart ? "2px solid #555" : "1px solid var(--border)"}
                         referenceChannels={bookingChannels}
+                        showStatus={isPartnerTikTok}
+                        channelStatus={channelStatuses[channelStatusKey]}
+                        onSaveStatus={(status) => saveChannelStatus(r.id, categoryIdByName[c.categoryName], c.brand, c.subchannelType, status)}
                       />
                     );
                   })}
@@ -1014,7 +1338,7 @@ export default function BookingBoard() {
             </tbody>
           </table>
           </div>
-          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} hideCount />
           </>
         )}
       </div>
@@ -1073,6 +1397,15 @@ function BookingBoardCards({
               {r.main_artist} · {r.did} · {fmtDate(r.release_date)}
               {releasingToday && <span style={{ color: "#ff6b1a", fontWeight: 700, marginLeft: 6 }}>· TODAY</span>}
             </div>
+            {/* Round 146 — Link Sound TikTok (link_ugc) as a clickable
+                3rd row, same pattern as the table view above. */}
+            {r.link_ugc && (
+              <div style={{ marginTop: 2 }}>
+                <a href={r.link_ugc} target="_blank" rel="noopener noreferrer" style={{ color: releasingToday ? "var(--highlight-text-faint)" : "var(--accent-soft)", fontSize: 11 }}>
+                  {r.link_ugc}
+                </a>
+              </div>
+            )}
             {hangMucFilter === "TikTok Channel" && subFilter === "Partner" && (
               <span
                 className={styles.statusBadge}
@@ -1138,7 +1471,7 @@ function BookingBoardCards({
                           return (
                             <AdsCell
                               column={c}
-                              booked={bookedFor(r, c.categoryName, c.brand)}
+                              booked={bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType)}
                               added={addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries)}
                               existingEntry={cellEntries[0] || null}
                               canEdit={hangMucFilter !== "All"}
@@ -1152,22 +1485,34 @@ function BookingBoardCards({
                               onSave={(quantity, status) => saveAdsQuantity(r.id, c.brand, c.platform, quantity, status, cellEntries[0] || null)}
                             />
                           );
-                        })() : (
-                          <BrandCell
-                            release={r}
-                            column={c}
-                            booked={bookedFor(r, c.categoryName, c.brand)}
-                            cellEntries={cellEntries}
-                            expanded={expandedCell === `${r.id}:${c.key}`}
-                            onToggle={() => setExpandedCell(expandedCell === `${r.id}:${c.key}` ? null : `${r.id}:${c.key}`)}
-                            onAdd={(platform, link) => addEntry(r.id, c.categoryName, c.brand, c.platform || platform, link, c.subchannelType)}
-                            onAddBulk={(rows) => addEntries(r.id, c.categoryName, c.brand, c.platform, c.subchannelType, rows)}
-                            onCycleStatus={cycleStatus}
-                            canAdd={hangMucFilter !== "All"}
-                            cellBorderLeft="none"
-                            referenceChannels={bookingChannels}
-                          />
-                        )}
+                        })() : (() => {
+                          // Round 125 — item 1: same Partner-group status
+                          // coloring as the desktop table version above.
+                          const isPartnerTikTok = c.categoryName === "TikTok Channel" && TIKTOK_CHANNEL_GROUPS.Partner.includes(c.brand);
+                          const channelStatusKey = `${r.id}:${categoryIdByName[c.categoryName]}:${c.brand}:${c.subchannelType}`;
+                          return (
+                            <BrandCell
+                              release={r}
+                              column={c}
+                              booked={bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType)}
+                              cellEntries={cellEntries}
+                              expanded={expandedCell === `${r.id}:${c.key}`}
+                              onToggle={() => setExpandedCell(expandedCell === `${r.id}:${c.key}` ? null : `${r.id}:${c.key}`)}
+                              onAdd={(platform, link) => addEntry(r.id, c.categoryName, c.brand, c.platform || platform, link, c.subchannelType)}
+                              onAddBulk={(rows) => addEntries(r.id, c.categoryName, c.brand, c.platform, c.subchannelType, rows)}
+                              onCycleStatus={cycleStatus}
+                              onCycleStatusAll={cycleStatusAll}
+                              onUpdateEntry={updateEntry}
+                              onDeleteEntry={deleteEntry}
+                              canAdd={hangMucFilter !== "All"}
+                              cellBorderLeft="none"
+                              referenceChannels={bookingChannels}
+                              showStatus={isPartnerTikTok}
+                              channelStatus={channelStatuses[channelStatusKey]}
+                              onSaveStatus={(status) => saveChannelStatus(r.id, categoryIdByName[c.categoryName], c.brand, c.subchannelType, status)}
+                            />
+                          );
+                        })()}
                       </div>
                     );
                   })}
@@ -1194,6 +1539,90 @@ function BookingBoardCards({
 // scroll distance half-covered/half-showing). Halving the cell's height
 // doesn't eliminate that effect (inherent to any sticky header + row
 // taller than one line) but cuts it roughly in half.
+// Round 122 — shared click-to-open popup, rendered via a portal into
+// document.body instead of `position: absolute` inside the cell's own
+// `<td>`. Every one of these popups used to be clipped whenever the
+// table's scroll container (`.scrollBox`, `overflowY: "auto"`) was
+// shorter than the popup's own content — which happens any time a filter
+// narrows the board down to just a few rows, since that container only
+// sizes itself to what's actually in it, not a fixed viewport height.
+// `overflow: auto` on an ancestor clips ANY absolutely-positioned
+// descendant that would extend past its bounds, so the popup got cut off
+// mid-content instead of just scrolling into view — reported as "very
+// difficult to see if the height is low, like only one row." A portal
+// escapes that clipping entirely: it renders outside the scroll
+// container's DOM subtree, positioned with `position: fixed` computed
+// from the trigger element's own on-screen position, so it always has the
+// full viewport to render into regardless of how short the table is.
+// Repositions on scroll (capture: true, so it catches the internal
+// scrollBox's scroll too — scroll events don't bubble to window by
+// default) and resize; hidden (not yet positioned) for one frame on open
+// to avoid a flash at (0,0) before the real position is measured.
+function CellPopup({ anchorRef, open, onClose, placement = "right", width, children }) {
+  const [pos, setPos] = useState(null);
+
+  useLayoutEffect(() => {
+    if (!open || !anchorRef.current) { setPos(null); return; }
+    function compute() {
+      if (!anchorRef.current) return;
+      const rect = anchorRef.current.getBoundingClientRect();
+      const margin = 12;
+      // Round 142 — item 3: this used to always anchor `top` at the
+      // trigger cell's own top, with no regard for how much room was left
+      // below it. A popup with ~20 entries (real reported case) is taller
+      // than that remaining space once the anchor is more than a
+      // screenful down the page, and being `position: fixed` it just ran
+      // off the bottom of the viewport with no way to scroll it into
+      // view — reported as having to zoom out 25% just to see the Done/
+      // Add Link button. Cap how tall the popup is allowed to be to
+      // whatever actually fits on screen, and slide `top` upward (same
+      // idea a dropdown menu uses) so the WHOLE popup — not just its top
+      // edge — stays on screen; overflowY:auto below still scrolls
+      // anything past that cap.
+      const desiredMaxHeight = Math.min(window.innerHeight * 0.8, 560);
+      if (placement === "below-center") {
+        const top = Math.min(rect.bottom + 6, window.innerHeight - margin - 100);
+        setPos({ top, left: rect.left + rect.width / 2, maxHeight: Math.max(160, window.innerHeight - top - margin) });
+      } else {
+        const top = Math.max(margin, Math.min(rect.top, window.innerHeight - desiredMaxHeight - margin));
+        setPos({ top, left: rect.right + 6, maxHeight: Math.min(desiredMaxHeight, window.innerHeight - top - margin) });
+      }
+    }
+    compute();
+    window.addEventListener("scroll", compute, true);
+    window.addEventListener("resize", compute);
+    return () => {
+      window.removeEventListener("scroll", compute, true);
+      window.removeEventListener("resize", compute);
+    };
+  }, [open, anchorRef, placement]);
+
+  if (!open || typeof document === "undefined") return null;
+
+  return createPortal(
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "fixed",
+          top: pos?.top ?? 0,
+          left: pos?.left ?? 0,
+          transform: placement === "below-center" ? "translateX(-50%)" : "none",
+          visibility: pos ? "visible" : "hidden",
+          zIndex: 300, width,
+          background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, padding: 12,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+          maxHeight: pos?.maxHeight ?? "80vh", overflowY: "auto", boxSizing: "border-box",
+        }}
+      >
+        {children}
+      </div>
+    </>,
+    document.body
+  );
+}
+
 // Round 88 follow-up 4 — Note column, was a plain always-visible text
 // input in every row (the busiest table in the app, so that meant a full
 // input box's worth of width in every single row whether or not anyone had
@@ -1209,6 +1638,7 @@ function NoteCell({ release, onSave }) {
   const [text, setText] = useState(release.booking_note || "");
   const [saving, setSaving] = useState(false);
   const hasNote = !!(release.booking_note || "").trim();
+  const anchorRef = useRef(null);
 
   useEffect(() => {
     setText(release.booking_note || "");
@@ -1227,7 +1657,7 @@ function NoteCell({ release, onSave }) {
   }
 
   return (
-    <div style={{ position: "relative", display: "inline-block" }} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+    <div ref={anchorRef} style={{ position: "relative", display: "inline-block" }} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -1251,34 +1681,24 @@ function NoteCell({ release, onSave }) {
         </div>
       )}
 
-      {open && (
-        <>
-          <div onClick={cancelEdit} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", marginTop: 6, zIndex: 300, width: 240,
-              background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, padding: 12,
-              boxShadow: "0 8px 24px rgba(0,0,0,0.3)", textAlign: "left",
-            }}
-          >
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>Note</div>
-            <textarea
-              className={styles.input}
-              style={{ width: "100%", minHeight: 70, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              autoFocus
-            />
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <button className={styles.btnPrimary} style={{ flex: 1 }} onClick={handleSave} disabled={saving}>
-                {saving ? "Đang lưu…" : "Save"}
-              </button>
-              <button className={styles.btnSmall} onClick={cancelEdit}>Cancel</button>
-            </div>
+      <CellPopup anchorRef={anchorRef} open={open} onClose={cancelEdit} placement="below-center" width={240}>
+        <div style={{ textAlign: "left" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>Note</div>
+          <textarea
+            className={styles.input}
+            style={{ width: "100%", minHeight: 70, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            autoFocus
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button className={styles.btnPrimary} style={{ flex: 1 }} onClick={handleSave} disabled={saving}>
+              {saving ? "Đang lưu…" : "Save"}
+            </button>
+            <button className={styles.btnSmall} onClick={cancelEdit}>Cancel</button>
           </div>
-        </>
-      )}
+        </div>
+      </CellPopup>
     </div>
   );
 }
@@ -1380,7 +1800,8 @@ function blankChannel() {
   return { channelName: "", urls: [""] };
 }
 
-function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, onAdd, onAddBulk, onCycleStatus, canAdd, cellBorderLeft, referenceChannels }) {
+function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, onAdd, onAddBulk, onCycleStatus, onCycleStatusAll, onUpdateEntry, onDeleteEntry, canAdd, cellBorderLeft, referenceChannels, showStatus, channelStatus, onSaveStatus }) {
+  const anchorRef = useRef(null);
   const [showAddPopup, setShowAddPopup] = useState(false);
   const [channels, setChannels] = useState([blankChannel()]);
   const [submitResult, setSubmitResult] = useState(null);
@@ -1389,9 +1810,112 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
   const [bulkResult, setBulkResult] = useState(null);
   const [refSearch, setRefSearch] = useState("");
   const [showRefPicker, setShowRefPicker] = useState(false);
+  // Round 132 — inline edit state for an already-added entry. `editingId`
+  // is the one entry (if any) currently showing input fields instead of
+  // its read-only link — only one at a time, same "one thing open" idiom
+  // as showAddPopup/bulkMode above.
+  const [editingId, setEditingId] = useState(null);
+  const [editChannelName, setEditChannelName] = useState("");
+  const [editLink, setEditLink] = useState("");
+  const [editError, setEditError] = useState(null);
   const added = cellEntries.length;
   const isDone = booked != null && booked > 0 && added >= booked;
   const hasChannelCol = !column.platform;
+  // Round 142 — item 2: TikTok Channel columns get ONE status for the
+  // whole column instead of a per-URL cycle button — see cycleStatusAll's
+  // comment in the parent component. Social/Community are unaffected.
+  const isTikTokChannelColumn = column.categoryName === "TikTok Channel";
+  const STATUS_ORDER = ["Chưa Booking", "Đã Gửi", "Done"];
+  const STATUS_COLOR = { "Done": "#7ee6a8", "Đã Gửi": "#ffca4d" };
+  const columnStatus = cellEntries[0]?.status || STATUS_ORDER[0];
+
+  function startEdit(e) {
+    setEditingId(e.id);
+    setEditChannelName(e.platform || "");
+    setEditLink(e.link || "");
+    setEditError(null);
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setEditError(null);
+  }
+  async function saveEdit(e) {
+    const link = editLink.trim();
+    if (!link) { setEditError("URL can't be empty — use the ✕ to delete instead."); return; }
+    // Only hasChannelCol columns (TikTok Channel/Community) carry a
+    // per-entry channel name in `platform` — every other column's
+    // `platform` is the column's own fixed metric name, not something
+    // this row owns, so it's left untouched here (same distinction
+    // addEntry already draws between `c.platform` and a typed channel
+    // name — see its own comment).
+    const patch = hasChannelCol ? { platform: editChannelName.trim() || null, link } : { link };
+    const { error } = await onUpdateEntry(e, patch);
+    if (error) { setEditError(error.message || "Save failed."); return; }
+    setEditingId(null);
+    setEditError(null);
+  }
+  async function handleDelete(e) {
+    if (!window.confirm(`Delete this link?\n${e.link}`)) return;
+    await onDeleteEntry(e);
+    if (editingId === e.id) setEditingId(null);
+  }
+
+  // Round 132 — one shared row renderer for both places an added entry
+  // shows up (the expanded-cell list below the added/booked count, and
+  // the recap list inside the "Add Link" popup itself) — same edit/delete
+  // behavior either way, `showStatusCycle` just toggles whether the
+  // status-cycling button (only meaningful in the expanded-cell view,
+  // where it's always been) also renders.
+  function renderEntryRow(e, { showStatusCycle }) {
+    if (editingId === e.id) {
+      return (
+        <div key={e.id} style={{ fontSize: 11, marginBottom: 6, padding: 6, background: "var(--bg)", border: "1px solid var(--accent)", borderRadius: 4 }}>
+          {hasChannelCol && (
+            <input
+              className={styles.input}
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 11, padding: "3px 6px", marginBottom: 4 }}
+              placeholder="Channel name"
+              value={editChannelName}
+              onChange={(ev) => setEditChannelName(ev.target.value)}
+            />
+          )}
+          <input
+            className={styles.input}
+            style={{ width: "100%", boxSizing: "border-box", fontSize: 11, padding: "3px 6px" }}
+            placeholder="URL"
+            value={editLink}
+            onChange={(ev) => setEditLink(ev.target.value)}
+            autoFocus={!hasChannelCol}
+          />
+          {editError && <div style={{ color: "#ff6b6b", fontSize: 10, marginTop: 3 }}>{editError}</div>}
+          <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+            <button className={styles.btnSmall} style={{ flex: 1 }} onClick={() => saveEdit(e)}>Save</button>
+            <button className={styles.btnSmall} onClick={cancelEdit}>Cancel</button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, marginBottom: 4, gap: 6 }}>
+        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+          {e.platform && <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{e.platform}: </span>}
+          <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-muted)" }}>{e.link}</a>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+          {showStatusCycle && (
+            <button
+              onClick={() => onCycleStatus(e)}
+              style={{ background: "none", border: "none", cursor: "pointer", color: e.status === "Done" ? "#7ee6a8" : e.status === "Đã Gửi" ? "#ffca4d" : "var(--text-faint)", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}
+            >
+              {e.status}
+            </button>
+          )}
+          <button onClick={() => startEdit(e)} title="Edit" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-faint)", fontSize: 11, padding: "0 2px" }}>✎</button>
+          <button onClick={() => handleDelete(e)} title="Delete" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-faint)", fontSize: 11, padding: "0 2px" }}>✕</button>
+        </div>
+      </div>
+    );
+  }
 
   function updateChannelName(ci, value) {
     setChannels((prev) => prev.map((c, i) => (i === ci ? { ...c, channelName: value } : c)));
@@ -1493,19 +2017,16 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
 
   return (
     <td
+      ref={anchorRef}
       style={{
         verticalAlign: "top",
         minWidth: 130,
         position: "relative",
         borderLeft: cellBorderLeft || "1px solid var(--border)",
-        // The Add Link popup below always opens to the RIGHT of this cell
-        // (left: "100%"), which visually lands it on top of the NEXT
-        // column over — easy to mistake for belonging to that column
-        // instead of this one (reported: a popup titled "FACEBOOK" looked
-        // like it came from the TikTok column next to it). Highlighting
-        // the actual origin cell while its popup is open makes it
-        // unambiguous which column the box belongs to, regardless of
-        // where it visually overlaps.
+        // Round 122 — highlighting the origin cell while its popup is open
+        // (now rendered via a portal elsewhere in the DOM, see CellPopup)
+        // is still worth keeping: it's the only remaining visual link back
+        // to which cell a floating "FACEBOOK" popup title etc. belongs to.
         boxShadow: showAddPopup ? "inset 0 0 0 2px var(--accent)" : "none",
       }}
     >
@@ -1522,48 +2043,84 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
           <span style={{ color: "var(--text-faint)" }}>{added} / —</span>
         )}
       </div>
-      {expanded && (
-        <div style={{ marginTop: 6, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: 8 }}>
-          {cellEntries.length === 0 && <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 4 }}>No links yet.</div>}
-          {cellEntries.map((e) => (
-            <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, marginBottom: 4, gap: 6 }}>
-              <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 100 }}>
-                {e.platform && <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{e.platform}: </span>}
-                <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-muted)" }}>{e.link}</a>
-              </div>
-              <button
-                onClick={() => onCycleStatus(e)}
-                style={{ background: "none", border: "none", cursor: "pointer", color: e.status === "Done" ? "#7ee6a8" : e.status === "Đã Gửi" ? "#ffca4d" : "var(--text-faint)", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}
-              >
-                {e.status}
-              </button>
-            </div>
-          ))}
-          {canAdd && (
-            <button className={styles.btnSmall} style={{ marginTop: 4, width: "100%" }} onClick={() => setShowAddPopup(true)}>
-              + Add Link
+      {/* Round 125 — item 1: run status pill for TikTok Channel
+          Partner-group columns, same 4-way vocabulary/coloring as the
+          YouTube Ads column — purely additive, doesn't touch the added/
+          booked readout or the Add Link flow above/below it. */}
+      {showStatus && (
+        <div
+          onClick={onToggle}
+          style={{ cursor: "pointer", fontSize: 10, fontWeight: 700, textAlign: "center", marginTop: 2, color: ADS_STATUS_COLORS[channelStatus || ADS_STATUS_OPTIONS[0]] }}
+        >
+          {channelStatus || ADS_STATUS_OPTIONS[0]}
+        </div>
+      )}
+      {/* Round 134 — this used to render inline, directly in the table
+          cell's normal document flow. A long URL (e.g. a full Google
+          Sheets link) has no natural break point, so even with
+          overflow/ellipsis on the row itself, the unbounded flex
+          container around it just grew to fit — stretching the `<td>`
+          and pushing every column to its right out of alignment (real
+          symptom reported, screenshot showed FACEBOOK's row list
+          overlapping into INSTAGRAM's column). Now a real floating popup
+          (same CellPopup used for Add Link below), portaled to <body> and
+          width-locked to 300px regardless of how long any entry's URL
+          is — it can never affect the table's own layout again. */}
+      {/* open is gated on !showAddPopup so this and the Add Link popup
+          below (same anchorRef, same placement) never render on top of
+          each other at once — clicking "+ Add Link" effectively swaps
+          this one out rather than stacking a second floating panel
+          exactly over the first. */}
+      <CellPopup anchorRef={anchorRef} open={expanded && !showAddPopup} onClose={onToggle} placement="right" width={300}>
+        {/* Round 142 — item 2: sticky so it stays visible (and the popup
+            itself stays open, per explicit request "click the pop up and
+            it on top, add stuff and it's still there") while scrolling a
+            long entries list below — same position:sticky idiom, just
+            scoped to this popup's own scroll container instead of the
+            page. */}
+        <div style={{ position: "sticky", top: -12, background: "var(--bg-card)", zIndex: 1, marginTop: -12, paddingTop: 12, marginLeft: -12, paddingLeft: 12, marginRight: -12, paddingRight: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: isTikTokChannelColumn ? 6 : 8 }}>
+            {column.label}
+          </div>
+          {isTikTokChannelColumn && (
+            <button
+              onClick={() => onCycleStatusAll(cellEntries)}
+              disabled={cellEntries.length === 0}
+              style={{
+                width: "100%",
+                marginBottom: 8,
+                padding: "4px 8px",
+                borderRadius: 4,
+                border: `1px solid ${STATUS_COLOR[columnStatus] || "var(--text-faint)"}`,
+                background: "none",
+                color: STATUS_COLOR[columnStatus] || "var(--text-faint)",
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: cellEntries.length === 0 ? "default" : "pointer",
+                opacity: cellEntries.length === 0 ? 0.5 : 1,
+              }}
+              title="Status for every link in this column — click to advance"
+            >
+              {columnStatus}
             </button>
           )}
         </div>
-      )}
+        {cellEntries.length === 0 && <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 4 }}>No links yet.</div>}
+        {cellEntries.map((e) => renderEntryRow(e, { showStatusCycle: !isTikTokChannelColumn }))}
+        {canAdd && (
+          <button className={styles.btnSmall} style={{ marginTop: 4, width: "100%" }} onClick={() => setShowAddPopup(true)}>
+            + Add Link
+          </button>
+        )}
+      </CellPopup>
 
-      {showAddPopup && (
-        <>
-          {/* Clicking outside used to discard whatever was typed — an easy
-              misclick (this popup sits right over other cells/buttons) that
-              silently threw away the whole batch. Outside click now saves
-              exactly like "Done" instead of canceling: any non-empty rows
-              get added, and if nothing was typed it just closes, so there's
-              no path where a stray click loses work. */}
-          <div onClick={() => (bulkMode ? setShowAddPopup(false) : submitChannels())} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "absolute", top: 0, left: "100%", marginLeft: 6, zIndex: 300, width: 300,
-              background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, padding: 12,
-              boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
-            }}
-          >
+      {/* Clicking outside used to discard whatever was typed — an easy
+          misclick (this popup sits right over other cells/buttons) that
+          silently threw away the whole batch. Outside click now saves
+          exactly like "Done" instead of canceling: any non-empty rows get
+          added, and if nothing was typed it just closes, so there's no
+          path where a stray click loses work. */}
+      <CellPopup anchorRef={anchorRef} open={showAddPopup} onClose={() => (bulkMode ? setShowAddPopup(false) : submitChannels())} placement="right" width={300}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase" }}>
                 Add Link — {column.label}
@@ -1575,6 +2132,33 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
                 {bulkMode ? "channels" : "bulk / CSV"}
               </button>
             </div>
+
+            {/* Round 125 — item 1: run status picker, same vocabulary as
+                the YouTube Ads column, saves immediately on click (same
+                idiom as onCycleStatus's per-link status below) — the Add
+                Link flow underneath is completely unchanged. */}
+            {showStatus && (
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ fontSize: 10, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Status</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {ADS_STATUS_OPTIONS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => onSaveStatus(s)}
+                      style={{
+                        padding: "5px 8px", fontSize: 11, fontWeight: 700, borderRadius: 5, cursor: "pointer",
+                        border: `1px solid ${ADS_STATUS_COLORS[s]}`,
+                        background: (channelStatus || ADS_STATUS_OPTIONS[0]) === s ? ADS_STATUS_COLORS[s] : "transparent",
+                        color: (channelStatus || ADS_STATUS_OPTIONS[0]) === s ? "#0a0a0a" : ADS_STATUS_COLORS[s],
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Reference picker — pulls from booking_channels (see
                 /booking-channels) instead of typing a channel name + URL
@@ -1712,17 +2296,11 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
             )}
             {cellEntries.length > 0 && (
               <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 8, display: "grid", gap: 4, maxHeight: 140, overflowY: "auto" }}>
-                {cellEntries.map((e) => (
-                  <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, gap: 6 }}>
-                    {/* Round 80 — minWidth: 0 lets a flex item actually
-                        shrink to its parent instead of growing to fit a
-                        long pasted link ("over-extend"). */}
-                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                      {e.platform && <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{e.platform}: </span>}
-                      <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-muted)" }}>{e.link}</a>
-                    </div>
-                  </div>
-                ))}
+                {/* Round 132 — already-added links now editable/deletable
+                    right here too (not just the expanded-cell view below),
+                    since this recap list is what's actually visible while
+                    the Add Link popup itself is open. */}
+                {cellEntries.map((e) => renderEntryRow(e, { showStatusCycle: false }))}
               </div>
             )}
             <button
@@ -1732,9 +2310,7 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
             >
               Done
             </button>
-          </div>
-        </>
-      )}
+      </CellPopup>
     </td>
   );
 }
@@ -1745,6 +2321,7 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
 // with a "Số lượng" number field and a 4-way status switch; the main cell
 // shows the number itself colored by status (not the cell background).
 function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBorderLeft, onSave, showYoutubeAdsFields, youtubeAdsUrl, youtubeBookingNote, onSaveYoutubeAdsUrl, onSaveYoutubeBookingNote }) {
+  const anchorRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [quantity, setQuantity] = useState(existingEntry?.quantity ?? "");
   const [status, setStatus] = useState(existingEntry?.status || ADS_STATUS_OPTIONS[0]);
@@ -1794,6 +2371,7 @@ function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBo
   if (locked) {
     return (
       <td
+        ref={anchorRef}
         style={{
           verticalAlign: "top", minWidth: 130, position: "relative",
           borderLeft: cellBorderLeft || "1px solid var(--border)",
@@ -1808,66 +2386,55 @@ function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBo
           Cancel{existingEntry?.quantity != null ? ` (${existingEntry.quantity})` : ""}
         </div>
 
-        {open && (
-          <>
-            <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                position: "absolute", top: 0, left: "100%", marginLeft: 6, zIndex: 300, width: 250,
-                background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, padding: 12,
-                boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
-              }}
-            >
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>
-                {column.label}
-              </div>
-              <div style={{ fontSize: 11, color: "#ffca4d", background: "rgba(255,202,77,0.1)", border: "1px solid #5a4a1a", borderRadius: 6, padding: "6px 8px", marginBottom: 10 }}>
-                ⚠ Locked — "Có Trong Net YouTube" isn't ticked on this release yet. You can still save a number below, but it stays shown as Cancel here until that's ticked on the release detail page.
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Số lượng</label>
-                <input
-                  type="number"
-                  className={styles.input}
-                  style={{ width: "100%", boxSizing: "border-box" }}
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                  autoFocus
-                />
-              </div>
-              {showYoutubeAdsFields && (
-                // Round 93 — the AR team's YouTube URL + Booking request
-                // fields, per explicit request ("booking board, click to
-                // the youtube ads column, pop up show up, they live
-                // there"). Writes straight to the release (immediate save,
-                // no relation to the Số lượng/Status Save button below).
-                <div style={{ marginBottom: 12, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
-                  <YoutubeAdsFields
-                    styles={styles}
-                    url={youtubeAdsUrl}
-                    bookingNote={youtubeBookingNote}
-                    onChangeUrl={onSaveYoutubeAdsUrl}
-                    onChangeBookingNote={onSaveYoutubeBookingNote}
-                    compact
-                  />
-                </div>
-              )}
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className={styles.btnPrimary} style={{ flex: 1 }} onClick={handleSave} disabled={saving}>
-                  {saving ? "Đang lưu…" : "Save"}
-                </button>
-                <button className={styles.btnSmall} onClick={() => setOpen(false)}>Cancel</button>
-              </div>
+        <CellPopup anchorRef={anchorRef} open={open} onClose={() => setOpen(false)} placement="right" width={250}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 8 }}>
+            {column.label}
+          </div>
+          <div style={{ fontSize: 11, color: "#ffca4d", background: "rgba(255,202,77,0.1)", border: "1px solid #5a4a1a", borderRadius: 6, padding: "6px 8px", marginBottom: 10 }}>
+            ⚠ Locked — "Có Trong Net YouTube" isn't ticked on this release yet. You can still save a number below, but it stays shown as Cancel here until that's ticked on the release detail page.
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Số lượng</label>
+            <input
+              type="number"
+              className={styles.input}
+              style={{ width: "100%", boxSizing: "border-box" }}
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              autoFocus
+            />
+          </div>
+          {showYoutubeAdsFields && (
+            // Round 93 — the AR team's YouTube URL + Booking request
+            // fields, per explicit request ("booking board, click to
+            // the youtube ads column, pop up show up, they live
+            // there"). Writes straight to the release (immediate save,
+            // no relation to the Số lượng/Status Save button below).
+            <div style={{ marginBottom: 12, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+              <YoutubeAdsFields
+                styles={styles}
+                url={youtubeAdsUrl}
+                bookingNote={youtubeBookingNote}
+                onChangeUrl={onSaveYoutubeAdsUrl}
+                onChangeBookingNote={onSaveYoutubeBookingNote}
+                compact
+              />
             </div>
-          </>
-        )}
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className={styles.btnPrimary} style={{ flex: 1 }} onClick={handleSave} disabled={saving}>
+              {saving ? "Đang lưu…" : "Save"}
+            </button>
+            <button className={styles.btnSmall} onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </CellPopup>
       </td>
     );
   }
 
   return (
     <td
+      ref={anchorRef}
       style={{
         verticalAlign: "top", minWidth: 130, position: "relative",
         borderLeft: cellBorderLeft || "1px solid var(--border)",
@@ -1888,74 +2455,62 @@ function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBo
         )}
       </div>
 
-      {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "absolute", top: 0, left: "100%", marginLeft: 6, zIndex: 300, width: 240,
-              background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, padding: 12,
-              boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
-            }}
-          >
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 10 }}>
-              {column.label}
-            </div>
-            <div style={{ marginBottom: 10 }}>
-              <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Số lượng</label>
-              <input
-                type="number"
-                className={styles.input}
-                style={{ width: "100%", boxSizing: "border-box" }}
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Status</label>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {ADS_STATUS_OPTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setStatus(s)}
-                    style={{
-                      padding: "5px 8px", fontSize: 11, fontWeight: 700, borderRadius: 5, cursor: "pointer",
-                      border: `1px solid ${ADS_STATUS_COLORS[s]}`,
-                      background: status === s ? ADS_STATUS_COLORS[s] : "transparent",
-                      color: status === s ? "#0a0a0a" : ADS_STATUS_COLORS[s],
-                    }}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {showYoutubeAdsFields && (
-              // Round 93 — same YouTube URL + Booking request fields as the
-              // locked popup above, immediate-save straight to the release.
-              <div style={{ marginBottom: 12, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
-                <YoutubeAdsFields
-                  styles={styles}
-                  url={youtubeAdsUrl}
-                  bookingNote={youtubeBookingNote}
-                  onChangeUrl={onSaveYoutubeAdsUrl}
-                  onChangeBookingNote={onSaveYoutubeBookingNote}
-                  compact
-                />
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className={styles.btnPrimary} style={{ flex: 1 }} onClick={handleSave} disabled={saving}>
-                {saving ? "Đang lưu…" : "Save"}
+      <CellPopup anchorRef={anchorRef} open={open} onClose={() => setOpen(false)} placement="right" width={240}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 10 }}>
+          {column.label}
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Số lượng</label>
+          <input
+            type="number"
+            className={styles.input}
+            style={{ width: "100%", boxSizing: "border-box" }}
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            autoFocus
+          />
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Status</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+            {ADS_STATUS_OPTIONS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStatus(s)}
+                style={{
+                  padding: "5px 8px", fontSize: 11, fontWeight: 700, borderRadius: 5, cursor: "pointer",
+                  border: `1px solid ${ADS_STATUS_COLORS[s]}`,
+                  background: status === s ? ADS_STATUS_COLORS[s] : "transparent",
+                  color: status === s ? "#0a0a0a" : ADS_STATUS_COLORS[s],
+                }}
+              >
+                {s}
               </button>
-              <button className={styles.btnSmall} onClick={() => setOpen(false)}>Cancel</button>
-            </div>
+            ))}
           </div>
-        </>
-      )}
+        </div>
+        {showYoutubeAdsFields && (
+          // Round 93 — same YouTube URL + Booking request fields as the
+          // locked popup above, immediate-save straight to the release.
+          <div style={{ marginBottom: 12, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+            <YoutubeAdsFields
+              styles={styles}
+              url={youtubeAdsUrl}
+              bookingNote={youtubeBookingNote}
+              onChangeUrl={onSaveYoutubeAdsUrl}
+              onChangeBookingNote={onSaveYoutubeBookingNote}
+              compact
+            />
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className={styles.btnPrimary} style={{ flex: 1 }} onClick={handleSave} disabled={saving}>
+            {saving ? "Đang lưu…" : "Save"}
+          </button>
+          <button className={styles.btnSmall} onClick={() => setOpen(false)}>Cancel</button>
+        </div>
+      </CellPopup>
     </td>
   );
 }
@@ -2014,7 +2569,22 @@ function PackagePreviewPopup({ release, categories, onClose }) {
               {(pkg.media_booking_package_lines || []).map((l) => (
                 <tr key={l.id}>
                   <td style={{ fontSize: 12 }}>{categoryNameById[l.category_id] || l.platform || "—"}{l.brand ? ` — ${l.brand}` : ""}</td>
-                  <td>{l.quantity != null ? l.quantity.toLocaleString("en-US") : "—"} {l.unit}</td>
+                  <td>
+                    {l.quantity != null ? (
+                      <>{l.quantity.toLocaleString("en-US")} {l.unit}</>
+                    ) : l.metric_quantities && Object.keys(l.metric_quantities).length > 0 ? (
+                      // Round 114 — this used to always show a bare "—" for
+                      // every Ads brand but YouTube Ads, since none of them
+                      // ever had a real `quantity`. The real per-metric
+                      // numbers are now persisted (metric_quantities) — show
+                      // that breakdown instead of implying there's no data.
+                      <span style={{ fontSize: 11 }}>
+                        {Object.entries(l.metric_quantities).map(([m, q]) => `${q} ${m}`).join(", ")}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "pre-line" }}>{formatDetailText(l.detail) || "—"}</td>
                   <td>{l.amount != null ? new Intl.NumberFormat("vi-VN").format(l.amount) + " đ" : "—"}</td>
                 </tr>

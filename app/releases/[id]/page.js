@@ -9,6 +9,7 @@ import { fmtDate, formatDetailText } from "../../../lib/helpers";
 import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, GATE_TICKET_TYPES, CO_TRONG_NET_DRAFT_DEFAULTS } from "../../../lib/GateFields";
 import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
+import ArtistTagInput from "../../../lib/ArtistTagInput";
 import UrlField from "../../../lib/UrlField";
 import { validateLabelNameEdit } from "../../../lib/labelHelpers";
 import { MV_TYPE_OPTIONS, LABEL_HOP_TAC_OPTIONS } from "../../../lib/pickerOptions";
@@ -17,12 +18,13 @@ import PickSelect from "../../../lib/PickSelect";
 import { TICKET_TYPE_LABELS, TEAMS, REPORTING_TEAMS } from "../../../lib/teamTypes";
 import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import { useAuth } from "../../../lib/AuthContext";
-import { isDev } from "../../../lib/permissions";
+import { isDev, isAdminOrAbove } from "../../../lib/permissions";
 import { runOne } from "../../../lib/packageSimulator";
 import { fetchProductTagSets, ProductTagPills } from "../../../lib/productTags";
 import { recomputeDid } from "../../../lib/didHelpers";
 import RelatedDidField from "../../../lib/RelatedDidField";
-import CopyrightChecklistFields from "../../../lib/CopyrightChecklistFields";
+import { CopyrightSummaryBar, CopyrightRowStatus } from "../../../lib/CopyrightRights";
+import { copyrightChecklistIsComplete } from "../../../lib/copyrightChecklist";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -74,11 +76,37 @@ export default function ReleaseDetailPage() {
   // itself (the standalone page, see lib/permissions.js's
   // canRunPackageSimulator) is untouched — still dev/admin+Marketing only.
   const canSimulate = isDev(profile) || profile?.segment === "AR";
+  // Round 121 — "reset to DEALING" undoes a resolved package decision
+  // (e.g. one made via SEND INT SUPPORT PACKAGE, or a real artist pick),
+  // admin+ only per explicit request — a step up from canSimulate, since
+  // this is the undo for what those buttons do, not just another shortcut
+  // to run one of them.
+  const canResetToDealing = isAdminOrAbove(profile);
   const [release, setRelease] = useState(null);
   const [form, setForm] = useState(null);
   const [pitchingTicket, setPitchingTicket] = useState(null);
-  const [pitchingTypesDraft, setPitchingTypesDraft] = useState({ priority: false, spotify: false, apple: false, nct: false, zing: false });
-  const [artistProfileTicket, setArtistProfileTicket] = useState(null);
+  // Round 106 item 5 — 4 merged top-level keys (was 5) — see
+  // lib/GateFields.js's PITCHING_TYPES comment for the merge mapping.
+  const [pitchingTypesDraft, setPitchingTypesDraft] = useState({ priority: false, spotifyBanner: false, spotifyS4a: false, domestic: false });
+  // Round 97 — one Artist Profile ticket per ARTIST now, not one shared
+  // ticket for the whole release (a ticket is shaped around a single
+  // artist — Tên Nghệ Sĩ/Email/Spotify.../etc.). artistProfileTickets holds
+  // every existing one for this release; artistProfileTicketByArtist is
+  // the same list keyed by data.artistName, for the "already sent" lookup
+  // ArtistProfileVerifyPanel needs. artistProfileVerifySelected is which
+  // artist tags AR currently has checked in that panel — defaults to
+  // "every tag" the first time the panel has something to show (see the
+  // effect below), independent per artist of whether a ticket already
+  // exists for them.
+  const [artistProfileTickets, setArtistProfileTickets] = useState([]);
+  const artistProfileTicketByArtist = Object.fromEntries(artistProfileTickets.map((t) => [t.data?.artistName, t]));
+  const [artistProfileVerifySelected, setArtistProfileVerifySelected] = useState([]);
+  // Round 97 follow-up — same "touched" idiom as labelTouched elsewhere in
+  // this app: once AR has manually checked/unchecked anything in the
+  // panel, the auto-default-to-all-selected effect below stops overriding
+  // their choice on every subsequent tag add/remove. Resets when the gate
+  // goes back to "false" so ticking it "Yes" again later starts fresh.
+  const [artistProfileVerifyTouched, setArtistProfileVerifyTouched] = useState(false);
   const [artistProfileTypesDraft, setArtistProfileTypesDraft] = useState({ spotify: false, tiktok: false, apple: false });
   const [tab, setTab] = useState("overview");
   // Round 86 follow-up item 3 — which team's note the top-right
@@ -119,6 +147,18 @@ export default function ReleaseDetailPage() {
   // existing ticket's data (if any) once the batched gate-ticket fetch
   // below resolves.
   const [coTrongNetDraft, setCoTrongNetDraft] = useState(CO_TRONG_NET_DRAFT_DEFAULTS);
+  // Round 105 — Send Upload's copyright gate needs to know whether EVERY
+  // track's own checklist is complete for an EP/Album (Single instead
+  // gates on the release-level `release.copyright_checklist`, no fetch
+  // needed for that case). TracklistSection owns its own `tracks` state
+  // locally and doesn't expose it upward, so this is an independent,
+  // lightweight fetch of just the one column this gate needs — kept in
+  // sync the same way TracklistSection keeps its own copy in sync
+  // (re-fetches whenever the release id or track/copyright edits happen;
+  // see the effect below and copyrightGateVersion, bumped by
+  // TracklistSection via onCopyrightChange).
+  const [trackCopyrightRows, setTrackCopyrightRows] = useState([]);
+  const [copyrightGateVersion, setCopyrightGateVersion] = useState(0);
   const searchParams = useSearchParams();
   const mediaBookingSectionRef = useRef(null);
   const [autoScrolled, setAutoScrolled] = useState(false);
@@ -161,6 +201,19 @@ export default function ReleaseDetailPage() {
     fetchProductTagSets(supabase).then(setProductTagSets);
   }, []);
 
+  // Round 105 — Send Upload's copyright gate, EP/Album half. Only fetches
+  // when it's actually not a Single (no point querying release_tracks for
+  // a product type that has none) — re-fetches whenever the release id
+  // changes, the product type flips into EP/Album, or copyrightGateVersion
+  // is bumped (TracklistSection calls onCopyrightChange after any track's
+  // checklist edit or "Copy to all tracks," so this stays live without
+  // needing to lift TracklistSection's whole `tracks` state up here).
+  useEffect(() => {
+    if (!supabase || !id) return;
+    if (!form || form.single_album_ep === "Single" || !form.single_album_ep) { setTrackCopyrightRows([]); return; }
+    supabase.from("release_tracks").select("id, copyright_checklist").eq("release_id", id).then(({ data }) => setTrackCopyrightRows(data || []));
+  }, [id, form?.single_album_ep, copyrightGateVersion]);
+
   useEffect(() => {
     if (!supabase || !id) return;
     supabase
@@ -185,7 +238,7 @@ export default function ReleaseDetailPage() {
             .limit(1);
           const found = tix?.[0] || null;
           setPitchingTicket(found);
-          if (found) setPitchingTypesDraft({ priority: false, spotify: false, apple: false, nct: false, zing: false, ...found.data });
+          if (found) setPitchingTypesDraft({ priority: false, spotifyBanner: false, spotifyS4a: false, domestic: false, ...found.data });
         }
         // Pitching Info (AR's genre/mood/DSP tagging ticket) — the New
         // Release create form already auto-sends this the moment Priority
@@ -204,8 +257,13 @@ export default function ReleaseDetailPage() {
             .limit(1);
           setPitchingInfoTicket(piTix?.[0] || null);
         }
-        // Same idempotency check for Artist Profile — releaseId-matched,
-        // not name-matched, since two releases can share an artist.
+        // Round 97 — idempotency check for Artist Profile, now per-artist:
+        // fetch EVERY ticket for this release (not just the first one) so
+        // ArtistProfileVerifyPanel can show "✓ already sent" per artist
+        // tag individually. artistProfileTypesDraft is left at its
+        // all-false default here — it only feeds NEW tickets going
+        // forward (see saveTab() below), each existing ticket's own
+        // platform picks are edited on /tickets/artist-profile itself.
         const { data: apTab } = await supabase.from("ticket_tabs").select("id").eq("key", "artist_profile").single();
         if (apTab) {
           const { data: apTix } = await supabase
@@ -213,11 +271,8 @@ export default function ReleaseDetailPage() {
             .select("*")
             .eq("tab_id", apTab.id)
             .eq("data->>releaseId", data.did)
-            .is("deleted_at", null)
-            .limit(1);
-          const foundAp = apTix?.[0] || null;
-          setArtistProfileTicket(foundAp);
-          if (foundAp) setArtistProfileTypesDraft({ spotify: false, tiktok: false, apple: false, ...foundAp.data });
+            .is("deleted_at", null);
+          setArtistProfileTickets(apTix || []);
         }
         // The real gate for "Send Package Ticket" — whether a Media
         // Booking ticket for this release ACTUALLY exists right now, not
@@ -343,6 +398,39 @@ export default function ReleaseDetailPage() {
     setSaved(false);
   }
 
+  // Round 97 — Main/Feature Artist tags. main_artist/feature_artist stay
+  // auto-derived (joined with ", ") from the tags for DID re-derivation
+  // and every other existing string-based reader — same idiom as the New
+  // Release create form's updateArtistTags.
+  function updateArtistTags(tagsKey, textKey, tags) {
+    setForm((f) => ({ ...f, [tagsKey]: tags, [textKey]: tags.join(", ") }));
+    setSaved(false);
+  }
+
+  // Round 97 — Artist Profile Verify's artist checklist, same shape as the
+  // New Release create form. artistProfileArtistTags is the deduped union
+  // of both tag fields; the effect below defaults every tag to "checked"
+  // the first time the panel has something to show.
+  const artistProfileArtistTags = [...new Set([...(form?.main_artist_tags || []), ...(form?.feature_artist_tags || [])])];
+  useEffect(() => {
+    if (form?.gate_artist_profile_verify !== "true") {
+      // Gate went back to "false" — reset so the next time it's ticked
+      // "Yes" starts fresh at "everyone selected," not stuck on whatever
+      // was last unchecked.
+      if (artistProfileVerifyTouched) setArtistProfileVerifyTouched(false);
+      return;
+    }
+    if (!artistProfileVerifyTouched && artistProfileArtistTags.length > 0) {
+      setArtistProfileVerifySelected(artistProfileArtistTags);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form?.gate_artist_profile_verify, form?.main_artist_tags, form?.feature_artist_tags]);
+
+  function toggleArtistProfileArtist(name, checked) {
+    setArtistProfileVerifyTouched(true);
+    setArtistProfileVerifySelected((prev) => (checked ? [...new Set([...prev, name])] : prev.filter((n) => n !== name)));
+  }
+
   // Clicking the "artist request package changed" notification links here
   // with ?focus=media_booking — jump straight to the tab and scroll the
   // package section into view instead of leaving AR to find it themselves.
@@ -405,8 +493,8 @@ export default function ReleaseDetailPage() {
   // The one and only place Pitching/Artist Profile tickets get created or
   // updated from this page now — no more immediate-on-click side effects.
   // Both are idempotent per release (checked via pitchingTicket/
-  // artistProfileTicket, fetched on load) so clicking Save more than once
-  // never creates a second ticket for the same product.
+  // artistProfileTicketByArtist, fetched on load) so clicking Save more
+  // than once never creates a second ticket for the same artist/product.
   async function saveTab() {
     setSaving(true);
     setError(null);
@@ -484,14 +572,37 @@ export default function ReleaseDetailPage() {
 
     if (form.gate_pitching === "true") {
       if (pitchingTicket) {
-        if (JSON.stringify(pitchingTicket.data) !== JSON.stringify(pitchingTypesDraft)) {
-          await supabase.from("tickets").update({ data: pitchingTypesDraft }).eq("id", pitchingTicket.id);
-          setPitchingTicket((t) => ({ ...t, data: pitchingTypesDraft }));
+        // Round 136 fix — this used to write `data: pitchingTypesDraft`
+        // straight over the ticket's existing `data`, wholesale.
+        // pitchingTypesDraft only ever holds the 4 checkbox booleans
+        // (priority/spotifyBanner/spotifyS4a/domestic) — it never carries
+        // releaseId — so every Save after the ticket's first creation
+        // silently WIPED data.releaseId back to undefined. That explains
+        // both reported symptoms at once: (1) the Pitching ticket list
+        // showing "—" for Release on tickets that clearly belong to a
+        // real product (app/tickets/pitching/page.js falls back to "—"
+        // exactly when data.releaseId is missing), and (2) a SECOND
+        // ticket getting created for the same release next time this page
+        // is opened and Saved — because this page's own initial-load
+        // lookup (`eq("data->>releaseId", data.did)`) can no longer find
+        // the now-releaseId-less ticket, so `pitchingTicket` loads back to
+        // null and the `else` branch below creates a brand-new one,
+        // repeating the same bug on ITS next Save. Also explicitly
+        // refreshes releaseId to newDid (not just preserving whatever was
+        // there) — same DID-migration reasoning as the didChanged block
+        // above, and it self-heals any ticket already corrupted by this
+        // bug the next time its release is saved, without needing a
+        // separate backfill for tickets whose original releaseId is
+        // otherwise unrecoverable.
+        const mergedPitchingData = { ...pitchingTicket.data, releaseId: newDid, ...pitchingTypesDraft };
+        if (JSON.stringify(pitchingTicket.data) !== JSON.stringify(mergedPitchingData)) {
+          await supabase.from("tickets").update({ data: mergedPitchingData }).eq("id", pitchingTicket.id);
+          setPitchingTicket((t) => ({ ...t, data: mergedPitchingData }));
         }
       } else {
         const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching").single();
         if (tab) {
-          const newData = { releaseId: newDid, priority: false, spotify: false, apple: false, nct: false, zing: false, ...pitchingTypesDraft };
+          const newData = { releaseId: newDid, priority: false, spotifyBanner: false, spotifyS4a: false, domestic: false, ...pitchingTypesDraft };
           const { data: created } = await supabase
             .from("tickets")
             .insert({
@@ -508,32 +619,37 @@ export default function ReleaseDetailPage() {
       }
     }
 
-    if (form.gate_artist_profile === "true") {
-      if (artistProfileTicket) {
-        // Same "only write if the draft actually changed" idea as
-        // Pitching just above — the Spotify/Tiktok/Apple picker only
-        // ever touches this ticket's data, so a plain JSON compare is
-        // enough to know whether a write is needed.
-        if (JSON.stringify(artistProfileTicket.data) !== JSON.stringify({ ...artistProfileTicket.data, ...artistProfileTypesDraft })) {
-          const newData = { ...artistProfileTicket.data, ...artistProfileTypesDraft };
-          await supabase.from("tickets").update({ data: newData }).eq("id", artistProfileTicket.id);
-          setArtistProfileTicket((t) => ({ ...t, data: newData }));
-        }
-      } else {
-        const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
-        if (tab) {
-          const { data: created } = await supabase
-            .from("tickets")
-            .insert({
-              tab_id: tab.id,
-              data: { releaseId: newDid, artistName: form.main_artist, email: "", ...artistProfileTypesDraft },
-              status: tab.default_status,
-              status_log: { [tab.default_status]: new Date().toISOString() },
-              requester_segment: form.requester_segment || null,
-            })
-            .select()
-            .single();
-          if (created) setArtistProfileTicket(created);
+    // Round 97 — Artist Profile Verify is the real ticket-creation gate
+    // now (gate_artist_profile/"Artist Info" is marketing-only — just the
+    // portfolio URL popup, see URL_GATE_FIELDS in lib/GateFields.js). One
+    // ticket per artist checked in ArtistProfileVerifyPanel that doesn't
+    // already have one — existing tickets are never touched here (their
+    // own platform picks are edited on /tickets/artist-profile), only new
+    // artists get a new ticket, same idempotent-on-repeated-Save shape as
+    // every other gate-triggered ticket on this page.
+    if (form.gate_artist_profile_verify === "true" && artistProfileVerifySelected.length > 0) {
+      const toCreate = artistProfileVerifySelected.filter((name) => !artistProfileTicketByArtist[name]);
+      if (toCreate.length > 0) {
+        const { data: apTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
+        if (apTab) {
+          const created = await Promise.all(
+            toCreate.map((artistName) =>
+              supabase
+                .from("tickets")
+                .insert({
+                  tab_id: apTab.id,
+                  data: { releaseId: newDid, artistName, email: "", ...artistProfileTypesDraft },
+                  status: apTab.default_status,
+                  status_log: { [apTab.default_status]: new Date().toISOString() },
+                  requester_segment: form.requester_segment || null,
+                })
+                .select()
+                .single()
+                .then(({ data }) => data)
+            )
+          );
+          const createdTickets = created.filter(Boolean);
+          if (createdTickets.length > 0) setArtistProfileTickets((prev) => [...prev, ...createdTickets]);
         }
       }
     }
@@ -844,6 +960,23 @@ export default function ReleaseDetailPage() {
     setPitchingTypesDraft((d) => ({ ...d, [key]: checked }));
   }
 
+  // Round 109 — the Copyrights tab's release-level checklist (Single only)
+  // used to just patch local `form` state via the generic `update()` and
+  // wait for the page's own SaveBar to persist it, same as every other
+  // field on this tab. The new CopyrightRightsPopup's explicit Save button
+  // is supposed to actually commit immediately (per explicit request,
+  // replacing "fill in and auto save" — this is now "fill in and SAVE to
+  // commit"), so this writes straight to `releases` the moment Save is
+  // clicked, same immediate-write pattern TracklistSection's updateTrack
+  // already uses for the EP/Album per-track case — no more waiting on the
+  // page-level Save button for this one field.
+  async function saveCopyrightChecklist(next) {
+    await supabase.from("releases").update({ copyright_checklist: next }).eq("id", id);
+    setForm((f) => ({ ...f, copyright_checklist: next }));
+    setRelease((r) => ({ ...r, copyright_checklist: next }));
+    setCopyrightGateVersion((v) => v + 1); // keeps Send Upload's gate live, same as onCopyrightChange elsewhere
+  }
+
   // Explicit button rather than auto-firing on the Priority checkbox —
   // ticking the box is just a draft edit until Save (like everything else
   // here), and this needs the Pitching ticket to exist first anyway, so an
@@ -1021,6 +1154,52 @@ export default function ReleaseDetailPage() {
     setRelease((r) => ({ ...r, package_locked: newVal }));
   }
 
+  // Round 121 — undoes a resolved package decision (INT MEDIA via SEND INT
+  // SUPPORT PACKAGE, or any other real contract type — e.g. a genuine
+  // artist pick via the magic link) back to DEALING, as if nothing had
+  // been picked yet. Admin+ only (canResetToDealing) — this is the undo
+  // for the internal-shortcut buttons above, not another version of them.
+  //
+  // Per explicit request: the already-built Media Booking package/lines
+  // are left untouched in the DB (in case the same package gets re-picked
+  // later, or for reference) — this only clears the release-level
+  // resolution fields (project_type, package_locked, package_total_value)
+  // and int_media_requested (so SEND INT SUPPORT PACKAGE/Send INT MEDIA
+  // Follow-up above aren't left permanently disabled if this release needs
+  // to go through that path again).
+  //
+  // Also reopens the SAME Media Booking ticket (if one exists) back to
+  // REQUESTED, same "flip status + notify Marketing" shape
+  // sendPackageTicket() already uses for its resend case — but
+  // unconditionally, regardless of the ticket's current status, since this
+  // is an admin override rather than a "wait for Marketing to finish
+  // first" resend.
+  async function resetToDealing() {
+    if (!canResetToDealing) return;
+    if (PIPELINE_STAGES.includes(form.project_type)) return; // nothing resolved yet — nothing to undo
+    if (!window.confirm(`Reset "${form.title || form.did}" back to DEALING? This clears the resolved package decision (contract type, lock, total value) but keeps the already-built Media Booking package for reference.`)) return;
+    const patch = { project_type: "DEALING", package_locked: false, package_total_value: null, int_media_requested: false };
+    await supabase.from("releases").update(patch).eq("id", id);
+    setForm((f) => ({ ...f, ...patch }));
+    setRelease((r) => ({ ...r, ...patch }));
+
+    if (mediaBookingTicket) {
+      const newLog = { ...(mediaBookingTicket.status_log || {}), REQUESTED: new Date().toISOString() };
+      await supabase.from("tickets").update({ status: "REQUESTED", status_log: newLog }).eq("id", mediaBookingTicket.id);
+      setMediaBookingTicket((t) => ({ ...t, status: "REQUESTED", status_log: newLog }));
+      // Same manual fanout sendPackageTicket()'s resend uses — an UPDATE
+      // never fires trg_notify_on_ticket_insert.
+      await supabase.rpc("fanout_notification", {
+        p_team: "Marketing",
+        p_type: "new_ticket",
+        p_title: "Media Booking ticket reopened",
+        p_body: `${form.title || "A release"} was reset back to DEALING — the package decision needs to be rebuilt.`,
+        p_link: "/tickets/media-booking",
+        p_ticket_id: mediaBookingTicket.id,
+      });
+    }
+  }
+
   if (error && !release) return <div className={styles.page}><div className={styles.container}><div className={styles.errorBox}>{error}</div></div></div>;
   if (!form) return <div className={styles.page}><div className={styles.container}>Loading…</div></div>;
 
@@ -1048,7 +1227,21 @@ export default function ReleaseDetailPage() {
   // unlock Send Upload; only hitting Save (saveTab persisting the draft
   // into pitchingTicket) does.
   const priorityConfirmed = !!pitchingTicket?.data?.priority;
-  const uploadReady = nameGroupFilled && (requiredMetaDone === REQUIRED_META_KEYS.length || priorityConfirmed);
+  // Round 105 — Send Upload now also gates on the Copyright Checklist
+  // being fully filled in (not just started), per explicit request. Single
+  // gates on the release-level checklist (release.copyright_checklist —
+  // the SAVED value, same "must hit Save first" rule as the meta checklist
+  // above); EP/Album gates on EVERY track's own checklist instead, since
+  // the release-level one is no longer shown/editable for those product
+  // types (see CopyrightsTab) — the team confirmed they always fill it in
+  // per-track for EP/Album, using "Copy to all tracks" when it's the same
+  // across the whole product. An EP/Album with zero tracks yet can't be
+  // "complete" either — nothing to check off.
+  const isSingleForUpload = !form.single_album_ep || form.single_album_ep === "Single";
+  const copyrightGateOk = isSingleForUpload
+    ? copyrightChecklistIsComplete(release?.copyright_checklist)
+    : trackCopyrightRows.length > 0 && trackCopyrightRows.every((t) => copyrightChecklistIsComplete(t.copyright_checklist));
+  const uploadReady = nameGroupFilled && (requiredMetaDone === REQUIRED_META_KEYS.length || priorityConfirmed) && copyrightGateOk;
 
   return (
     <AppShell>
@@ -1143,6 +1336,8 @@ export default function ReleaseDetailPage() {
             canSimulate={canSimulate}
             onSendIntSupportPackage={sendIntSupportPackage}
             onSendOnlyPh={sendOnlyPh}
+            canResetToDealing={canResetToDealing}
+            onResetToDealing={resetToDealing}
             pseudoParent={pseudoParent}
             pseudoParentMagicLink={pseudoParentMagicLink}
             pseudoParentError={pseudoParentError}
@@ -1153,14 +1348,30 @@ export default function ReleaseDetailPage() {
             onSendPitchingInfoTicket={sendPitchingInfoTicket}
             artistProfileTypesDraft={artistProfileTypesDraft}
             onArtistProfileToggle={(key, checked) => setArtistProfileTypesDraft((p) => ({ ...p, [key]: checked }))}
+            updateArtistTags={updateArtistTags}
+            artistProfileArtistTags={artistProfileArtistTags}
+            artistProfileVerifySelected={artistProfileVerifySelected}
+            onToggleArtistProfileArtist={toggleArtistProfileArtist}
+            artistProfileTicketByArtist={artistProfileTicketByArtist}
             coTrongNetDraft={coTrongNetDraft}
             onCoTrongNetChange={(key, value) => setCoTrongNetDraft((p) => ({ ...p, [key]: value }))}
             onSendCoTrongNetYoutube={sendCoTrongNetYoutube}
             gateTicketMap={gateTicketMap}
             setTab={setTab}
+            onCopyrightChange={() => setCopyrightGateVersion((v) => v + 1)}
+            copyrightGateOk={copyrightGateOk}
           />
         )}
-        {tab === "copyrights" && <CopyrightsTab form={form} update={update} onSave={saveTab} saving={saving} />}
+        {tab === "copyrights" && (
+          <CopyrightsTab
+            form={form}
+            update={update}
+            onSave={saveTab}
+            saving={saving}
+            onCopyrightChange={() => setCopyrightGateVersion((v) => v + 1)}
+            saveCopyrightChecklist={saveCopyrightChecklist}
+          />
+        )}
         {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} did={form.did} releaseId={id} />}
         {tab === "media_booking" && (
           <MediaBookingTab
@@ -1423,7 +1634,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, canSimulate, onSendIntSupportPackage, onSendOnlyPh, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, coTrongNetDraft, onCoTrongNetChange, onSendCoTrongNetYoutube, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, canSimulate, onSendIntSupportPackage, onSendOnlyPh, canResetToDealing, onResetToDealing, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, updateArtistTags, artistProfileArtistTags, artistProfileVerifySelected, onToggleArtistProfileArtist, artistProfileTicketByArtist, coTrongNetDraft, onCoTrongNetChange, onSendCoTrongNetYoutube, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError, onCopyrightChange, copyrightGateOk }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -1472,7 +1683,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         setTopics((data || []).filter((r) => r.category === "topic"));
         setChannels((data || []).filter((r) => r.category === "channel"));
       });
-    supabase.from("artists").select("stage_name, labels(label_name)").order("stage_name").then(({ data }) => setArtistsList(data || []));
+    supabase.from("artists").select("id, stage_name, labels(label_name)").order("stage_name").then(({ data }) => setArtistsList(data || []));
     supabase.from("labels").select("label_name").order("label_name").then(({ data }) => setLabelsList(data || []));
   }, []);
 
@@ -1513,7 +1724,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
       </div>
 
       {form.single_album_ep !== "Single" && (
-        <TracklistSection releaseId={form.id} />
+        <TracklistSection releaseId={form.id} onCopyrightChange={onCopyrightChange} />
       )}
 
       {/* UPC/ISRC/Apple ID hidden from Overview ("ẩn đi, không hiện ở dự án")
@@ -1765,6 +1976,22 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
               </button>
             </>
           )}
+          {/* Round 121 — the undo for a resolved package decision (INT
+              MEDIA via SEND INT SUPPORT PACKAGE above, or any other real
+              contract type) — puts the release back at DEALING. Admin+
+              only (canResetToDealing), independent of canSimulate — this
+              is a step up from the shortcuts above, not another one of
+              them. Only shown once there's actually something resolved to
+              undo. */}
+          {canResetToDealing && !PIPELINE_STAGES.includes(form.project_type) && (
+            <button
+              className={styles.btnSmall}
+              onClick={onResetToDealing}
+              title="Clears the resolved package decision (contract type, lock, total value) back to DEALING, as if nothing had been picked yet. Keeps the already-built Media Booking package for reference, and reopens its ticket for Marketing."
+            >
+              Reset to DEALING
+            </button>
+          )}
         </div>
 
         {magicLinkUrl && (
@@ -1793,20 +2020,24 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           <input className={styles.input} value={form.title || ""} onChange={(e) => update("title", e.target.value)} />
         </Field>
         <Field label="Main Artist">
-          <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
-            <div style={{ flex: 1 }}>
-              <ArtistInput styles={styles} value={form.main_artist} onChange={(v) => update("main_artist", v)} artists={artistsList} placeholder="Tên nghệ sĩ chính" />
-            </div>
-            <QuickCreate kind="artist" onCreated={(newArtist) => { setArtistsList((prev) => [...prev, newArtist]); update("main_artist", newArtist.stage_name); }} />
-          </div>
+          <ArtistTagInput
+            styles={styles}
+            value={form.main_artist_tags}
+            onChange={(tags) => updateArtistTags("main_artist_tags", "main_artist", tags)}
+            artists={artistsList}
+            placeholder="Tìm nghệ sĩ chính…"
+            onArtistCreated={(newArtist) => setArtistsList((prev) => [...prev, newArtist])}
+          />
         </Field>
         <Field label="Feature Artist">
-          <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
-            <div style={{ flex: 1 }}>
-              <ArtistInput styles={styles} value={form.feature_artist} onChange={(v) => update("feature_artist", v)} artists={artistsList} placeholder="Tên nghệ sĩ feature (nếu có)" />
-            </div>
-            <QuickCreate kind="artist" onCreated={(newArtist) => { setArtistsList((prev) => [...prev, newArtist]); update("feature_artist", newArtist.stage_name); }} />
-          </div>
+          <ArtistTagInput
+            styles={styles}
+            value={form.feature_artist_tags}
+            onChange={(tags) => updateArtistTags("feature_artist_tags", "feature_artist", tags)}
+            artists={artistsList}
+            placeholder="Tìm nghệ sĩ feature (nếu có)…"
+            onArtistCreated={(newArtist) => setArtistsList((prev) => [...prev, newArtist])}
+          />
         </Field>
         <Field label="Release Date">
           <input type="date" className={styles.input} value={form.release_date || ""} onChange={(e) => update("release_date", e.target.value)} />
@@ -1891,6 +2122,15 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
             Metadata Checklist has unsaved changes — hit Save below before Send Upload picks them up.
           </p>
         )}
+        {/* Round 105 — Copyright Checklist gate. Shown whenever it's the
+            reason uploadReady is false and every other reason above isn't
+            already covering it, so this doesn't stack redundant messages
+            with the Priority Pitching / unsaved-metadata hints. */}
+        {!form.requested && !uploadReady && !copyrightGateOk && (
+          <p style={{ color: "#e57373", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
+            Copyright Checklist isn't fully filled in yet — {form.single_album_ep && form.single_album_ep !== "Single" ? "every track needs" : "the"} Owner, Contract, and Validity Period on all 3 rights before Send Upload unlocks.
+          </p>
+        )}
       </div>
 
       {/* Round 88 2nd follow-up — Copyright Checklist moved out of
@@ -1908,6 +2148,10 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
           onSendPitchingInfoTicket={onSendPitchingInfoTicket}
           artistProfileTypes={artistProfileTypesDraft}
           onArtistProfileToggle={onArtistProfileToggle}
+          artistProfileArtistTags={artistProfileArtistTags}
+          artistProfileSelected={artistProfileVerifySelected}
+          onToggleArtistProfileArtist={onToggleArtistProfileArtist}
+          artistProfileExistingByArtist={artistProfileTicketByArtist}
           coTrongNetDraft={coTrongNetDraft}
           onCoTrongNetChange={onCoTrongNetChange}
           onSendCoTrongNetYoutube={onSendCoTrongNetYoutube}
@@ -1959,7 +2203,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
 // the only difference between the two call sites: Copyrights renders it
 // `true` to get each track's own copyright combo (4 fields × 3 rights)
 // underneath; Overview keeps calling it with no copyright UI at all.
-function TracklistSection({ releaseId, showCopyright = false }) {
+function TracklistSection({ releaseId, showCopyright = false, onCopyrightChange }) {
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [artistsList, setArtistsList] = useState([]);
@@ -1967,7 +2211,7 @@ function TracklistSection({ releaseId, showCopyright = false }) {
   useEffect(() => {
     if (!supabase || !releaseId) return;
     load();
-    supabase.from("artists").select("stage_name, labels(label_name)").order("stage_name").then(({ data }) => setArtistsList(data || []));
+    supabase.from("artists").select("id, stage_name, labels(label_name)").order("stage_name").then(({ data }) => setArtistsList(data || []));
   }, [releaseId]);
 
   async function load() {
@@ -1985,17 +2229,20 @@ function TracklistSection({ releaseId, showCopyright = false }) {
       .select()
       .single();
     if (!err && data) setTracks((prev) => [...prev, data]);
+    onCopyrightChange?.(); // Round 105 — a new blank track resets EP/Album's copyright-complete gate to false
   }
 
   async function updateTrack(track, field, value) {
     setTracks((prev) => prev.map((t) => (t.id === track.id ? { ...t, [field]: value } : t)));
     await supabase.from("release_tracks").update({ [field]: value }).eq("id", track.id);
+    if (field === "copyright_checklist") onCopyrightChange?.(); // Round 105 — keeps Send Upload's gate live
   }
 
   async function removeTrack(track) {
     if (!window.confirm(`Remove "${track.track_name || "this track"}"?`)) return;
     setTracks((prev) => prev.filter((t) => t.id !== track.id));
     await supabase.from("release_tracks").delete().eq("id", track.id);
+    onCopyrightChange?.(); // Round 105 — removing a track can flip the gate true if the rest are already complete
   }
 
   // Round 88 follow-up 4 — "copy this track's copyright fields to the
@@ -2013,13 +2260,36 @@ function TracklistSection({ releaseId, showCopyright = false }) {
     const value = sourceTrack.copyright_checklist;
     setTracks((prev) => prev.map((t) => (t.id === sourceTrack.id ? t : { ...t, copyright_checklist: value })));
     await Promise.all(others.map((t) => supabase.from("release_tracks").update({ copyright_checklist: value }).eq("id", t.id)));
+    onCopyrightChange?.(); // Round 105 — keeps Send Upload's gate live
   }
 
   if (loading) return null;
 
+  // Round 115 — declaredCount/totalCount for the summary badge, now
+  // computed here directly (CopyrightSummaryBar is just the badge/button,
+  // no longer owns the row data — see lib/CopyrightRights.js).
+  const declaredCount = showCopyright ? tracks.filter((t) => copyrightChecklistIsComplete(t.copyright_checklist)).length : 0;
+
   return (
     <div style={{ marginBottom: 20 }}>
       <div className={styles.subheading} style={{ marginTop: 0 }}>Tracklist</div>
+      {/* Round 115 item 1 — "move the declare button to up, under each
+          track... just one declare button for all three [rights]" — the
+          summary badge + Copy rights button now sit once above the whole
+          list (same info as before, no longer per-row), and each track
+          gets its own CopyrightRowStatus (pills + one Declare/Edit Rights
+          button opening all 3 rights in one tabbed popup — see
+          CopyrightRightsPopup) directly under that track's own fields,
+          instead of a separate table block below the whole tracklist. */}
+      {showCopyright && tracks.length > 0 && (
+        <CopyrightSummaryBar
+          styles={styles}
+          declaredCount={declaredCount}
+          totalCount={tracks.length}
+          countLabel="tracks"
+          onCopyRights={tracks.length > 1 ? () => copyCopyrightToAllTracks(tracks[0]) : null}
+        />
+      )}
       {tracks.length === 0 && <p style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 10 }}>No tracks added yet.</p>}
       {tracks.map((t) => (
         <div key={t.id} style={{ marginBottom: showCopyright ? 16 : 8 }}>
@@ -2048,24 +2318,12 @@ function TracklistSection({ releaseId, showCopyright = false }) {
             <button onClick={() => removeTrack(t)} className={styles.btnSmall} style={{ padding: "4px 8px" }} title="Remove track">✕</button>
           </div>
           {showCopyright && (
-            <div style={{ marginTop: 8, marginLeft: 58 }}>
-              {tracks.length > 1 && (
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
-                  <button
-                    type="button"
-                    onClick={() => copyCopyrightToAllTracks(t)}
-                    className={styles.btnSmall}
-                    title="Copy this track's Copyright Checklist to every other track in this release"
-                  >
-                    ⧉ Copy to all tracks
-                  </button>
-                </div>
-              )}
-              <CopyrightChecklistFields
+            <div style={{ marginTop: 8, paddingLeft: 58 }}>
+              <CopyrightRowStatus
                 styles={styles}
-                compact
-                value={t.copyright_checklist}
-                onChange={(v) => updateTrack(t, "copyright_checklist", v)}
+                checklist={t.copyright_checklist}
+                trackLabel={t.track_name || `Track ${t.sort_order}`}
+                onSave={(next) => updateTrack(t, "copyright_checklist", next)}
               />
             </div>
           )}
@@ -2084,7 +2342,7 @@ function TracklistSection({ releaseId, showCopyright = false }) {
 // track getting its own independent copyright combo underneath it, since
 // an EP/Album's individual songs can genuinely have different
 // owners/contracts from each other and from the release as a whole.
-function CopyrightsTab({ form, update, onSave, saving }) {
+function CopyrightsTab({ form, update, onSave, saving, onCopyrightChange, saveCopyrightChecklist }) {
   const isSingle = form.single_album_ep === "Single";
   return (
     <div>
@@ -2102,16 +2360,48 @@ function CopyrightsTab({ form, update, onSave, saving }) {
         placeholder="General AR note for this product…"
       />
 
-      <div className={styles.subheading}>Copyright Checklist{isSingle ? "" : " — Release-wide"}</div>
-      <CopyrightChecklistFields
-        styles={styles}
-        value={form.copyright_checklist}
-        onChange={(v) => update("copyright_checklist", v)}
-      />
+      {/* Round 105 — the release-wide checklist is Single-only now. Per
+          explicit request/team confirmation, EP/Album never actually used
+          this one — they fill copyright in PER TRACK below and use that
+          section's own "Copy to all tracks" button when a whole EP/Album
+          genuinely shares one owner/contract, rather than a separate
+          release-level copy that then has to somehow reconcile with the
+          per-track data. Removing it for EP/Album also avoids a dead field
+          that Send Upload's new copyright gate would otherwise have to
+          decide whether to check (it doesn't — see uploadReady in the
+          parent component, which only reads release-level for Single and
+          only reads every track for EP/Album). */}
+      {isSingle && (
+        <>
+          <div className={styles.subheading}>Copyright Checklist</div>
+          {/* Round 109 — "if the product isn't an EP or Album, just show 1
+              combo... no need to show the track name" — a single synthetic
+              row (a Single has exactly 1 track sharing the release's own
+              name, so a Track column would be redundant). Round 115 — same
+              pills+one-button consolidation as the EP/Album case, via
+              CopyrightRowStatus; nothing to "move up" here (there's no
+              separate tracklist section to relocate into for a Single —
+              this already IS the one row). Saves straight to `releases` on
+              the popup's Save button, same immediate-write pattern as the
+              per-track case — no more waiting on this tab's own SaveBar
+              for this one field. */}
+          <CopyrightSummaryBar
+            styles={styles}
+            declaredCount={copyrightChecklistIsComplete(form.copyright_checklist) ? 1 : 0}
+            totalCount={1}
+            countLabel="rights"
+          />
+          <CopyrightRowStatus
+            styles={styles}
+            checklist={form.copyright_checklist}
+            onSave={(next) => saveCopyrightChecklist(next)}
+          />
+        </>
+      )}
 
       {!isSingle && (
-        <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
-          <TracklistSection releaseId={form.id} showCopyright />
+        <div style={{ marginTop: isSingle ? 24 : 0, borderTop: isSingle ? "1px solid var(--border)" : "none", paddingTop: isSingle ? 20 : 0 }}>
+          <TracklistSection releaseId={form.id} showCopyright onCopyrightChange={onCopyrightChange} />
         </div>
       )}
 
@@ -2126,7 +2416,7 @@ function UrlTab({ form, update, onSave, saving, did, releaseId }) {
     ["link_lbm", "Link LBM"],
     ["link_share", "Link Share"],
     ["link_preorder", "Link Pre-order"],
-    ["link_ugc", "Link UGC"],
+    ["link_ugc", "Link Sound TikTok"],
     ["promotion_package_url", "URL Promotion Package"],
     ["artist_photo_url", "Artist Photo URL"],
     ["project_proposal_url", "Project Proposal URL"],

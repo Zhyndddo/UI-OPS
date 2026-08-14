@@ -7,6 +7,7 @@ import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
 import { isOpsTeam } from "../../../lib/teamTypes";
+import { PITCHING_TYPES } from "../../../lib/GateFields";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
@@ -63,7 +64,9 @@ export default function PitchingTicketList() {
     const dids = [...new Set((tickets || []).map((t) => t.data?.releaseId).filter(Boolean))];
     let releaseMap = {};
     if (dids.length > 0) {
-      const { data: rels } = await supabase.from("releases").select("id, did, title, main_artist, release_date").in("did", dids);
+      // Round 146 — link_lbm added so the Release column can show it as a
+      // clickable third line (see below).
+      const { data: rels } = await supabase.from("releases").select("id, did, title, main_artist, release_date, link_lbm").in("did", dids);
       (rels || []).forEach((r) => (releaseMap[r.did] = r));
     }
     setRows((tickets || []).map((t) => ({ ticket: t, release: releaseMap[t.data?.releaseId] || null })));
@@ -122,20 +125,35 @@ export default function PitchingTicketList() {
               <tbody>
                 {pagedRows.map(({ ticket, release }) => {
                   const color = statusColor(ticket.status);
-                  const requested = ["priority", "spotify", "apple", "nct", "zing"].filter((k) => ticket.data?.[k]);
+                  // Round 106 item 5 — 4 merged top-level types (was 5) — see
+                  // lib/GateFields.js's PITCHING_TYPES, now the single source
+                  // of truth for both the release detail checkbox group and
+                  // this read-only list.
+                  const requested = PITCHING_TYPES.filter(([k]) => ticket.data?.[k]);
                   return (
                     <tr key={ticket.id}>
                       <td style={{ fontSize: 12 }}>{fmtDate(ticket.created_at)}</td>
                       <td style={{ fontSize: 12 }}>
                         {release ? (
-                          <Link href={`/releases/${release.id}`} className={styles.rowLink}>
-                            {release.title} — {release.main_artist}
-                          </Link>
+                          <>
+                            <Link href={`/releases/${release.id}`} className={styles.rowLink}>
+                              {release.title} — {release.main_artist}
+                            </Link>
+                            {/* Round 146 — item 3: URL LBM as a clickable
+                                third row under the release info. */}
+                            {release.link_lbm && (
+                              <div>
+                                <a href={release.link_lbm} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-soft)", fontSize: 11 }}>
+                                  {release.link_lbm}
+                                </a>
+                              </div>
+                            )}
+                          </>
                         ) : (ticket.data?.releaseId || "—")}
                       </td>
                       <td style={{ fontSize: 12 }}>
-                        {requested.length > 0 ? requested.map((k) => (
-                          <span key={k} className={styles.pill} style={{ marginRight: 4 }}>{k}</span>
+                        {requested.length > 0 ? requested.map(([k, label]) => (
+                          <span key={k} className={styles.pill} style={{ marginRight: 4 }}>{label}</span>
                         )) : "—"}
                       </td>
                       <td>

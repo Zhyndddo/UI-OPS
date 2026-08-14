@@ -200,10 +200,18 @@ export default function BatchPhaiSinhDetail() {
             <div className={styles.emptyState}>No songs in this batch yet — use "+ Add Via Paste" above.</div>
           ) : (
             <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
-            <table className={styles.table} style={{ minWidth: 2550 }}>
+            <table className={styles.table} style={{ minWidth: 2700 }}>
               <thead>
                 <tr>
-                  <th style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", minWidth: 200 }}>Tên Bài</th>
+                  {/* Round 116 — new leftmost column, per explicit request
+                      ("add a column label 'Album name'... right before the
+                      'Tên Bài' column"). Takes over the sticky-left-column
+                      spot from Tên Bài (this app has no established
+                      2-sticky-column pattern anywhere else, and Album Name
+                      is now the more-left one) — Tên Bài becomes a normal
+                      scrolling column right after it. */}
+                  <th style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", minWidth: 160 }}>Album Name</th>
+                  <th style={{ minWidth: 200 }}>Tên Bài</th>
                   <th style={{ minWidth: 110 }}>Version</th>
                   <th style={{ minWidth: 100 }}>Thể Loại</th>
                   <th style={{ minWidth: 130 }}>Artist</th>
@@ -239,6 +247,9 @@ export default function BatchPhaiSinhDetail() {
                   return (
                     <tr key={item.id}>
                       <td style={{ position: "sticky", left: 0, zIndex: 5, background: "var(--bg)" }}>
+                        <input className={styles.input} style={{ padding: "4px 6px", fontSize: 12 }} defaultValue={item.album_name || ""} onBlur={(e) => updateItem(item, { album_name: e.target.value })} />
+                      </td>
+                      <td>
                         <input className={styles.input} style={{ padding: "4px 6px", fontSize: 12 }} defaultValue={item.ten_bai || ""} onBlur={(e) => updateItem(item, { ten_bai: e.target.value })} />
                       </td>
                       <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.version || ""} onBlur={(e) => updateItem(item, { version: e.target.value })} /></td>

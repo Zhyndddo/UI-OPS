@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
@@ -15,6 +15,13 @@ import styles from "../../shared.module.css";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import YoutubeAdsFields from "../../../lib/YoutubeAdsFields";
 import { useIsMobile } from "../../../lib/useIsMobile";
+// Round 125 — item 2: same Linkfire door the Booking Board already has
+// (see app/booking/page.js), now also reachable from inside the booking
+// ticket itself rather than only from the board. Same admin-editable
+// app_settings key, same fallback default.
+import { ARTIST_PROFILE_LINKS_SETTING_KEY, DEFAULT_LINKFIRE_URL } from "../../../lib/externalTools";
+import UrlField from "../../../lib/UrlField";
+import { canEditMediaBookingTicket } from "../../../lib/permissions";
 
 function fmtVnd(n) {
   if (n === null || n === undefined || n === "") return "—";
@@ -354,7 +361,11 @@ const TIKTOK_GROUPS = {
   "Partner": ["EXT TIKTOK - BK MUSIC", "EXT TIKTOK - DUCTH", "EXT TIKTOK - BK GROUP", "EXT TIKTOK - CTV MẪU"],
 };
 const TIKTOK_ALL_BRANDS = Object.values(TIKTOK_GROUPS).flat();
-const TIKTOK_SUBCHANNELS = ["TIKTOK NEWS", "TIKTOK CAPCUT", "MẪU CAPCUT", "TIKTOK REUP MV", "TIKTOK LYRICS"];
+// Round 124 — reordered per explicit team request ("re-order the column
+// so the one they care more actually go first") — was TIKTOK NEWS, TIKTOK
+// CAPCUT, MẪU CAPCUT, TIKTOK REUP MV, TIKTOK LYRICS. MUST stay in sync
+// with the equivalent copy in app/booking/page.js.
+const TIKTOK_SUBCHANNELS = ["TIKTOK CAPCUT", "TIKTOK LYRICS", "MẪU CAPCUT", "TIKTOK NEWS", "TIKTOK REUP MV"];
 
 // Ads' 4 ad-platform groups — always shown together (no single "selected
 // brand" toggle like Social/Community/TikTok), each with its own fixed
@@ -373,14 +384,14 @@ const ADS_BRAND_COLORS = {
 };
 const ADS_METRICS = {
   "Facebook Ads": ["Lượt tiếp cận", "Lượt tương tác", "Lượt truy cập (Link click)"],
-  "YouTube Ads": ["Thruplays (Views)"],
+  "YouTube Ads": ["Thruplay (Views)"],
   "TikTok Ads": ["Lượt tiếp cận", "Lượt xem video", "Lượt theo dõi", "Lượt truy cập (Link click)"],
   "Spotify Ads": ["HPTO", "In-Stream Audio", "In-Stream Video", "In-Feed Display", "In-Feed Video"],
 };
 
 // Round 78 — item 3: default Chi Tiết text for a freshly-created YouTube
 // Ads package line, per explicit request. Replaces the computed "SL X
-// Thruplays (Views)" text every other Ads brand still gets on first
+// Thruplay (Views)" text every other Ads brand still gets on first
 // insert — still just a starting value, freely editable afterward (see
 // syncPackageLine's Ads branch and PackagesPanel's Chi Tiết column).
 const YOUTUBE_ADS_DEFAULT_DETAIL = "Áp dụng kênh youtube nghệ sĩ thuộc MCN, MV thời lượng dưới 5 phút";
@@ -469,6 +480,8 @@ function CategoryCountsPopup({ isTikTokChannel, isAds, brandList, currentBrand, 
 // entirely) — gated the same way the ticket itself always was, not by
 // Send Upload.
 function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
+  const { profile } = useAuth();
+  const canEdit = canEditMediaBookingTicket(profile);
   const [release, setRelease] = useState(null);
   const [categories, setCategories] = useState([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
@@ -486,6 +499,11 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const [dot2Targets, setDot2Targets] = useState(null); // { creation_target, links_paid_target } for TikTok Channel on this release, or null if never set
   const [showDot2Popup, setShowDot2Popup] = useState(false);
   const [magicLinkUrl, setMagicLinkUrl] = useState(null);
+  // Round 125 — item 2: mirrors app/booking/page.js's linkfireUrl state —
+  // this popup never loaded app_settings before, so it starts at the
+  // known-good default and gets overwritten by loadAll() below the moment
+  // the setting row is read.
+  const [linkfireUrl, setLinkfireUrl] = useState(DEFAULT_LINKFIRE_URL);
   const [loading, setLoading] = useState(true);
   const [showBuildPopup, setShowBuildPopup] = useState(false);
   // Round 87 — mobile plan phase 3/4: this popup used to always show the
@@ -513,6 +531,22 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const [generatingLink, setGeneratingLink] = useState(false);
   const [showClonePopup, setShowClonePopup] = useState(false); // round 79 — "Clone from another product"
   const [priceDefaults, setPriceDefaults] = useState(DEFAULT_UNIT_PRICES); // overridden by Config → Media Booking Pricing once saved there
+  // Round 117 — mirrors priceDefaults, but updates SYNCHRONOUSLY (a ref
+  // write takes effect immediately, not on the next render like setState
+  // does). Fixes a real "recheck" bug: this ticket page only ever fetched
+  // Config's Đơn Giá defaults once, on mount (see loadAll below) — if an
+  // admin saved a new/changed default in Config → Media Booking Pricing
+  // AFTER this tab was already open, every Summarize in that already-open
+  // tab kept computing a NEW line's default Đơn Giá from the STALE value
+  // captured at mount (null, if no default existed yet back then), even
+  // though Config genuinely had a real number "set" by the time the line
+  // was created. handleSummarize below now re-fetches fresh defaults into
+  // this ref right before every Summarize, so a new line's default always
+  // reflects whatever's in Config right now, not whatever it was when the
+  // page first loaded. Every price-lookup that seeds a NEW value (as
+  // opposed to just displaying the already-loaded `priceDefaults` state)
+  // reads this ref instead of the state variable.
+  const priceDefaultsRef = useRef(DEFAULT_UNIT_PRICES);
 
   const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
   const isSocial = selectedCategory?.name === "Social";
@@ -542,15 +576,14 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     // Round 54 — Config-editable default Đơn Giá (falls back to
     // DEFAULT_UNIT_PRICES above if never saved, or if global_settings
     // itself doesn't have this key yet).
-    const { data: priceSetting } = await supabase.from("global_settings").select("value").eq("key", UNIT_PRICE_DEFAULTS_SETTING_KEY).maybeSingle();
-    if (priceSetting?.value) {
-      try {
-        const parsed = JSON.parse(priceSetting.value);
-        setPriceDefaults({ categories: { ...DEFAULT_UNIT_PRICES.categories, ...(parsed.categories || {}) }, ads: { ...DEFAULT_UNIT_PRICES.ads, ...(parsed.ads || {}) } });
-      } catch {
-        // malformed value — keep the hardcoded fallback rather than crash
-      }
-    }
+    await refreshPriceDefaults();
+
+    // Round 125 — item 2: same app_settings row the Booking Board reads
+    // for its Linkfire button, same access pattern (value is jsonb, not a
+    // string to parse — see app/booking/page.js's load()).
+    const { data: extLinks } = await supabase.from("app_settings").select("value").eq("key", ARTIST_PROFILE_LINKS_SETTING_KEY).maybeSingle();
+    if (extLinks?.value?.linkfire) setLinkfireUrl(extLinks.value.linkfire);
+
     if (rel) {
       const [{ data: rollups }, { data: pkgs }, { data: tiers }, { data: link }] = await Promise.all([
         supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", rel.id),
@@ -572,6 +605,26 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       setMagicLinkUrl(link ? `${window.location.origin}/pick-package/${link.token}` : null);
     }
     setLoading(false);
+  }
+
+  // Round 117 — pulled out of loadAll so handleSummarize (and addRow) can
+  // call it again right before seeding a NEW price, instead of only ever
+  // reading whatever was fetched once at page-load time. Updates
+  // priceDefaultsRef synchronously (see its declaration above) so the
+  // SAME call that triggered this refresh sees the fresh value
+  // immediately, not just future ones.
+  async function refreshPriceDefaults() {
+    const { data: priceSetting } = await supabase.from("global_settings").select("value").eq("key", UNIT_PRICE_DEFAULTS_SETTING_KEY).maybeSingle();
+    if (priceSetting?.value) {
+      try {
+        const parsed = JSON.parse(priceSetting.value);
+        const merged = { categories: { ...DEFAULT_UNIT_PRICES.categories, ...(parsed.categories || {}) }, ads: { ...DEFAULT_UNIT_PRICES.ads, ...(parsed.ads || {}) } };
+        priceDefaultsRef.current = merged;
+        setPriceDefaults(merged);
+      } catch {
+        // malformed value — keep the hardcoded fallback rather than crash
+      }
+    }
   }
 
   useEffect(() => {
@@ -696,7 +749,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     // whoever's filling this in doesn't have to look the price up and
     // type it in by hand every time. Still freely editable afterward —
     // this is only what a brand-new row starts at.
-    const defaultUnitPrice = isAds ? priceDefaults.ads[rowBrand]?.[platform] ?? null : null;
+    const defaultUnitPrice = isAds ? priceDefaultsRef.current.ads[rowBrand]?.[platform] ?? null : null;
     const { data } = await supabase
       .from("media_booking_content_entries")
       .insert({ release_id: release.id, category_id: selectedCategoryId, platform, brand: rowBrand, unit_price: defaultUnitPrice, sort_order: entries.length })
@@ -727,6 +780,13 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // (sum of phases) × channel count, not just an additive row count) and
   // rolls up per-brand instead of per-platform.
   async function handleSummarize() {
+    // Round 117 — "recheck" per explicit request: re-fetch Config's Đơn
+    // Giá defaults fresh, right before this Summarize, instead of trusting
+    // whatever was loaded when this tab first opened. See priceDefaultsRef's
+    // declaration for the full "why" — a default saved in Config after
+    // this tab was already open used to never reach a NEW line created in
+    // that tab, even though Config genuinely had a real number by then.
+    await refreshPriceDefaults();
     if (isTikTokChannel) {
       // Đợt 1 only — Số Kênh × Số Bài per row. Đợt 2's own pair is tracked
       // separately (see saveDot2Targets) and never feeds this total.
@@ -736,9 +796,21 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       }));
       setSummary(rows);
       const brandTotal = rows.reduce((sum, r) => sum + r.totalPosts, 0);
+      // Round 120 — per-subchannel breakdown for THIS brand (e.platform
+      // holds the subchannel name for TikTok Channel rows — see
+      // media_booking_content_entries.platform's comment in schema.sql).
+      // Stored alongside the plain brand total so a package built/synced
+      // from this rollup row can carry the real per-subchannel numbers
+      // through too — see groupSummarizedRows and syncPackageLine below,
+      // and app/booking/page.js's bookedFor().
+      const subchannelTotals = {};
+      rows.forEach((r) => {
+        if (!r.platform) return;
+        subchannelTotals[r.platform] = (subchannelTotals[r.platform] || 0) + r.totalPosts;
+      });
 
       await supabase.from("media_booking_package_categories").upsert(
-        { release_id: release.id, category_id: selectedCategoryId, brand: tiktokBrand, total_posts: brandTotal, skipped: false, updated_at: new Date().toISOString() },
+        { release_id: release.id, category_id: selectedCategoryId, brand: tiktokBrand, total_posts: brandTotal, platform_quantities: Object.keys(subchannelTotals).length > 0 ? subchannelTotals : null, skipped: false, updated_at: new Date().toISOString() },
         { onConflict: "release_id,category_id,brand" }
       );
       setTiktokBrandTotals((prev) => ({ ...prev, [tiktokBrand]: brandTotal }));
@@ -778,8 +850,25 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         const detailText = brandRows.filter((r) => (r.count_posts || 0) > 0).map((r) => `SL ${r.count_posts} ${r.platform}`).join("; ");
         if (brandRows.length === 0 || (totalQty === 0 && !detailText)) continue;
         totalsByBrand[adsBrandKey] = totalQty;
+        // Round 114 — a real per-metric quantity (count_posts) already
+        // exists on every row right here; it was being summed into totalQty
+        // and stringified into detailText but never kept in its structured
+        // { metric: count } shape past this point, so the Booking Board had
+        // no way to show a real target for any brand but YouTube Ads (its
+        // one metric IS totalQty). Carrying this map through to
+        // syncPackageLine fixes that — see media_booking_package_lines.
+        // metric_quantities and app/booking/page.js's bookedFor().
+        const metricQuantities = {};
+        brandRows.forEach((r) => { if ((r.count_posts || 0) > 0) metricQuantities[r.platform] = r.count_posts; });
+        // Round 114 — also stored on the rollup row itself (not just
+        // synced onto the live package line below), so a package built
+        // fresh from already-summarized rows (createPackage's non-clone
+        // path) — a Hạng Mục summarized in an earlier session, package
+        // never built yet — carries the real per-metric numbers too,
+        // instead of only the brand that happened to be re-Summarized
+        // interactively.
         await supabase.from("media_booking_package_categories").upsert(
-          { release_id: release.id, category_id: selectedCategoryId, brand: adsBrandKey, total_posts: totalQty, total_money: totalMoney, detail_text: detailText || null, skipped: false, updated_at: new Date().toISOString() },
+          { release_id: release.id, category_id: selectedCategoryId, brand: adsBrandKey, total_posts: totalQty, total_money: totalMoney, detail_text: detailText || null, metric_quantities: Object.keys(metricQuantities).length > 0 ? metricQuantities : null, skipped: false, updated_at: new Date().toISOString() },
           { onConflict: "release_id,category_id,brand" }
         );
         // Ads never mushes brands together — sync this brand's own line
@@ -787,7 +876,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         // Round 77 — totalPosts (totalQty) is now passed through; see the
         // fix note on syncPackageLine's Ads branch below for why this was
         // missing and what it broke.
-        await syncPackageLine({ key: `${selectedCategoryId}::${adsBrandKey}`, categoryId: selectedCategoryId, categoryName: "Ads", isAds: true, brand: adsBrandKey, totalMoney, totalPosts: totalQty, detailText });
+        await syncPackageLine({ key: `${selectedCategoryId}::${adsBrandKey}`, categoryId: selectedCategoryId, categoryName: "Ads", isAds: true, brand: adsBrandKey, totalMoney, totalPosts: totalQty, detailText, metricQuantities });
       }
       setCategoryTotals((prev) => ({ ...prev, ...totalsByBrand }));
       setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
@@ -818,8 +907,13 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
 
     const totalPosts = rows.reduce((sum, r) => sum + r.totalPosts, 0);
     const rollupBrand = isSocial ? brand : isCommunity ? communityBrand : "";
+    // Round 120 — per-platform breakdown for THIS brand, same idea as
+    // TikTok Channel's subchannelTotals above — `rows` already has one
+    // entry per platform with its own totalPosts.
+    const platformTotals = {};
+    rows.forEach((r) => { platformTotals[r.platform] = r.totalPosts; });
     await supabase.from("media_booking_package_categories").upsert(
-      { release_id: release.id, category_id: selectedCategoryId, brand: rollupBrand, total_posts: totalPosts, skipped: false, updated_at: new Date().toISOString() },
+      { release_id: release.id, category_id: selectedCategoryId, brand: rollupBrand, total_posts: totalPosts, platform_quantities: Object.keys(platformTotals).length > 0 ? platformTotals : null, skipped: false, updated_at: new Date().toISOString() },
       { onConflict: "release_id,category_id,brand" }
     );
     setCategoryTotals((prev) => ({ ...prev, [rollupBrand]: totalPosts }));
@@ -894,7 +988,9 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       // line's Đơn Giá — and the amount computed from it — was right
       // there. Đơn Giá now clones along with everything else.
       const cloneRows = (source?.media_booking_package_lines || []).map((l, i) => ({
-        package_id: pkg.id, category_id: l.category_id, brand: l.brand, unit: l.unit, quantity: l.quantity, detail: l.detail, unit_price: l.unit_price, amount: l.amount, sort_order: i,
+        package_id: pkg.id, category_id: l.category_id, brand: l.brand, unit: l.unit, quantity: l.quantity, detail: l.detail, unit_price: l.unit_price, amount: l.amount,
+        metric_quantities: l.metric_quantities || null, // Round 114
+        sort_order: i,
       }));
       if (cloneRows.length > 0) {
         const { data: inserted } = await supabase.from("media_booking_package_lines").insert(cloneRows).select();
@@ -916,18 +1012,31 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       const groups = groupSummarizedRows(summarizedRows.filter((r) => !r.skipped));
       const insertRows = groups.map((g, i) => {
         if (g.isAds) {
+          const isYoutubeAds = g.brand === "YouTube Ads";
           return {
             package_id: pkg.id, category_id: g.categoryId, brand: g.brand,
-            unit: null, quantity: null, detail: g.detailText || null, amount: g.totalMoney ?? null,
+            // Round 125 follow-up — this "seed a brand-new package from
+            // already-summarized rows" path was missed by Round 103's fix:
+            // syncPackageLine (the normal Summarize-time path) and the
+            // clone-from-another-product path both already force YouTube
+            // Ads's Chi Tiết to the fixed MCN text, but this one still
+            // wrote g.detailText raw — the old "SL 20000 Thruplay (Views)"
+            // auto-generated string (see handleSummarize's Ads branch),
+            // never the fixed text, for any release where "Create Package"
+            // was the very first action after summarizing (no prior
+            // syncPackageLine call to have already overwritten it).
+            unit: null, quantity: isYoutubeAds ? g.totalPosts ?? null : null, detail: isYoutubeAds ? YOUTUBE_ADS_DEFAULT_DETAIL : (g.detailText || null), amount: g.totalMoney ?? null,
+            metric_quantities: g.metricQuantities || null, // Round 114
             sort_order: i,
           };
         }
-        const unitPrice = priceDefaults.categories[g.categoryName] ?? null;
+        const unitPrice = priceDefaultsRef.current.categories[g.categoryName] ?? null;
         return {
           package_id: pkg.id, category_id: g.categoryId, brand: "",
           unit: referenceDetailFor(referenceTiers, g.categoryName)?.unit || "Bài Đăng",
           quantity: g.totalPosts, detail: referenceDetailFor(referenceTiers, g.categoryName)?.detail || null,
           unit_price: unitPrice, amount: unitPrice != null ? unitPrice * (g.totalPosts || 0) : null,
+          brand_column_quantities: g.brandColumnQuantities ?? null, // Round 120
           sort_order: i,
         };
       });
@@ -969,13 +1078,28 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       const categoryName = r.package_categories?.name || "";
       if (categoryName === "Ads") {
         const key = `${r.category_id}::${r.brand || ""}`;
-        groups[key] = { key, categoryId: r.category_id, categoryName, isAds: true, brand: r.brand, totalPosts: r.total_posts, detailText: r.detail_text, totalMoney: r.total_money, rows: [r] };
+        groups[key] = { key, categoryId: r.category_id, categoryName, isAds: true, brand: r.brand, totalPosts: r.total_posts, detailText: r.detail_text, totalMoney: r.total_money, metricQuantities: r.metric_quantities || null, rows: [r] };
       } else {
         const key = r.category_id;
-        if (!groups[key]) groups[key] = { key, categoryId: r.category_id, categoryName, isAds: false, brand: "", totalPosts: 0, rows: [] };
+        if (!groups[key]) groups[key] = { key, categoryId: r.category_id, categoryName, isAds: false, brand: "", totalPosts: 0, rows: [], brandColumnQuantities: {} };
         groups[key].totalPosts += r.total_posts || 0;
         groups[key].rows.push(r);
+        // Round 120 — merge this rollup row's own per-brand
+        // platform_quantities into the group's cumulative map, keyed
+        // "brand::column" (r.brand is the REAL brand this one rollup row
+        // belongs to, unlike the group's own `brand: ""`) — so a package
+        // line built/synced from this group carries every brand's real
+        // per-platform/per-subchannel numbers, not just the mushed total.
+        // See syncPackageLine below and app/booking/page.js's bookedFor().
+        if (r.platform_quantities) {
+          Object.entries(r.platform_quantities).forEach(([col, qty]) => {
+            groups[key].brandColumnQuantities[`${r.brand || ""}::${col}`] = qty;
+          });
+        }
       }
+    });
+    Object.values(groups).forEach((g) => {
+      if (g.brandColumnQuantities && Object.keys(g.brandColumnQuantities).length === 0) g.brandColumnQuantities = null;
     });
     return Object.values(groups);
   }
@@ -1014,7 +1138,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       // to any single number.
       //
       // Round 77 fix — YouTube Ads is the one Ads brand with exactly one
-      // possible metric (ADS_METRICS["YouTube Ads"] = ["Thruplays
+      // possible metric (ADS_METRICS["YouTube Ads"] = ["Thruplay
       // (Views)"] — same fact syncYoutubeAdsLine's comment already notes),
       // so group.totalPosts IS a real, single, unambiguous quantity for
       // it — unlike every other Ads brand. This branch used to always
@@ -1022,7 +1146,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       // didn't even pass totalPosts through to get here), so the booking
       // board's bookedFor() — which reads l.quantity — always summed to 0
       // for a freshly-Summarized YouTube Ads line, even though the
-      // package popup's Chi Tiết text ("SL 5000 Thruplays (Views)")
+      // package popup's Chi Tiết text ("SL 5000 Thruplay (Views)")
       // showed the real number right there. The number was only ever
       // written to the DB's quantity column later, if someone happened to
       // also edit the dedicated quantity field in the right panel
@@ -1030,36 +1154,66 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       // forever. Writing it here too closes that gap at the source.
       const isYoutubeAds = group.brand === "YouTube Ads";
       const qty = isYoutubeAds ? group.totalPosts ?? null : null;
+      // Round 114 — the real per-metric quantities (e.g. { "HPTO": 10,
+      // "In-Stream Audio": 5 }), computed in handleSummarize just above
+      // from each row's own count_posts. Persisted for every Ads brand
+      // (including YouTube Ads, for consistency, even though its single
+      // metric is already covered by `quantity`) — this is what lets the
+      // Booking Board show a real target per subchannel column instead of
+      // always reading "—" for Facebook/TikTok/Spotify Ads. See
+      // app/booking/page.js's bookedFor().
+      const metricQuantities = Object.keys(group.metricQuantities || {}).length > 0 ? group.metricQuantities : null;
       if (existing) {
         // Round 78 — item 2: Chi Tiết is a freely-editable field for every
-        // Ads brand now (including YouTube Ads — see PackagesPanel), so
-        // re-Summarize only ever recomputes the objective numbers
-        // (quantity/amount) and leaves whatever's already typed there
-        // alone — same "never clobber a manual edit" rule Đơn Giá already
-        // gets on every other Hạng Mục.
-        const patch = { quantity: qty, amount: group.totalMoney ?? null };
+        // OTHER Ads brand, so re-Summarize only recomputes the objective
+        // numbers (quantity/amount) and leaves whatever's already typed
+        // there alone — same "never clobber a manual edit" rule Đơn Giá
+        // already gets on every other Hạng Mục.
+        //
+        // Round 103 — reverted for YouTube Ads specifically, per explicit
+        // request: Số Lượng and Chi Tiết go back to being computed/fixed,
+        // not freely editable (see PackagesPanel's row rendering below,
+        // which now shows both read-only for this one brand). So unlike
+        // every other Ads brand, YouTube Ads's Chi Tiết IS recomputed here
+        // on every re-Summarize too — always the fixed MCN text, never a
+        // stale manual edit left over from before this revert.
+        // Round 116 — same null-unit_price-stuck-forever bug as the
+        // non-Ads branch below (see its comment), applied here too since
+        // YouTube Ads is the one Ads brand that actually keeps a real,
+        // editable per-line Đơn Giá (every other Ads brand's Đơn Giá cell
+        // is read-only, computed straight from Thành Tiền — see
+        // PackagesPanel's row rendering). Only backfills when currently
+        // null; a real (including manually-edited) price is never touched.
+        const backfillYoutubeUnitPrice = existing.unit_price == null
+          ? (qty ? Math.round((group.totalMoney ?? 0) / qty) : priceDefaultsRef.current.ads["YouTube Ads"]?.["Thruplay (Views)"] ?? null)
+          : null;
+        const patch = isYoutubeAds
+          ? { quantity: qty, amount: group.totalMoney ?? null, detail: YOUTUBE_ADS_DEFAULT_DETAIL, metric_quantities: metricQuantities, ...(backfillYoutubeUnitPrice != null ? { unit_price: backfillYoutubeUnitPrice } : {}) }
+          : { quantity: qty, amount: group.totalMoney ?? null, metric_quantities: metricQuantities };
         await supabase.from("media_booking_package_lines").update(patch).eq("id", existing.id);
         setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === existing.id ? { ...l, ...patch } : l)) })));
       } else {
-        // Round 78 — item 1: YouTube Ads lines now also seed a default
-        // Đơn Giá on first insert instead of staying blank — computed as
-        // this Summarize's actual price-per-unit (totalMoney / totalPosts,
-        // i.e. exactly what was entered on the left grid for its one
-        // metric), falling back to the configured default only if that
-        // can't be computed. Every other Ads brand keeps unit_price null —
-        // they mush multiple metrics into one lump amount with no single
-        // per-unit price to show. Item 3: YouTube Ads also seeds a fixed
-        // default Chi Tiết instead of the computed "SL X ..." text every
-        // other Ads brand gets. Both are only starting values — freely
-        // editable afterward, never touched again by re-Summarize (see the
-        // `existing` branch above).
+        // Round 78 — item 1: YouTube Ads lines also seed a default Đơn Giá
+        // on first insert instead of staying blank — computed as this
+        // Summarize's actual price-per-unit (totalMoney / totalPosts, i.e.
+        // exactly what was entered on the left grid for its one metric),
+        // falling back to the configured default only if that can't be
+        // computed. Every other Ads brand keeps unit_price null — they
+        // mush multiple metrics into one lump amount with no single
+        // per-unit price to show. Đơn Giá stays freely editable afterward
+        // (see PackagesPanel). Item 3 / Round 103 — YouTube Ads's Chi Tiết
+        // is always this same fixed MCN text, both on first insert and on
+        // every re-Summarize (see the `existing` branch above) — no longer
+        // freely editable for this one brand, unlike every other Ads
+        // brand's Chi Tiết.
         const unitPrice = isYoutubeAds
-          ? (qty ? Math.round((group.totalMoney ?? 0) / qty) : priceDefaults.ads["YouTube Ads"]?.["Thruplays (Views)"] ?? null)
+          ? (qty ? Math.round((group.totalMoney ?? 0) / qty) : priceDefaultsRef.current.ads["YouTube Ads"]?.["Thruplay (Views)"] ?? null)
           : null;
         const detail = isYoutubeAds ? YOUTUBE_ADS_DEFAULT_DETAIL : (group.detailText || null);
         const insertPayload = {
           package_id: activePackage.id, category_id: group.categoryId, brand: group.brand,
           unit: null, quantity: qty, detail, unit_price: unitPrice, amount: group.totalMoney ?? null,
+          metric_quantities: metricQuantities,
           sort_order: (activePackage.media_booking_package_lines || []).length,
         };
         const { data: line } = await supabase.from("media_booking_package_lines").insert(insertPayload).select().single();
@@ -1069,18 +1223,40 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     }
     const categoryName = group.categoryName;
     if (existing) {
-      const patch = { quantity: group.totalPosts };
+      // Round 116 — Đơn Giá used to be set ONLY on a line's first insert
+      // (see the `else` branch below) and never touched again on
+      // re-Summarize, on purpose — so a manual edit to Đơn Giá survives
+      // re-Summarizing (see the comment on the Ads branch above, same
+      // rule). But that also meant a line whose Đơn Giá came back null at
+      // FIRST-insert time (Config → Media Booking Pricing had no default
+      // configured yet for this category, or the key didn't match) stayed
+      // null forever afterward — every later re-Summarize left it alone,
+      // even once a real default got configured in Config. That's exactly
+      // the reported symptom: "the default number was set, not Null" (in
+      // Config, now) "but Đơn Giá usually went blank" (on an OLDER line,
+      // synced before that default existed). Backfilling ONLY when it's
+      // currently null (never overwriting a real, possibly manually-typed
+      // price) keeps the "never clobber a manual edit" guarantee while
+      // letting a genuinely-never-set price pick up a default once one
+      // becomes available.
+      const backfillUnitPrice = existing.unit_price == null ? (priceDefaultsRef.current.categories[categoryName] ?? null) : existing.unit_price;
+      // Round 120 — persist the cumulative per-brand column breakdown on
+      // every re-Summarize too, same "recompute in full from the latest
+      // rollup rows" treatment quantity/amount already get — see
+      // groupSummarizedRows' brandColumnQuantities.
+      const patch = { quantity: group.totalPosts, brand_column_quantities: group.brandColumnQuantities ?? null, ...(existing.unit_price == null && backfillUnitPrice != null ? { unit_price: backfillUnitPrice } : {}) };
       const amount = computeLineAmount({ ...existing, ...patch });
       const fullPatch = { ...patch, amount };
       await supabase.from("media_booking_package_lines").update(fullPatch).eq("id", existing.id);
       setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === existing.id ? { ...l, ...fullPatch } : l)) })));
     } else {
-      const unitPrice = priceDefaults.categories[categoryName] ?? null;
+      const unitPrice = priceDefaultsRef.current.categories[categoryName] ?? null;
       const insertPayload = {
         package_id: activePackage.id, category_id: group.categoryId, brand: "",
         unit: referenceDetailFor(referenceTiers, categoryName)?.unit || "Bài Đăng",
         quantity: group.totalPosts, detail: referenceDetailFor(referenceTiers, categoryName)?.detail || null,
         unit_price: unitPrice, amount: unitPrice != null ? unitPrice * (group.totalPosts || 0) : null,
+        brand_column_quantities: group.brandColumnQuantities ?? null,
         sort_order: (activePackage.media_booking_package_lines || []).length,
       };
       const { data: line } = await supabase.from("media_booking_package_lines").insert(insertPayload).select().single();
@@ -1107,7 +1283,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   }
 
   // Round 65 — item 2: YouTube Ads is the one Ads brand with exactly one
-  // possible metric ("Thruplays (Views)" — see ADS_METRICS), so unlike
+  // possible metric ("Thruplay (Views)" — see ADS_METRICS), so unlike
   // every other Ads brand (which can have several metric rows mushed into
   // one lump amount, never individually editable from the right panel),
   // its package line can safely be treated as a direct 1:1 mirror of its
@@ -1117,6 +1293,10 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // updateLine() does for every other Hạng Mục. Re-queries the entry fresh
   // rather than relying on `entries` state, since the right panel can be
   // open while the left grid is showing an entirely different Hạng Mục.
+  // Round 103 — PackagesPanel only ever calls this with field="unit_price"
+  // now (Số Lượng went back to view-only, summed on the left grid — see
+  // that panel's row rendering); left generic since nothing else about the
+  // sync itself changed.
   async function syncYoutubeAdsLine(line, field, value) {
     const adsCategoryId = line.category_id;
     const { data: existingEntry } = await supabase
@@ -1135,9 +1315,9 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       entryAfter = { ...existingEntry, [field]: value };
     } else {
       const insertPayload = {
-        release_id: release.id, category_id: adsCategoryId, brand: "YouTube Ads", platform: "Thruplays (Views)",
+        release_id: release.id, category_id: adsCategoryId, brand: "YouTube Ads", platform: "Thruplay (Views)",
         count_posts: field === "count_posts" ? value : 0,
-        unit_price: field === "unit_price" ? value : priceDefaults.ads["YouTube Ads"]?.["Thruplays (Views)"] ?? null,
+        unit_price: field === "unit_price" ? value : priceDefaultsRef.current.ads["YouTube Ads"]?.["Thruplay (Views)"] ?? null,
         sort_order: 0,
       };
       const { data: inserted } = await supabase.from("media_booking_content_entries").insert(insertPayload).select().single();
@@ -1162,12 +1342,10 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       { onConflict: "release_id,category_id,brand" }
     );
 
-    // Round 78 — item 2: Chi Tiết is now freely editable on this line (see
-    // PackagesPanel), so editing Số Lượng/Đơn Giá here no longer forces it
-    // back to a fixed "Thruplays (Views)" string — that used to silently
-    // overwrite anything typed into Chi Tiết the moment either of these
-    // two fields was touched. Leave it out of the patch entirely; only the
-    // objective numbers (quantity/unit_price/amount) update here.
+    // Round 103 — Chi Tiết isn't touched here on purpose: it's always the
+    // fixed MCN text now (YOUTUBE_ADS_DEFAULT_DETAIL), written by
+    // syncPackageLine on Summarize — editing Đơn Giá here has nothing to do
+    // with it, so it's left out of this patch entirely (same as before).
     const linePatch = { quantity: entryAfter.count_posts || 0, unit_price: entryAfter.unit_price ?? null, amount: totalMoney };
     await supabase.from("media_booking_package_lines").update(linePatch).eq("id", line.id);
     setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...linePatch } : l)) })));
@@ -1249,6 +1427,25 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   }
 
   const hasSavedPackage = packages.length > 0;
+
+  // Round 141 — "for now", per explicit request: only Marketing admin+
+  // (plus dev) can open the actual package builder. Everyone else still
+  // sees the ticket list/status/counts (unaffected by this) — just not
+  // this popup's contents. See canEditMediaBookingTicket in
+  // lib/permissions.js for the exact rule.
+  if (!canEdit) {
+    return (
+      <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 0 : 20 }} onClick={onClose}>
+        <div
+          style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, maxWidth: 420, width: "100%", padding: 24 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className={styles.emptyState}>Not available for your role.</div>
+          <button className={styles.btnSecondary} style={{ marginTop: 16 }} onClick={onClose}>Close</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 0 : 20 }} onClick={onClose}>
@@ -1607,7 +1804,12 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                 )}
 
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <button className={styles.btnSecondary} onClick={handleSummarize} disabled={entries.length === 0}>Summarize</button>
+                  {/* Round 140 — orange, per explicit request, same
+                      styles.btnPrimary token (var(--accent) bg + already
+                      theme-correct var(--accent-on) text — white on light
+                      theme, dark on dark theme) the Build Package button
+                      below already uses, so no new hardcoded colors. */}
+                  <button className={styles.btnPrimary} onClick={handleSummarize} disabled={entries.length === 0}>Summarize</button>
                   <button
                     className={styles.btnSecondary}
                     onClick={handleSkip}
@@ -1633,6 +1835,37 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                     );
                   })()}
                 </div>
+
+                {/* Round 141 — per explicit request: once the artist has
+                    picked AND locked/confirmed a package on the magic
+                    link (release.package_locked, with release.project_type
+                    holding the name of the package they picked — see
+                    app/pick-package/[token]/page.js's handleConfirm), warn
+                    whoever is editing a package here whether THIS is the
+                    one the artist actually locked in. Only shows once a
+                    package has actually been locked at all — before that,
+                    nothing is "chosen" yet, so no warning either way. */}
+                {activePackage && release?.package_locked && (() => {
+                  const isChosenPackage = activePackage.name === release.project_type;
+                  return (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        padding: "8px 12px",
+                        borderRadius: 6,
+                        background: isChosenPackage ? "var(--warn-bg)" : "var(--bg-hover)",
+                        color: isChosenPackage ? "var(--warn-fg)" : "var(--text-faint)",
+                        border: `1px solid ${isChosenPackage ? "var(--warn-fg)" : "var(--border)"}`,
+                      }}
+                    >
+                      {isChosenPackage
+                        ? "This package has been chosen by artist, please be advised that changing the number will affect the promotion package url as well as the booking board."
+                        : "This package is not chosen by artist, editing will not affect booking board."}
+                    </div>
+                  );
+                })()}
 
                 {/* Round 87 (booking ticket item 4) — the left grid used to
                     show nothing about what's already sitting in the active
@@ -1668,6 +1901,24 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   const line = lineFor(group.categoryId, group.brand);
                   if (!line) return null;
                   const isAdsLine = group.isAds;
+                  // Round 103 — YouTube Ads is the only Ads brand whose
+                  // combined line's Số Lượng is a real, single, per-metric
+                  // number (see bookedFor's comment in app/booking/page.js
+                  // for the full "why" — every other Ads brand mushes
+                  // several metrics into one lump with no per-metric
+                  // number). This banner used to let Số Lượng be typed onto
+                  // ANY Ads line with no guard at all, which is exactly how
+                  // a Facebook/TikTok/Spotify Ads line could end up with a
+                  // real-looking quantity that then got shown, wrongly,
+                  // under every one of that brand's metric columns on the
+                  // Booking Board. Locked here the same way PackagesPanel's
+                  // main table already treats those brands (view-only,
+                  // "not a real per-metric field") — and while at it, both
+                  // Số Lượng and Chi Tiết are locked for YouTube Ads too,
+                  // matching that same table's Round 103 revert (auto-
+                  // summed / fixed text, not freely typed).
+                  const isYoutubeAdsLine = isAdsLine && group.brand === "YouTube Ads";
+                  const isOtherAdsLine = isAdsLine && !isYoutubeAdsLine;
                   return (
                     <div style={{ marginTop: 10, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px" }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 6 }}>
@@ -1676,35 +1927,65 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
                         <label style={{ fontSize: 11, color: "var(--text-faint)" }}>
                           Số Lượng
-                          <input
-                            key={`${line.id}-qty`}
-                            type="number"
-                            className={styles.input}
-                            style={{ display: "block", padding: "4px 8px", fontSize: 12, width: 100, marginTop: 2 }}
-                            defaultValue={line.quantity ?? ""}
-                            onBlur={(e) => updateLine(line, { quantity: e.target.value === "" ? null : Number(e.target.value) })}
-                          />
+                          {isYoutubeAdsLine ? (
+                            <div style={{ padding: "4px 8px", fontSize: 12, marginTop: 2 }}>{line.quantity ?? 0} thruplay</div>
+                          ) : isOtherAdsLine ? (
+                            // Round 114 — this used to be a flat "— (per-
+                            // entry on the grid)" because there was no
+                            // single Số Lượng for a multi-metric Ads brand.
+                            // There's still no single number (that's still
+                            // true — edit the metric rows on the left grid,
+                            // not here), but the real per-metric quantities
+                            // ARE now persisted on the line (metric_quantities,
+                            // written by handleSummarize) — so show that
+                            // breakdown instead of a bare dash.
+                            <div style={{ padding: "4px 8px", fontSize: 12, marginTop: 2, color: "var(--text-faint)" }} title="Not a single number for this brand — edit the metric rows on the left grid instead.">
+                              {Object.keys(line.metric_quantities || {}).length > 0
+                                ? Object.entries(line.metric_quantities).map(([m, q]) => `${q} ${m}`).join(", ")
+                                : "— (per-entry on the grid)"}
+                            </div>
+                          ) : (
+                            <input
+                              key={`${line.id}-qty`}
+                              type="number"
+                              className={styles.input}
+                              style={{ display: "block", padding: "4px 8px", fontSize: 12, width: 100, marginTop: 2 }}
+                              defaultValue={line.quantity ?? ""}
+                              onBlur={(e) => updateLine(line, { quantity: e.target.value === "" ? null : Number(e.target.value) })}
+                            />
+                          )}
                         </label>
                         <label style={{ fontSize: 11, color: "var(--text-faint)" }}>
                           Đơn Giá
-                          <input
-                            key={`${line.id}-price`}
-                            type="number"
-                            className={styles.input}
-                            style={{ display: "block", padding: "4px 8px", fontSize: 12, width: 130, marginTop: 2 }}
-                            defaultValue={line.unit_price ?? ""}
-                            onBlur={(e) => updateLine(line, { unit_price: e.target.value === "" ? null : Number(e.target.value) })}
-                          />
+                          {isOtherAdsLine ? (
+                            // Same reasoning as Số Lượng above — a per-unit
+                            // price doesn't exist at the line level for a
+                            // brand priced per-entry on the left grid.
+                            <div style={{ padding: "4px 8px", fontSize: 12, marginTop: 2, color: "var(--text-faint)" }}>{fmtVnd(line.amount)}</div>
+                          ) : (
+                            <input
+                              key={`${line.id}-price`}
+                              type="number"
+                              className={styles.input}
+                              style={{ display: "block", padding: "4px 8px", fontSize: 12, width: 130, marginTop: 2 }}
+                              defaultValue={line.unit_price ?? ""}
+                              onBlur={(e) => updateLine(line, { unit_price: e.target.value === "" ? null : Number(e.target.value) })}
+                            />
+                          )}
                         </label>
                         <label style={{ fontSize: 11, color: "var(--text-faint)", flex: "1 1 200px" }}>
                           Chi Tiết
-                          <input
-                            key={`${line.id}-detail`}
-                            className={styles.input}
-                            style={{ display: "block", padding: "4px 8px", fontSize: 12, width: "100%", marginTop: 2, boxSizing: "border-box" }}
-                            defaultValue={line.detail || ""}
-                            onBlur={(e) => updateLine(line, { detail: e.target.value || null })}
-                          />
+                          {isYoutubeAdsLine ? (
+                            <div style={{ padding: "4px 8px", fontSize: 12, marginTop: 2 }}>{line.detail || YOUTUBE_ADS_DEFAULT_DETAIL}</div>
+                          ) : (
+                            <input
+                              key={`${line.id}-detail`}
+                              className={styles.input}
+                              style={{ display: "block", padding: "4px 8px", fontSize: 12, width: "100%", marginTop: 2, boxSizing: "border-box" }}
+                              defaultValue={line.detail || ""}
+                              onBlur={(e) => updateLine(line, { detail: e.target.value || null })}
+                            />
+                          )}
                         </label>
                         <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
                           Thành Tiền: <strong style={{ color: "var(--text)" }}>{fmtVnd(line.amount)}</strong>
@@ -1851,6 +2132,8 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   updateLine={updateLine}
                   syncYoutubeAdsLine={syncYoutubeAdsLine}
                   onToggleRecordingStudio={toggleRecordingStudio}
+                  onSaveField={saveYoutubeAdsField}
+                  linkfireUrl={linkfireUrl}
                   magicLinkUrl={magicLinkUrl}
                   generatingLink={generatingLink}
                   onGenerateLink={handleGenerateLink}
@@ -2094,7 +2377,7 @@ const DEFAULT_UNIT_PRICES = {
   },
   ads: {
     "Facebook Ads": { "Lượt tiếp cận": 30, "Lượt tương tác": 300, "Lượt truy cập (Link click)": 2000 },
-    "YouTube Ads": { "Thruplays (Views)": 55 },
+    "YouTube Ads": { "Thruplay (Views)": 55 },
     "TikTok Ads": { "Lượt tiếp cận": 15, "Lượt xem video": 15, "Lượt theo dõi": 1500, "Lượt truy cập (Link click)": 2500 },
     "Spotify Ads": { "HPTO": 26000, "In-Stream Audio": 26000, "In-Stream Video": 26000, "In-Feed Display": 26000, "In-Feed Video": 26000 },
   },
@@ -2217,7 +2500,7 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
 function PackagesPanel({
   release, categories, packages, activePackageId, setActivePackageId, activePackage,
   namePopup, setNamePopup, createPackage, deletePackage, addPrebuiltLine, deleteLine, reorderLines, updateLine,
-  syncYoutubeAdsLine, onToggleRecordingStudio, magicLinkUrl, generatingLink, onGenerateLink, proposedPackage, onHide,
+  syncYoutubeAdsLine, onToggleRecordingStudio, onSaveField, linkfireUrl, magicLinkUrl, generatingLink, onGenerateLink, proposedPackage, onHide,
   mobile,
 }) {
   const hasSavedPackage = packages.length > 0;
@@ -2244,7 +2527,22 @@ function PackagesPanel({
               <div className={styles.eyebrow}>// Packages</div>
               <h3 style={{ fontSize: 16, fontWeight: 800, margin: 0 }}>{release?.title}</h3>
             </div>
-            <button onClick={onHide} title="Hide this panel — the package stays as-is" style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer" }}>✕</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              {/* Round 125 — item 2: same door to Linkfire the Booking
+                  Board already has (see app/booking/page.js), now also
+                  reachable from inside the ticket itself instead of only
+                  from the board. */}
+              <a
+                href={linkfireUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.btnSecondary}
+                style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+              >
+                🔗 Linkfire
+              </a>
+              <button onClick={onHide} title="Hide this panel — the package stays as-is" style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer" }}>✕</button>
+            </div>
           </div>
 
           {/* Round 68 — Recording Studio: per-product (this release), not
@@ -2268,6 +2566,30 @@ function PackagesPanel({
           >
             {release?.recording_studio_included ? "✓ Recording Studio included" : "+ Recording Studio"}
           </button>
+
+          {/* Round 125 — item 2: "Custom package url" — same field as the
+              release detail page's URL tab ("Custom Domain — Package
+              Offer" / "Custom Domain — Media Report", releases.
+              link_media_report_custom), just also editable from here so
+              the team doesn't have to leave the ticket to fill it in.
+              Same generic saveYoutubeAdsField patcher (passed down as
+              onSaveField) both places write through, so this is
+              genuinely the same value edited on both sides, not a copy. */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>
+              Custom package url
+            </div>
+            <UrlField
+              styles={styles}
+              wide
+              value={release?.link_media_report_custom}
+              onChange={(v) => onSaveField("link_media_report_custom", v)}
+              placeholder="https://your-custom-domain.com/…"
+            />
+            <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 3 }}>
+              Same field as "Custom Domain — Package Offer" on the release's URL tab — editable here too.
+            </div>
+          </div>
 
           <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
             {packages.map((p) => (
@@ -2327,11 +2649,16 @@ function PackagesPanel({
                     const cat = categories.find((c) => c.id === line.category_id);
                     const isAdsLine = cat?.name === "Ads";
                     // Round 65 — item 2: YouTube Ads is the one Ads brand
-                    // with just a single possible metric (Thruplays
+                    // with just a single possible metric (Thruplay
                     // (Views) — ADS_METRICS only lists one for it), so
-                    // unlike every other Ads brand it's treated as a real
-                    // 1:1 editable line here instead of the "1 Gói" /
-                    // read-only-total display the other Ads brands get.
+                    // unlike every other Ads brand it gets its own real
+                    // total instead of the "1 Gói" placeholder the other
+                    // Ads brands show.
+                    // Round 103 — reverted Round 65/78's "editable input"
+                    // treatment back to view-only, per explicit request:
+                    // Số Lượng is the auto-summed total of this brand's own
+                    // rows on the left grid (written by syncPackageLine
+                    // whenever you Summarize), not something typed here.
                     const isYoutubeAdsLine = isAdsLine && line.brand === "YouTube Ads";
                     return (
                       <tr
@@ -2358,13 +2685,11 @@ function PackagesPanel({
                             left data tool, this just mirrors it live. */}
                         <td style={{ fontSize: 12, color: "var(--text-muted)" }}>
                           {isYoutubeAdsLine ? (
-                            <input
-                              type="number"
-                              className={styles.input}
-                              style={{ width: 70, padding: "4px 6px", fontSize: 12 }}
-                              defaultValue={line.quantity ?? 0}
-                              onBlur={(e) => syncYoutubeAdsLine(line, "count_posts", parseInt(e.target.value, 10) || 0)}
-                            />
+                            // Round 103 — view-only, summed from this
+                            // brand's own rows on the left grid (Summarize
+                            // writes line.quantity), shown with its unit —
+                            // no longer a typed-in number here.
+                            <span>{line.quantity ?? 0} thruplay</span>
                           ) : isAdsLine ? (
                             // Round 64 — item 2: Ads never carries a real
                             // quantity at the package-line level (it's
@@ -2380,18 +2705,23 @@ function PackagesPanel({
                           )}
                         </td>
                         <td style={{ minWidth: 260 }}>
-                          {/* Round 78 — item 2: Chi Tiết is now freely
-                              editable for YouTube Ads too, same as every
-                              other Ads brand — syncYoutubeAdsLine no longer
-                              force-overwrites it when Số Lượng/Đơn Giá are
-                              edited (see that function), so a manual edit
-                              here sticks. */}
-                          <textarea
-                            className={styles.textarea}
-                            style={{ width: "100%", padding: "4px 6px", fontSize: 11, minHeight: 44, boxSizing: "border-box" }}
-                            defaultValue={line.detail || ""}
-                            onBlur={(e) => updateLine(line, { detail: e.target.value || null })}
-                          />
+                          {isYoutubeAdsLine ? (
+                            // Round 103 — reverted back to a fixed, view-only
+                            // text for YouTube Ads specifically (Round 78 had
+                            // made this freely editable, same as every other
+                            // Ads brand) — always the same MCN copy,
+                            // rewritten by syncPackageLine on every
+                            // Summarize, so this just mirrors it rather than
+                            // taking manual edits.
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{line.detail || YOUTUBE_ADS_DEFAULT_DETAIL}</span>
+                          ) : (
+                            <textarea
+                              className={styles.textarea}
+                              style={{ width: "100%", padding: "4px 6px", fontSize: 11, minHeight: 44, boxSizing: "border-box" }}
+                              defaultValue={line.detail || ""}
+                              onBlur={(e) => updateLine(line, { detail: e.target.value || null })}
+                            />
+                          )}
                         </td>
                         {/* Editable here too now — Đơn Giá wasn't
                             consistently reachable everywhere (Ads lines
