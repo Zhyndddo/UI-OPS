@@ -29,6 +29,43 @@ function isReleasingToday(release) {
   return String(release.release_date).slice(0, 10) === todayStr;
 }
 
+// Round 149 — the Release column's info rows (link_ugc, and now
+// promotion_package_url below) are shown as full clickable URLs, which for
+// a long link either forces the fixed-width column wider or wraps onto
+// several lines, pushing every row's height up just for one long URL.
+// Truncating the DISPLAYED text (the href/title stay the full real URL —
+// only the visible label is shortened) keeps every row a predictable
+// height regardless of link length.
+function truncateUrlDisplay(url, max = 22) {
+  if (!url) return "";
+  return url.length > max ? `${url.slice(0, max)}…` : url;
+}
+
+// Round 155 item 4 — link_ugc (Link Sound TikTok) can now hold multiple
+// URLs, one per line (same newline-joined-string convention as lib/
+// UrlField.js — no schema change). This display-only spot (the Booking
+// Board's table + card rows, both non-editable) used to assume a single
+// URL and render one <a href={r.link_ugc}>; a real multi-line value would
+// have produced one broken link with embedded newlines in its href.
+// Splits and renders one clickable link per line instead, stacked, same
+// truncated-display-text idiom as promotion_package_url right below it so
+// a long URL still can't stretch the row.
+function LinkUgcLines({ value, color }) {
+  const urls = (value || "").split("\n").map((s) => s.trim()).filter(Boolean);
+  if (urls.length === 0) return null;
+  return (
+    <>
+      {urls.map((u, i) => (
+        <div key={i} title={u}>
+          <a href={u} target="_blank" rel="noopener noreferrer" style={{ color, fontSize: 11 }}>
+            {truncateUrlDisplay(u)}
+          </a>
+        </div>
+      ))}
+    </>
+  );
+}
+
 // brand constants in app/tickets/media-booking/page.js (BRANDS,
 // COMMUNITY_BRANDS, TIKTOK_GROUPS, ADS_BRANDS).
 const CATEGORY_SUBFILTERS = {
@@ -206,51 +243,94 @@ export default function BookingBoard() {
 
   async function load() {
     setLoading(true);
-    const { data: rels } = await supabase
-      .from("releases")
-      // Round 77 — gate_co_trong_net_youtube added: locks the YouTube Ads
-      // Ads-brand column when the release hasn't opted into Có Trong Net
-      // YouTube on its detail page (see AdsCell's ctnLocked prop below).
-      // Round 92 — youtube_ads_url/youtube_ads_booking_note added: shown
-      // (and editable) inside the YouTube Ads column's own popup, see
-      // AdsCell's showYoutubeAdsFields prop below.
-      // Round 146 — link_ugc added: shown as a clickable 3rd row under
-      // the Release column's title/artist/DID line (both table and card
-      // views), same pattern as Pitching ticket's link_lbm row.
-      .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status, gate_co_trong_net_youtube, youtube_ads_url, youtube_ads_booking_note, pseudo_package_parent_did, link_ugc")
-      .order("release_date", { ascending: false });
-    // Round 142 — item 1: PostgREST caps a plain select() at 1000 rows and
-    // truncates silently, no error (see lib/helpers.js's fetchAllRows
-    // comment / DATA_FIXES.md round 59-60 for the original discovery of
-    // this bug class elsewhere in the app). This table easily blows past
-    // 1000 rows across 797 releases' worth of Social/Community/Ads/TikTok
-    // Channel links, and with no explicit .order() the DB was free to
-    // return rows in whatever order it liked — including one that could
-    // cut off freshly-inserted rows entirely. That's exactly the reported
-    // symptom: bulk-add a batch of links, "DONE" shows immediately off the
-    // optimistic local state, but a refresh re-runs this same truncated
-    // query and the newly added rows (never actually lost — still sitting
-    // in the DB) just don't come back in the first 1000. Paginates through
-    // every row instead, ordered by `id` for stable .range() paging.
-    const { data: ents } = await fetchAllRows(() => supabase.from("media_booking_entries").select("*").order("id"));
-    const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
-    // Round 114 — metric_quantities added: real per-metric Ads targets
-    // (Facebook/TikTok/Spotify Ads), read by bookedFor() below instead of
-    // always returning null for these brands' subchannel columns.
-    // Round 120 — brand_column_quantities added: the real per-brand
-    // per-platform/per-subchannel breakdown for Social/Community/TikTok
-    // Channel's mushed line, snapshotted at Summarize time (see
-    // packageLineColumnTarget below).
-    const { data: pkgs } = await supabase.from("media_booking_packages").select("id, release_id, name, media_booking_package_lines(category_id, brand, quantity, metric_quantities, brand_column_quantities)");
-    const { data: targets } = await supabase.from("media_booking_dot2_targets").select("release_id");
-    // Reference channel list (see /booking-channels) — lets the Add Link
-    // popup below suggest a real channel + URL instead of OPS typing both
-    // from scratch every time. Missing table/no rows just means no
-    // suggestions show up; the popup still works exactly as before.
-    const { data: chans } = await supabase.from("booking_channels").select("*");
-    const { data: extLinks } = await supabase.from("app_settings").select("value").eq("key", ARTIST_PROFILE_LINKS_SETTING_KEY).maybeSingle();
-    // Round 125 — item 1: TikTok Channel Partner columns' status coloring.
-    const { data: chanStatuses } = await supabase.from("media_booking_channel_status").select("*");
+    // Round 150 — load-reduction pass, item "Booking Board still feels
+    // heavy". These 8 queries are all independent — none reads a result
+    // from another — but were previously awaited one at a time in series,
+    // so total wait time was the SUM of all 8 round trips. Switched to
+    // Promise.all so they all fire concurrently instead; total wait time
+    // becomes roughly the SLOWEST single query rather than the sum of all
+    // of them. No query, column, or pagination behavior changed — same
+    // fetchAllRows pagination on media_booking_entries as before (Round
+    // 142), same column lists, same filters. See project doc
+    // "load-reduction-additional-ideas.md" for the fuller writeup.
+    const [
+      { data: rels },
+      { data: ents },
+      { data: cats },
+      { data: pkgs },
+      { data: targets },
+      { data: chans },
+      { data: extLinks },
+      { data: chanStatuses },
+    ] = await Promise.all([
+      supabase
+        .from("releases")
+        // Round 77 — gate_co_trong_net_youtube added: locks the YouTube Ads
+        // Ads-brand column when the release hasn't opted into Có Trong Net
+        // YouTube on its detail page (see AdsCell's ctnLocked prop below).
+        // Round 92 — youtube_ads_url/youtube_ads_booking_note added: shown
+        // (and editable) inside the YouTube Ads column's own popup, see
+        // AdsCell's showYoutubeAdsFields prop below.
+        // Round 146 — link_ugc added: shown as a clickable 3rd row under
+        // the Release column's title/artist/DID line (both table and card
+        // views), same pattern as Pitching ticket's link_lbm row.
+        // Round 149 — promotion_package_url added, same pattern, one more
+        // row below link_ugc.
+        .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status, gate_co_trong_net_youtube, youtube_ads_url, youtube_ads_booking_note, pseudo_package_parent_did, link_ugc, promotion_package_url")
+        .order("release_date", { ascending: false }),
+      // Round 142 — item 1: PostgREST caps a plain select() at 1000 rows and
+      // truncates silently, no error (see lib/helpers.js's fetchAllRows
+      // comment / DATA_FIXES.md round 59-60 for the original discovery of
+      // this bug class elsewhere in the app). This table easily blows past
+      // 1000 rows across 797 releases' worth of Social/Community/Ads/TikTok
+      // Channel links, and with no explicit .order() the DB was free to
+      // return rows in whatever order it liked — including one that could
+      // cut off freshly-inserted rows entirely. That's exactly the reported
+      // symptom: bulk-add a batch of links, "DONE" shows immediately off the
+      // optimistic local state, but a refresh re-runs this same truncated
+      // query and the newly added rows (never actually lost — still sitting
+      // in the DB) just don't come back in the first 1000. Paginates through
+      // every row instead, ordered by `id` for stable .range() paging.
+      // Round 150 — load-reduction pass, further column pruning: was
+      // select("*"), now pruned to exactly the columns this file reads off
+      // an entry row (verified by an exhaustive grep of every e./entry./
+      // cellEntries/matchingEntries/roundEntries field access, including
+      // insert-payload keys since inserted rows flow straight into this
+      // same `entries` state). `channel_type` is write-only in this file
+      // today (set on insert, never read back here) but kept in the select
+      // since inserted rows carry it into state regardless.
+      fetchAllRows(() =>
+        supabase
+          .from("media_booking_entries")
+          .select("id, release_id, category_id, channel_name, platform, subchannel_type, quantity, status, booking_round, link, channel_type")
+          .order("id")
+      ),
+      supabase.from("package_categories").select("id, name").order("sort_order"),
+      // Round 114 — metric_quantities added: real per-metric Ads targets
+      // (Facebook/TikTok/Spotify Ads), read by bookedFor() below instead of
+      // always returning null for these brands' subchannel columns.
+      // Round 120 — brand_column_quantities added: the real per-brand
+      // per-platform/per-subchannel breakdown for Social/Community/TikTok
+      // Channel's mushed line, snapshotted at Summarize time (see
+      // packageLineColumnTarget below).
+      supabase.from("media_booking_packages").select("id, release_id, name, media_booking_package_lines(category_id, brand, quantity, metric_quantities, brand_column_quantities)"),
+      supabase.from("media_booking_dot2_targets").select("release_id"),
+      // Reference channel list (see /booking-channels) — lets the Add Link
+      // popup below suggest a real channel + URL instead of OPS typing both
+      // from scratch every time. Missing table/no rows just means no
+      // suggestions show up; the popup still works exactly as before.
+      // Round 150 — pruned from select("*") to the columns this file
+      // actually reads off a reference-channel row (id, platform, name,
+      // brand, note, follower_count, url — verified by grep).
+      supabase.from("booking_channels").select("id, platform, name, brand, note, follower_count, url"),
+      supabase.from("app_settings").select("value").eq("key", ARTIST_PROFILE_LINKS_SETTING_KEY).maybeSingle(),
+      // Round 125 — item 1: TikTok Channel Partner columns' status coloring.
+      // Round 150 — pruned from select("*"): this query's result is only
+      // ever destructured into (release_id, category_id, brand, column_key,
+      // status) a few lines below, immediately after the fetch, before
+      // being discarded — narrowed the select to match.
+      supabase.from("media_booking_channel_status").select("release_id, category_id, brand, column_key, status"),
+    ]);
     // Round 79 — pseudo-package tracks (releases linked to a parent EP/Album
     // via pseudo_package_parent_did) skip the whole booking process and
     // never appear on the Booking board at all.
@@ -1222,10 +1302,16 @@ export default function BookingBoard() {
                     {/* Round 146 — Link Sound TikTok (link_ugc) as a
                         clickable 3rd row, same pattern as Pitching
                         ticket's link_lbm row. */}
-                    {r.link_ugc && (
-                      <div>
-                        <a href={r.link_ugc} target="_blank" rel="noopener noreferrer" style={{ color: releasingToday ? "var(--highlight-text-faint)" : "var(--accent-soft)", fontSize: 11 }}>
-                          {r.link_ugc}
+                    <LinkUgcLines value={r.link_ugc} color={releasingToday ? "var(--highlight-text-faint)" : "var(--accent-soft)"} />
+                    {/* Round 149 — Promotion Package URL as a clickable
+                        4th row (3rd added row, after link_ugc) — display
+                        text truncated to ~22 chars so a long URL can't
+                        widen the column or wrap the row onto extra lines;
+                        the link itself still points at the full URL. */}
+                    {r.promotion_package_url && (
+                      <div title={r.promotion_package_url}>
+                        <a href={r.promotion_package_url} target="_blank" rel="noopener noreferrer" style={{ color: releasingToday ? "var(--highlight-text-faint)" : "var(--accent-soft)", fontSize: 11 }}>
+                          {truncateUrlDisplay(r.promotion_package_url)}
                         </a>
                       </div>
                     )}
@@ -1399,10 +1485,16 @@ function BookingBoardCards({
             </div>
             {/* Round 146 — Link Sound TikTok (link_ugc) as a clickable
                 3rd row, same pattern as the table view above. */}
-            {r.link_ugc && (
-              <div style={{ marginTop: 2 }}>
-                <a href={r.link_ugc} target="_blank" rel="noopener noreferrer" style={{ color: releasingToday ? "var(--highlight-text-faint)" : "var(--accent-soft)", fontSize: 11 }}>
-                  {r.link_ugc}
+            <div style={{ marginTop: 2 }}>
+              <LinkUgcLines value={r.link_ugc} color={releasingToday ? "var(--highlight-text-faint)" : "var(--accent-soft)"} />
+            </div>
+            {/* Round 149 — Promotion Package URL as a clickable row, same
+                pattern as the table view above (truncated display text,
+                full URL still linked). */}
+            {r.promotion_package_url && (
+              <div style={{ marginTop: 2 }} title={r.promotion_package_url}>
+                <a href={r.promotion_package_url} target="_blank" rel="noopener noreferrer" style={{ color: releasingToday ? "var(--highlight-text-faint)" : "var(--accent-soft)", fontSize: 11 }}>
+                  {truncateUrlDisplay(r.promotion_package_url)}
                 </a>
               </div>
             )}

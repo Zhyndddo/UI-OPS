@@ -5,7 +5,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
-import { fmtDate } from "../../lib/helpers";
+import { fmtDate, fetchAllRows } from "../../lib/helpers";
 import { useAuth } from "../../lib/AuthContext";
 import { REPORTING_TEAMS, TEAM_TICKET_TYPES, TICKET_TYPE_LABELS, SHARED_TICKET_TYPES, resolveTeamKey } from "../../lib/teamTypes";
 import { canViewCrossTeam } from "../../lib/permissions";
@@ -207,13 +207,32 @@ function ReportPageInner() {
     load();
   }, []);
 
+  // Round 150 — load-reduction pass, item 3 (see project doc
+  // "load-reduction-additional-ideas.md"). This used to be a bare
+  // supabase.from("releases").select("*") — every column, AND with no
+  // fetchAllRows pagination, so once total release volume passed
+  // PostgREST's default 1000-row cap this page was silently truncating
+  // the same way /tickets and the confirm/pre_release worklist counts
+  // did before their own Round 59/60/150 fixes (see DATA_FIXES.md). Two
+  // fixes bundled here: (1) fetchAllRows so this no longer silently caps
+  // at 1000 releases — a real correctness bug, not just a load-time one;
+  // (2) pruned the column list to exactly what this page's charts and
+  // isReleaseDone() read (verified by grepping every `r.<field>` use in
+  // this file), instead of pulling every column on the table.
+  const REPORT_RELEASE_FIELDS = [
+    "id", "main_artist", "title", "label", "release_date", "project_type", "status",
+    "link_media_report", "media_report_status",
+    "package_total_value", "package_payment_status", "package_vieent_support", "package_locked",
+    "smartlink", "upc", "link_lbm", "link_share",
+    "pitching_status_spotify", "pitching_status_nct", "pitching_status_zing",
+    "canva_status", "artist_pick_status", "musixmatch_link",
+    "meta_audio", "meta_artwork", "meta_working_files", "meta_lyric", "meta_mv", "meta_doc",
+  ].join(", ");
+
   async function load() {
     setLoading(true);
-    // releases pulls every column (select("*")) since the Team Worklist
-    // tab's isReleaseDone() needs the broad field set, not just the columns
-    // Overview's charts read.
     const [{ data: rels }, { data: rollupRows }, { data: tabs }] = await Promise.all([
-      supabase.from("releases").select("*"),
+      fetchAllRows(() => supabase.from("releases").select(REPORT_RELEASE_FIELDS).order("id")),
       supabase.from("media_booking_package_categories").select("release_id, category_id, brand, skipped, package_categories(name)"),
       supabase.from("ticket_tabs").select("id, key").order("sort_order"),
     ]);

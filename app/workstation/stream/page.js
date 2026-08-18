@@ -501,11 +501,16 @@ function StreamTable({ rows, onUpdate, onRemove, onLink, manual }) {
 // Never auto-fills on its own — the metrics can be edited before a real
 // note is wanted, and nothing here should silently clobber a manual note.
 function StreamNoteCell({ row, onUpdate }) {
+  // Round 155 item 2 follow-up — Auto Note is now a real centered modal
+  // popup (same fixed-inset-overlay pattern as lib/ReleaseNotePopup.js),
+  // not a small box anchored under the input inside the table row/cell —
+  // per explicit request, since living in that cramped container made it
+  // easy to miss and easy to accidentally close.
   const [open, setOpen] = useState(false);
   const generated = buildStreamNote(row.metrics);
 
   return (
-    <div style={{ position: "relative" }}>
+    <div>
       <input
         className={styles.input}
         style={{ padding: "3px 6px", fontSize: 11 }}
@@ -515,23 +520,35 @@ function StreamNoteCell({ row, onUpdate }) {
       {generated && (
         <button
           type="button"
-          onClick={() => setOpen((o) => !o)}
+          onClick={() => setOpen(true)}
           style={{ background: "none", border: "none", color: "var(--accent-soft)", fontSize: 10, cursor: "pointer", padding: "2px 0" }}
         >
-          {open ? "▾" : "▸"} Auto note
+          ▸ Auto note
         </button>
       )}
       {open && generated && (
-        <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 5, width: 220, background: "var(--bg-hover)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: 8 }}>
-          <pre style={{ margin: 0, fontSize: 11, color: "var(--text-muted)", whiteSpace: "pre-wrap" }}>{generated}</pre>
-          <button
-            type="button"
-            className={styles.btnSmall}
-            style={{ marginTop: 6, width: "100%" }}
-            onClick={() => { onUpdate(row, "stream_note", generated); setOpen(false); }}
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+          onClick={() => setOpen(false)}
+        >
+          <div
+            style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 420, width: "100%" }}
+            onClick={(e) => e.stopPropagation()}
           >
-            Use this
-          </button>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase" }}>Auto Note</div>
+              <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer" }}>✕</button>
+            </div>
+            <pre style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-wrap", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>{generated}</pre>
+            <button
+              type="button"
+              className={styles.btnPrimary}
+              style={{ marginTop: 12, width: "100%" }}
+              onClick={() => { onUpdate(row, "stream_note", generated); setOpen(false); }}
+            >
+              Use this
+            </button>
+          </div>
         </div>
       )}
     </div>

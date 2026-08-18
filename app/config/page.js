@@ -46,7 +46,16 @@ export default function ConfigPage() {
       ["platforms", "Platforms"],
       ["designTypes", "Design Types"],
       ["sizes", "Sizes"],
-      ["artistProfileLinks", "External Tool Links"],
+      // Round 155 item 1 — "External Tool Links" moved out of Config into
+      // its own sidebar item (the new Tools Directory, /tool-directory —
+      // see lib/toolDirectory.js), per explicit request to compile every
+      // team's external tools in one place rather than tucked in Config.
+      // ArtistProfileLinksSection (below) is no longer rendered from here;
+      // the Tools Directory page reads/writes the same underlying
+      // app_settings row ("artist_profile_links") so booking.js's Linkfire
+      // button and the Artist Profile ticket page's Spotify/Apple links
+      // keep working unchanged. Editing there is dev-only now too — a real
+      // narrowing from this tab's old admin+ access (canOrgConfig).
       // Round 84 — global (not per-package) Trợ Giá Booking content, now
       // the single edited source for the internal reference page AND the
       // magic link's new section (see lib/troGiaBooking.js). Distinct from
@@ -112,7 +121,6 @@ export default function ConfigPage() {
               {section === "platforms" && <PlatformsSection />}
               {section === "designTypes" && <DesignTypesSection />}
               {section === "sizes" && <SizesSection />}
-              {section === "artistProfileLinks" && <ArtistProfileLinksSection />}
               {section === "troGiaBooking" && <TroGiaBookingSection />}
               {section === "pitchingSettings" && <PitchingSettingsSection />}
               {section === "milestoneSettings" && <MilestoneHighlightSection />}
@@ -804,6 +812,16 @@ const MEDIA_BOOKING_PRICE_ADS = {
   "TikTok Ads": ["Lượt tiếp cận", "Lượt xem video", "Lượt theo dõi", "Lượt truy cập (Link click)"],
   "Spotify Ads": ["HPTO", "In-Stream Audio", "In-Stream Video", "In-Feed Display", "In-Feed Video"],
 };
+// Round 152 — the media-booking ticket's Package Builder has a "prebuilt
+// add-on line" picker on its right panel (PREBUILT_ADDONS in
+// app/tickets/media-booking/page.js — Design, Discovery Mode on Spotify,
+// Priority Pitching Spotify Homepage Banner, 19 Creative Space, Pitching
+// Playlist/Banner). Those always inserted with a blank Đơn Giá. Per
+// explicit request, only these 2 now get a configurable default here —
+// same key names as PREBUILT_ADDONS' `name` field, so they must stay in
+// sync if either list changes. The other 3 addons keep their old
+// blank-by-default behavior until asked for.
+const MEDIA_BOOKING_PRICE_ADDONS = ["Design", "Priority Pitching Spotify Homepage Banner"];
 const MEDIA_BOOKING_PRICE_DEFAULTS = {
   categories: { "TikTok Channel": 700000, "Social": 200000, "Community": 200000 },
   ads: {
@@ -812,6 +830,7 @@ const MEDIA_BOOKING_PRICE_DEFAULTS = {
     "TikTok Ads": { "Lượt tiếp cận": 15, "Lượt xem video": 15, "Lượt theo dõi": 1500, "Lượt truy cập (Link click)": 2500 },
     "Spotify Ads": { "HPTO": 26000, "In-Stream Audio": 26000, "In-Stream Video": 26000, "In-Feed Display": 26000, "In-Feed Video": 26000 },
   },
+  addons: { "Design": 10000000, "Priority Pitching Spotify Homepage Banner": 20000000 },
 };
 const MEDIA_BOOKING_PRICE_SETTING_KEY = "media_booking_unit_price_defaults";
 
@@ -830,6 +849,7 @@ function MediaBookingPricingSection() {
           setPrices({
             categories: { ...MEDIA_BOOKING_PRICE_DEFAULTS.categories, ...(parsed.categories || {}) },
             ads: { ...MEDIA_BOOKING_PRICE_DEFAULTS.ads, ...(parsed.ads || {}) },
+            addons: { ...MEDIA_BOOKING_PRICE_DEFAULTS.addons, ...(parsed.addons || {}) },
           });
         } catch {
           // malformed value in the DB — keep the hardcoded fallback
@@ -866,6 +886,13 @@ function MediaBookingPricingSection() {
     flashSaved(`ads:${brand}:${metric}`);
   }
 
+  function updateAddonPrice(addonName, value) {
+    const num = value === "" ? null : parseFloat(value);
+    const next = { ...prices, addons: { ...prices.addons, [addonName]: num } };
+    saveAll(next);
+    flashSaved(`addon:${addonName}`);
+  }
+
   if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
 
   return (
@@ -900,7 +927,7 @@ function MediaBookingPricingSection() {
       <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
         Ads (per ad platform × metric — Đơn Giá stays a real per-row column)
       </div>
-      <div style={{ display: "grid", gap: 20, maxWidth: 460 }}>
+      <div style={{ display: "grid", gap: 20, marginBottom: 28, maxWidth: 460 }}>
         {Object.entries(MEDIA_BOOKING_PRICE_ADS).map(([adBrand, metrics]) => (
           <div key={adBrand}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{adBrand}</div>
@@ -920,6 +947,27 @@ function MediaBookingPricingSection() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
+        Prebuilt Add-on Lines (Package Builder's right-panel "+ Design" style buttons)
+      </div>
+      <div style={{ display: "grid", gap: 10, maxWidth: 420 }}>
+        {MEDIA_BOOKING_PRICE_ADDONS.map((addonName) => (
+          <div key={addonName} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <label className={styles.fieldLabel} style={{ fontSize: 12, margin: 0 }}>{addonName}</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {savedKey === `addon:${addonName}` && <span style={{ color: "var(--success-fg)", fontSize: 11 }}>Saved</span>}
+              <input
+                type="number"
+                className={styles.input}
+                style={{ width: 120 }}
+                defaultValue={prices.addons?.[addonName] ?? ""}
+                onBlur={(e) => updateAddonPrice(addonName, e.target.value)}
+              />
             </div>
           </div>
         ))}
@@ -1624,68 +1672,11 @@ function SessionsSection() {
 // DEFAULT_LINKFIRE_URL (lib/externalTools.js) if the setting row hasn't
 // been touched yet (brand-new installs, or before anyone's saved a value
 // here).
-function ArtistProfileLinksSection() {
-  const [spotify, setSpotify] = useState("");
-  const [apple, setApple] = useState("");
-  const [discoveryMode, setDiscoveryMode] = useState("");
-  const [linkfire, setLinkfire] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    if (!supabase) return;
-    supabase.from("app_settings").select("value").eq("key", "artist_profile_links").maybeSingle().then(({ data }) => {
-      setSpotify(data?.value?.spotify || "");
-      setApple(data?.value?.apple || "");
-      setDiscoveryMode(data?.value?.discoveryMode || "");
-      setLinkfire(data?.value?.linkfire || DEFAULT_LINKFIRE_URL);
-      setLoading(false);
-    });
-  }, []);
-
-  async function save() {
-    setSaving(true);
-    await supabase.from("app_settings").upsert({
-      key: "artist_profile_links",
-      value: { spotify: spotify.trim(), apple: apple.trim(), discoveryMode: discoveryMode.trim(), linkfire: linkfire.trim() },
-    });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
-  }
-
-  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
-
-  return (
-    <div style={{ maxWidth: 480 }}>
-      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
-        Destinations for external-tool buttons across a few ticket pages — editable here since the 3rd party
-        sometimes changes their URL and this shouldn't need a code change.
-      </p>
-      <div className={styles.field}>
-        <label className={styles.fieldLabel}>Spotify for Artists URL</label>
-        <input className={styles.input} value={spotify} onChange={(e) => setSpotify(e.target.value)} placeholder="https://artists.spotify.com/…" />
-      </div>
-      <div className={styles.field}>
-        <label className={styles.fieldLabel}>Apple Music for Artists URL</label>
-        <input className={styles.input} value={apple} onChange={(e) => setApple(e.target.value)} placeholder="https://artists.apple.com/…" />
-      </div>
-      <div className={styles.field}>
-        <label className={styles.fieldLabel}>Discovery Mode Clip Tool URL</label>
-        <input className={styles.input} value={discoveryMode} onChange={(e) => setDiscoveryMode(e.target.value)} placeholder="Team is still confirming which tool to use — leave blank for now" />
-      </div>
-      <div className={styles.field}>
-        <label className={styles.fieldLabel}>Linkfire URL (Booking Board's "🔗 Linkfire" button)</label>
-        <input className={styles.input} value={linkfire} onChange={(e) => setLinkfire(e.target.value)} placeholder={DEFAULT_LINKFIRE_URL} />
-      </div>
-      <button className={styles.btnPrimary} onClick={save} disabled={saving}>
-        {saving ? "Saving…" : "Save"}
-      </button>
-      {saved && <span style={{ marginLeft: 10, color: "var(--success-fg)", fontSize: 12 }}>Saved</span>}
-    </div>
-  );
-}
+// ArtistProfileLinksSection retired — this Config tab moved to the new
+// Tools Directory page (/tool-directory) in Round 155 item 1; see the
+// comment above this tab's old entry in `tabs` for what replaced it and
+// why the underlying app_settings key ("artist_profile_links") is
+// unchanged.
 
 // Round 127 — the Milestone workstation's "Highlight" criteria, admin-
 // editable per explicit request instead of hardcoded the way the real

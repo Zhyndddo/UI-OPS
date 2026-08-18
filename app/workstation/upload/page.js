@@ -49,24 +49,28 @@ export default function UploadWorkstation() {
 
   async function load() {
     setLoading(true);
-    const { data: rels } = await supabase
-      .from("releases")
-      .select(
-        "id, did, title, main_artist, release_date, release_time, upc, drive_link, link_lbm, link_share, smartlink, link_preorder, upload_status, " +
-        "link_ugc, link_media_report, requester_segment, linkshare_tiktok_timing, linkshare_facebook_timing, needs_update, " +
-        // Round 88 2nd follow-up — Copyright popup column
-        "single_album_ep, copyright_checklist"
-      )
-      .eq("requested", true);
+    // Round 150 — load-reduction pass. These 3 queries are independent —
+    // none reads a result from another — but were previously awaited one
+    // at a time in series. Switched to Promise.all so they fire
+    // concurrently instead; total wait time becomes roughly the slowest
+    // single query rather than the sum of all 3. No query/column/filter
+    // behavior changed. See project doc "load-reduction-additional-ideas.md".
+    const [{ data: rels }, { data: profs }, { data: assigns }] = await Promise.all([
+      supabase
+        .from("releases")
+        .select(
+          "id, did, title, main_artist, release_date, release_time, upc, drive_link, link_lbm, link_share, smartlink, link_preorder, upload_status, " +
+          "link_ugc, link_media_report, requester_segment, linkshare_tiktok_timing, linkshare_facebook_timing, needs_update, " +
+          // Round 88 2nd follow-up — Copyright popup column
+          "single_album_ep, copyright_checklist"
+        )
+        .eq("requested", true),
+      supabase.from("profiles").select("id, name, segment, role").order("name"),
+      supabase.from("workstation_assignments").select("release_id, pic_profile_id").eq("workstation", "upload"),
+    ]);
     setReleases(rels || []);
-
-    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
 
-    const { data: assigns } = await supabase
-      .from("workstation_assignments")
-      .select("release_id, pic_profile_id")
-      .eq("workstation", "upload");
     const map = {};
     let def = null;
     (assigns || []).forEach((a) => {

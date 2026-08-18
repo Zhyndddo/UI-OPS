@@ -12,6 +12,7 @@ import { usePagination } from "../../lib/usePagination";
 import Pagination from "../../lib/Pagination";
 import { fetchProductTagSets, ProductTagPills } from "../../lib/productTags";
 import { copyrightChecklistSummary } from "../../lib/copyrightChecklist";
+import DateRangeFilter, { matchesDateRange } from "../../lib/DateRangeFilter";
 import styles from "../shared.module.css";
 
 const CHANNELS = ["VIEENT", "ENVI"];
@@ -83,6 +84,14 @@ export default function ReleasesDashboard() {
   const [typeFilter, setTypeFilter] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
   const [search, setSearch] = useState(""); // regex tested against main_artist, title, label
+  // Round 152 — new, independent custom date-range filter, sits next to
+  // the search box. ANDed with everything else (including the existing
+  // today/this-week/this-month preset filter above — this doesn't replace
+  // or repurpose that, both can be active together) via matchesDateRange
+  // below. See lib/DateRangeFilter.js for why it's built as a generic,
+  // reusable component rather than page-specific.
+  const [dateRangeStart, setDateRangeStart] = useState("");
+  const [dateRangeEnd, setDateRangeEnd] = useState("");
   const [hoverRelease, setHoverRelease] = useState(null);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
 
@@ -301,9 +310,12 @@ export default function ReleasesDashboard() {
       if (typeFilter && r.project_type !== typeFilter) return false;
       if (labelFilter && r.label !== labelFilter) return false;
       if (searchTest && !(searchTest(r.main_artist) || searchTest(r.title) || searchTest(r.label))) return false;
+      // Round 152 — new custom date-range filter, independent of
+      // createdFilter's presets above (both can be active at once).
+      if (!matchesDateRange(r.release_date, dateRangeStart, dateRangeEnd)) return false;
       return true;
     });
-  }, [releases, createdFilter, statusFilter, channelFilter, typeFilter, labelFilter, searchTest]);
+  }, [releases, createdFilter, statusFilter, channelFilter, typeFilter, labelFilter, searchTest, dateRangeStart, dateRangeEnd]);
 
   // "nhớ cập nhật cái channel nhan" — the Channel column was read-only and
   // commonly blank (requester_segment is an optional dropdown on the create
@@ -367,6 +379,7 @@ export default function ReleasesDashboard() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          <DateRangeFilter start={dateRangeStart} end={dateRangeEnd} onStartChange={setDateRangeStart} onEndChange={setDateRangeEnd} />
           <select className={styles.select} style={{ maxWidth: 200 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
             <option value="">Type — all</option>
             {[...new Set(releases.map((r) => r.project_type).filter(Boolean))].map((t) => <option key={t} value={t}>{t}</option>)}
@@ -379,9 +392,9 @@ export default function ReleasesDashboard() {
             <option value="">Label — all</option>
             {labels.map((l) => <option key={l.label_name} value={l.label_name}>{l.label_name}</option>)}
           </select>
-          {(typeFilter || labelFilter || search || anyStatClickFilter) && (
+          {(typeFilter || labelFilter || search || dateRangeStart || dateRangeEnd || anyStatClickFilter) && (
             <button
-              onClick={() => { setStatusFilter(null); setChannelFilter(null); setCreatedFilter(null); setTypeFilter(""); setLabelFilter(""); setSearch(""); }}
+              onClick={() => { setStatusFilter(null); setChannelFilter(null); setCreatedFilter(null); setTypeFilter(""); setLabelFilter(""); setSearch(""); setDateRangeStart(""); setDateRangeEnd(""); }}
               style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "6px 12px", fontSize: 11, color: "var(--text-faint)", cursor: "pointer" }}
             >
               ✕ Clear all filters

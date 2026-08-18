@@ -118,7 +118,14 @@ export default function MediaBookingList() {
       // "URL LBM") per explicit request. Round 75 — item 2: link_media_report
       // added too, for the new "Package Url" column (the magic link itself,
       // shown once one's been generated for fast access).
-      const { data: rels } = await supabase.from("releases").select("did, title, main_artist, label, release_date, release_time, drive_link, link_media_report").in("did", dids);
+      // Round 148 — item: "Linkfire url" column added (see below), reading
+      // and writing releases.link_media_report_custom directly — the same
+      // field already editable as "Custom Domain — Package Offer" on the
+      // release detail page's URL tab and inside the Package Builder
+      // popup's "Custom package url" field (see PackagesPanel further
+      // down). `id` is now selected too so this list can write straight
+      // to that release row without a second lookup.
+      const { data: rels } = await supabase.from("releases").select("id, did, title, main_artist, label, release_date, release_time, drive_link, link_media_report, link_media_report_custom").in("did", dids);
       const map = {};
       (rels || []).forEach((r) => { map[r.did] = r; });
       setReleasesByDid(map);
@@ -135,6 +142,18 @@ export default function MediaBookingList() {
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
     load();
+  }
+
+  // Round 148 — "Linkfire url" column: a manual input straight on the list
+  // (not part of the ticket's own data/fields, and not gated by
+  // canEditMediaBookingTicket — this is a plain release field, same as
+  // Package Url/URL Drive next to it, not a package-builder write). Writes
+  // directly to the release row, so this is genuinely the same value as
+  // "Custom Domain — Package Offer" on the release detail page's URL tab.
+  async function updateLinkfireUrl(rel, value) {
+    if (!rel) return;
+    setReleasesByDid((prev) => (prev[rel.did] ? { ...prev, [rel.did]: { ...prev[rel.did], link_media_report_custom: value } } : prev));
+    await supabase.from("releases").update({ link_media_report_custom: value }).eq("id", rel.id);
   }
 
   async function updateStatus(t, newStatus) {
@@ -238,7 +257,7 @@ export default function MediaBookingList() {
             <>
             <table className={styles.table}>
               <thead>
-                <tr><th>Release (DID)</th><th>Release</th><th>URL Drive</th><th>Package Url</th><th>Propose Package</th><th>PIC</th><th>Deadline</th><th>Status</th></tr>
+                <tr><th>Release (DID)</th><th>Release</th><th>URL Drive</th><th>Package Url</th><th>Propose Package</th><th>PIC</th><th>Linkfire url</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {pagedTickets.map((t) => {
@@ -290,7 +309,21 @@ export default function MediaBookingList() {
                           </select>
                         ) : (t.profiles?.name || "—")}
                       </td>
-                      <td>{fmtDate(t.deadline)}</td>
+                      {/* Round 148 — "Linkfire url" replaces Deadline
+                          (never used on this list). Manual input, not part
+                          of the ticket's own fields — writes straight to
+                          the release's link_media_report_custom, same
+                          value as "Custom Domain — Package Offer" on the
+                          release detail page's URL tab. No release match
+                          (rel missing) means there's nothing to write to
+                          yet, so it falls back to a plain dash. */}
+                      <td onClick={(e) => e.stopPropagation()} style={{ maxWidth: 160 }}>
+                        {rel ? (
+                          <LinkfireUrlCell release={rel} onUpdate={updateLinkfireUrl} />
+                        ) : (
+                          <span style={{ color: "var(--text-dim)" }}>—</span>
+                        )}
+                      </td>
                       {/* Round 80 — no Note column in this list, so the
                           reason folded into data.note by statusNoteGate is
                           only reachable via this hover. */}
@@ -475,6 +508,16 @@ function CategoryCountsPopup({ isTikTokChannel, isAds, brandList, currentBrand, 
   );
 }
 
+// Round 148 — the list's "Linkfire url" column. Same local-draft-then-
+// commit-on-blur pattern every other inline URL cell in this app uses
+// (e.g. Re-Check workstation's LbmCell) — local state so typing doesn't
+// fight the row's own re-render on every keystroke, committed to the
+// release row on blur.
+function LinkfireUrlCell({ release, onUpdate }) {
+  const [draft, setDraft] = useState(release?.link_media_report_custom || "");
+  return <UrlField styles={styles} value={draft} onChange={setDraft} onBlur={() => onUpdate(release, draft)} />;
+}
+
 // This is the corrected, from-scratch rebuild, now living inside the
 // Media Booking ticket (replacing the old Template/Content-Plan modes
 // entirely) — gated the same way the ticket itself always was, not by
@@ -618,7 +661,11 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     if (priceSetting?.value) {
       try {
         const parsed = JSON.parse(priceSetting.value);
-        const merged = { categories: { ...DEFAULT_UNIT_PRICES.categories, ...(parsed.categories || {}) }, ads: { ...DEFAULT_UNIT_PRICES.ads, ...(parsed.ads || {}) } };
+        const merged = {
+          categories: { ...DEFAULT_UNIT_PRICES.categories, ...(parsed.categories || {}) },
+          ads: { ...DEFAULT_UNIT_PRICES.ads, ...(parsed.ads || {}) },
+          addons: { ...DEFAULT_UNIT_PRICES.addons, ...(parsed.addons || {}) },
+        };
         priceDefaultsRef.current = merged;
         setPriceDefaults(merged);
       } catch {
@@ -1385,11 +1432,18 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
 
   async function addPrebuiltLine(addon) {
     if (!activePackage) return;
+    // Round 152 — seed with the configured default price (Config → Media
+    // Booking Pricing) instead of always leaving Đơn Giá blank. Same
+    // priceDefaultsRef pattern already used for category/Ads rows
+    // elsewhere in this file — `?? null` so an addon with no configured
+    // default (the other 3 PREBUILT_ADDONS, for now) keeps the old
+    // blank-and-type-it-in behavior.
+    const defaultAmount = priceDefaultsRef.current.addons?.[addon.name] ?? null;
     const { data: line } = await supabase
       .from("media_booking_package_lines")
       .insert({
         package_id: activePackage.id, category_id: null, platform: addon.name, brand: "",
-        unit: addon.unit, quantity: 1, detail: addon.detail, amount: null,
+        unit: addon.unit, quantity: 1, detail: addon.detail, amount: defaultAmount,
         sort_order: (activePackage.media_booking_package_lines || []).length,
       })
       .select()
@@ -2374,6 +2428,21 @@ const DEFAULT_UNIT_PRICES = {
     "TikTok Channel": 700000,
     "Social": 200000,
     "Community": 200000,
+  },
+  // Round 152 — prebuilt add-on lines (see PREBUILT_ADDONS below) used to
+  // always insert with amount: null, leaving Đơn Giá blank until someone
+  // typed it in by hand every single time a package added one. Per
+  // explicit request, "Design" and "Priority Pitching Spotify Homepage
+  // Banner" now seed with real defaults, same Config → Media Booking
+  // Pricing mechanism as categories/ads above — see MEDIA_BOOKING_PRICE_
+  // ADDONS in app/config/page.js, kept in sync with this object the same
+  // way categories/ads already are (see the comment above DEFAULT_UNIT_
+  // PRICES). Only these 2 addons have a configured default per the
+  // request; the other 3 PREBUILT_ADDONS keep their old "blank, type it
+  // in" behavior until asked for.
+  addons: {
+    "Design": 10000000,
+    "Priority Pitching Spotify Homepage Banner": 20000000,
   },
   ads: {
     "Facebook Ads": { "Lượt tiếp cận": 30, "Lượt tương tác": 300, "Lượt truy cập (Link click)": 2000 },

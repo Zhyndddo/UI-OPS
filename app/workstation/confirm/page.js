@@ -26,7 +26,29 @@ import styles from "../../shared.module.css";
 // like the release detail popup, not a tri-state gate.
 const DSP_CHECK_FIELDS = ["confirm_spotify_correct", "confirm_apple_correct", "confirm_zing_correct", "confirm_nct_correct", "confirm_fb_correct", "confirm_ytb_correct"];
 
-const SELECT_FIELDS = "id, did, title, main_artist, release_date, release_time, link_lbm, release_category, project_type, smartlink, upc, confirm_insta_sound, confirm_tiktok_sound_updated, confirm_smartlink_updated, confirm_tag, needs_update, confirm_note, " + DSP_CHECK_FIELDS.join(", ");
+// Round 158 — "Artist Pick" (releases.artist_pick_status), moved here from
+// Pre-release (app/workstation/pre-release/page.js) per explicit request.
+// Same fixed options that page used — kept as its own local list/select
+// here rather than pulled into a shared lib, since Pre-release's PickSelect
+// wasn't exported and this is the only other place using it.
+const ARTIST_PICK_OPTS = ["", "Done", "Uneditible", "Skip"];
+function ArtistPickSelect({ value, onChange }) {
+  const unrecognized = value && !ARTIST_PICK_OPTS.includes(value) ? value : null;
+  return (
+    <select
+      className={styles.select}
+      style={{ minWidth: 100 }}
+      value={value || ""}
+      onChange={(e) => onChange(e.target.value)}
+      title={unrecognized ? "Imported value doesn't match any picker option — pick one to fix it" : undefined}
+    >
+      {ARTIST_PICK_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+      {unrecognized && <option value={unrecognized}>{unrecognized} (unrecognized — pick to fix)</option>}
+    </select>
+  );
+}
+
+const SELECT_FIELDS = "id, did, title, main_artist, release_date, release_time, link_lbm, release_category, project_type, smartlink, upc, confirm_insta_sound, confirm_tiktok_sound_updated, confirm_smartlink_updated, confirm_tag, artist_pick_status, needs_update, confirm_note, " + DSP_CHECK_FIELDS.join(", ");
 
 // Round 135 — per explicit request: "filter out product that hasn't had
 // the UPC && smartlink filled yet" (item 1). A release only counts as
@@ -111,7 +133,21 @@ export default function ConfirmWorkstation() {
   function dspAllChecked(r) {
     return DSP_CHECK_FIELDS.every((f) => r[f]);
   }
-  function isDonePhase1(r) { return dspAllChecked(r) && !!r.link_lbm; }
+  // Round 153 — "Tag Confirm" (confirm_tag) is a real Yes/No column on
+  // this tab (see the BoolToggle a few lines below) but was never part of
+  // the completion rule — per explicit request ("all column check yes no
+  // must be yes"), every Yes/No toggle on THIS tab must be Yes for a row
+  // to count as done, not just the DSP-check bundle + the URL LBM field.
+  // Phase 2's isDonePhase2 already required all 3 of its own Yes/No
+  // toggles, so only Phase 1 needed this fix.
+  function isDonePhase1(r) { return dspAllChecked(r) && !!r.link_lbm && !!r.confirm_tag; }
+  // Round 158 — Artist Pick (artist_pick_status) is now editable on this
+  // tab (moved here from Pre-release, see ArtistPickSelect above), but
+  // deliberately NOT added to this rule. It DID gate Pre-release's own
+  // isDone() before the move — but "move the column" was a request to
+  // relocate where it's edited, not necessarily to also make it gate
+  // Phase 2 completion here, so it's purely informational on this tab for
+  // now. Flag if it should count toward isDonePhase2 too.
   function isDonePhase2(r) { return !!r.smartlink && r.confirm_smartlink_updated && r.confirm_insta_sound && r.confirm_tiktok_sound_updated; }
   const isDone = phase === "confirm_phase1" ? isDonePhase1 : isDonePhase2;
 
@@ -256,6 +292,7 @@ export default function ConfirmWorkstation() {
                   <th>Update Smartlink</th>
                   <th>Sound Instagram</th>
                   <th>Sound TikTok</th>
+                  <th style={{ borderLeft: "1px solid var(--border)" }}>Artist Pick</th>
                   <th>PIC</th>
                   <th>Note</th>
                 </tr>
@@ -289,6 +326,9 @@ export default function ConfirmWorkstation() {
                     </td>
                     <td style={{ minWidth: 90 }}>
                       <BoolToggle value={!!r.confirm_tiktok_sound_updated} onChange={(v) => updateField(r, "confirm_tiktok_sound_updated", v)} />
+                    </td>
+                    <td style={{ borderLeft: "1px solid var(--border)" }}>
+                      <ArtistPickSelect value={r.artist_pick_status} onChange={(v) => updateField(r, "artist_pick_status", v)} />
                     </td>
                     <td>
                       <select className={styles.select} style={{ minWidth: "16ch" }} value={assignments.confirm_phase2?.[r.id] ?? defaultPics.confirm_phase2 ?? ""} onChange={(e) => updatePic(r.id, e.target.value)}>

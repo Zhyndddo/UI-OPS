@@ -15,6 +15,7 @@ import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import { MV_TYPE_OPTIONS } from "../../../lib/pickerOptions";
+import { rowHighlightColor } from "../../../lib/releaseDateHighlight";
 import SonyPublishLockRow from "../../../lib/SonyPublishLockRow";
 import { useSonyPublishDids } from "../../../lib/useSonyPublishDids";
 import styles from "../../shared.module.css";
@@ -56,6 +57,19 @@ function PickSelect({ styles, opts, value, onChange }) {
   );
 }
 
+// Round 152 — "unfilled field" purple highlight, per explicit request to
+// match New Release Setup's same marker (app/workstation/upload/page.js's
+// missingHighlightStyle — identical implementation, reusing the same
+// global --missing-highlight/--missing-highlight-bg CSS vars, fixed
+// purple #9D00FF in both themes, no new CSS needed). Applied to each of
+// this page's 6 fillable fields (the same 6 isDone() below checks — was 7
+// before Round 158 moved Artist Pick to Re-Check Phase 2).
+function missingHighlightStyle(value) {
+  return value
+    ? undefined
+    : { boxShadow: "inset 0 0 0 2px var(--missing-highlight)", background: "var(--missing-highlight-bg)", borderRadius: 6 };
+}
+
 export default function PreReleaseWorkstation() {
   const [releases, setReleases] = useState([]);
   const [profiles, setProfiles] = useState([]);
@@ -75,7 +89,11 @@ export default function PreReleaseWorkstation() {
     setLoading(true);
     const { data: rels } = await supabase
       .from("releases")
-      .select("id, did, title, main_artist, release_date, release_time, canva_mv_status, canva_status, artist_pick_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric, pre_release_note");
+      // Round 158 — artist_pick_status moved to Re-Check Phase 2 (see
+      // app/workstation/confirm/page.js), per explicit request. No longer
+      // fetched/rendered here — the underlying releases column is
+      // unchanged, this page just stopped being its edit surface.
+      .select("id, did, title, main_artist, release_date, release_time, canva_mv_status, canva_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric, pre_release_note");
     setReleases(rels || []);
 
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
@@ -110,8 +128,11 @@ export default function PreReleaseWorkstation() {
     else await supabase.from("workstation_assignments").insert({ workstation: "pre_release", column_key: "all", release_id: releaseId, pic_profile_id: profileId });
   }
 
+  // Round 158 — artist_pick_status dropped from this rule (moved to
+  // Re-Check Phase 2, see above) — a row here is done once its 6
+  // remaining fields are filled, not 7.
   function isDone(r) {
-    return !!(r.canva_mv_status && r.canva_status && r.artist_pick_status && r.musixmatch_link && r.musixmatch_status && r.nct_lyric && r.zing_lyric);
+    return !!(r.canva_mv_status && r.canva_status && r.musixmatch_link && r.musixmatch_status && r.nct_lyric && r.zing_lyric);
   }
 
   const counts = useMemo(() => {
@@ -163,7 +184,6 @@ export default function PreReleaseWorkstation() {
                   </SortableTh>
                   <th>CANVA</th>
                   <th>MV</th>
-                  <th style={{ borderLeft: "1px solid var(--border)" }}>Artist Pick</th>
                   <th style={{ borderLeft: "1px solid var(--border)" }}>Musixmatch Status</th>
                   <th>Musixmatch Link</th>
                   <th style={{ borderLeft: "1px solid var(--border)" }}>NCT Lyric</th>
@@ -175,7 +195,7 @@ export default function PreReleaseWorkstation() {
               <tbody>
                 {pagedReleases.map((r) =>
                   sonyPublishDids.has(r.did) ? (
-                    <SonyPublishLockRow key={r.id} colSpan={10} />
+                    <SonyPublishLockRow key={r.id} colSpan={9} />
                   ) : (
                     <PreReleaseRow
                       key={r.id}
@@ -203,9 +223,15 @@ export default function PreReleaseWorkstation() {
 function PreReleaseRow({ release, pic, isOverride, profiles, onUpdateField, onUpdatePic }) {
   const [mmLink, setMmLink] = useState(release.musixmatch_link || "");
 
+  // Round 152 — same today/this-week row highlight as Re-Check
+  // (app/workstation/confirm/page.js), applied here per explicit request.
+  // Same rowHighlightColor() shared helper, same "row + sticky first cell"
+  // application so the highlight doesn't visibly stop at that column.
+  const highlight = rowHighlightColor(release);
+
   return (
-    <tr>
-      <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}>
+    <tr style={highlight ? { background: highlight } : undefined}>
+      <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight || "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}>
         {/* Explicit 3-line layout per explicit request — Name / Artist &
             DID / Release date + time — instead of one run-on line, for
             clarity and so each line stays short enough to not wrap. */}
@@ -215,25 +241,22 @@ function PreReleaseRow({ release, pic, isOverride, profiles, onUpdateField, onUp
         <div style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{release.main_artist} · {release.did}</div>
         <div style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{fmtDate(release.release_date)} {release.release_time}</div>
       </td>
-      <td>
+      <td style={missingHighlightStyle(release.canva_mv_status)}>
         <PickSelect styles={styles} opts={CANVA_OPTS} value={release.canva_mv_status} onChange={(v) => onUpdateField(release, "canva_mv_status", v)} />
       </td>
-      <td>
+      <td style={missingHighlightStyle(release.canva_status)}>
         <PickSelect styles={styles} opts={MV_OPTS} value={release.canva_status} onChange={(v) => onUpdateField(release, "canva_status", v)} />
       </td>
-      <td style={{ borderLeft: "1px solid var(--border)" }}>
-        <PickSelect styles={styles} opts={PICK_OPTS} value={release.artist_pick_status} onChange={(v) => onUpdateField(release, "artist_pick_status", v)} />
-      </td>
-      <td style={{ borderLeft: "1px solid var(--border)" }}>
+      <td style={{ borderLeft: "1px solid var(--border)", ...missingHighlightStyle(release.musixmatch_status) }}>
         <PickSelect styles={styles} opts={MUSIXMATCH_STATUS_OPTS} value={release.musixmatch_status} onChange={(v) => onUpdateField(release, "musixmatch_status", v)} />
       </td>
-      <td style={{ minWidth: 180 }}>
+      <td style={{ minWidth: 180, ...missingHighlightStyle(mmLink) }}>
         <UrlField styles={styles} value={mmLink} onChange={setMmLink} onBlur={() => onUpdateField(release, "musixmatch_link", mmLink)} />
       </td>
-      <td style={{ borderLeft: "1px solid var(--border)" }}>
+      <td style={{ borderLeft: "1px solid var(--border)", ...missingHighlightStyle(release.nct_lyric) }}>
         <PickSelect styles={styles} opts={PICK_OPTS} value={release.nct_lyric} onChange={(v) => onUpdateField(release, "nct_lyric", v)} />
       </td>
-      <td>
+      <td style={missingHighlightStyle(release.zing_lyric)}>
         <PickSelect styles={styles} opts={PICK_OPTS} value={release.zing_lyric} onChange={(v) => onUpdateField(release, "zing_lyric", v)} />
       </td>
       <td title={isOverride ? "Row override" : "Workstation default"}>

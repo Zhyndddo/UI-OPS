@@ -225,38 +225,69 @@ export default function ReleaseDetailPage() {
         if (err) { setError(err.message); return; }
         setRelease(data);
         setForm(data);
-        // Fetch the real Pitching ticket for this release, if one exists —
-        // needs the DID, so this waits on the release itself loading first.
-        const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "pitching").single();
-        if (tab) {
-          const { data: tix } = await supabase
-            .from("tickets")
-            .select("*")
-            .eq("tab_id", tab.id)
-            .eq("data->>releaseId", data.did)
-            .is("deleted_at", null)
-            .limit(1);
-          const found = tix?.[0] || null;
-          setPitchingTicket(found);
-          if (found) setPitchingTypesDraft({ priority: false, spotifyBanner: false, spotifyS4a: false, domestic: false, ...found.data });
-        }
+        // Round 151 — load-reduction pass, release detail page. This block
+        // used to look up each of the 4 fixed ticket-tab ids (pitching,
+        // pitching_info, artist_profile, media_booking) one at a time —
+        // each its own round trip — THEN fetch that type's tickets, THEN
+        // move to the next type, all sequentially, before even getting to
+        // the already-batched gate-tabs fetch below. None of these 4
+        // lookups depend on each other (each only needs `data.did`, which
+        // is already in hand), so folded them into the SAME batched
+        // ticket_tabs lookup the gate-types fetch already used — one
+        // query for every tab id (fixed + gate + publishing) instead of 5
+        // separate ones. See project doc "booking-board-lazy-load-pitch.md"
+        // for the fuller writeup (this page's mount effect was audited
+        // there for side effects — none of these 4 fetches has one, they're
+        // pure existence/display reads — but the audit didn't check
+        // sequential-vs-parallel efficiency, which is what this fixes).
+        const gateTicketTypeKeys = [...new Set(Object.values(GATE_TICKET_TYPES))];
+        const fixedTabKeys = ["pitching", "pitching_info", "artist_profile", "media_booking", "publishing"];
+        const allTabKeys = [...new Set([...fixedTabKeys, ...gateTicketTypeKeys])];
+        const { data: allTabs } = await supabase.from("ticket_tabs").select("id, key, default_status").in("key", allTabKeys);
+        const tabByKey = {};
+        (allTabs || []).forEach((t) => (tabByKey[t.key] = t));
+
+        // Every ticket-fetch below only depends on a tab id (already in
+        // hand) and `data.did`/`data.id` — none depend on each other or on
+        // one another's results, so they all fire concurrently instead of
+        // one after another.
+        const [pitchingRes, pitchingInfoRes, artistProfileRes, mediaBookingRes, gateRes, publishingRes] = await Promise.all([
+          tabByKey.pitching
+            ? supabase.from("tickets").select("*").eq("tab_id", tabByKey.pitching.id).eq("data->>releaseId", data.did).is("deleted_at", null).limit(1)
+            : Promise.resolve({ data: null }),
+          tabByKey.pitching_info
+            ? supabase.from("tickets").select("id").eq("tab_id", tabByKey.pitching_info.id).eq("data->>releaseId", data.did).is("deleted_at", null).limit(1)
+            : Promise.resolve({ data: null }),
+          tabByKey.artist_profile
+            ? supabase.from("tickets").select("*").eq("tab_id", tabByKey.artist_profile.id).eq("data->>releaseId", data.did).is("deleted_at", null)
+            : Promise.resolve({ data: null }),
+          tabByKey.media_booking
+            ? supabase.from("tickets").select("id, status, status_log, data").eq("tab_id", tabByKey.media_booking.id).eq("data->>releaseId", data.did).is("deleted_at", null).limit(1)
+            : Promise.resolve({ data: null }),
+          gateTicketTypeKeys.some((k) => tabByKey[k])
+            ? supabase.from("tickets").select("*").in("tab_id", gateTicketTypeKeys.filter((k) => tabByKey[k]).map((k) => tabByKey[k].id)).eq("data->>releaseId", data.did).is("deleted_at", null)
+            : Promise.resolve({ data: null }),
+          // Round 86 item 4 — Publishing is matched by data.releaseId ===
+          // the release's own id (its real UUID/PK), NOT its did like every
+          // other gate-linked type — see app/tickets/publishing/page.js.
+          tabByKey.publishing
+            ? supabase.from("tickets").select("*").eq("tab_id", tabByKey.publishing.id).eq("data->>releaseId", data.id).is("deleted_at", null).order("created_at", { ascending: false }).limit(1)
+            : Promise.resolve({ data: null }),
+        ]);
+
+        // Fetch the real Pitching ticket for this release, if one exists.
+        const pitchingFound = pitchingRes.data?.[0] || null;
+        setPitchingTicket(pitchingFound);
+        if (pitchingFound) setPitchingTypesDraft({ priority: false, spotifyBanner: false, spotifyS4a: false, domestic: false, ...pitchingFound.data });
+
         // Pitching Info (AR's genre/mood/DSP tagging ticket) — the New
         // Release create form already auto-sends this the moment Priority
         // or Spotify is ticked, but that side effect didn't exist here on
         // the detail page, so releases edited after creation could tick
         // Priority later and nothing would ever notify AR. Fetch existing
         // state so the button below can tell "already sent" from "not yet".
-        const { data: piTab } = await supabase.from("ticket_tabs").select("id").eq("key", "pitching_info").single();
-        if (piTab) {
-          const { data: piTix } = await supabase
-            .from("tickets")
-            .select("id")
-            .eq("tab_id", piTab.id)
-            .eq("data->>releaseId", data.did)
-            .is("deleted_at", null)
-            .limit(1);
-          setPitchingInfoTicket(piTix?.[0] || null);
-        }
+        setPitchingInfoTicket(pitchingInfoRes.data?.[0] || null);
+
         // Round 97 — idempotency check for Artist Profile, now per-artist:
         // fetch EVERY ticket for this release (not just the first one) so
         // ArtistProfileVerifyPanel can show "✓ already sent" per artist
@@ -264,79 +295,36 @@ export default function ReleaseDetailPage() {
         // all-false default here — it only feeds NEW tickets going
         // forward (see saveTab() below), each existing ticket's own
         // platform picks are edited on /tickets/artist-profile itself.
-        const { data: apTab } = await supabase.from("ticket_tabs").select("id").eq("key", "artist_profile").single();
-        if (apTab) {
-          const { data: apTix } = await supabase
-            .from("tickets")
-            .select("*")
-            .eq("tab_id", apTab.id)
-            .eq("data->>releaseId", data.did)
-            .is("deleted_at", null);
-          setArtistProfileTickets(apTix || []);
-        }
+        setArtistProfileTickets(artistProfileRes.data || []);
+
         // The real gate for "Send Package Ticket" — whether a Media
         // Booking ticket for this release ACTUALLY exists right now, not
         // the release.package_ticket_sent flag (imported releases don't
         // always have that flag mapped, so it can't be trusted alone).
-        const { data: mbTab } = await supabase.from("ticket_tabs").select("id").eq("key", "media_booking").single();
-        if (mbTab) {
-          const { data: mbTix } = await supabase
-            .from("tickets")
-            .select("id, status, status_log, data")
-            .eq("tab_id", mbTab.id)
-            .eq("data->>releaseId", data.did)
-            .is("deleted_at", null)
-            .limit(1);
-          const found = mbTix?.[0] || null;
-          setHasMediaBookingTicket(!!found);
-          setMediaBookingTicket(found);
-        }
+        const mbFound = mediaBookingRes.data?.[0] || null;
+        setHasMediaBookingTicket(!!mbFound);
+        setMediaBookingTicket(mbFound);
+
         // Data Request / Marketing Request / Legal Request sub-tickets —
         // one batched fetch for all 10 mapped types at once (see
         // GATE_TICKET_TYPES in lib/GateFields.js), rather than 10 separate
         // round trips like the older per-field fetches above.
-        const gateTicketTypeKeys = [...new Set(Object.values(GATE_TICKET_TYPES))];
-        const { data: gateTabs } = await supabase.from("ticket_tabs").select("id, key, default_status").in("key", gateTicketTypeKeys);
-        if (gateTabs && gateTabs.length > 0) {
+        if (gateTicketTypeKeys.some((k) => tabByKey[k])) {
           const tabIdToKey = {};
           const tabsMap = {};
-          gateTabs.forEach((t) => {
-            tabIdToKey[t.id] = t.key;
-            tabsMap[t.key] = { id: t.id, default_status: t.default_status };
+          gateTicketTypeKeys.forEach((k) => {
+            if (!tabByKey[k]) return;
+            tabIdToKey[tabByKey[k].id] = k;
+            tabsMap[k] = { id: tabByKey[k].id, default_status: tabByKey[k].default_status };
           });
           setGateTabsMap(tabsMap);
-          const { data: gateTix } = await supabase
-            .from("tickets")
-            .select("*")
-            .in("tab_id", gateTabs.map((t) => t.id))
-            .eq("data->>releaseId", data.did)
-            .is("deleted_at", null);
           const map = {};
-          (gateTix || []).forEach((t) => {
+          (gateRes.data || []).forEach((t) => {
             const key = tabIdToKey[t.tab_id];
             // If somehow more than one exists for a type, keep the newest.
             if (key && (!map[key] || new Date(t.created_at) > new Date(map[key].created_at))) map[key] = t;
           });
-          // Round 86 item 4 — Publishing is matched by data.releaseId ===
-          // the release's own id (its real UUID/PK), NOT its did like
-          // every other gate-linked type above — see
-          // app/tickets/publishing/page.js. The batched fetch just above
-          // filters on data->>releaseId = data.did, so it can never match
-          // a real Publishing ticket; this second lookup (only runs when
-          // the batched ticket_tabs fetch found a "publishing" tab, so it
-          // adds zero extra round trips when that type doesn't exist) gets
-          // it right and merges into the same map.
-          if (tabsMap.publishing) {
-            const { data: pubTix } = await supabase
-              .from("tickets")
-              .select("*")
-              .eq("tab_id", tabsMap.publishing.id)
-              .eq("data->>releaseId", data.id)
-              .is("deleted_at", null)
-              .order("created_at", { ascending: false })
-              .limit(1);
-            if (pubTix && pubTix[0]) map.publishing = pubTix[0];
-          }
+          if (publishingRes.data?.[0]) map.publishing = publishingRes.data[0];
           setGateTicketMap(map);
           if (map.co_trong_net_youtube) {
             setCoTrongNetDraft({ ...CO_TRONG_NET_DRAFT_DEFAULTS, ...map.co_trong_net_youtube.data });

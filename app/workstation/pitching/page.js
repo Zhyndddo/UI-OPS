@@ -39,9 +39,18 @@ const CO_GOI_VALUE = "Có gói";
 // Priority Apple both read ticket.data.priority; NCT + Zing both read
 // ticket.data.domestic) without collapsing their independent status/PIC
 // tracking underneath.
+// Round 153 — per explicit request, "Priority Spotify" and "Priority
+// Apple" collapse from 2 separate visual tabs into 1 ("Priority"), Apple's
+// fields now rendered stacked underneath Spotify's inside that same tab.
+// This ONLY changes the visual/tab grouping (this array + the popup body
+// below) — DSP_COLUMNS/REAL_TO_FLAG/requestedRealTypes below are
+// untouched, so Apple keeps its own independent status/PIC columns
+// (pitching_status_apple/pitching_pic_apple) exactly as before, same as
+// NCT/Zing already stayed independent underneath the merged "Domestic"
+// tab. "apple" deliberately has NO entry in this array anymore — it's no
+// longer a tab of its own, just a section within "priority"'s tab body.
 const TYPE_TABS = [
-  ["priority", "Priority Spotify"],
-  ["apple", "Priority Apple"],
+  ["priority", "Priority"],
   ["spotifyBanner", "Spotify Banner"],
   ["spotify", "Spotify S4A"],
   ["domestic", "Domestic"],
@@ -156,7 +165,7 @@ export default function PitchingWorkstation() {
     if (dids.length > 0) {
       const { data: rels } = await supabase
         .from("releases")
-        .select("id, did, title, main_artist, release_date, release_time, upc, priority_pitching, isrc, apple_id, pitching_status_spotify, pitching_status_apple, pitching_status_spotify_banner, pitching_status_nct, pitching_status_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo, pitching_note, pitching_pic_priority, pitching_pic_spotify, pitching_pic_apple, pitching_pic_spotify_banner, pitching_pic_domestic, pitching_domestic_services_nct, pitching_domestic_services_zing")
+        .select("id, did, title, main_artist, release_date, release_time, upc, priority_pitching, isrc, apple_id, pitching_status_spotify, pitching_status_apple, pitching_status_spotify_banner, pitching_spotify_banner_drive_link, pitching_status_nct, pitching_status_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo, pitching_note, pitching_pic_priority, pitching_pic_spotify, pitching_pic_apple, pitching_pic_spotify_banner, pitching_pic_domestic, pitching_domestic_services_nct, pitching_domestic_services_zing")
         .in("did", dids);
       (rels || []).forEach((r) => (releaseMap[r.did] = r));
     }
@@ -426,6 +435,7 @@ function PitchingPopup({ row, profiles, onClose, onUpdateRelease, domesticServic
         </div>
 
         {activeType === "priority" && (
+          <>
           <div className={styles.grid2}>
             <PicField tabKey="priority" />
             <Field label="Priority Pitching Status">
@@ -437,6 +447,27 @@ function PitchingPopup({ row, profiles, onClose, onUpdateRelease, domesticServic
               <input className={styles.input} defaultValue={release?.isrc || ""} onBlur={(e) => onUpdateRelease(release, "isrc", e.target.value)} />
             </Field>
           </div>
+          {/* Round 153 — Priority Apple, merged in from its own former tab
+              (see TYPE_TABS' comment above). Same fields/columns as
+              before (pitching_status_apple/pitching_pic_apple/apple_id) —
+              only the visual placement changed, now stacked under
+              Priority Spotify's fields within this one "Priority" tab
+              instead of behind a separate "Priority Apple" tab button. */}
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", margin: "16px 0 10px", borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+            Priority Apple
+          </div>
+          <div className={styles.grid2}>
+            <PicField tabKey="apple" />
+            <Field label="Priority Apple Status">
+              <select className={styles.select} value={release?.pitching_status_apple || ""} onChange={(e) => onUpdateRelease(release, "pitching_status_apple", e.target.value)}>
+                {STATUS_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+              </select>
+            </Field>
+            <Field label="Apple ID">
+              <input className={styles.input} defaultValue={release?.apple_id || ""} onBlur={(e) => onUpdateRelease(release, "apple_id", e.target.value)} />
+            </Field>
+          </div>
+          </>
         )}
 
         {activeType === "spotify" && (
@@ -465,20 +496,6 @@ function PitchingPopup({ row, profiles, onClose, onUpdateRelease, domesticServic
           </div>
         )}
 
-        {activeType === "apple" && (
-          <div className={styles.grid2}>
-            <PicField tabKey="apple" />
-            <Field label="Priority Apple Status">
-              <select className={styles.select} value={release?.pitching_status_apple || ""} onChange={(e) => onUpdateRelease(release, "pitching_status_apple", e.target.value)}>
-                {STATUS_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
-              </select>
-            </Field>
-            <Field label="Apple ID">
-              <input className={styles.input} defaultValue={release?.apple_id || ""} onBlur={(e) => onUpdateRelease(release, "apple_id", e.target.value)} />
-            </Field>
-          </div>
-        )}
-
         {/* Round 106 item 5 — new platform, "use the spotify priority [template]
             for now, the team will send later" — same STATUS_OPTS template as
             Priority Spotify's tab, own PIC/status columns. */}
@@ -489,6 +506,18 @@ function PitchingPopup({ row, profiles, onClose, onUpdateRelease, domesticServic
               <select className={styles.select} value={release?.pitching_status_spotify_banner || ""} onChange={(e) => onUpdateRelease(release, "pitching_status_spotify_banner", e.target.value)}>
                 {STATUS_OPTS.map((o) => <option key={o} value={o}>{o || "—"}</option>)}
               </select>
+            </Field>
+            {/* Round 153 — the one additional field the Round 106 comment
+                above already flagged as coming "later": Link Drive, same
+                one-extra-field template shape as Priority's own ISRC
+                field. New release column (pitching_spotify_banner_drive_link)
+                — see the SQL handed off alongside this round. */}
+            <Field label="Link Drive">
+              <input
+                className={styles.input}
+                defaultValue={release?.pitching_spotify_banner_drive_link || ""}
+                onBlur={(e) => onUpdateRelease(release, "pitching_spotify_banner_drive_link", e.target.value)}
+              />
             </Field>
           </div>
         )}

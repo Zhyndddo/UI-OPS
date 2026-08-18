@@ -7,12 +7,17 @@ import { fmtDate } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { useIsMobile } from "../../../lib/useIsMobile";
 import { MILESTONE_HIGHLIGHT_SETTING_KEY, DEFAULT_MILESTONE_HIGHLIGHT_CONFIG, parseMilestoneHighlightConfig } from "../../../lib/milestoneHighlight";
+import { MILESTONE_CHART_LINKS } from "../../../lib/milestoneChartLinks";
 import styles from "../../shared.module.css";
 
 // Real platform → chart lists, straight from v1's MILESTONE_PLATFORM_TABS.
 const PLATFORM_CHARTS = {
   Zing: ["ZMP3|ZING CHART", "ZMP3|BXH NHẠC MỚI"],
-  Spotify: ["WEEKLY TOP ALBUM", "WEEKLY TOP ARTIST", "WEEKLY TOP SONG", "DAILY TOP SONG", "DAILY TOP ARTIST", "DAILY VIRAL SONGs", "HANOI", "LOCAL PULSE - HANOI", "HOCHIMINH CITY", "LOCAL PULSE - HOCHIMINH CITY", "Playlist NEW MUSIC FRIDAY VIETNAM", "Playlist Fresh Find Vietnam", "Playlist Vsound Ngay Lúc Này", "Playlist Thiên Hạ Nghe Gì"],
+  // Round 155 item 1c — "Playlist Đoá Hồng Nhạc Việt" added, per explicit
+  // request: the team's xlsx tracked this 5th Spotify playlist chart but
+  // it had no entry here yet (see lib/milestoneChartLinks.js's comment on
+  // where its URL came from).
+  Spotify: ["WEEKLY TOP ALBUM", "WEEKLY TOP ARTIST", "WEEKLY TOP SONG", "DAILY TOP SONG", "DAILY TOP ARTIST", "DAILY VIRAL SONGs", "HANOI", "LOCAL PULSE - HANOI", "HOCHIMINH CITY", "LOCAL PULSE - HOCHIMINH CITY", "Playlist NEW MUSIC FRIDAY VIETNAM", "Playlist Fresh Find Vietnam", "Playlist Vsound Ngay Lúc Này", "Playlist Thiên Hạ Nghe Gì", "Playlist Đoá Hồng Nhạc Việt"],
   Apple: ["Playlist Vietnam Ơi!", "Playlist New Music Daily", "APPLE MUSIC - Top ALBUMs Vietnam", "APPLE MUSIC - Top POP Albums", "APPLE MUSIC -Top HIPHOP/RAP Albums", "APPLE MUSIC - Top DANCE Albums", "APPLE MUSIC - Top ALTERNATIVE Albums", "Apple Music - Top Songs Vietnam", "Apple Music - Top POP Songs", "Apple - Top Alternative Songs", "Apple Music - Top Dance Songs", "Apple Music - Top Hiphop/Rap Songs"],
   TikTok: ["TIKTOK POPULAR", "TIKTOK BREAKOUT", "TIKTOK HOT"],
   Instagram: ["INSTAGRAM"],
@@ -442,8 +447,28 @@ function ChartEntryPopup({ platform, onClose, onSave }) {
           })}
         </div>
         <div style={{ flex: 1, padding: 16, overflowY: "auto" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-faint)" }}>{activeChart}</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-faint)" }}>{activeChart}</div>
+              {/* Round 155 item 1h — tool button placed right next to the
+                  active chart's own tab name, not the topbar, per explicit
+                  request ("so many of them"). Desktop only (isMobile check
+                  above); simply doesn't render for a chart with no
+                  confirmed URL yet (see lib/milestoneChartLinks.js's own
+                  comment for the still-open list) rather than showing a
+                  dead link. */}
+              {!isMobile && MILESTONE_CHART_LINKS[activeChart] && (
+                <a
+                  href={MILESTONE_CHART_LINKS[activeChart]}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={styles.btnSmall}
+                  style={{ textDecoration: "none", fontSize: 10, padding: "2px 8px" }}
+                >
+                  🔗 Tool
+                </a>
+              )}
+            </div>
             <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer" }}>✕</button>
           </div>
           <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
