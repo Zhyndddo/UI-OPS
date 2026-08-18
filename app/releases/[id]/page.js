@@ -84,6 +84,27 @@ export default function ReleaseDetailPage() {
   const canResetToDealing = isAdminOrAbove(profile);
   const [release, setRelease] = useState(null);
   const [form, setForm] = useState(null);
+  // Round 162 — diff-based save. Tracks exactly which top-level `form` keys
+  // the user has actually edited (via update()/updateArtistTags() below)
+  // since the last successful save/load, so saveTab() can send ONLY those
+  // fields to the DB instead of the entire in-memory `form` object. A ref
+  // (not state) on purpose — updating it should never itself trigger a
+  // re-render, it's only read at save time and by the realtime handler.
+  //
+  // Why this exists: saveTab() used to write `{ ...form, ... }` wholesale
+  // on every save. `form` is only ever fully (re)loaded once per page
+  // mount (the fetch effect below depends on `[id]` only) — so if this tab
+  // sat open for a while, or a second tab/device changed the release in
+  // the meantime, saving from here silently rolled every OTHER field back
+  // to this tab's stale snapshot (reported as "URLs going missing after
+  // input"). The realtime subscription below is supposed to keep `form`
+  // current, but that only helps while the websocket connection is
+  // actually alive — a dropped connection (laptop sleep, network blip)
+  // leaves `form` stale with no signal that it's stale. Sending only the
+  // fields this tab actually touched removes the danger even when that
+  // happens: an untouched field is never part of the outgoing patch, so it
+  // can't be rolled back no matter how stale the rest of `form` is.
+  const dirtyKeysRef = useRef(new Set());
   const [pitchingTicket, setPitchingTicket] = useState(null);
   // Round 106 item 5 — 4 merged top-level keys (was 5) — see
   // lib/GateFields.js's PITCHING_TYPES comment for the merge mapping.
@@ -225,6 +246,8 @@ export default function ReleaseDetailPage() {
         if (err) { setError(err.message); return; }
         setRelease(data);
         setForm(data);
+        // Fresh load — nothing edited yet against this baseline.
+        dirtyKeysRef.current = new Set();
         // Round 151 — load-reduction pass, release detail page. This block
         // used to look up each of the 4 fixed ticket-tab ids (pitching,
         // pitching_info, artist_profile, media_booking) one at a time —
@@ -362,16 +385,23 @@ export default function ReleaseDetailPage() {
 
     // Live updates — e.g. an artist picking a package on the magic-link
     // page should show up here without a manual refresh. Only patches
-    // fields the user isn't actively editing, so it won't stomp on
-    // in-progress typing in another tab.
+    // fields the user isn't actively editing (per dirtyKeysRef, Round 162),
+    // so it won't stomp on in-progress typing in another tab — this used to
+    // just be a comment's claim without matching code (the merge below was
+    // unconditional over every key in payload.new), fixed alongside the
+    // saveTab() diff-based-save change since both bugs come from the same
+    // root cause (this page never distinguished "locally edited" from
+    // "not yet saved").
     const channel = supabase
       .channel(`release-${id}`)
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "releases", filter: `id=eq.${id}` },
         (payload) => {
-          setRelease(payload.new);
-          setForm((f) => (f ? { ...f, ...payload.new } : payload.new));
+          const incoming = { ...payload.new };
+          dirtyKeysRef.current.forEach((k) => delete incoming[k]);
+          setRelease((r) => (r ? { ...r, ...incoming } : payload.new));
+          setForm((f) => (f ? { ...f, ...incoming } : payload.new));
         }
       )
       .subscribe();
@@ -382,6 +412,7 @@ export default function ReleaseDetailPage() {
   }, [id]);
 
   function update(key, value) {
+    dirtyKeysRef.current.add(key);
     setForm((f) => ({ ...f, [key]: value }));
     setSaved(false);
   }
@@ -391,6 +422,8 @@ export default function ReleaseDetailPage() {
   // and every other existing string-based reader — same idiom as the New
   // Release create form's updateArtistTags.
   function updateArtistTags(tagsKey, textKey, tags) {
+    dirtyKeysRef.current.add(tagsKey);
+    dirtyKeysRef.current.add(textKey);
     setForm((f) => ({ ...f, [tagsKey]: tags, [textKey]: tags.join(", ") }));
     setSaved(false);
   }
@@ -518,7 +551,22 @@ export default function ReleaseDetailPage() {
     const sonyPublishReady =
       form.gate_sony_publish === "true" && !gateTicketMap.sony_publish && REQUIRED_META_KEYS.every((k) => form[k] === "true");
     const sonyPublishSendsUpload = sonyPublishReady && !form.requested;
-    const releasePatch = { ...form, ...(sonyPublishSendsUpload ? { requested: true } : {}), ...(didChanged ? { did: newDid } : {}) };
+    // Round 162 — diff-based save. Used to be `{ ...form, ... }`, writing
+    // every field on the release row (even ones this tab never touched)
+    // straight from whatever `form` happened to hold at save time. `form`
+    // is only fully reloaded once per page mount, so a stale tab (left
+    // open a while, or missing a realtime update after a dropped
+    // connection) would silently roll back any field it hadn't itself
+    // edited to its own stale snapshot. Now only the keys actually edited
+    // via update()/updateArtistTags() since load (dirtyKeysRef) go out,
+    // plus the two fields this function computes and writes itself
+    // (requested/did) — untouched fields are never part of the patch, so
+    // they can't be clobbered no matter how stale the rest of `form` is.
+    const dirtyPatch = {};
+    dirtyKeysRef.current.forEach((k) => {
+      dirtyPatch[k] = form[k];
+    });
+    const releasePatch = { ...dirtyPatch, ...(sonyPublishSendsUpload ? { requested: true } : {}), ...(didChanged ? { did: newDid } : {}) };
 
     // Round 86 item 4 — Publishing, same "loop until ready" idea as Sony
     // Publish just above, but gated on the inline Giá Trị Publishing value
@@ -530,11 +578,17 @@ export default function ReleaseDetailPage() {
     const publishingReady =
       form.gate_publishing === "true" && !gateTicketMap.publishing && (form.publishing_gia_tri || "").trim() !== "";
 
-    const { error: err } = await supabase.from("releases").update(releasePatch).eq("id", id);
-    if (err) {
-      setSaving(false);
-      setError(err.message);
-      return;
+    // Nothing edited on this tab and no computed field changed (e.g.
+    // hitting Save just to fire one of the ticket-creation side effects
+    // below off an already-persisted gate value) — skip the write
+    // entirely rather than sending a no-op empty patch.
+    if (Object.keys(releasePatch).length > 0) {
+      const { error: err } = await supabase.from("releases").update(releasePatch).eq("id", id);
+      if (err) {
+        setSaving(false);
+        setError(err.message);
+        return;
+      }
     }
 
     // Round 86 follow-up item 7 — since most ticket types store this
@@ -778,8 +832,17 @@ export default function ReleaseDetailPage() {
     }
 
     setSaving(false);
-    setForm(releasePatch);
-    setRelease(releasePatch);
+    // Round 162 — merge only what was actually written (releasePatch,
+    // now just the dirty fields + computed ones), instead of replacing
+    // `form`/`release` wholesale with it. A full replace here used to
+    // silently drop any field `form` didn't carry at save time — e.g. one
+    // patched in locally by another action, or one this stale tab never
+    // picked up from the realtime subscription — the same stale-overwrite
+    // problem as the write above, just on the client side after a
+    // successful save instead of in the DB write itself.
+    setForm((f) => ({ ...f, ...releasePatch }));
+    setRelease((r) => ({ ...r, ...releasePatch }));
+    dirtyKeysRef.current = new Set();
     setSaved(true);
   }
 

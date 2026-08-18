@@ -16,6 +16,7 @@ import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import { PITCHING_DOMESTIC_SERVICES_KEY, DEFAULT_PITCHING_DOMESTIC_SERVICES, parsePitchingDomesticServices } from "../../../lib/pitchingDomesticServices";
 import { PITCHING_PIC_LIST_KEY, parsePitchingPicList, applyPitchingPicList } from "../../../lib/pitchingPicList";
+import { buildZingPitchNote } from "../../../lib/zingPitchNote";
 import styles from "../../shared.module.css";
 
 const STATUS_OPTS = ["", "Chưa thực hiện", "Đang thực hiện", "Đã pitching", "Không thực hiện"];
@@ -165,7 +166,12 @@ export default function PitchingWorkstation() {
     if (dids.length > 0) {
       const { data: rels } = await supabase
         .from("releases")
-        .select("id, did, title, main_artist, release_date, release_time, upc, priority_pitching, isrc, apple_id, pitching_status_spotify, pitching_status_apple, pitching_status_spotify_banner, pitching_spotify_banner_drive_link, pitching_status_nct, pitching_status_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo, pitching_note, pitching_pic_priority, pitching_pic_spotify, pitching_pic_apple, pitching_pic_spotify_banner, pitching_pic_domestic, pitching_domestic_services_nct, pitching_domestic_services_zing")
+        // Round 162 — link_share added: the "Thông tin phát hành" field
+        // the Zing pitch email tool needs (see buildZingPitchNote in
+        // lib/zingPitchNote.js) — wasn't previously read on this page at
+        // all, only by the standalone Tools Directory version of this
+        // same generator.
+        .select("id, did, title, main_artist, release_date, release_time, upc, priority_pitching, isrc, apple_id, pitching_status_spotify, pitching_status_apple, pitching_status_spotify_banner, pitching_spotify_banner_drive_link, pitching_status_nct, pitching_status_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo, pitching_note, pitching_pic_priority, pitching_pic_spotify, pitching_pic_apple, pitching_pic_spotify_banner, pitching_pic_domestic, pitching_domestic_services_nct, pitching_domestic_services_zing, link_share")
         .in("did", dids);
       (rels || []).forEach((r) => (releaseMap[r.did] = r));
     }
@@ -343,6 +349,23 @@ export default function PitchingWorkstation() {
                         <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
                           {row.release?.main_artist} · {row.release?.did} · {fmtDate(row.release?.release_date)} {row.release?.release_time}
                         </div>
+                        {/* Round 162 — item 4: copy this row's DID without
+                            opening the popup, so it can be pasted straight
+                            into whichever outside tool (Zing pitch email,
+                            or anything else DID-driven) instead of having
+                            to open the row and hunt for it there first.
+                            stopPropagation so the click doesn't also open
+                            the popup underneath it. */}
+                        {row.release?.did && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); navigator.clipboard?.writeText(row.release.did); }}
+                            title="Copy DID"
+                            style={{ background: "none", border: "none", color: "var(--accent-soft)", fontSize: 10, cursor: "pointer", padding: "2px 0 0", display: "block" }}
+                          >
+                            📋 Copy DID
+                          </button>
+                        )}
                       </td>
                       <td>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -557,9 +580,40 @@ function PitchingPopup({ row, profiles, onClose, onUpdateRelease, domesticServic
               domesticServiceItems={domesticServiceItems}
             />
           </div>
+          {/* Round 162 — item 1: same generator as the standalone "Zing"
+              tool under Tools Directory (see lib/zingPitchNote.js /
+              ZingPitchCard) — that version needs the DID pasted in by
+              hand; this one already has it (this popup is already scoped
+              to one release), so it just runs buildZingPitchNote against
+              this release directly. */}
+          <ZingPitchInlineButton release={release} />
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// Round 162 — item 1: "add a button for zing tools in pitching domestic
+// tab... automatically get the DID and generate the email content." This
+// popup is already scoped to one release (see PitchingPopup's `release`),
+// so no DID-paste step is needed — collapsed/expanded state mirrors
+// ZingPitchCard's own (app/tool-directory/page.js), just pre-loaded with
+// this one release instead of a textarea of pasted DIDs.
+function ZingPitchInlineButton({ release }) {
+  const [open, setOpen] = useState(false);
+  const note = release ? buildZingPitchNote([release]) : "";
+  return (
+    <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+      <button type="button" className={styles.btnSmall} onClick={() => setOpen((o) => !o)} disabled={!release}>
+        {open ? "▾" : "▸"} Zing pitch email
+      </button>
+      {open && (
+        <div style={{ marginTop: 8 }}>
+          <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, background: "var(--bg-hover)", padding: 8, borderRadius: 6 }}>{note}</pre>
+          <button type="button" className={styles.btnSmall} onClick={() => navigator.clipboard?.writeText(note)}>Copy</button>
+        </div>
+      )}
     </div>
   );
 }

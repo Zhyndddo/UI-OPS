@@ -53,11 +53,13 @@
 // this script), its maPL/vcpmc fields are only filled in where currently
 // blank — never overwritten.
 //
-// KNOWN DATA ISSUE — flag before running: DID "KQLK2404AR2" (ECM Squad)
-// appears TWICE in the source sheet with the same Mã PL ("PL_01") but two
-// DIFFERENT Phụ Lục links and Ngày Gửi dates. This script keeps the LAST
-// occurrence in the sheet and logs a warning for this DID — worth checking
-// by hand which link is actually correct before/after running.
+// SKIPPED — per explicit confirmation, "KQLK2404AR2" (ECM Squad) is old
+// data that got rolled in under the wrong DID. It appeared TWICE in the
+// source sheet with the same Mã PL ("PL_01") but two DIFFERENT Phụ Lục
+// links and Ngày Gửi dates — rather than guess which occurrence (if
+// either) is trustworthy, this DID is excluded from the import entirely
+// (see SKIP_DIDS below). Add more entries here if other rows turn out to
+// have the same problem.
 //
 // Defaults to a DRY RUN — pass --confirm to actually write anything.
 // Strongly recommended: run scripts/backup.js first.
@@ -71,6 +73,9 @@ const XLSX = require("xlsx");
 
 const HEADER_ROW = 5; // 1-indexed — "✍️LABEL CHÍNH | ✍️DID | …"
 const FIRST_DATA_ROW = 6;
+
+// See the "SKIPPED" note in the file header comment above.
+const SKIP_DIDS = new Set(["KQLK2404AR2"]);
 
 // col index (0-based), matching the header row exactly as exported.
 const COL = {
@@ -126,18 +131,26 @@ async function run() {
   }
   const dataRows = rows.slice(FIRST_DATA_ROW - 1);
 
-  // Dedupe by DID, keeping the LAST occurrence — see the known
-  // KQLK2404AR2 duplicate flagged in the file header comment above.
+  // Explicit skips first (see SKIP_DIDS above), then dedupe by DID, keeping
+  // the LAST occurrence of whatever's left — a fallback for any OTHER
+  // accidental duplicate the sheet might have that hasn't been confirmed
+  // bad, still flagged loudly rather than silently resolved.
+  let skippedCount = 0;
   const byDid = new Map();
   const dupWarnings = [];
   for (const row of dataRows) {
     const did = row[COL.DID] ? String(row[COL.DID]).trim() : null;
     if (!did) continue;
+    if (SKIP_DIDS.has(did)) { skippedCount++; continue; }
     if (byDid.has(did)) dupWarnings.push(did);
     byDid.set(did, row);
   }
+  if (skippedCount > 0) {
+    console.log(`⏭ Skipped ${skippedCount} row(s) for ${SKIP_DIDS.size} confirmed-bad DID(s) (see SKIP_DIDS): ${[...SKIP_DIDS].join(", ")}`);
+    console.log("");
+  }
   if (dupWarnings.length > 0) {
-    console.log(`⚠ ${dupWarnings.length} DID(s) appeared more than once in the sheet — kept the LAST occurrence for each, verify by hand:`);
+    console.log(`⚠ ${dupWarnings.length} OTHER DID(s) appeared more than once in the sheet — kept the LAST occurrence for each, verify by hand:`);
     [...new Set(dupWarnings)].forEach((d) => console.log(`   - ${d}`));
     console.log("");
   }

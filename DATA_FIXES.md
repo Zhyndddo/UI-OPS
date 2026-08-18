@@ -8934,9 +8934,128 @@ issue), so instead verified the exact column layout and values by loading
 the same file with `pandas`/`openpyxl` (available here) and cross-checking
 every column index against the real header row and several real data
 rows — that's what the column map (`COL` in the script) is built from.
-Also generated `phu-luc-import-preview.csv` (502 rows, exactly what the
+Also generated `phu-luc-import-preview.csv` (501 rows, exactly what the
 script will attempt to match/write, minus the DB lookups) alongside this
 delivery so you can eyeball the actual values before running the script
 for real — strongly recommend running the script's default dry run first
 regardless, reading its console output, and running `scripts/backup.js`
 before ever passing `--confirm`.
+
+**Follow-up — confirmed: KQLK2404AR2 is skipped entirely, not just
+de-duped.** Per explicit confirmation ("some old data got rolled with
+wrong DID, we can skip that one"), the script no longer picks either of
+its two conflicting rows — `SKIP_DIDS` now excludes it from the import
+outright (0 writes for that release from this script; nothing about its
+current live data changes). The general last-occurrence-wins dedupe still
+exists as a fallback for any OTHER accidental duplicate DID in the sheet
+that hasn't been specifically confirmed bad, and still logs a loud warning
+rather than resolving it silently. Preview CSV regenerated (502 -> 501
+rows) to match.
+
+## 2026-08-18 (162) — Phụ Lục label filter + Pitching workstation Zing tools/Copy DID
+
+**1. Phụ Lục Truyền Thông — label filter (`app/tickets/phu-luc/page.js`)**
+Added a dedicated "Filter by label…" text input next to the existing
+quick-index search box. Typing a label now filters the ticket list down to
+rows whose release matches (case-insensitive substring on
+`releases.label`, added to the page's releases `.select(...)`), and a new
+"Label" column (between Ngày Order and Release) shows it directly in the
+table alongside the existing Mã PL and Release/product columns — so AR can
+search a label and immediately see the current Mã PL and the corresponding
+product without opening each ticket. This is separate from the existing
+generic `SearchBox`/`matchesQuery()` quick-index (still present,
+unchanged) — the new input is a dedicated label-only filter, applied as a
+second `.filter()` on top of it.
+
+**2. Pitching workstation — Zing tools button (`app/workstation/pitching/page.js`)**
+Domestic tab's popup now has a collapsible "Zing pitch tools" section
+(`ZingPitchInlineButton`) that generates the pitch email content for that
+release directly, with a Copy button — no more manual DID paste into the
+standalone tool page. It reuses the existing `buildZingPitchNote()` from
+`lib/zingPitchNote.js` (same formula-port function the two standalone Zing
+tool UIs already use), called with the single release already open in the
+popup. Needed `link_share` added to the page's releases `.select(...)`
+since `buildZingPitchNote` reads it.
+
+**3. Pitching workstation — per-row Copy DID button (`app/workstation/pitching/page.js`)**
+Each row in the main table now has a small "📋 Copy DID" button in the
+sticky first column, so the DID can be grabbed and used in the Zing tool
+(or any other tool) outside the popup without opening it at all. Uses
+`navigator.clipboard.writeText(row.release.did)` with `stopPropagation()`
+so clicking it doesn't also trigger the row's popup-open handler.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against both touched files (`app/tickets/phu-luc/page.js`,
+`app/workstation/pitching/page.js`) — zero errors — before sending.
+
+## 2026-08-18 (163) — Release detail page: diff-based save (fixes "URLs going missing after input")
+
+**Root cause confirmed:** `saveTab()` in `app/releases/[id]/page.js` wrote
+`{ ...form, ... }` — the ENTIRE in-memory form object — to the release row
+on every save, from any tab (Overview, URL, Copyrights, etc.). `form` is
+only fully (re)loaded once per page mount (the fetch effect depends on
+`[id]` only). A page's realtime subscription (`release-${id}` channel) is
+supposed to keep `form` current between mount and save, but that only
+works while the websocket connection stays alive — a dropped connection
+(laptop sleep, network blip, long-idle tab) leaves `form` silently stale
+with no visible signal. The next Save from that stale tab pushed the
+whole stale snapshot back over the live row — rolling back every field the
+tab hadn't itself touched, including URLs entered elsewhere in the
+meantime. This matches the report exactly: not lag, a real silent
+rollback triggered by exactly the "device was inactive, comes back,
+saves" sequence described.
+
+**Fix — diff-based save.** Added `dirtyKeysRef` (a ref, not state — it
+should never itself cause a re-render) that tracks which top-level `form`
+keys have actually been edited since the last load/save, set inside the
+two functions that back every field on this page's deferred-save tabs:
+`update(key, value)` and `updateArtistTags(tagsKey, textKey, tags)`. All
+gate toggles, text fields, and the URL tab funnel through `update()`
+already (`GateToggle`/`GateGrid`/`GateFields` all take `update` as a
+prop and call it directly), so this required no changes anywhere else —
+every existing field-edit path already goes through one of these two
+functions.
+
+`saveTab()` now builds its patch from only `dirtyKeysRef`'s keys (plus
+the two fields it computes and writes itself regardless — `did` when
+`recomputeDid()` says it changed, `requested` for the Sony Publish
+auto-upload case) instead of spreading all of `form`. An untouched field
+is never part of the outgoing patch, so it can't be rolled back no matter
+how stale the rest of `form` is — this is the actual fix. Skips the
+`releases.update()` call entirely when the patch ends up empty (Save
+clicked only to fire a ticket-creation side effect off an already-saved
+gate value, nothing new to write).
+
+After a successful save, `form`/`release` are now MERGED with the patch
+(`{ ...f, ...releasePatch }`) instead of replaced wholesale with it — the
+same stale-overwrite bug existed client-side too (`setForm(releasePatch)`
+discarded anything `form` didn't carry at save time). `dirtyKeysRef` is
+cleared after a successful save and on every fresh page load.
+
+**Related bug fixed in the same pass:** the realtime subscription's
+comment already claimed "only patches fields the user isn't actively
+editing, so it won't stomp on in-progress typing" — but the code didn't
+actually do that; it merged every field from every incoming `UPDATE`
+unconditionally, including whatever the user was mid-typing at that
+moment. Now filters `dirtyKeysRef`'s keys out of the incoming realtime
+payload before merging, so an in-progress edit on this tab is never
+overwritten by someone else's concurrent save landing mid-type — this
+makes the comment's original claim actually true.
+
+**Scope:** touches only `app/releases/[id]/page.js` — no schema change,
+no other page's save logic. Every OTHER page on this app that writes a
+whole-object patch on save (ticket list inline edits, etc.) already
+writes small explicit patches per action, not a giant in-memory form
+snapshot — this whole-form pattern was specific to this one page's
+multi-tab deferred-save design, so nothing else needed the same fix.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit app/releases/[id]/page.js` — zero errors — before sending. Not
+tested against a live Supabase instance in this session (no live DB
+access here) — the concurrency/staleness fix is a code-level guarantee
+(only dirty fields ever leave this tab), not something a single-session
+dry run can reproduce the original race condition to confirm against;
+worth a real multi-tab check on your end once deployed (open the same
+release in two tabs, edit a URL in one without saving, edit+save a
+different field in the other, confirm the first tab's unsaved edit is
+still there and the second tab's save didn't touch the URL field).

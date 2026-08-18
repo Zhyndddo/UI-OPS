@@ -39,6 +39,15 @@ export default function PhuLucList() {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState(""); // round 76 — quick index search box
+  // Round 162 — item: dedicated label filter, per explicit request ("add a
+  // filter so that when they search a label, show the current ma PL and
+  // the corresponding product"). Separate from the generic quick-index
+  // SearchBox above (which already matches substrings anywhere in the
+  // row, label included, once label is actually fetched below) — this is
+  // a focused, label-only filter so narrowing down to one label's Mã PL
+  // sequence doesn't depend on the label string not accidentally
+  // colliding with something else in the row (a title, a DID, etc.).
+  const [labelFilter, setLabelFilter] = useState("");
 
   useEffect(() => {
     if (!supabase) return;
@@ -64,9 +73,12 @@ export default function PhuLucList() {
     // a real releases.id set when the ticket was auto-created).
     const releaseIds = [...new Set((tix || []).map((t) => t.data?.releaseId).filter(Boolean))];
     if (releaseIds.length > 0) {
+      // Round 162 — label added, for the new label filter below (and so
+      // the generic quick-index search box can already match a label
+      // typed into it, since matchesQuery stringifies the whole row).
       const { data: rels } = await supabase
         .from("releases")
-        .select("id, did, title, main_artist, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, phu_luc_gia_tri")
+        .select("id, did, title, main_artist, label, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, phu_luc_gia_tri")
         .in("id", releaseIds);
       const map = {};
       (rels || []).forEach((r) => (map[r.id] = r));
@@ -116,7 +128,13 @@ export default function PhuLucList() {
     await supabase.from("tickets").update(patch).eq("id", t.id);
   }
 
-  const visibleTickets = tickets.filter((t) => matchesQuery({ ...t, release: releases[t.data?.releaseId] }, query));
+  const visibleTickets = tickets
+    .filter((t) => matchesQuery({ ...t, release: releases[t.data?.releaseId] }, query))
+    .filter((t) => {
+      if (!labelFilter.trim()) return true;
+      const rel = releases[t.data?.releaseId];
+      return (rel?.label || "").toLowerCase().includes(labelFilter.trim().toLowerCase());
+    });
   const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
 
   return (
@@ -138,7 +156,30 @@ export default function PhuLucList() {
           PL Status is the Phụ Lục-specific document status, computed separately.
         </p>
 
-        <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
+          {/* Round 162 — dedicated label filter, see its own state comment
+              above. Deliberately its own input rather than folded into the
+              SearchBox above — narrowing to exactly one label's Mã PL
+              sequence (per Round 161's per-label counter) is the specific
+              ask, not "search anything." */}
+          <input
+            type="text"
+            value={labelFilter}
+            onChange={(e) => setLabelFilter(e.target.value)}
+            placeholder="Filter by label…"
+            style={{
+              padding: "7px 12px",
+              fontSize: 12,
+              border: "1px solid var(--border-strong)",
+              borderRadius: 6,
+              background: "var(--bg-input)",
+              color: "var(--text)",
+              width: 200,
+              marginBottom: 12,
+            }}
+          />
+        </div>
 
         {loading ? (
           <div className={styles.emptyState}>Loading…</div>
@@ -150,7 +191,7 @@ export default function PhuLucList() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>#</th><th>Ngày Order</th><th>Release</th><th>Giá Trị PL</th><th>Mã PL</th><th>PIC</th>
+                <th>#</th><th>Ngày Order</th><th>Label</th><th>Release</th><th>Giá Trị PL</th><th>Mã PL</th><th>PIC</th>
                 <th>Status</th><th>PL Status</th><th>Link Phụ Lục</th><th>Ngày Gửi</th><th>Ngày Ký</th>
               </tr>
             </thead>
@@ -165,6 +206,7 @@ export default function PhuLucList() {
                   <tr key={t.id}>
                     <td>{(page - 1) * pageSize + i + 1}</td>
                     <td>{fmtDate(t.created_at)}</td>
+                    <td style={{ color: "var(--text-faint)", fontSize: 12 }}>{rel?.label || "—"}</td>
                     <td>
                       {rel ? (
                         <Link href={`/releases/${rel.id}`} className={styles.rowLink}>
