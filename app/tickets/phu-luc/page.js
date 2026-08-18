@@ -11,6 +11,8 @@ import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
+import { useAuth } from "../../../lib/AuthContext";
+import { canEditPhuLucMaPL } from "../../../lib/permissions";
 import styles from "../../shared.module.css";
 
 const PHU_LUC_COLOR = {
@@ -30,6 +32,8 @@ function phuLucStatus(r) {
 }
 
 export default function PhuLucList() {
+  const { profile } = useAuth();
+  const canEditMaPL = canEditPhuLucMaPL(profile);
   const [tickets, setTickets] = useState([]);
   const [releases, setReleases] = useState({}); // id -> release
   const [profiles, setProfiles] = useState([]);
@@ -62,7 +66,7 @@ export default function PhuLucList() {
     if (releaseIds.length > 0) {
       const { data: rels } = await supabase
         .from("releases")
-        .select("id, did, title, main_artist, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky")
+        .select("id, did, title, main_artist, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, phu_luc_gia_tri")
         .in("id", releaseIds);
       const map = {};
       (rels || []).forEach((r) => (map[r.id] = r));
@@ -74,6 +78,17 @@ export default function PhuLucList() {
   async function updateReleaseField(releaseId, field, value) {
     setReleases((prev) => ({ ...prev, [releaseId]: { ...prev[releaseId], [field]: value } }));
     await supabase.from("releases").update({ [field]: value }).eq("id", releaseId);
+  }
+
+  // Round 161 — item 3: manual Mã PL fix for exceptions, gated to
+  // canEditPhuLucMaPL (AR admin+, Legal, dev — see lib/permissions.js).
+  // Writes straight into ticket.data, same shape computeNextMaPL's
+  // auto-assignment already uses at creation time — a manual fix here is
+  // just a later overwrite of the same field, not a different mechanism.
+  async function updateMaPL(t, value) {
+    const newData = { ...(t.data || {}), maPL: value };
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, data: newData } : x)));
+    await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
   }
 
   async function updatePic(t, profileId) {
@@ -157,8 +172,47 @@ export default function PhuLucList() {
                         </Link>
                       ) : "—"}
                     </td>
-                    <td>{t.data?.giaTri || "—"}</td>
-                    <td>{t.data?.maPL || "—"}</td>
+                    <td>
+                      {/* Round 161 — item 4: was a plain read-only "—"
+                          display of t.data?.giaTri; now a real release-level
+                          field (releases.phu_luc_gia_tri), editable here,
+                          same "reads/writes the release directly" pattern
+                          Link Phụ Lục/Ngày Gửi/Ngày Ký already use below —
+                          release detail page's Phụ Lục (Booking) section
+                          edits the exact same column. Falls back to
+                          displaying a pre-Round-161 ticket's own
+                          data.giaTri only when the release field is still
+                          blank (old tickets that predate this column) —
+                          typing here always writes to the release from now
+                          on, same one-time-migration-by-touch idiom used
+                          elsewhere in this app. */}
+                      <input
+                        className={styles.input}
+                        style={{ padding: "4px 8px", fontSize: 11, width: 100 }}
+                        value={rel?.phu_luc_gia_tri || t.data?.giaTri || ""}
+                        placeholder="—"
+                        onChange={(e) => rel && updateReleaseField(rel.id, "phu_luc_gia_tri", e.target.value)}
+                        disabled={!rel}
+                      />
+                    </td>
+                    <td>
+                      {/* Round 161 — item 2/3: auto-assigned by the
+                          per-label counter at creation time (see
+                          lib/phuLucCounter.js) — editable here only for
+                          canEditPhuLucMaPL (AR admin+, Legal, dev), for the
+                          "any exception" manual-fix case. Everyone else
+                          sees it read-only, same as before. */}
+                      {canEditMaPL ? (
+                        <input
+                          className={styles.input}
+                          style={{ padding: "4px 8px", fontSize: 11, width: 80 }}
+                          value={t.data?.maPL || ""}
+                          onChange={(e) => updateMaPL(t, e.target.value)}
+                        />
+                      ) : (
+                        t.data?.maPL || "—"
+                      )}
+                    </td>
                     <td>
                       <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={t.pic_profile_id || ""} onChange={(e) => updatePic(t, e.target.value)}>
                         <option value="">— Unassigned —</option>

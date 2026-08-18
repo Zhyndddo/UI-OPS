@@ -2805,6 +2805,17 @@ function MediaBookingTab({ form, update, onSave, saving, entries, categories, pa
       <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
         <div className={styles.subheading} style={{ marginTop: 0 }}>Phụ Lục (Booking)</div>
         <div className={styles.grid2}>
+          {/* Round 161 — new field, per explicit request: AR fills this in
+              here on the release itself; the Phụ Lục ticket list (Giá Trị
+              PL column) reads/writes the exact same releases.phu_luc_gia_tri
+              column — same "release is the single source of truth, ticket
+              just points at it" pattern Ngày Gửi/Ngày Ký already use right
+              below. Falls back to displaying a pre-Round-161 ticket's own
+              data.giaTri if this is still blank — see app/tickets/phu-luc/
+              page.js's own comment — but always WRITES here from now on. */}
+          <Field label="Giá Trị Phụ Lục">
+            <input className={styles.input} value={form.phu_luc_gia_tri || ""} onChange={(e) => update("phu_luc_gia_tri", e.target.value)} />
+          </Field>
           <Field label="Ngày Gửi">
             <input type="date" className={styles.input} value={form.phu_luc_ngay_gui || ""} onChange={(e) => update("phu_luc_ngay_gui", e.target.value)} />
           </Field>

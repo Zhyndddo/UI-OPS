@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../../../lib/supabaseClient";
+import { computeNextMaPL } from "../../../../lib/phuLucCounter";
 import styles from "../../../shared.module.css";
 
 export default function NewPhuLucTicket() {
@@ -23,7 +24,11 @@ export default function NewPhuLucTicket() {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from("releases").select("id, did, title, main_artist").order("title").then(({ data }) => setReleases(data || []));
+    // Round 161 — label added (for the Mã PL per-label counter below) and
+    // phu_luc_gia_tri added (to prefill Giá Trị Phụ Lục if AR already
+    // filled it in on the release detail page before this backfill ticket
+    // gets created).
+    supabase.from("releases").select("id, did, title, main_artist, label, phu_luc_gia_tri").order("title").then(({ data }) => setReleases(data || []));
   }, []);
 
   // This ticket is normally auto-created from the pick-package magic link
@@ -46,6 +51,21 @@ export default function NewPhuLucTicket() {
   const matches = search.trim()
     ? selectableReleases.filter((r) => `${r.title} ${r.main_artist} ${r.did}`.toLowerCase().includes(search.trim().toLowerCase())).slice(0, 8)
     : [];
+
+  // Round 161 — item 2: auto-suggest Mã PL (per-label counter, see
+  // lib/phuLucCounter.js) the moment a release is picked, same as the
+  // normal magic-link auto-create path now does. Still a plain editable
+  // input below (this form has always allowed hand-typing Mã PL for
+  // backfill/manual cases — not narrowing that here) — this only changes
+  // the DEFAULT from blank to a real computed suggestion. Only overwrites
+  // an EMPTY field, so it never clobbers something already typed if the
+  // release selection changes again.
+  useEffect(() => {
+    if (!selected) return;
+    if (!maPL.trim()) computeNextMaPL(selected.label).then((suggested) => setMaPL(suggested));
+    if (selected.phu_luc_gia_tri && !giaTri.trim()) setGiaTri(selected.phu_luc_gia_tri);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -75,11 +95,18 @@ export default function NewPhuLucTicket() {
       setError("A Phụ Lục ticket for this release already exists — only one is allowed per release.");
       return;
     }
+    // Round 161 — Giá Trị Phụ Lục moved to a plain release field
+    // (releases.phu_luc_gia_tri — same one AR fills in on the release
+    // detail page, and the ticket list itself reads/writes) instead of
+    // living in ticket.data — write it there directly rather than on the
+    // ticket, same "release is the single source of truth" pattern
+    // link_phu_luc/phu_luc_ngay_gui/phu_luc_ngay_ky already use.
     const { error: insertErr } = await supabase.from("tickets").insert({
       tab_id: tab.id,
-      data: { releaseId, giaTri, maPL, vcpmcDocQuyen: vcpmc },
+      data: { releaseId, maPL, vcpmcDocQuyen: vcpmc },
       deadline: deadline || null,
     });
+    if (!insertErr) await supabase.from("releases").update({ phu_luc_gia_tri: giaTri }).eq("id", releaseId);
     setSubmitting(false);
     if (insertErr) setError(insertErr.message);
     else router.push("/tickets/phu-luc");

@@ -6,6 +6,7 @@ import { supabase } from "../../../lib/supabaseClient";
 import { formatDetailText } from "../../../lib/helpers";
 import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../../lib/troGiaBooking";
 import { useIsMobile } from "../../../lib/useIsMobile";
+import { computeNextMaPL } from "../../../lib/phuLucCounter";
 import styles from "../../shared.module.css";
 
 function fmtVnd(n) {
@@ -610,12 +611,48 @@ export default function PickPackagePage() {
     setRelease((r) => ({ ...r, project_type: selectedValue, package_total_value: option?.totalValue ?? null, package_locked: true }));
     setConfirmed(true);
 
+    // Round 160 — per explicit report: an artist picking "Chỉ Phát Hành"
+    // (or any other simple, no-package option — see SIMPLE_OPTIONS) here
+    // used to leave the release's Media Booking ticket exactly as-is. That
+    // ticket is created up front, at Send Upload time (see sendPackageTicket
+    // in app/releases/[id]/page.js), before anyone knows what the artist
+    // will end up picking — Marketing can (and does, via handleGenerateLink
+    // in app/tickets/media-booking/page.js, which has no status gate) send
+    // this very magic link out while the ticket is still sitting in
+    // REQUESTED, planning to mark it COMPLETE later. If that "later" never
+    // happens — easy to forget once the link's already out — the ticket
+    // just sits open forever with data.proposedPackage still null, showing
+    // "—" in the Media Booking ticket list exactly as if nobody had ever
+    // looked at it, even though the release is fully resolved. (Real/INT
+    // MEDIA package picks don't have this gap the same way — Marketing
+    // normally completes those tickets themselves as part of building the
+    // package, before generating the link at all.)
+    // Auto-completes the SAME way updateStatus()'s COMPLETE branch does in
+    // the ticket list (status + status_log timestamp) — mirrors, not
+    // replaces, that path, so it fires the exact same completion behavior
+    // (including whatever AR-facing "ready" notification a real Marketing
+    // completion already sends) rather than a new, different one.
+    if (option?.kind === "simple" && mediaBookingTicket && mediaBookingTicket.status !== "COMPLETE") {
+      const newLog = { ...(mediaBookingTicket.status_log || {}), COMPLETE: new Date().toISOString() };
+      const { error: completeErr } = await supabase.from("tickets").update({ status: "COMPLETE", status_log: newLog }).eq("id", mediaBookingTicket.id);
+      if (!completeErr) setMediaBookingTicket((t) => ({ ...t, status: "COMPLETE", status_log: newLog }));
+    }
+
     if (wasPipelineStage) {
       const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "phu_luc").single();
       if (tab) {
+        // Round 161 — Mã PL now auto-assigned at creation, per-label
+        // counter (see lib/phuLucCounter.js). Giá Trị Phụ Lục is no longer
+        // carried in ticket.data at all — it's a plain release field now
+        // (releases.phu_luc_gia_tri, filled in by AR on the release detail
+        // page — see app/releases/[id]/page.js), same "ticket reads/writes
+        // the release directly" pattern link_phu_luc/phu_luc_ngay_gui/
+        // phu_luc_ngay_ky already use on this exact ticket type — so
+        // there's nothing else to seed here.
+        const maPL = await computeNextMaPL(release.label);
         await supabase.from("tickets").insert({
           tab_id: tab.id,
-          data: { releaseId: release.id },
+          data: { releaseId: release.id, maPL },
         });
       }
     }

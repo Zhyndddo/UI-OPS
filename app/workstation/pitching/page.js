@@ -228,7 +228,12 @@ export default function PitchingWorkstation() {
     (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
     setDomesticServiceItems(parsePitchingDomesticServices(settingsByKey[PITCHING_DOMESTIC_SERVICES_KEY]));
     const picList = parsePitchingPicList(settingsByKey[PITCHING_PIC_LIST_KEY]);
-    setProfiles(applyPitchingPicList(filterProfilesByTeam(profs || [], "OPS"), picList));
+    // Round 159 — AR added as a 2nd executor team here (was OPS-only), per
+    // explicit "add pitching workstation for AR team as executor" request.
+    // filterProfilesByTeam now accepts an array of teams for exactly this
+    // case (see its own comment) — falls back, same as before, to whatever
+    // the Pitching PIC List (Config → Pitching) narrows it down to.
+    setProfiles(applyPitchingPicList(filterProfilesByTeam(profs || [], ["OPS", "AR"]), picList));
 
     setLoading(false);
   }

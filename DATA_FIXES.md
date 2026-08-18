@@ -8732,3 +8732,211 @@ No schema change — `artist_pick_status` was already a plain column on
 
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck --noEmit`
 against all 5 touched files — zero errors — before sending.
+
+## 2026-08-18 (159) — Pitching workstation opened to AR as executor + planning docs added to repo
+
+**1. AR added as an executor team on the Pitching workstation.** Per explicit
+request ("add pitching workstation for AR team as executor"). Two separate
+gaps had to be closed — investigation showed AR previously had ZERO access to
+any workstation, not just Pitching:
+
+- `lib/teamTypes.js`'s `TEAM_WORKSTATION_TYPES` had no `AR` key at all, so
+  `typesForTeam()` returned an empty array for AR profiles — the Workstation
+  picker (`app/workstation/page.js`) and the sibling-tab row atop every
+  workstation page (`lib/TypeSwitcher.js`) both showed AR literally zero
+  workstation cards/tabs, Pitching included. Added `AR: ["pitching"]` — AR
+  only gets this one workstation, not the other 5 (upload/confirm/pre_release/
+  stream/milestone stay OPS-only, booking/package_price stay Marketing-only).
+  This is separate from AR's existing "pitching"/"pitching_info" **ticket**
+  visibility (`TEAM_TICKET_TYPES`), which was already there and is unchanged.
+- `app/workstation/pitching/page.js`'s PIC-assignment dropdown hardcoded
+  `filterProfilesByTeam(profs, "OPS")` — AR profiles weren't selectable as PIC
+  even once able to see the page. `lib/workstationHelpers.js`'s
+  `filterProfilesByTeam` now also accepts an array of team strings (all ~25
+  other call sites still pass a single string and are unaffected — verified
+  by grep before making the change); the Pitching page now passes
+  `["OPS", "AR"]`. Still respects the existing Pitching PIC List override
+  (Config → Pitching) when one's been set.
+
+Not touched: whether AR should also see Pitching Info or any other
+OPS-only workstation — request was specifically "pitching workstation," so
+scoped to exactly that one type.
+
+**2. The 3 load-reduction planning docs added into the actual repo.** Per
+explicit request ("add the md into this new fix as well"). Until now
+`booking-board-lazy-load-pitch.md`, `load-reduction-additional-ideas.md`, and
+`server-side-pagination-pitch.md` only existed in the Claude Project's
+knowledge base — not visible to anyone reading the repo/GitHub directly. Added
+verbatim (current content, matching Project state as of 2026-08-18) as
+`claude/booking-board-lazy-load-pitch.md`, `claude/load-reduction-additional-ideas.md`,
+and `claude/server-side-pagination-pitch.md` in this delivery — no `claude/`
+folder existed in the repo before this round. These are planning/notes docs,
+not code — nothing in the app reads them; they're here purely so the team can
+find them alongside the code instead of only in the Claude Project.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck --noEmit`
+against all 3 touched code files (`lib/teamTypes.js`, `lib/workstationHelpers.js`,
+`app/workstation/pitching/page.js`) — zero errors — before sending.
+
+## 2026-08-18 (160) — Chỉ Phát Hành pick left its Media Booking ticket dangling open
+
+**Bug report:** a release locked to "Chỉ Phát Hành" (no package) still had a
+Media Booking ticket sitting on the board, "Proposed Package" showing "—".
+Investigated per explicit request ("have we miss this scenario somehow?").
+
+**Root cause:** every release gets its Media Booking ticket auto-created up
+front, at Send Upload time (`sendPackageTicket()` in
+`app/releases/[id]/page.js`) — before anyone knows whether the artist will
+end up picking a real package or "Chỉ Phát Hành." That part is intentional:
+Marketing needs the ticket to build package options and generate the magic
+link before the artist ever picks anything. The gap: Marketing can (and
+does — `handleGenerateLink()` in `app/tickets/media-booking/page.js` has no
+status check at all) send that magic link out while the ticket is still
+sitting in REQUESTED, meaning to mark it COMPLETE later. If that "later"
+gets missed — easy to, once the link's already out the door — the ticket
+just stays open forever. The artist-facing pick itself
+(`confirmChoice()` in `app/pick-package/[token]/page.js`) never touched the
+ticket either way, for ANY option, so nothing ever caught this. Real/INT
+MEDIA package picks mostly dodge this in practice because Marketing
+typically completes those tickets themselves as part of actually building
+the package, before generating the link — Chỉ Phát Hành (and the other
+`SIMPLE_OPTIONS`) have no such natural "someone has to do work first"
+checkpoint, so they're the case most likely to slip through.
+
+Notably, the codebase already had a comment (on the dev/AR-only "ONLY PH"
+release-page shortcut) asserting "a Chỉ Phát Hành pick never has [a ticket]
+in the real flow" — true for that shortcut, not true for the real
+Send-Upload → magic-link flow most releases actually go through.
+
+**Fix (confirmed direction via explicit follow-up):** `confirmChoice()` now
+auto-completes the release's Media Booking ticket the moment a `kind:
+"simple"` option (Chỉ Phát Hành et al) is confirmed, if that ticket exists
+and isn't COMPLETE already — same status + status_log write
+`updateStatus()`'s COMPLETE branch already does in the ticket list, so this
+mirrors that exact completion behavior (including whatever AR-facing
+"ready" notification a normal Marketing completion already fires) rather
+than inventing a second, different completion path. Real/INT MEDIA picks
+are untouched — `option?.kind === "simple"` gates this to exactly the
+no-package options.
+
+No schema change. Verified with `tsc --jsx react --allowJs --checkJs false
+--skipLibCheck --noEmit` against the one touched file — zero errors —
+before sending.
+
+## 2026-08-18 (161) — Phụ Lục Truyền Thông: Mã PL auto-counter, manual-fix permission, Giá Trị PL editable
+
+4-item request. Item 1 (import a legacy-DID-matched data file into this
+ticket type) is NOT included in this round — no file was actually attached
+to that request; still waiting on it, see the message alongside this
+delivery.
+
+**2. Mã PL auto-counter, per-label.** New shared helper
+`lib/phuLucCounter.js`'s `computeNextMaPL(label)` — scans every non-deleted
+Phụ Lục ticket, keeps only the ones whose release shares the same `label`
+as the release the new ticket is for (confirmed: sequence is per-label,
+not one app-wide counter — a release under Label A and one under Label B
+can both be "PL_1"), parses each existing Mã PL as `PL_<n>`, and returns
+`PL_<max+1>` — `PL_1` if that label has none yet. No zero-padding
+(confirmed: PL_1, PL_9, PL_10, PL_11…). Computed off the real MAX found,
+not a stored running counter or a plain row COUNT — a plain count would
+mis-skip the moment a ticket in that label's group gets deleted, or its Mã
+PL manually fixed to something out of sequence (see item 3) — reading the
+max and adding 1 keeps working correctly regardless of gaps or manual
+overrides. Wired into both places a Phụ Lục ticket gets created:
+- **Auto-create** — `confirmChoice()` in `app/pick-package/[token]/page.js`
+  (fires when an artist locks in a contract type via the magic link) now
+  calls `computeNextMaPL(release.label)` and seeds the new ticket's
+  `data.maPL` with it, instead of leaving Mã PL blank forever (it had no
+  value at all at auto-create time before this round).
+- **Manual/backfill create** — `app/tickets/phu-luc/new/page.js` now
+  auto-suggests the same computed value into the Mã PL field the moment a
+  release is picked (still a plain editable input — this form has always
+  allowed hand-typing Mã PL for backfill cases, that's unchanged, this
+  only changes the default from blank to a real suggestion; never
+  overwrites something already typed).
+
+**3. Manual Mã PL fix, permission-gated.** New
+`canEditPhuLucMaPL(profile)` in `lib/permissions.js` — dev, or the whole
+Legal team (Legal is this ticket type's executor team, so any Legal member
+working a ticket can fix it, not just Legal admins), or AR admin+ (matches
+the "segment admin+" shape `canEditMediaBookingTicket` already uses).
+`app/tickets/phu-luc/page.js`'s Mã PL column is now a real input for
+whoever passes that check — everyone else still sees it read-only, exactly
+as before.
+
+**4. Giá Trị PL made editable + moved to the release.** Was permanently
+read-only (`t.data?.giaTri || "—"`, no edit control anywhere in the normal
+ticket workflow) since Round 1 of this ticket type. Per explicit request:
+moved off `ticket.data` onto a new `releases.phu_luc_gia_tri` column — same
+"release is the single source of truth, ticket just reads/writes it
+directly" pattern `link_phu_luc`/`phu_luc_ngay_gui`/`phu_luc_ngay_ky`
+already use on this exact ticket type. Now editable in TWO places, both
+writing the same column:
+- **Release detail page** (`app/releases/[id]/page.js`) — new "Giá Trị
+  Phụ Lục" field added to the existing "Phụ Lục (Booking)" section,
+  right beside Ngày Gửi/Ngày Ký.
+- **Ticket list** (`app/tickets/phu-luc/page.js`) — Giá Trị PL column is
+  now a real input, same pattern as Link Phụ Lục/Ngày Gửi/Ngày Ký in the
+  same table.
+A pre-Round-161 ticket's own `data.giaTri` (the only place this value
+could ever have been set before this round — see the manual-create form's
+Round 161 change below) still displays as a fallback wherever the release
+field is still blank, so nothing already-entered goes invisible; typing in
+either of the two new places always writes to the release column from now
+on. The manual-create form (`app/tickets/phu-luc/new/page.js`) now writes
+its "Giá Trị Phụ Lục *" input to `releases.phu_luc_gia_tri` on submit
+instead of into `ticket.data`, and prefills from that same release column
+if AR already filled it in before this backfill ticket was created.
+
+**Schema:** `add-round161-phu-luc-gia-tri-column.sql` — one new nullable
+`releases.phu_luc_gia_tri text` column, plus an optional commented-out
+one-time backfill query (copies any existing `ticket.data.giaTri` values
+onto the release, only where the release column is still blank — not run
+automatically, since the ticket-list fallback already makes old values
+visible without it).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against all 6 touched code files
+(`lib/phuLucCounter.js`, `lib/permissions.js`,
+`app/pick-package/[token]/page.js`, `app/releases/[id]/page.js`,
+`app/tickets/phu-luc/page.js`, `app/tickets/phu-luc/new/page.js`) — zero
+errors — before sending.
+
+## 2026-08-18 (161b) — Phụ Lục item 1: legacy data import script
+
+`scripts/import-phu-luc.js` — one-time backfill for the legacy Phụ Lục
+Truyền Thông tracking sheet (2728 rows, only 502 carry a real DID — the
+rest are blank template rows for future entries). Matches by
+`releases.legacy_id`, same convention as `import-booking.js`/
+`import-ops-tracking.js`. Per matched release: coalesce-only updates (never
+overwrites a live value) to `link_phu_luc` (only when the cell is an actual
+URL — most rows hold a plain note like "Kí phụ lục áp dụng từ ngày 17/4"
+instead, which is left alone since it isn't a document link),
+`phu_luc_ngay_gui`, `phu_luc_ngay_ky`, `phu_luc_gia_tri` (Round 161's new
+column), and `upc`; creates the release's Phụ Lục ticket if it doesn't have
+one yet (seeding `data.maPL` from the sheet's Mã PL, plus
+`data.vcpmcDocQuyen`/`vcpmcNote` where the sheet's VCPMC column is filled
+in — that column has a real duration string, e.g. "ĐQSC 3 năm", that the
+app's own field doesn't capture, so the original text is preserved
+alongside rather than dropped), or coalesce-fills those same two fields
+onto an existing ticket if one already exists.
+
+**Flagged data issue, not silently resolved:** DID `KQLK2404AR2` (ECM
+Squad) appears twice in the source sheet with the same Mã PL ("PL_01") but
+two different Phụ Lục links and Ngày Gửi dates. The script keeps the LAST
+occurrence and logs a warning — worth checking by hand which is correct.
+
+Defaults to a dry run (prints every intended write, changes nothing) —
+`--confirm` actually writes. Couldn't test-run the script itself in this
+session (this environment's npm registry access is blocked for installing
+the `xlsx` package this round — a sandbox/network limitation, not a code
+issue), so instead verified the exact column layout and values by loading
+the same file with `pandas`/`openpyxl` (available here) and cross-checking
+every column index against the real header row and several real data
+rows — that's what the column map (`COL` in the script) is built from.
+Also generated `phu-luc-import-preview.csv` (502 rows, exactly what the
+script will attempt to match/write, minus the DB lookups) alongside this
+delivery so you can eyeball the actual values before running the script
+for real — strongly recommend running the script's default dry run first
+regardless, reading its console output, and running `scripts/backup.js`
+before ever passing `--confirm`.
