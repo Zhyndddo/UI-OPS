@@ -9059,3 +9059,87 @@ worth a real multi-tab check on your end once deployed (open the same
 release in two tabs, edit a URL in one without saving, edit+save a
 different field in the other, confirm the first tab's unsaved edit is
 still there and the second tab's save didn't touch the URL field).
+
+## 2026-08-19 (164) — Pitching workstation: today/this-week row highlight
+
+Applied the same date-urgency row highlight already used on the Re-Check
+and New Release Setup workstations (`lib/releaseDateHighlight.js`'s
+`rowHighlightColor()` — yellow for releasing today, light blue for this
+week, nothing otherwise) to the Pitching workstation
+(`app/workstation/pitching/page.js`), which had never had it. Same
+pattern as the other two: the row's own background plus the sticky first
+cell's background (so the highlight doesn't visibly cut off at that
+column), computed per-row off `row.release`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit app/workstation/pitching/page.js` — zero errors — before sending.
+
+## 2026-08-19 (165) — Pre-release workstation LBM URL column + Copyright Checklist pill/tab bug fix
+
+**1. Pre-release workstation — LBM URL column (`app/workstation/pre-release/page.js`)**
+Per explicit request to swap out the Artist Pick column for an LBM URL
+field: checked first and confirmed Artist Pick isn't actually a column on
+this workstation anymore — it moved to the Re-Check/Confirm workstation
+back in Round 158 (the dashboard's summary blurb under Pre-release still
+says "Artist Pick," which is just a stale label, not a real column here —
+left as-is per explicit instruction this round). So this is a straight
+addition, not a swap: a new "LBM URL" column, narrow (`maxWidth: 150`,
+matching the "limit column width" ask), added right before CANVA, editing
+the same `releases.link_lbm` column the Re-Check workstation's `LbmCell`
+and the release detail page's URL tab already read/write — same
+local-buffer-then-onBlur-commit `UrlField` pattern already used here for
+Musixmatch Link right next to it. `link_lbm` added to this page's
+releases `.select(...)`. `SonyPublishLockRow`'s `colSpan` bumped 9 → 10
+for the new column.
+
+**2. Copyright Checklist — root cause of "AR fills everything, Send
+Upload still blocks on Copyright Checklist" found and fixed.** Traced the
+report (checklist looks fully filled in, Send Upload still refuses it,
+manually reopening and re-saving fixes it) to a real mismatch between
+what the UI *displays* as done and what Send Upload's gate actually
+*requires* as done, in `lib/CopyrightRights.js` and
+`lib/CopyrightRightsPopup.js`:
+
+- `CopyrightRowStatus`'s 3 per-right pills (Q1/Q2/Q3, shown under the
+  Copyrights tab and per-track) turned solid green the moment that
+  right's **Owner** field was filled in (`copyrightEntryIsDeclared`) —
+  but the real gate (`copyrightChecklistIsComplete`, what `uploadReady`
+  in `app/releases/[id]/page.js` actually checks) requires Owner **AND**
+  Contract **AND** Validity Period all filled in, per right. A right with
+  Owner filled but Contract or Validity Period still blank showed as a
+  plain green "done" pill with no visual difference from a genuinely
+  complete one — so all 3 pills could look green while Send Upload still
+  correctly refused to unlock, with nothing on screen pointing at why.
+- Compounding it: `CopyrightRightsPopup`'s "Edit Rights" button opens
+  straight to "the first not-yet-declared tab" — also gated on
+  `copyrightEntryIsDeclared` (Owner-only). Once Owner is filled on all 3
+  rights, that check finds nothing "not declared" and falls back to tab
+  1 (Master) — even when Vocal or Author is the one still missing
+  Contract/Validity. So re-opening the editor to find the gap didn't even
+  land on the right tab; it had to be found by clicking through all 3
+  manually.
+
+**Fix:** added `copyrightEntryIsComplete(entry)` (the real per-right
+Owner+Contract+Validity rule, factored out of
+`copyrightChecklistIsComplete`) and `copyrightEntryMissingFields(entry)`
+(names exactly which of the 3 is still missing) to
+`lib/copyrightChecklist.js`. `CopyrightRowStatus`'s pills are now 3-state
+instead of 2: green only when that right is genuinely complete, amber
+when it's been started but isn't done (tooltip names what's missing,
+e.g. "Missing: Contract, Validity Period"), gray when untouched.
+`CopyrightRightsPopup` now opens on the first **incomplete** tab instead
+of the first not-yet-declared one, so "Edit Rights" jumps straight to
+whichever right is actually blocking Send Upload. `copyrightEntryIsDeclared`
+is kept and still used for the amber/started state and the button's
+"Edit vs Declare" label — only the misleading all-or-nothing green pill
+and the popup's default-tab logic changed.
+
+No schema change — same `releases.copyright_checklist` /
+`release_tracks.copyright_checklist` jsonb shape, this only fixes what
+the UI shows about it. Applies to both the Single case and the per-track
+EP/Album case (`CopyrightRowStatus` is shared by both).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against all 4 touched files (`lib/copyrightChecklist.js`,
+`lib/CopyrightRights.js`, `lib/CopyrightRightsPopup.js`,
+`app/workstation/pre-release/page.js`) — zero errors — before sending.

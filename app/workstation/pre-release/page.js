@@ -93,7 +93,13 @@ export default function PreReleaseWorkstation() {
       // app/workstation/confirm/page.js), per explicit request. No longer
       // fetched/rendered here — the underlying releases column is
       // unchanged, this page just stopped being its edit surface.
-      .select("id, did, title, main_artist, release_date, release_time, canva_mv_status, canva_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric, pre_release_note");
+      // Round 165 — link_lbm added per explicit request, so LBM/Labelmaster
+      // URL is visible and editable from this workstation too (same
+      // releases.link_lbm column the Re-Check workstation's LbmCell and
+      // the release detail page's URL tab already read/write — one shared
+      // field, just another edit surface, same pattern as Musixmatch Link
+      // already being editable from both this page and the detail page).
+      .select("id, did, title, main_artist, release_date, release_time, link_lbm, canva_mv_status, canva_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric, pre_release_note");
     setReleases(rels || []);
 
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
@@ -182,6 +188,7 @@ export default function PreReleaseWorkstation() {
                   >
                     Release info
                   </SortableTh>
+                  <th style={{ maxWidth: 150 }}>LBM URL</th>
                   <th>CANVA</th>
                   <th>MV</th>
                   <th style={{ borderLeft: "1px solid var(--border)" }}>Musixmatch Status</th>
@@ -195,7 +202,7 @@ export default function PreReleaseWorkstation() {
               <tbody>
                 {pagedReleases.map((r) =>
                   sonyPublishDids.has(r.did) ? (
-                    <SonyPublishLockRow key={r.id} colSpan={9} />
+                    <SonyPublishLockRow key={r.id} colSpan={10} />
                   ) : (
                     <PreReleaseRow
                       key={r.id}
@@ -222,6 +229,13 @@ export default function PreReleaseWorkstation() {
 
 function PreReleaseRow({ release, pic, isOverride, profiles, onUpdateField, onUpdatePic }) {
   const [mmLink, setMmLink] = useState(release.musixmatch_link || "");
+  // Round 165 — LBM/Labelmaster URL, added per explicit request in place
+  // of Artist Pick (which had already moved off this workstation in Round
+  // 158 — nothing to remove here, this is a straight addition). Same
+  // local-buffer-then-onBlur-commit pattern as Musixmatch Link right next
+  // to it, and the same releases.link_lbm column the Re-Check
+  // workstation's LbmCell already edits.
+  const [lbmLink, setLbmLink] = useState(release.link_lbm || "");
 
   // Round 152 — same today/this-week row highlight as Re-Check
   // (app/workstation/confirm/page.js), applied here per explicit request.
@@ -240,6 +254,9 @@ function PreReleaseRow({ release, pic, isOverride, profiles, onUpdateField, onUp
         </div>
         <div style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{release.main_artist} · {release.did}</div>
         <div style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{fmtDate(release.release_date)} {release.release_time}</div>
+      </td>
+      <td style={{ maxWidth: 150 }}>
+        <UrlField styles={styles} value={lbmLink} onChange={setLbmLink} onBlur={() => onUpdateField(release, "link_lbm", lbmLink)} />
       </td>
       <td style={missingHighlightStyle(release.canva_mv_status)}>
         <PickSelect styles={styles} opts={CANVA_OPTS} value={release.canva_mv_status} onChange={(v) => onUpdateField(release, "canva_mv_status", v)} />

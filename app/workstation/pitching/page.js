@@ -17,6 +17,7 @@ import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import { PITCHING_DOMESTIC_SERVICES_KEY, DEFAULT_PITCHING_DOMESTIC_SERVICES, parsePitchingDomesticServices } from "../../../lib/pitchingDomesticServices";
 import { PITCHING_PIC_LIST_KEY, parsePitchingPicList, applyPitchingPicList } from "../../../lib/pitchingPicList";
 import { buildZingPitchNote } from "../../../lib/zingPitchNote";
+import { rowHighlightColor } from "../../../lib/releaseDateHighlight";
 import styles from "../../shared.module.css";
 
 const STATUS_OPTS = ["", "Chưa thực hiện", "Đang thực hiện", "Đã pitching", "Không thực hiện"];
@@ -338,9 +339,16 @@ export default function PitchingWorkstation() {
               <tbody>
                 {pagedRows.map((row) => {
                   const types = requestedVisualTypes(row.ticket);
+                  // Round 164 — same today(yellow)/this-week(light blue)
+                  // row highlight already used on the Re-Check and New
+                  // Release Setup workstations (see
+                  // lib/releaseDateHighlight.js) — applied here too so
+                  // Pitching gets the same at-a-glance urgency cue,
+                  // instead of being the one workstation table without it.
+                  const highlight = rowHighlightColor(row.release);
                   return (
-                    <tr key={row.ticket.id} onClick={() => setOpenTicketId(row.ticket.id)} style={{ cursor: "pointer" }}>
-                      <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}>
+                    <tr key={row.ticket.id} onClick={() => setOpenTicketId(row.ticket.id)} style={{ cursor: "pointer", ...(highlight ? { background: highlight } : {}) }}>
+                      <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight || "var(--bg)", borderRight: "2px solid var(--accent)" }}>
                         {row.release ? (
                           <Link href={`/releases/${row.release.id}`} className={styles.rowLink} onClick={(e) => e.stopPropagation()}>{row.release.title}</Link>
                         ) : (
