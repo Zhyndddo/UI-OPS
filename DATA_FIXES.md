@@ -9343,3 +9343,89 @@ coordinated changes, since the old design assumed one file per day:
 No app-facing code touched this round — purely ops/infra scripts and the
 GitHub Actions workflow. `tsc` not applicable (plain Node scripts, no
 JSX/React).
+
+## 2026-08-20 (169)
+
+Three items, per explicit request.
+
+**1. Pitching workstation — LBM URL column.** Same `releases.link_lbm`
+column Pre-release (Round 165), the Re-Check workstation's `LbmCell`, and
+the release detail page's own "Link LBM" field all already read/write —
+now editable on Pitching too, same local-draft-state `UrlField` pattern
+as `LbmCell` (new `PitchingLbmCell`).
+
+**2. Magic-link (pick-package) Booking Progress — real bug fix, not just
+a display change.** Two things were wrong here, both stemming from the
+same root cause: this page computed "booked" off `release_package_items`,
+a one-time snapshot frozen at `confirmChoice()` time that never even
+carried `metric_quantities` (only category/unit/quantity/detail/amount
+get copied — see that insert). Ads is priced per-metric via
+`metric_quantities`, not one lump `quantity` on the package line (every
+Ads brand except YouTube Ads has always been null there) — so Ads always
+summed to a booked target of 0 on this page specifically, regardless of
+what was actually booked internally, and could never show DONE no matter
+how complete it really was. Also `addedFor` counted ROWS instead of
+summing `quantity` for Ads entries (Ads entries store a result count, not
+one row per unit), undercounting "added" the same way.
+
+Fixed by switching this page's data source from `release_package_items`
+to the confirmed package's LIVE `media_booking_package_lines` (new
+`packageLines` state, replacing the `packageItems` state entirely — same
+source of truth the internal Booking Board's own `bookedFor` reads),
+with the same metric_quantities-fallback and Ads-sums-quantity logic the
+internal board already uses. This is a real correctness fix, independent
+of the requested display change below — Ads bookings could never have
+shown DONE on this page before this.
+
+Also, per explicit request: a DONE category's card now shows a cluster
+of clickable 🔗 links (one per booked entry with a real `link`) instead
+of a bare "DONE" label, so the artist/label can open what was actually
+posted. Ads entries never carry a link (they're a result count instead —
+see above), so Ads naturally keeps the plain DONE badge; every other
+category now shows real links once complete.
+
+**3. Booking Board — Ads' "All"-filter aggregate done-rule.** Both the
+per-release Result-column dots (always visible, one per category) and
+the Done/Not-done toggle (when `hangMucFilter === "All"`) used to sum
+every Ads metric's booked target and every entry's added quantity into
+one lump ratio before comparing — meaningless across metrics measuring
+completely different things (Lượt tiếp cận vs Thruplay views vs In-Stream
+Audio, across 4 different ad brands), so a release could read as "done"
+by netting out an over-delivered metric against an untouched one, or the
+reverse. Per explicit request, replaced with `adsAllViewStatus`: DONE now
+means every real per-metric column (across every Ads brand) is itself
+individually done (added ≥ that column's own booked target — the same
+number-not-count comparison `AdsCell` already used per-column when
+drilled in, unchanged), with any column that has no target at all not
+counting against it either way. Returns null (no target anywhere) rather
+than true/false when nothing was ever requested, matching every other
+category's grey "not booked" state. Used in both `ResultCell` and
+`isReleaseDone`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against all 3 touched files — zero errors — before sending.
+
+## 2026-08-20 (170)
+
+Also confirmed round 168 and 169's changes both survived intact in this
+session (no sandbox reset this time — verified `scripts/backup.js`'s
+hourly stamp, `.github/workflows/backup.yml`'s 2h cron,
+`scripts/restore.js`'s `PK_OVERRIDES`, and round 169's `PitchingLbmCell`/
+`adsAllViewStatus`/`packageLines` are all present before starting this
+round's work).
+
+Pitching workstation, Domestic tab — per explicit request (initially
+described as adding to an "Đã hoàn thành" option that doesn't actually
+exist in the NCT/Zing status dropdown; clarified via AskUserQuestion that
+"Có gói" was meant), added "New Release Song" to the "Có Gói — Services"
+checklist, NCT column only (not Zing). Implemented as a column-local
+`extraItems` prop on `DomesticPlatformColumn` (new `NCT_ONLY_SERVICES`
+constant) rather than folding it into the shared, Config-editable
+`domesticServiceItems` list (Config → Pitching → Domestic "Có Gói"
+Services) — that list is shared by both NCT and Zing, and this was asked
+for on the NCT side only. Saves/loads through the exact same
+`pitching_domestic_services_nct` field as every other item in the
+checklist.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` — zero errors.

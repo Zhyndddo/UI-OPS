@@ -125,6 +125,42 @@ const ADS_METRICS = {
   "Spotify Ads": ["HPTO", "In-Stream Audio", "In-Stream Video", "In-Feed Display", "In-Feed Video"],
 };
 
+// Round 168 — Ads' "All" aggregate (the Result-column dot AND the Done/
+// Not-done toggle, whenever hangMucFilter is "All") used to blindly sum
+// every metric's booked target and every entry's added quantity into one
+// lump ratio — meaningless across metrics that measure completely
+// different things (Lượt tiếp cận vs Thruplay views vs In-Stream Audio,
+// etc across 4 different brands), so a release with a few metrics
+// massively over-delivered and others still untouched could read as
+// "done" purely by netting out, or the reverse. Per explicit request:
+// DONE now means every real per-metric column (across every Ads brand)
+// is itself individually done (added >= that column's own booked
+// target, same "number result, not a link count" comparison AdsCell
+// already uses per-column) — a column with no target at all doesn't
+// count against it either way, so this returns null (no target
+// anywhere, matches every other category's "grey — not booked" state)
+// rather than true/false when nothing was ever requested.
+function adsAllViewStatus(release, bookedFor, entries, categoryIdByName) {
+  const categoryId = categoryIdByName["Ads"];
+  let anyTarget = false;
+  let anyDone = false;
+  let allDoneOrUntargeted = true;
+  Object.entries(ADS_METRICS).forEach(([brand, metrics]) => {
+    metrics.forEach((metric) => {
+      const booked = bookedFor(release, "Ads", brand, metric, null);
+      if (booked == null || booked <= 0) return; // no target — doesn't count either way
+      anyTarget = true;
+      const added = entries
+        .filter((e) => e.release_id === release.id && e.category_id === categoryId && (e.channel_name || "") === brand && (e.platform || "") === metric)
+        .reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
+      if (added >= booked) anyDone = true;
+      else allDoneOrUntargeted = false;
+    });
+  });
+  if (!anyTarget) return null;
+  return anyDone && allDoneOrUntargeted;
+}
+
 // Ads results are a metric COUNT, not a posted URL — per explicit request,
 // Ads cells take a quantity + a run-status instead of the Add Link popup
 // every other Hạng Mục uses. Own vocabulary/colors, distinct from the
@@ -732,12 +768,24 @@ export default function BookingBoard() {
   // "done" (there's nothing finished to report), which matches how such a
   // release already gets filtered out by the anyFilled check below anyway.
   function isReleaseDone(r) {
+    // Round 168 — the "All" filter's own Ads column (categoryName "Ads",
+    // brand null — see the columns useMemo's hangMucFilter==="All"
+    // branch) is a special case: its target/done-ness comes from
+    // adsAllViewStatus's per-metric-column check, not the generic sum-
+    // based bookedFor/addedFor comparison every other column uses. See
+    // that function's comment for why.
     const targeted = columns.filter((c) => {
+      if (c.categoryName === "Ads" && c.brand === null) {
+        return adsAllViewStatus(r, bookedFor, roundEntries, categoryIdByName) !== null;
+      }
       const booked = bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType);
       return booked != null && booked > 0;
     });
     if (targeted.length === 0) return false;
     return targeted.every((c) => {
+      if (c.categoryName === "Ads" && c.brand === null) {
+        return adsAllViewStatus(r, bookedFor, roundEntries, categoryIdByName) === true;
+      }
       const booked = bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType);
       const added = addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries);
       return added >= booked;
@@ -1842,16 +1890,20 @@ function ResultCell({ release, categories, bookedFor, entries, categoryIdByName 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 10, rowGap: 3 }}>
       {categories.map((c) => {
-        const booked = bookedFor(release, c.name, null);
-        const matchingEntries = entries.filter((e) => e.release_id === release.id && e.category_id === categoryIdByName[c.name]);
-        // Ads sums quantity instead of counting rows — same fix as
-        // addedFor above.
-        const added = c.name === "Ads"
-          ? matchingEntries.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0)
-          : matchingEntries.length;
         let color = "#444"; // grey — not booked at all
-        if (booked != null && booked > 0) {
-          color = added >= booked ? "#7ee6a8" : "#ffca4d";
+        if (c.name === "Ads") {
+          // Round 168 — per-metric-column completeness (adsAllViewStatus)
+          // instead of one blind summed ratio across every Ads metric —
+          // see that function's comment.
+          const status = adsAllViewStatus(release, bookedFor, entries, categoryIdByName);
+          if (status !== null) color = status ? "#7ee6a8" : "#ffca4d";
+        } else {
+          const booked = bookedFor(release, c.name, null);
+          const matchingEntries = entries.filter((e) => e.release_id === release.id && e.category_id === categoryIdByName[c.name]);
+          const added = matchingEntries.length;
+          if (booked != null && booked > 0) {
+            color = added >= booked ? "#7ee6a8" : "#ffca4d";
+          }
         }
         return (
           <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10 }}>

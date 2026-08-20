@@ -25,6 +25,12 @@ const NCT_ZING_OPTS = ["", "Chưa thực hiện", "Đã pitching", "Không hỗ 
 const CANCEL_VALUES = ["Không thực hiện", "Không hỗ trợ"];
 const DONE_VALUE = "Đã pitching";
 const CO_GOI_VALUE = "Có gói";
+// Round 170 — NCT-only addition to the "Có Gói" services checklist, per
+// explicit request. Not part of the shared, Config-editable
+// domesticServiceItems list (lib/pitchingDomesticServices.js) since that
+// list is shared by both NCT and Zing and this was asked for on the NCT
+// side only — see DomesticPlatformColumn's extraItems prop.
+const NCT_ONLY_SERVICES = ["New Release Song"];
 
 // Round 106 item 5 — the top-level release-detail checkbox picker merged
 // down to 4 keys (priority/spotifyBanner/spotifyS4a/domestic — see
@@ -172,7 +178,12 @@ export default function PitchingWorkstation() {
         // lib/zingPitchNote.js) — wasn't previously read on this page at
         // all, only by the standalone Tools Directory version of this
         // same generator.
-        .select("id, did, title, main_artist, release_date, release_time, upc, priority_pitching, isrc, apple_id, pitching_status_spotify, pitching_status_apple, pitching_status_spotify_banner, pitching_spotify_banner_drive_link, pitching_status_nct, pitching_status_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo, pitching_note, pitching_pic_priority, pitching_pic_spotify, pitching_pic_apple, pitching_pic_spotify_banner, pitching_pic_domestic, pitching_domestic_services_nct, pitching_domestic_services_zing, link_share")
+        // Round 168 — link_lbm added per explicit request ("add the LBM
+        // url column, from the detail page") — same releases.link_lbm
+        // column the release detail page's own "Link LBM" field, the
+        // Re-Check workstation's LbmCell, and Pre-release's LBM URL
+        // column (Round 165) all already read/write.
+        .select("id, did, title, main_artist, release_date, release_time, upc, priority_pitching, isrc, apple_id, pitching_status_spotify, pitching_status_apple, pitching_status_spotify_banner, pitching_spotify_banner_drive_link, pitching_status_nct, pitching_status_zing, pitch_genre, pitch_mood, pitch_instrumental, pitch_note, pitch_memo, pitching_note, pitching_pic_priority, pitching_pic_spotify, pitching_pic_apple, pitching_pic_spotify_banner, pitching_pic_domestic, pitching_domestic_services_nct, pitching_domestic_services_zing, link_share, link_lbm")
         .in("did", dids);
       (rels || []).forEach((r) => (releaseMap[r.did] = r));
     }
@@ -333,6 +344,7 @@ export default function PitchingWorkstation() {
                     Release info
                   </SortableTh>
                   <th>Requested</th>
+                  <th style={{ maxWidth: 150 }}>LBM URL</th>
                   <th>Note</th>
                 </tr>
               </thead>
@@ -384,6 +396,13 @@ export default function PitchingWorkstation() {
                           ))}
                         </div>
                       </td>
+                      <td style={{ maxWidth: 150 }} onClick={(e) => e.stopPropagation()}>
+                        {row.release ? (
+                          <PitchingLbmCell release={row.release} onUpdate={updateRelease} />
+                        ) : (
+                          <span style={{ color: "var(--text-faint)" }}>—</span>
+                        )}
+                      </td>
                       <td>
                         {/* Round 80 — fixed bug: stopPropagation belongs on
                             the input itself (so typing/clicking into it
@@ -426,6 +445,14 @@ export default function PitchingWorkstation() {
       )}
     </AppShell>
   );
+}
+
+// Round 168 — same editable-URL-cell-with-local-draft-state pattern as
+// the Re-Check workstation's LbmCell and Pre-release's inline LBM field,
+// all three now backed by the one releases.link_lbm column.
+function PitchingLbmCell({ release, onUpdate }) {
+  const [draft, setDraft] = useState(release.link_lbm || "");
+  return <UrlField styles={styles} value={draft} onChange={setDraft} onBlur={() => onUpdate(release, "link_lbm", draft)} />;
 }
 
 function PitchingPopup({ row, profiles, onClose, onUpdateRelease, domesticServiceItems }) {
@@ -578,6 +605,13 @@ function PitchingPopup({ row, profiles, onClose, onUpdateRelease, domesticServic
               services={release?.pitching_domestic_services_nct || []}
               onServicesChange={(next) => onUpdateRelease(release, "pitching_domestic_services_nct", next)}
               domesticServiceItems={domesticServiceItems}
+              // Round 170 — "new release song" added per explicit request,
+              // NCT-only (not Zing) — kept as a column-local extra item
+              // rather than folded into the shared, Config-editable
+              // domesticServiceItems list (Config → Pitching → Domestic
+              // "Có Gói" Services), since that list is shared by both NCT
+              // and Zing and this was asked for on the NCT side only.
+              extraItems={NCT_ONLY_SERVICES}
             />
             <DomesticPlatformColumn
               label="Zing Status"
@@ -630,7 +664,12 @@ function ZingPitchInlineButton({ release }) {
 // dropdown plus, once that status is "Có gói", its own independent
 // services checklist directly underneath (was one shared checklist below
 // both platforms — see the activeType === "domestic" block above).
-function DomesticPlatformColumn({ label, status, onStatusChange, services, onServicesChange, domesticServiceItems }) {
+function DomesticPlatformColumn({ label, status, onStatusChange, services, onServicesChange, domesticServiceItems, extraItems }) {
+  // Round 170 — extraItems is a column-local addition (see
+  // NCT_ONLY_SERVICES) on top of the shared Config-editable list, not
+  // stored anywhere separately — same `services` array/field either way,
+  // so ticking it saves/loads exactly like any other item here.
+  const allItems = extraItems?.length ? [...domesticServiceItems, ...extraItems] : domesticServiceItems;
   return (
     <div>
       <Field label={label}>
@@ -642,7 +681,7 @@ function DomesticPlatformColumn({ label, status, onStatusChange, services, onSer
         <div style={{ marginTop: 10 }}>
           <div className={styles.fieldLabel} style={{ marginBottom: 8 }}>Có Gói — Services</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {domesticServiceItems.map((item) => {
+            {allItems.map((item) => {
               const checked = services.includes(item);
               return (
                 <label key={item} className={styles.checkboxRow}>

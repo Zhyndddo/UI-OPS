@@ -317,7 +317,15 @@ export default function PickPackagePage() {
   const [selectedValue, setSelectedValue] = useState(null); // local pick, not yet committed
   const [confirmed, setConfirmed] = useState(false);
   const [categories, setCategories] = useState([]); // package_categories — for the booking-progress summary
-  const [packageItems, setPackageItems] = useState([]); // release_package_items — the confirmed/locked package's real breakdown
+  // Round 168 — was release_package_items (a one-time snapshot, frozen at
+  // confirmChoice() time, and missing metric_quantities entirely — see
+  // bookedFor() below for why that broke Ads specifically). Now the
+  // confirmed package's LIVE media_booking_package_lines rows, same
+  // source of truth the internal Booking Board's own bookedFor() reads,
+  // so this stays correct even if Marketing edits the built package's
+  // numbers after the artist already confirmed, and Ads' real per-metric
+  // targets (metric_quantities) are actually available to sum.
+  const [packageLines, setPackageLines] = useState([]);
   const [bookingEntries, setBookingEntries] = useState([]);
   const [round, setRound] = useState("INT");
   const [sharedTerms, setSharedTerms] = useState({ a: "", conditions: "", b: "" }); // global_settings' canned blocks, shown alongside any real package's own terms_text
@@ -518,13 +526,17 @@ export default function PickPackagePage() {
       setConfirmed(true);
     }
 
+    // Round 168 — feeds bookedFor() below. Pull the LIVE package_lines off
+    // whichever built package is actually confirmed (INT MEDIA's override
+    // follows the same name intMediaBuilt already resolved above), not
+    // the frozen release_package_items snapshot — see the packageLines
+    // state comment for why.
+    const confirmedPackageName = intMediaBuilt ? "INT MEDIA" : rel?.project_type;
+    const confirmedPkgRaw = (realPackages || []).find((p) => p.name === confirmedPackageName);
+    setPackageLines(confirmedPkgRaw?.media_booking_package_lines || []);
+
     const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
     setCategories(cats || []);
-    // Same ordering fix as the media_booking_package_lines embed above —
-    // this table also carries a sort_order column (set at copy-time in
-    // confirmChoice() below) that was never actually being asked for.
-    const { data: items } = await supabase.from("release_package_items").select("*").eq("release_id", link.release_id).order("sort_order");
-    setPackageItems(items || []);
     const { data: entries } = await supabase.from("media_booking_entries").select("*").eq("release_id", link.release_id);
     setBookingEntries(entries || []);
 
@@ -565,14 +577,51 @@ export default function PickPackagePage() {
   // platform breakdown, read-only. Lets whoever's on the other end of this
   // magic link (the artist/label) see booking progress alongside the
   // package they picked, without exposing the internal Booking Board.
-  function bookedFor(categoryName) {
-    const matching = packageItems.filter((it) => it.category === categoryName || (it.category || "").startsWith(`${categoryName} — `));
+  //
+  // Round 168 fix — this used to sum release_package_items.quantity,
+  // which is null for every Ads brand except YouTube Ads (Ads is priced
+  // per-metric via metric_quantities, not one lump quantity on the
+  // package line — see media-booking/page.js's Summarize flow), AND that
+  // snapshot table never even carried metric_quantities in the first
+  // place (see confirmChoice()'s insert further down — only category/
+  // unit/quantity/detail/amount get copied). So Ads always summed to 0
+  // here regardless of what was actually booked internally, and a fully-
+  // booked Ads release could never show DONE on this page. Now reads the
+  // live packageLines (media_booking_package_lines, same source the
+  // internal Booking Board itself reads) and falls back to summing
+  // metric_quantities when a line's own quantity is null — identical
+  // logic to app/booking/page.js's own bookedFor "All" branch.
+  function bookedFor(category) {
+    const matching = packageLines.filter((l) => l.category_id === category.id);
     if (matching.length === 0) return null;
-    return matching.reduce((sum, it) => sum + (it.quantity || 0), 0);
+    return matching.reduce((sum, l) => {
+      if (l.quantity != null) return sum + l.quantity;
+      if (l.metric_quantities) return sum + Object.values(l.metric_quantities).reduce((s, v) => s + (v || 0), 0);
+      return sum;
+    }, 0);
   }
 
-  function addedFor(categoryId) {
-    return bookingEntries.filter((e) => e.booking_round === round && e.category_id === categoryId).length;
+  // Round 168 fix — Ads entries store a result COUNT in `quantity` (no
+  // posted link — see the Ads-takes-a-quantity-not-a-link note in
+  // app/booking/page.js), so counting ROWS here undercounted Ads the same
+  // way bookedFor's old version did; a release with e.g. one Ads entry
+  // whose quantity was 40 read as "added: 1" instead of "added: 40",
+  // never able to catch up to a real booked target. Sum quantity for Ads,
+  // same as the internal board's own addedFor.
+  function addedFor(category) {
+    const matching = bookingEntries.filter((e) => e.booking_round === round && e.category_id === category.id);
+    if (category.name === "Ads") return matching.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
+    return matching.length;
+  }
+
+  // Round 168 — the actual posted links for a DONE category, shown as a
+  // cluster of 🔗 icons instead of a bare "DONE" label (per explicit
+  // request) so the artist/label can click straight through to what was
+  // booked. Ads entries never carry a link (see addedFor above — they're
+  // a result count instead), so this is naturally empty for Ads and that
+  // category keeps showing the plain DONE badge below.
+  function linksFor(category) {
+    return bookingEntries.filter((e) => e.booking_round === round && e.category_id === category.id && e.link);
   }
 
   // Clicking a card only selects it locally now — nothing commits until
@@ -1200,15 +1249,38 @@ export default function PickPackagePage() {
                 up since there's now a whole row to spend on it. */}
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
               {categories.map((c) => {
-                const booked = bookedFor(c.name);
-                const added = addedFor(c.id);
+                const booked = bookedFor(c);
+                const added = addedFor(c);
                 const isDone = booked != null && booked > 0 && added >= booked;
+                const doneLinks = isDone ? linksFor(c) : [];
                 return (
                   <div key={c.id} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
                       {c.name}
                     </div>
-                    {isDone ? (
+                    {isDone && doneLinks.length > 0 ? (
+                      // Round 168 — a bunch of clickable links instead of
+                      // a bare "DONE" label, per explicit request, so the
+                      // artist/label can open what was actually posted.
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                        <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: isMobile ? 16 : 12 }}>DONE</span>
+                        {doneLinks.map((e) => (
+                          <a
+                            key={e.id}
+                            href={e.link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={e.channel_name || e.link}
+                            style={{ fontSize: isMobile ? 20 : 16 }}
+                          >
+                            🔗
+                          </a>
+                        ))}
+                      </div>
+                    ) : isDone ? (
+                      // Ads (and anything else whose entries carry no
+                      // link — see linksFor) has nothing to list, so it
+                      // stays the plain DONE badge.
                       <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: isMobile ? 22 : 13 }}>DONE</span>
                     ) : booked != null ? (
                       <span style={{ color: "var(--text-muted)", fontSize: isMobile ? 22 : 13, fontWeight: isMobile ? 800 : 400 }}>{added} / {booked}</span>
