@@ -8,25 +8,37 @@ import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
 import { isOpsTeam } from "../../../lib/teamTypes";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
-import { ARTIST_PROFILE_PLATFORMS } from "../../../lib/GateFields";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
+import { REQUEST_TYPES, requestTypeLabel, fieldsForType, platformOptionsForType, ALL_PLATFORMS, isLegacyTicket } from "../../../lib/artistProfileRequestTypes";
 import styles from "../../shared.module.css";
 
 // Bespoke (not the generic TicketListPage) per explicit request — the
 // generic engine only ever shows the first 4 config.fields as columns and
 // has no concept of a view-only field, neither of which works once this
-// type needs a computed/view-only column, a Note column, and the new
-// Spotify/Tiktok/Apple picker (lib/GateFields.js's ARTIST_PROFILE_
-// PLATFORMS, same checkbox-group idiom as Pitching's, synced from the
-// release detail page / New Release dashboard — see saveTab() in
-// app/releases/[id]/page.js and performInsert() in app/new-release/
-// page.js). Bài Hát Phát Hành Gần Nhất is view-only here per explicit
-// request ("computed, not an input field") — it's still whatever value
-// was captured when the ticket was created/last edited elsewhere, this
-// page just never offers an input for it.
+// type needs a computed/view-only column, a Note column, and (Round 166)
+// a request-type-dependent field set. Round 166 — was one flat shape
+// (Tên Nghệ Sĩ/Email/Spotify+Apple+Facebook URL/"set up on which
+// platforms" checkboxes); now 7 request types across up to 7 platforms,
+// each with its own extra fields (see lib/artistProfileRequestTypes.js,
+// the single source of truth this page and the creation form both read).
+// Columns stay fixed regardless of type — Loại Yêu Cầu, Nền Tảng, Nghệ
+// Sĩ/Nghệ Danh, then a "Chi Tiết" column holding whatever OTHER fields
+// that specific request type needs (stacked small inputs, same compact
+// idiom the old platform-checkbox column already used) — rather than the
+// table growing/shrinking columns per row, which HTML tables can't do
+// sanely.
+//
+// Legacy tickets (created before this round, either via the old manual
+// form or still via the release detail page's "Artist Profile Verify"
+// gate — that auto-creation flow is UNCHANGED this round, see
+// lib/artistProfileRequestTypes.js's file header) have no
+// data.requestType. isLegacyTicket() flags them; Chi Tiết falls back to
+// their old field set (Email/Bài Hát Phát Hành Gần Nhất/Spotify/Apple/
+// Facebook URL) instead of a type it was never given, so nothing already
+// in the DB goes blank or breaks.
 export default function ArtistProfileTicketList() {
   const { profile } = useAuth();
   const [tab, setTab] = useState(null);
@@ -100,7 +112,7 @@ export default function ArtistProfileTicketList() {
   return (
     <AppShell>
       <div className={styles.page}>
-        <div className={styles.container} style={{ maxWidth: 1350 }}>
+        <div className={styles.container} style={{ maxWidth: 1500 }}>
           <TypeSwitcher kind="ticket" current="artist_profile" />
           <div className={styles.topRow}>
             <div>
@@ -140,16 +152,13 @@ export default function ArtistProfileTicketList() {
           ) : (
             <>
             <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
-            <table className={styles.table} style={{ minWidth: 1250 }}>
+            <table className={styles.table} style={{ minWidth: 1400 }}>
               <thead>
                 <tr>
-                  <th style={{ minWidth: 140 }}>Tên Nghệ Sĩ</th>
-                  <th style={{ minWidth: 160 }}>Email Nghệ Sĩ</th>
-                  <th style={{ minWidth: 160 }}>Bài Hát Phát Hành Gần Nhất</th>
-                  <th style={{ minWidth: 140 }}>Spotify URL</th>
-                  <th style={{ minWidth: 140 }}>Apple URL</th>
-                  <th style={{ minWidth: 140 }}>Facebook URL</th>
-                  <th>Set up on</th>
+                  <th style={{ minWidth: 130 }}>Loại Yêu Cầu</th>
+                  <th style={{ minWidth: 110 }}>Nền Tảng</th>
+                  <th style={{ minWidth: 160 }}>Nghệ Sĩ / Nghệ Danh</th>
+                  <th style={{ minWidth: 240 }}>Chi Tiết</th>
                   <th style={{ minWidth: 140 }}>Note</th>
                   <th>PIC</th>
                   <th>Deadline</th>
@@ -159,40 +168,43 @@ export default function ArtistProfileTicketList() {
               <tbody>
                 {pagedTickets.map((t) => {
                   const color = statusColor(t.status);
+                  const legacy = isLegacyTicket(t);
+                  const requestType = legacy ? null : t.data.requestType;
+                  const platformOptions = legacy ? ALL_PLATFORMS : platformOptionsForType(requestType);
                   return (
                     <tr key={t.id}>
-                      <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.artistName || ""} onBlur={(e) => updateTicketData(t, { artistName: e.target.value })} />
+                      <td style={{ fontSize: 12 }}>
+                        {legacy ? (
+                          <span title="Created before request types existed — treated as NEW Profile for display." style={{ color: "var(--text-faint)" }}>
+                            NEW Profile <span style={{ fontSize: 10 }}>(legacy)</span>
+                          </span>
+                        ) : (
+                          requestTypeLabel(requestType)
+                        )}
                       </td>
                       <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.email || ""} onBlur={(e) => updateTicketData(t, { email: e.target.value })} />
-                      </td>
-                      {/* View-only per explicit request — "computed, not an
-                          input field" — no input rendered here at all. */}
-                      <td style={{ fontSize: 12, color: "var(--text-faint)" }}>{t.data?.latestSong || "—"}</td>
-                      <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.spotifyUrl || ""} onBlur={(e) => updateTicketData(t, { spotifyUrl: e.target.value })} />
-                      </td>
-                      <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.appleUrl || ""} onBlur={(e) => updateTicketData(t, { appleUrl: e.target.value })} />
-                      </td>
-                      <td>
-                        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.fbUrl || ""} onBlur={(e) => updateTicketData(t, { fbUrl: e.target.value })} />
+                        <select
+                          className={styles.select}
+                          style={{ minWidth: 100, fontSize: 12 }}
+                          value={t.data?.platform || ""}
+                          onChange={(e) => updateTicketData(t, { platform: e.target.value })}
+                        >
+                          <option value="">—</option>
+                          {platformOptions.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+                        </select>
                       </td>
                       <td>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                          {ARTIST_PROFILE_PLATFORMS.map(([key, label]) => (
-                            <label key={key} style={{ fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
-                              <input
-                                type="checkbox"
-                                checked={!!t.data?.[key]}
-                                disabled={!isExecutorView}
-                                onChange={(e) => updateTicketData(t, { [key]: e.target.checked })}
-                              />
-                              {label}
-                            </label>
-                          ))}
-                        </div>
+                        {!legacy && requestType === "transfer" ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 160 }} placeholder="Nghệ danh cũ" defaultValue={t.data?.oldStageName || ""} onBlur={(e) => updateTicketData(t, { oldStageName: e.target.value })} />
+                            <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 160 }} placeholder="Nghệ danh mới" defaultValue={t.data?.newStageName || ""} onBlur={(e) => updateTicketData(t, { newStageName: e.target.value })} />
+                          </div>
+                        ) : (
+                          <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.artistName || ""} onBlur={(e) => updateTicketData(t, { artistName: e.target.value })} />
+                        )}
+                      </td>
+                      <td>
+                        <DetailCell ticket={t} legacy={legacy} requestType={requestType} onUpdate={(patch) => updateTicketData(t, patch)} />
                       </td>
                       <td>
                         <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }} defaultValue={t.data?.note || ""} onBlur={(e) => updateTicketData(t, { note: e.target.value })} />
@@ -229,5 +241,67 @@ export default function ArtistProfileTicketList() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+// The Chi Tiết column — every field that request type needs, OTHER than
+// platform (its own column) and the artist-name-shaped field(s) (also
+// their own column, since Transfer needs 2 of those instead of 1). Each
+// field renders as a small labeled input, stacked, same compact idiom the
+// old platform-checkbox column used. "latestSong" (NEW only) stays
+// view-only here, same as it always was — "computed, not an input field"
+// per the original explicit request that hasn't changed.
+function DetailCell({ ticket, legacy, requestType, onUpdate }) {
+  if (legacy) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        <input className={styles.input} style={{ padding: "3px 6px", fontSize: 11 }} placeholder="Email" defaultValue={ticket.data?.email || ""} onBlur={(e) => onUpdate({ email: e.target.value })} />
+        <div style={{ fontSize: 10, color: "var(--text-faint)" }}>Bài gần nhất: {ticket.data?.latestSong || "—"}</div>
+        <input className={styles.input} style={{ padding: "3px 6px", fontSize: 11 }} placeholder="Spotify URL" defaultValue={ticket.data?.spotifyUrl || ""} onBlur={(e) => onUpdate({ spotifyUrl: e.target.value })} />
+        <input className={styles.input} style={{ padding: "3px 6px", fontSize: 11 }} placeholder="Apple URL" defaultValue={ticket.data?.appleUrl || ""} onBlur={(e) => onUpdate({ appleUrl: e.target.value })} />
+        <input className={styles.input} style={{ padding: "3px 6px", fontSize: 11 }} placeholder="Facebook URL" defaultValue={ticket.data?.fbUrl || ""} onBlur={(e) => onUpdate({ fbUrl: e.target.value })} />
+      </div>
+    );
+  }
+
+  const fields = fieldsForType(requestType).filter((f) => f.key !== "artistName" && f.key !== "oldStageName" && f.key !== "newStageName");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      {fields.map((f) => {
+        if (f.key === "latestSong") {
+          return <div key={f.key} style={{ fontSize: 10, color: "var(--text-faint)" }}>Bài gần nhất: {ticket.data?.latestSong || "—"}</div>;
+        }
+        if (f.type === "select") {
+          return (
+            <select key={f.key} className={styles.select} style={{ padding: "3px 6px", fontSize: 11 }} value={ticket.data?.[f.key] || ""} onChange={(e) => onUpdate({ [f.key]: e.target.value })}>
+              {(f.options || ["", "Yes", "No"]).map((o) => <option key={o} value={o}>{o || f.label}</option>)}
+            </select>
+          );
+        }
+        if (f.multiline) {
+          return (
+            <textarea
+              key={f.key}
+              className={styles.textarea}
+              style={{ padding: "3px 6px", fontSize: 11, minHeight: 44 }}
+              placeholder={f.label}
+              defaultValue={ticket.data?.[f.key] || ""}
+              onBlur={(e) => onUpdate({ [f.key]: e.target.value })}
+            />
+          );
+        }
+        return (
+          <input
+            key={f.key}
+            className={styles.input}
+            style={{ padding: "3px 6px", fontSize: 11 }}
+            placeholder={f.label}
+            defaultValue={ticket.data?.[f.key] || ""}
+            onBlur={(e) => onUpdate({ [f.key]: e.target.value })}
+          />
+        );
+      })}
+    </div>
   );
 }
