@@ -18,10 +18,20 @@ const PLATFORM_CHARTS = {
   // it had no entry here yet (see lib/milestoneChartLinks.js's comment on
   // where its URL came from).
   Spotify: ["WEEKLY TOP ALBUM", "WEEKLY TOP ARTIST", "WEEKLY TOP SONG", "DAILY TOP SONG", "DAILY TOP ARTIST", "DAILY VIRAL SONGs", "HANOI", "LOCAL PULSE - HANOI", "HOCHIMINH CITY", "LOCAL PULSE - HOCHIMINH CITY", "Playlist NEW MUSIC FRIDAY VIETNAM", "Playlist Fresh Find Vietnam", "Playlist Vsound Ngay Lúc Này", "Playlist Thiên Hạ Nghe Gì", "Playlist Đoá Hồng Nhạc Việt"],
-  Apple: ["Playlist Vietnam Ơi!", "Playlist New Music Daily", "APPLE MUSIC - Top ALBUMs Vietnam", "APPLE MUSIC - Top POP Albums", "APPLE MUSIC -Top HIPHOP/RAP Albums", "APPLE MUSIC - Top DANCE Albums", "APPLE MUSIC - Top ALTERNATIVE Albums", "Apple Music - Top Songs Vietnam", "Apple Music - Top POP Songs", "Apple - Top Alternative Songs", "Apple Music - Top Dance Songs", "Apple Music - Top Hiphop/Rap Songs"],
+  // Round 171 — "Vietnam iTunes Top Songs" and "Apple Daily Album" added:
+  // both showed up with real, sustained volume (138 and 50 rows
+  // respectively) in the TOTAL_STREAK historical import but had no home
+  // in this list yet — see scripts/import-milestone-total-streak.js's
+  // CHART_MAP for the full mapping this round worked from.
+  Apple: ["Playlist Vietnam Ơi!", "Playlist New Music Daily", "APPLE MUSIC - Top ALBUMs Vietnam", "APPLE MUSIC - Top POP Albums", "APPLE MUSIC -Top HIPHOP/RAP Albums", "APPLE MUSIC - Top DANCE Albums", "APPLE MUSIC - Top ALTERNATIVE Albums", "Apple Music - Top Songs Vietnam", "Apple Music - Top POP Songs", "Apple - Top Alternative Songs", "Apple Music - Top Dance Songs", "Apple Music - Top Hiphop/Rap Songs", "Vietnam iTunes Top Songs", "Apple Daily Album"],
   TikTok: ["TIKTOK POPULAR", "TIKTOK BREAKOUT", "TIKTOK HOT"],
   Instagram: ["INSTAGRAM"],
-  YouTube: ["YOUTUBE CHARTS | TOP SONGS WEEKLY", "YOUTUBE CHARTS | TOP ARTISTS WEEKLY", "YOUTUBE CHARTS | TOP SONGS DAILY", "YOUTUBE CHARTS | VIETNAM TRENDING MUSIC", "YOUTUBE CHARTS | Top Video Trending on YTB"],
+  // Round 171 — 5 new charts added, same reasoning as Apple's two above:
+  // real recurring volume in the historical import (398/106/70/113/82
+  // rows respectively, each already a merge of several inconsistently-
+  // named variants of the same underlying chart — see CHART_MAP) with no
+  // existing entry here to land in.
+  YouTube: ["YOUTUBE CHARTS | TOP SONGS WEEKLY", "YOUTUBE CHARTS | TOP ARTISTS WEEKLY", "YOUTUBE CHARTS | TOP SONGS DAILY", "YOUTUBE CHARTS | VIETNAM TRENDING MUSIC", "YOUTUBE CHARTS | Top Video Trending on YTB", "YOUTUBE CHARTS | Top Videos Daily", "YOUTUBE CHARTS | Daily Top Songs on Shorts", "YOUTUBE CHARTS | Weekly Top Music Videos", "PLAYLIST YOUTUBE | The Hit List", "PLAYLIST YOUTUBE | RELEASED"],
   Shazam: ["Shazam Top Songs"],
 };
 const PLATFORMS = Object.keys(PLATFORM_CHARTS);
@@ -246,7 +256,7 @@ export default function MilestoneWorkstation() {
       </div>
 
       {openPlatform && (
-        <ChartEntryPopup platform={openPlatform} onClose={() => setOpenPlatform(null)} onSave={saveRows} />
+        <ChartEntryPopup platform={openPlatform} onClose={() => setOpenPlatform(null)} onSave={saveRows} entries={entries} />
       )}
     </AppShell>
   );
@@ -389,11 +399,31 @@ function LogTable({ entries }) {
   );
 }
 
-function ChartEntryPopup({ platform, onClose, onSave }) {
+function ChartEntryPopup({ platform, onClose, onSave, entries }) {
   const isMobile = useIsMobile();
   const charts = PLATFORM_CHARTS[platform];
   const [activeChart, setActiveChart] = useState(charts[0]);
-  const [rowsByChart, setRowsByChart] = useState({});
+  // Round 171 — per explicit request: pre-fill from whatever's already
+  // saved for TODAY (same date saveRows always writes to) instead of
+  // always starting blank, so re-opening this popup shows what's already
+  // there for review/completion rather than risking a re-typed row typo.
+  // Saving still upserts on the natural key (chart, track_title, artist,
+  // entry_date — see saveRows), so editing a pre-filled row updates it in
+  // place; nothing here can create a duplicate. Charts with nothing saved
+  // yet for today are left out of this initial map entirely, so the
+  // existing "one blank starter row" fallback below still applies to
+  // them exactly as before.
+  const [rowsByChart, setRowsByChart] = useState(() => {
+    const today = todayStr();
+    const initial = {};
+    charts.forEach((c) => {
+      const todays = (entries || []).filter((e) => e.platform === platform && e.chart === c && e.entry_date === today);
+      if (todays.length > 0) {
+        initial[c] = todays.map((e) => ({ track_title: e.track_title || "", artist: e.artist || "", rank: e.rank != null ? String(e.rank) : "", did: e.did || "" }));
+      }
+    });
+    return initial;
+  });
 
   const rows = rowsByChart[activeChart] || [{ track_title: "", artist: "", rank: "", did: "" }];
 

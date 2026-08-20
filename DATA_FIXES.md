@@ -9429,3 +9429,72 @@ checklist.
 
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` — zero errors.
+
+## 2026-08-20 (171)
+
+Milestone Workstation — historical chart data import + popup pre-fill,
+per explicit request against the uploaded "milestone update 2011.xlsx"
+(its `TOTAL_STREAK` sheet).
+
+**New file: `scripts/import-milestone-total-streak.js`** — one-time,
+dry-run-by-default backfill script (same `npm install xlsx --no-save` +
+`--confirm` pattern as `import-phu-luc.js`) that reads `TOTAL_STREAK`
+(20,489 data rows, 2026-01-05 → 2026-08-19) and upserts into
+`milestone_chart_entries` on the existing natural key (chart,
+track_title, artist, entry_date). The real work was `CHART_MAP`: the
+sheet's own chart names are wildly inconsistent (98 distinct (chart,
+platform) pairs found across the full sheet, for what's really ~35
+underlying charts) — extra "CHART" words, "|" vs "-", trailing
+whitespace/newlines, singular/plural, Vietnamese vs English wording, and
+one real platform mis-tag (360 rows of "Shazam Top Songs" tagged
+Platform="Youtube" — chart name unambiguously fixes this to Shazam
+rather than either dropping those rows or filing them under YouTube).
+`CHART_MAP` normalizes 69 of those 98 pairs (20,432 of 20,489 rows,
+99.7%) into the workstation's canonical (chart, platform) pairs,
+confirmed via user sign-off on the general approach ("map + add new
+charts", "import everything") after flagging the scale/ambiguity via
+AskUserQuestion first rather than guessing blind on a mass production
+write. The remaining 29 pairs (57 rows, 0.28% — one-off typos like
+"Plalist Vpop Tháng 3", single-row oddities like "Dance : Cambodia",
+low-volume seasonal playlists, and 2 platforms this system doesn't track
+at all — Facebook/Ins' "FB TRENDING", NCT's "NCT Charts", 1-2 rows each)
+are NOT guessed at — the script skips and prints them in full on every
+run instead. Also dedupes on the same natural key before writing (123
+keys / 191 rows appeared more than once in the raw sheet — without this,
+a single upsert() chunk containing both occurrences of the same key
+fails outright, since Postgres refuses to let one ON CONFLICT DO UPDATE
+affect the same row twice within one statement).
+
+**`app/workstation/milestone/page.js`'s `PLATFORM_CHARTS`** gained 7 new
+entries that had real recurring volume in the import but nowhere to land
+in the existing list: Apple's "Vietnam iTunes Top Songs" (138 rows) and
+"Apple Daily Album" (50 rows); YouTube's "Top Videos Daily" (398 rows,
+itself a merge of 4 inconsistently-named variants), "Daily Top Songs on
+Shorts" (106 rows, 2 variants), "Weekly Top Music Videos" (70 rows),
+"PLAYLIST YOUTUBE | The Hit List" (113 rows, 2 variants), and "PLAYLIST
+YOUTUBE | RELEASED" (82 rows, 2 variants).
+
+**`ChartEntryPopup`** (same file) — per explicit request ("the popup
+will now have rows from the input sheet, filling the row there as well,
+no duplication... if we haven't any rule about each day, swipe the
+number... but leave the row intact"): this popup used to always start
+every chart blank, even when today's numbers were already saved (from a
+prior save this session, or now from the historical import above once
+today's date is reached). It now pre-fills `rowsByChart` from whatever
+`milestone_chart_entries` already has for (platform, chart, today) on
+open, so the team reviews/edits existing numbers instead of re-typing
+from scratch. No duplication risk — saving still upserts on the same
+natural key as always, so editing a pre-filled row updates it in place;
+a chart with nothing saved yet still falls back to the original single
+blank starter row exactly as before.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against `app/workstation/milestone/page.js` (zero errors) and
+`node --check` against the import script (valid syntax). The import
+script's parsing/mapping/dedup logic was independently cross-checked by
+replicating it in Python against the actual uploaded file before
+delivery — dry-run counts should read 18,343 rows ready to upsert (after
+title/date/rank-blank skips and the 191-row dedup), 56 rows unmapped and
+listed. Not run against a live database from this session — needs to be
+run locally with real `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`, dry run
+first.
