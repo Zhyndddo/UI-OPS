@@ -25,6 +25,8 @@ import { recomputeDid } from "../../../lib/didHelpers";
 import RelatedDidField from "../../../lib/RelatedDidField";
 import { CopyrightSummaryBar, CopyrightRowStatus } from "../../../lib/CopyrightRights";
 import { copyrightChecklistIsComplete } from "../../../lib/copyrightChecklist";
+import { findDuplicateTicketKeys } from "../../../lib/duplicateTicketGuard";
+import DuplicateTicketWarning from "../../../lib/DuplicateTicketWarning";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -122,6 +124,13 @@ export default function ReleaseDetailPage() {
   const [artistProfileTickets, setArtistProfileTickets] = useState([]);
   const artistProfileTicketByArtist = Object.fromEntries(artistProfileTickets.map((t) => [t.data?.artistName, t]));
   const [artistProfileVerifySelected, setArtistProfileVerifySelected] = useState([]);
+  // Round 167 — pilot of the "one ticket per key" rule (see
+  // claude/one-ticket-per-key-rule.md): names any artist saveTab() found
+  // ALREADY had a ticket at the moment of a live re-check, right before
+  // Save would have created a duplicate for them. Non-null shows the
+  // warning-only popup (DuplicateTicketWarning) — no "create anyway"
+  // bypass, per explicit request.
+  const [artistProfileDuplicateWarning, setArtistProfileDuplicateWarning] = useState(null);
   // Round 97 follow-up — same "touched" idiom as labelTouched elsewhere in
   // this app: once AR has manually checked/unchecked anything in the
   // panel, the auto-default-to-all-selected effect below stops overriding
@@ -674,8 +683,26 @@ export default function ReleaseDetailPage() {
       if (toCreate.length > 0) {
         const { data: apTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
         if (apTab) {
+          // Round 167 — live re-check right before creating, not just the
+          // artistProfileTicketByArtist snapshot from page load (`toCreate`
+          // above). That snapshot goes stale the moment a second tab/
+          // session creates this exact artist's ticket in the meantime —
+          // this catches that race. Any artist that already has one gets
+          // dropped from what's created and surfaced via the warning-only
+          // popup (no bypass — see lib/DuplicateTicketWarning.js); their
+          // checkbox is reverted to unticked so the panel reflects reality
+          // on the next render. Everything else in this Save still goes
+          // through normally.
+          const dupCandidates = toCreate.map((name) => ({ label: name, filters: { releaseId: newDid, artistName: name } }));
+          const dupes = await findDuplicateTicketKeys(supabase, apTab.id, dupCandidates);
+          const dupeNames = new Set(dupes.map((d) => d.label));
+          if (dupeNames.size > 0) {
+            setArtistProfileDuplicateWarning([...dupeNames]);
+            setArtistProfileVerifySelected((sel) => sel.filter((name) => !dupeNames.has(name)));
+          }
+          const actuallyCreate = toCreate.filter((name) => !dupeNames.has(name));
           const created = await Promise.all(
-            toCreate.map((artistName) =>
+            actuallyCreate.map((artistName) =>
               supabase
                 .from("tickets")
                 .insert({
@@ -1444,6 +1471,12 @@ export default function ReleaseDetailPage() {
         {tab === "tasklist" && <TasklistTab form={form} bookingEntries={bookingEntries} />}
       </div>
     </div>
+    <DuplicateTicketWarning
+      items={artistProfileDuplicateWarning}
+      onClose={() => setArtistProfileDuplicateWarning(null)}
+      title="Artist Profile ticket already exists — skipped"
+      note="These artists already have an Artist Profile ticket for this release, so Save didn't create another one — they've been unchecked. A genuinely new request for one of them goes through the Artist Profile ticket page instead."
+    />
     </AppShell>
   );
 }

@@ -82,13 +82,20 @@ async function main() {
   }
   const supabase = createClient(url, key, { auth: { persistSession: false } });
 
-  // BACKUP_STAMP lets the workflow pin the date it started with, so a run
-  // that crosses midnight UTC still lands in the file its schedule meant.
-  const stamp = process.env.BACKUP_STAMP || new Date().toISOString().slice(0, 10);
+  // BACKUP_STAMP lets the workflow pin the date+hour it started with, so a
+  // run that crosses an hour/day boundary mid-run still lands in the file
+  // its schedule meant. Format: YYYY-MM-DD_HHh, e.g. "2026-08-20_14h" — one
+  // file per run now that this fires every 2h, instead of one per day (see
+  // prune-backups.js and backup.yml's weekly-copy step, updated in lockstep
+  // with this format on 2026-08-20).
+  const now = new Date();
+  const datePart = now.toISOString().slice(0, 10);
+  const hourPart = now.toISOString().slice(11, 13);
+  const stamp = process.env.BACKUP_STAMP || `${datePart}_${hourPart}h`;
   const outDir = process.argv[2] || path.join("backups", "daily");
   fs.mkdirSync(outDir, { recursive: true });
 
-  const dump = { stamp, generated_at: new Date().toISOString(), tables: {} };
+  const dump = { stamp, generated_at: now.toISOString(), tables: {} };
   let totalRows = 0;
   console.log(`Backing up ${TABLES.length} tables…`);
   for (const table of TABLES) {

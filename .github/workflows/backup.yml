@@ -2,8 +2,12 @@ name: Data Backup
 
 on:
   schedule:
-    # 18:00 UTC daily (~01:00 ICT). Adjust if a different quiet hour fits better.
-    - cron: "0 18 * * *"
+    # Every 2 hours, on the hour (UTC) — 12 runs/day. Bumped up from once
+    # daily on 2026-08-20 after a production data-loss incident where the
+    # only available backup was ~24h stale; this narrows the worst-case
+    # recovery gap to ~2h. See scripts/backup.js for the per-run filename
+    # format this relies on (one file per run, not one per day).
+    - cron: "0 */2 * * *"
   workflow_dispatch: {} # lets anyone run a backup on demand from the Actions tab
 
 permissions:
@@ -55,8 +59,17 @@ jobs:
           STAMP=$(date -u +%F)
           if [ "$(date -u +%u)" = "7" ]; then
             mkdir -p data-backups/backups/weekly
-            cp "data-backups/backups/daily/${STAMP}.json" "data-backups/backups/weekly/${STAMP}.json"
-            echo "Saved weekly snapshot for ${STAMP}."
+            # Daily folder now holds one file per 2h run (STAMP_HHh.json),
+            # not one per day — grab whichever run just wrote (this step
+            # runs right after "Run backup", so it's always the latest for
+            # today) rather than assuming an exact STAMP.json filename.
+            LATEST=$(ls -t "data-backups/backups/daily/${STAMP}"_*h.json 2>/dev/null | head -1)
+            if [ -n "$LATEST" ]; then
+              cp "$LATEST" "data-backups/backups/weekly/${STAMP}.json"
+              echo "Saved weekly snapshot for ${STAMP} (from $(basename "$LATEST"))."
+            else
+              echo "No daily file found for ${STAMP} yet — skipping weekly copy."
+            fi
           fi
 
       - name: Prune old backups
@@ -69,5 +82,5 @@ jobs:
           git config user.name "backup-bot"
           git config user.email "actions@users.noreply.github.com"
           git add backups
-          git diff --cached --quiet || git commit -m "Backup $(date -u +%F)"
+          git diff --cached --quiet || git commit -m "Backup $(date -u +%Y-%m-%d_%Hh)"
           git push origin data-backups

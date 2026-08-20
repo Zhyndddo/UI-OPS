@@ -25,6 +25,19 @@
 const { createClient } = require("@supabase/supabase-js");
 const fs = require("fs");
 
+// Most tables use `id` as their primary key, but a couple of key-value
+// settings tables use `key` instead. Confirmed against the live schema
+// (information_schema.table_constraints) during the 2026-08-20 production
+// restore incident — keep this in sync if a table's PK ever changes.
+const PK_OVERRIDES = {
+  app_settings: "key",
+  global_settings: "key",
+};
+
+function pkFor(table) {
+  return PK_OVERRIDES[table] || "id";
+}
+
 function parseArgs(argv) {
   const args = { file: null, confirm: false, wipe: false, tables: [] };
   for (const a of argv) {
@@ -67,16 +80,16 @@ async function main() {
     console.log(`${table}: ${rows.length} rows`);
     if (!args.confirm) continue;
 
+    const pk = pkFor(table);
     if (args.wipe) {
-      // Every table in TABLES (scripts/backup.js) has an `id` primary key.
-      const { error: delErr } = await supabase.from(table).delete().not("id", "is", null);
+      const { error: delErr } = await supabase.from(table).delete().not(pk, "is", null);
       if (delErr) throw new Error(`${table} wipe failed: ${delErr.message}`);
     }
     if (rows.length === 0) continue;
     const CHUNK = 500;
     for (let i = 0; i < rows.length; i += CHUNK) {
       const chunk = rows.slice(i, i + CHUNK);
-      const { error } = await supabase.from(table).upsert(chunk, { onConflict: "id" });
+      const { error } = await supabase.from(table).upsert(chunk, { onConflict: pk });
       if (error) throw new Error(`${table} upsert failed at row ${i}: ${error.message}`);
     }
   }

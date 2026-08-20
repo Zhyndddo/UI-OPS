@@ -17,7 +17,15 @@ function pruneDir(dir, keepDays) {
   if (!fs.existsSync(dir)) return;
   const cutoff = Date.now() - keepDays * 24 * 60 * 60 * 1000;
   for (const file of fs.readdirSync(dir)) {
-    const m = file.match(/^(\d{4}-\d{2}-\d{2})\.json$/);
+    // Daily folder holds one file per run now (2026-08-20_14h.json, one
+    // per 2h slot) since backup.js switched off date-only filenames on
+    // 2026-08-20 — match that shape first, falling back to the older
+    // date-only shape (2026-08-20.json) so pre-existing files from before
+    // that switch still get pruned on schedule instead of piling up
+    // forever. Weekly stays date-only, matched by the second pattern.
+    const hourly = file.match(/^(\d{4}-\d{2}-\d{2})_\d{2}h\.json$/);
+    const dateOnly = file.match(/^(\d{4}-\d{2}-\d{2})\.json$/);
+    const m = hourly || dateOnly;
     if (!m) continue;
     const fileDate = new Date(`${m[1]}T00:00:00Z`).getTime();
     if (fileDate < cutoff) {

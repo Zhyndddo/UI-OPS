@@ -9143,3 +9143,203 @@ Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against all 4 touched files (`lib/copyrightChecklist.js`,
 `lib/CopyrightRights.js`, `lib/CopyrightRightsPopup.js`,
 `app/workstation/pre-release/page.js`) — zero errors — before sending.
+
+## 2026-08-19 (166) — Artist Profile ticket: 7 request types, up to 7 platforms
+
+Per explicit spec, replaced the old single flat shape (Tên Nghệ Sĩ/Email/
+Spotify+Apple+Facebook URL/"set up on which platforms" 3-way checkbox)
+with a request-type-aware model. Went with a single ticket type (not
+split into several), per explicit "leaning single ticket to be more
+linear" — one list, one filter/report surface, the field set just changes
+based on which request type is picked.
+
+**New file — `lib/artistProfileRequestTypes.js`** — single source of
+truth for both pages below:
+- 7 request types: Artist Verification, NEW Profile, Update Ảnh & Bio,
+  Add Song, Remove Song, Gộp Profile, Chuyển Profile.
+- Platform vocabulary expanded 3 → 7: Spotify, Apple, Tiktok, Facebook,
+  Youtube (kênh trong net only, per spec), Zing, NCT. Verification only
+  offers 3 (Spotify/Apple/Tiktok), NEW offers 6 (adds NCT/Zing/Youtube),
+  every Management action (Update/Add/Remove/Merge/Transfer) offers all 7
+  — matches the platform list given per request type in the spec exactly.
+- Each request type's own extra fields, matching "Thông tin cần" line by
+  line — e.g. Verification: Tên Nghệ Sĩ, Link Profile Cần Verify, Email;
+  Gộp Profile: Tên Nghệ Sĩ, Link Profile Sai, Link Profile Đúng, Link Bài
+  Hát Cần Gộp (multi-link textarea, one per line — same idiom Manual
+  Claim's URL field already uses for the same reason, no repeating-input
+  widget exists elsewhere in this app); Chuyển Profile: Tên Nghệ Danh
+  Cũ/Mới + Link Profile Cũ/Mới (no plain Tên Nghệ Sĩ field — the two stage
+  names replace it for this type only).
+
+**Explicitly NOT built this round, per instruction ("just acknowledge for
+now, I will lay it out later"):** the two conditional validation gates —
+Add Song's "does the artist already have a profile/tab on this platform?"
+Yes/No check (spec: No blocks with a message to go create a NEW profile
+first), and Gộp Profile's exact-name-match check before merging. Both
+request types' FIELDS exist (Add Song even collects the Yes/No as a
+non-blocking informational field, clearly labeled "chưa chặn — ghi nhận"
+so it reads as recorded-not-enforced) so the data's already there whenever
+the real gates get specified — nothing blocks submission on either yet.
+
+**2. Manual "+ New Ticket" form (`app/tickets/artist-profile/new/page.js`)
+— rebuilt bespoke**, replacing the generic `NewTicketPage` engine (which
+can only render one fixed field list per type). A "Loại Yêu Cầu" picker up
+top switches the rest of the form to that type's Nền Tảng options + extra
+fields, reading straight from `lib/artistProfileRequestTypes.js`.
+Switching type resets the platform + collected fields (rather than
+carrying a value into a field key/platform the new type doesn't even
+offer). Layout mirrors `NewTicketPage`'s own form as closely as possible
+so it doesn't look like a different app.
+
+**3. Ticket list (`app/tickets/artist-profile/page.js`) — updated
+columns.** Loại Yêu Cầu (badge) and Nền Tảng (select, scoped to that row's
+own request type's platform options) are new, fixed columns; Nghệ Sĩ/Nghệ
+Danh shows the plain Tên Nghệ Sĩ input for every type except Chuyển
+Profile, which gets 2 stacked inputs (Cũ/Mới) instead. Everything else
+that type needs sits in one new "Chi Tiết" column — stacked small labeled
+inputs, same compact idiom the old platform-checkbox column already used
+— so the table's column count stays fixed across every row regardless of
+which type that row is.
+
+**Legacy tickets (created before this round) keep working, unchanged
+data.** Any ticket with no `data.requestType` — including ones still
+auto-created from the release detail page's "Artist Profile Verify" gate,
+which is **UNCHANGED this round** and still writes the old flat shape —
+is flagged by `isLegacyTicket()` and shown as "NEW Profile (legacy)" with
+its OLD fields (Email/Bài Hát Phát Hành Gần Nhất/Spotify/Apple/Facebook
+URL) still editable in the Chi Tiết column under their original keys. No
+migration, no schema change — this is purely an additive `data` shape;
+old rows just don't have the new keys populated. `lib/ticketConfigs.js`'s
+`artist_profile.fields` array is kept as-is (no longer read by the
+creation form) purely as that legacy-display reference.
+
+**Deliberately out of scope this round:** the release detail page's
+"Artist Profile Verify" gate/panel (`ArtistProfileVerifyPanel` in
+`lib/GateFields.js`, wired into `app/releases/[id]/page.js` and
+`app/new-release/page.js`) — still creates tickets the old way (multi-
+platform checkbox, no requestType) exactly as before. You didn't ask for
+that flow to change, and touching it risks a much larger ripple (release
+detail page, New Release create form, and `saveTab()`'s per-artist
+idempotency logic all key off its current shape) — flagging in case you
+want that gate updated to create typed tickets too in a follow-up round.
+
+No SQL this round — everything lives in the existing `tickets.data` jsonb
+column, purely additive.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against all 4 touched/new files
+(`lib/artistProfileRequestTypes.js`, `app/tickets/artist-profile/page.js`,
+`app/tickets/artist-profile/new/page.js`, `lib/ticketConfigs.js`) — zero
+errors — before sending.
+
+## 2026-08-20 (167) — "One ticket per key" rule, piloted on Artist Profile
+
+Design decided this round and captured durably in the Claude Project doc
+`claude/one-ticket-per-key-rule.md` (full inventory of all 20 ticket types
+against a 3-tier rule: DB-enforced / code-gate / no-gate, plus the
+behavior spec — see that doc for the complete table). This entry covers
+what actually got built.
+
+**New shared infra:**
+- `lib/duplicateTicketGuard.js` — `findDuplicateTicketKeys(supabase,
+  tabId, candidates)`. Runs a LIVE query per candidate right before a
+  Save would create a ticket, not trusting a page's local
+  loaded-on-mount state — that's the real gap this closes (two tabs/
+  sessions open on the same release, one creates a ticket, the other's
+  stale local state doesn't know and would've created a duplicate).
+- `lib/DuplicateTicketWarning.js` — the one warning popup shape for this
+  rule everywhere it's used. Per explicit instruction, **warning only —
+  no "create anyway" bypass button.** Same inline-modal styling as
+  `lib/CopyrightRightsPopup.js` for visual consistency.
+
+**Artist Profile — the pilot.** `app/releases/[id]/page.js`'s Artist
+Profile Verify save block now: batches a live re-check across every
+currently-ticked artist right before Save creates their tickets; any
+artist that already has one is (a) skipped — not created again, (b)
+reverted back to unticked in the panel, (c) named in the new
+`DuplicateTicketWarning` popup. Everything else in that same Save still
+goes through — a duplicate hit on one artist never blocks the others.
+Matches the exact behavior spec agreed on: "only trigger on Save, run
+check, warn for every tick not allowed, revert those, save the rest."
+
+**Phụ Lục Truyền Thông — baseline check added**, closing the one real gap
+flagged in the inventory: this type previously had NO active existence
+check before creating its ticket from the pick-package magic-link flow —
+it only ever fired once because of how the pipeline-stage transition
+works, not because anything confirmed a ticket didn't already exist. Now
+calls the same `findDuplicateTicketKeys` helper (keyed on the release's
+UUID `id`, same key it always used) before inserting. No warning popup on
+this one — that flow runs from the artist-facing magic link page with
+nobody from AR/OPS present to see or dismiss a popup, so silently
+skipping the duplicate insert is the correct equivalent of "warn, no
+bypass" when there's no one there to warn.
+
+**Deliberately NOT done this round** (per explicit "do the profile first
+then we fire on all"): the other 13 code-gate types (Pitching, Publishing,
+Sony Publish, Split Share, Phụ Lục MG/Publishing, 3× Hợp Đồng, Co Trong
+Net YouTube, Pre-order Itunes, Priority Sync Lyric, MV Spotify, Discovery
+Mode Spotify) still use their old idempotency checks, no live re-check or
+warning popup yet. Also not done: applying this to the manual "+ New
+Ticket" creation pages (only the release-detail gate flow got the new
+pattern this round) — Artist Profile's own manual form has no release
+context for most of its 7 request types post-Round-166, so that needed
+its own answer before extending there; flagged as an open question in the
+project doc.
+
+No SQL — purely app-logic, reusing the existing `tickets.data` jsonb
+shape every type already has.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against all 4 touched/new files (`lib/duplicateTicketGuard.js`,
+`lib/DuplicateTicketWarning.js`, `app/releases/[id]/page.js`,
+`app/pick-package/[token]/page.js`) — zero errors — before sending.
+
+## 2026-08-20 (168)
+
+**Production data-loss incident + recovery.** A schema-only `pg_dump
+--clean` reapply intended for the staging Supabase project was
+accidentally run against production, dropping and recreating every table
+in the `public` schema (structure preserved, all data wiped — `auth`
+schema/logins untouched). Recovered via the existing
+`.github/workflows/backup.yml` daily backup, using `scripts/restore.js`
+(already in the repo, previously unused in anger) in upsert mode against
+the most recent `data-backups` branch snapshot (2026-08-19, ~56k rows
+across 33 tables). Two blockers hit and fixed along the way, both
+consequences of the emergency schema reapply having used
+`--no-privileges`:
+
+- `service_role` (and, separately, `authenticated`/`anon`) lost their
+  schema-level grants on `public` — reapplied via `GRANT`/`ALTER DEFAULT
+  PRIVILEGES` statements in the SQL Editor. This is what caused "signed
+  in but email isn't in the system" for real users after the schema was
+  otherwise restored — not a data problem, a grants problem.
+- `milestone_chart_entries`, `audit_log`, and `dsp_metrics_snapshots`
+  came back with `id` as `GENERATED ALWAYS AS IDENTITY` (strict — refuses
+  explicit values on insert) instead of `GENERATED BY DEFAULT` (permits
+  them, needed for a restore to write historical ids back). Fixed via
+  `ALTER TABLE ... ALTER COLUMN id SET GENERATED BY DEFAULT` on the 3
+  affected tables.
+
+Also patched `scripts/restore.js`: it previously assumed every table's
+primary key is `id`; `app_settings` and `global_settings` actually key on
+`key`. Added a small `PK_OVERRIDES` map (confirmed against
+`information_schema.table_constraints` for every table in `TABLES`) so a
+future restore doesn't hit the same wall.
+
+**Backup cadence tightened** in response: was once daily (worst case ~24h
+of loss, which is what happened here). Now every 2 hours. This needed 3
+coordinated changes, since the old design assumed one file per day:
+- `scripts/backup.js` — filename is now `YYYY-MM-DD_HHh.json` (one per
+  run) instead of `YYYY-MM-DD.json` (one per day, silently overwritten by
+  any same-day rerun).
+- `scripts/prune-backups.js` — retention regex now matches the new
+  per-run filename shape (falls back to the old date-only shape too, so
+  already-existing older files still prune on schedule).
+- `.github/workflows/backup.yml` — cron `0 18 * * *` → `0 */2 * * *`;
+  the Sunday weekly-copy step now picks the day's latest hourly file
+  instead of assuming an exact `STAMP.json` name; commit messages include
+  the hour so the `data-backups` log is legible with 12 commits/day.
+
+No app-facing code touched this round — purely ops/infra scripts and the
+GitHub Actions workflow. `tsc` not applicable (plain Node scripts, no
+JSX/React).
