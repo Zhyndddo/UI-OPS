@@ -9498,3 +9498,79 @@ title/date/rank-blank skips and the 191-row dedup), 56 rows unmapped and
 listed. Not run against a live database from this session — needs to be
 run locally with real `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`, dry run
 first.
+
+## 2026-08-20 (172)
+
+3-item batch, per explicit request (item 1 was clarified over 2 follow-up
+rounds of AskUserQuestion before building, since the original popup-UX
+discussion's exact spec wasn't recoverable from project docs this
+session).
+
+**Item 1 — 3 Artist Profile surfaces collapsed into popups**, for
+mobile-friendliness:
+
+- `app/tickets/artist-profile/page.js` — was a wide always-editable table
+  (`minWidth: 1400`, horizontal-scroll on mobile). Now a stacked card
+  list (one card per ticket, artist/type/platform/PIC/status summary);
+  tapping a card opens `lib/ArtistProfileEditPopup.js` with the same
+  editable fields the table cells used to hold. No Supabase calls moved —
+  the popup is handed the same `updateTicketData`/`updatePic`/
+  `updateStatus` callbacks the table's inline handlers already called.
+- "+ New Ticket" no longer navigates to `/tickets/artist-profile/new`.
+  It opens `lib/NewArtistProfileTicketPopup.js` right there (same
+  validation/insert logic as the old page, straight lift). The old route
+  still exists as a bare client-side redirect back to the list, so any
+  existing bookmark/link doesn't 404.
+- `lib/GateFields.js`'s `ArtistProfileVerifyPanel` (the release detail
+  page's "which artist(s) get an Artist Profile ticket" checklist) was
+  always inline whenever `gate_artist_profile_verify` = Yes. Renamed to
+  `ArtistProfileVerifyPanel` → `ArtistProfileVerifyPopup`, now opened via
+  a compact "Artist Profile Verify →" button (shows a 1-line summary:
+  artist count selected / no tags yet). Same for both callers of
+  `<GateFields>` (release detail page AND the New Release create form —
+  one shared component, so both got this for free). Body/logic is
+  byte-for-byte unchanged, only the always-visible wrapper became an
+  overlay+box popup.
+
+**Item 2 — Task Table rebuilt** (`app/task-table/page.js`): was a
+read-only aggregate (one row per workstation/ticket type, total row
+count). Now one section per team; section = that team's profiles (every
+role, including "exc" — role is never used to exclude a profile from its
+team's group), sorted alphabetically; each member's row is their own
+OUTSTANDING (undone) workload, one column per task type THAT TEAM
+actually owns (via `TEAM_TICKET_TYPES`/`TEAM_WORKSTATION_TYPES` —
+"grouped by their corresponding group"), not every task type for every
+team. An "— Unassigned —" row per section surfaces undone work with no
+PIC set. "Undone" reuses the exact terminal-status rules
+`lib/notDoneCounts.js` already uses (duplicated as small local constants,
+since that module only returns an aggregate total, not a per-row/per-PIC
+breakdown — kept in sync by comment).
+
+Per-member attribution needs a real PIC field. Every ticket type has
+`tickets.pic_profile_id`. Among workstations, only Upload/Re-Check/
+Pre-release keep a real per-release PIC in `workstation_assignments` —
+Pitching's PIC is 5 separate per-metric-column fields with no single
+"done" concept to match cleanly, and Booking/Streaming/Milestone/Package
+Price track no PIC at all (matches `notDoneCounts.js` already returning
+null for exactly these). Those are listed under each section as a plain
+link instead of a fabricated all-zero column.
+
+Known simplification: Phái Sinh's Kho Nhạc/batch-item-level counting
+(each derivative-tracklist child row = 1 workload item, per
+`notDoneCounts.js`'s `phai_sinh` special case) is NOT replicated here —
+this counts the parent ticket only, same generic terminal-status rule as
+every other type. Flag if per-child counts matter for this view too.
+
+**Item 3 — new "Calendar" sidebar item** (`app/calendar/page.js`,
+`lib/Sidebar.js`): kanban calendar, 3 columns (Last Week / This Week /
+Next Week, Monday–Sunday), cards = releases anchored to `release_date`.
+Within each week, cards are grouped into lanes by `project_type` (the
+same field driving the pipeline everywhere else in this app — see
+`PIPELINE_STAGES` in `app/releases/[id]/page.js`), lane order matches the
+real pipeline (BRIEF & DATA → SENT TO MARKETING → DEALING) then every
+resolved package type alphabetically, "no package yet" last. Tapping a
+card opens that release's detail page.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/` and `lib/` (zero errors,
+whole-project pass, not just the touched files).
