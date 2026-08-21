@@ -86,6 +86,35 @@ function requestedRealTypes(ticket) {
   return Object.keys(DSP_COLUMNS).filter((k) => !!ticket.data?.[REAL_TO_FLAG[k]]);
 }
 
+// Round 173 — visual tab tags (Priority/Spotify Banner/Spotify S4A/
+// Domestic) per explicit request: "make the tag for request... grow
+// yellow if requested, green for done (status 'có gói' hoặc 'đã
+// pitching')". Every tag rendered here is already request-only (see
+// isTypeRequested/TYPE_TABS.filter above — a not-requested tab never
+// shows a tag at all), so "requested" is just the default/starting color;
+// it flips to green once every REAL DSP column feeding that visual tab is
+// done. "Priority" is one tag covering 2 real columns (priority + apple —
+// see REAL_TO_FLAG), "Domestic" is one tag covering 2 real columns (nct +
+// zing) — done means ALL of them are done, not just one, so the tag never
+// reads green while a linked platform is still outstanding.
+function realKeysForTab(tabKey) {
+  const flag = REQUEST_FLAG_FOR[tabKey];
+  return Object.keys(REAL_TO_FLAG).filter((k) => REAL_TO_FLAG[k] === flag);
+}
+function isTabDone(release, tabKey) {
+  const keys = realKeysForTab(tabKey);
+  if (keys.length === 0) return false;
+  return keys.every((k) => {
+    const status = release?.[DSP_COLUMNS[k]] || "";
+    return status === DONE_VALUE || status === CO_GOI_VALUE;
+  });
+}
+function tabTagStyle(done) {
+  return done
+    ? { background: "var(--success-bg)", color: "var(--success-fg)", borderColor: "var(--success-fg)" }
+    : { background: "var(--warn-bg)", color: "var(--warn-fg)", borderColor: "var(--warn-fg)" };
+}
+
 // Round 79 — each visual tab owns its own PIC (a release column, same
 // immediate-write pattern as every status field below) — replaces both the
 // Pitching ticket list's ticket-level PIC and this workstation's own
@@ -390,7 +419,7 @@ export default function PitchingWorkstation() {
                       <td>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           {types.map((t) => (
-                            <span key={t} className={styles.statusBadge} style={{ background: "var(--warn-bg)", color: "var(--warn-fg)" }}>
+                            <span key={t} className={styles.statusBadge} style={tabTagStyle(isTabDone(row.release, t))}>
                               {TYPE_TABS.find(([k]) => k === t)[1]}
                             </span>
                           ))}
@@ -485,16 +514,19 @@ function PitchingPopup({ row, profiles, onClose, onUpdateRelease, domesticServic
         </div>
 
         <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
-          {types.map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setActiveType(key)}
-              className={`${styles.tabBtn} ${activeType === key ? styles.tabBtnActive : ""}`}
-              style={{ border: "1px solid var(--border)", borderRadius: 6 }}
-            >
-              {label}
-            </button>
-          ))}
+          {types.map(([key, label]) => {
+            const done = isTabDone(release, key);
+            return (
+              <button
+                key={key}
+                onClick={() => setActiveType(key)}
+                className={`${styles.tabBtn} ${activeType === key ? styles.tabBtnActive : ""}`}
+                style={{ border: `1px solid ${done ? "var(--success-fg)" : "var(--warn-fg)"}`, borderRadius: 6, ...(activeType === key ? {} : tabTagStyle(done)) }}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
 
         {activeType === "priority" && (

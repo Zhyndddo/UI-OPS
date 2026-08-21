@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, formatDetailText } from "../../../lib/helpers";
-import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, GATE_TICKET_TYPES, CO_TRONG_NET_DRAFT_DEFAULTS } from "../../../lib/GateFields";
+import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, GATE_TICKET_TYPES, CO_TRONG_NET_DRAFT_DEFAULTS, GatePopupShell, GatePanelTrigger } from "../../../lib/GateFields";
 import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import ArtistTagInput from "../../../lib/ArtistTagInput";
@@ -1725,6 +1725,11 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
   const [artistsList, setArtistsList] = useState([]);
   const [labelsList, setLabelsList] = useState([]);
   const [labelDraft, setLabelDraft] = useState(form.label || "");
+  // Round 173 — MV type (canva_status) used to reveal its picker inline the
+  // moment meta_mv was ticked "Yes". Per explicit request ("every tick...
+  // that has additional input... live in a popup, show the current choices
+  // under the tick"), same treatment as every gate field in GateFields.js.
+  const [showMvTypePopup, setShowMvTypePopup] = useState(false);
 
   useEffect(() => {
     setLabelDraft(form.label || "");
@@ -2154,13 +2159,21 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
                 (releases.canva_status, labeled "MV" there), surfaced here
                 too once MV is ticked Yes, per explicit request. */}
             {m.key === "meta_mv" && form.meta_mv === "true" && (
-              <div style={{ marginTop: 6 }}>
-                <PickSelect styles={styles} opts={MV_TYPE_OPTIONS} value={form.canva_status} onChange={(v) => update("canva_status", v)} placeholder="— MV type —" />
-              </div>
+              <GatePanelTrigger
+                styles={styles}
+                summary={form.canva_status || "No MV type yet."}
+                onOpen={() => setShowMvTypePopup(true)}
+                label={form.canva_status ? "Edit →" : "+ MV type"}
+              />
             )}
           </div>
         ))}
       </div>
+      {showMvTypePopup && (
+        <GatePopupShell title="MV Type" onClose={() => setShowMvTypePopup(false)} width={340}>
+          <PickSelect styles={styles} opts={MV_TYPE_OPTIONS} value={form.canva_status} onChange={(v) => update("canva_status", v)} placeholder="— MV type —" />
+        </GatePopupShell>
+      )}
       <p style={{ fontSize: 11, color: "var(--text-faint)", marginTop: -12, marginBottom: 20 }}>
         * Required for Send Upload (Audio, Artwork, Lyric, Metadata). Working Files and MV are tracked here but don't block the ticket. TBU counts the same as No for gating — it's not done yet.
       </p>

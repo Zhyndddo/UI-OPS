@@ -9574,3 +9574,73 @@ card opens that release's detail page.
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/` and `lib/` (zero errors,
 whole-project pass, not just the touched files).
+
+## 2026-08-21 (173)
+
+3-item batch, per explicit request.
+
+**Item 1 — every gate tick with additional input now lives in a popup**,
+same treatment round 172 gave Artist Profile Verify, extended to every
+other tick in `lib/GateFields.js` (shared by the release detail page AND
+the New Release create form) plus one case on the release detail page
+itself:
+
+- `GateGrid`'s URL fields (Artist Info, Artist Photo, Project Proposal,
+  Pre-order Itunes) and text field (Publishing's "Giá Trị Publishing") —
+  used to reveal an inline `UrlField`/`input` the moment the tick went
+  Yes. Now show a 1-line summary (the current URL, truncated, or "No URL
+  yet"/"Not set yet") plus an Edit/+ button that opens a popup.
+- Pitching's "Which pitching?" checkbox panel, Có Trong Net YouTube's
+  detail panel (Teaser/Official/Short/Mô Tả/YouTube Ads button/Send
+  button), Design's "Thể Loại" checkbox group, and Split Share's
+  repeating entry editor — all 4 followed the exact same split: a compact
+  summary line under the tick (which platforms picked / which fields
+  filled in / which content types / entry count+labels) plus a button
+  that opens the real editor in a popup.
+- `app/releases/[id]/page.js`'s Metadata Checklist "MV" tick — the only
+  tick with additional input OUTSIDE `GateFields.js` — got the same
+  treatment (MV type picker moved into a popup).
+- Pulled the repeated overlay+box boilerplate (5+ near-identical copies
+  by this point) into one shared `GatePopupShell` component and a
+  `GatePanelTrigger` (summary text + button) — both exported from
+  `lib/GateFields.js` since the MV type case above needed them from the
+  page file too. Zero behavior change to any panel's actual fields/
+  logic — every write, validation, and auto-create-on-Save rule is
+  untouched, only the wrapper each panel renders inside moved from
+  always-inline to popup-on-click.
+
+**Item 2 — New Release Setup's Note popup** (`lib/ReleaseNotePopup.js`,
+used by both the Upload workstation and the Newrelease Upload ticket
+list): the "Generated Note" preview box used `whiteSpace: "pre-wrap"`
+alone, which only breaks at whitespace — a long unbroken URL in the note
+(no spaces to wrap on) overflowed the box's width instead of wrapping,
+per explicit report ("the link grow beyond the container"). Added
+`overflowWrap: "anywhere"` + `wordBreak: "break-word"` + `maxWidth: 100%`
+so it wraps mid-URL like every other long-URL cell in this app already
+does. Also added a "Copy" button next to the Generated Note header —
+this one popup component renders BOTH note kinds (product/Upload Note
+and linkshare/Linkshare Note, picked via its `kind` prop), so one button
+placement covers both automatically, satisfying "apply the button to
+both note." Falls back to a "Couldn't copy — select manually" state if
+`navigator.clipboard` isn't available instead of silently doing nothing.
+
+**Item 3 — Pitching Workstation's request tags now color-code**
+(`app/workstation/pitching/page.js`), per explicit request: yellow while
+requested-but-not-done, green once done (status "Có gói" or "Đã
+pitching"). Applies to both places these tags render — the "Requested"
+column badges in the main table (previously hardcoded to always
+`--warn-bg`/`--warn-fg`, i.e. permanently yellow regardless of actual
+status) and the popup's own platform tab buttons. "Priority" is one tag
+covering 2 real DSP columns (priority_pitching + pitching_status_apple)
+and "Domestic" is one tag covering 2 real DSP columns
+(pitching_status_nct + pitching_status_zing) — a combined tag only reads
+green once ALL of its underlying columns are done, not just one, so it
+never falsely reads done while a linked platform is still outstanding.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/` and `lib/` (zero errors,
+whole-project pass). This session's sandbox had reset since round 172 —
+recovered by cloning the live repo from GitHub directly (this session
+turned out to have that access after all) rather than asking for a
+re-upload; round 172's changes were confirmed already present in the
+clone before this round's work started.
