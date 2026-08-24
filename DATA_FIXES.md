@@ -9871,3 +9871,32 @@ above use) instead of blue, per explicit request.
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## 2026-08-24 (180)
+
+pick-package magic link — Booking Progress "DONE" links, follow-up on
+round 179's channel-name label.
+
+Per explicit report, what was showing as the channel-name label on some
+entries was actually a Hạng Mục (category line item) title (e.g. "Lời
+Ca Tiếng Hát", "Nhạc Thường Thức") rather than a real channel/page name
+— Marketing is expected to type an actual channel name into each
+booking entry going forward, but per explicit request this adds a
+safety net for entries that miss that memo and end up with a genuinely
+blank channel field, rather than silently showing no label at all.
+
+`app/pick-package/[token]/page.js`: new `hangMucFor(category)` looks up
+the category's own Hạng Mục line item text
+(`media_booking_package_lines.detail`, via the already-loaded
+`packageLines`, formatted the same way this page's own itemized package
+table already shows it — falls back to the line's `brand` if `detail`
+is empty). The label line now reads `e.channel_name || hangMucFor(c)` —
+a real channel name always wins when one's been typed in; the Hạng Mục
+text is purely the fallback for a blank field, not a replacement.
+Matches on category only (a category can carry more than one Hạng Mục
+line) — good enough for a safety net, not meant to be a precise
+per-entry match.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).

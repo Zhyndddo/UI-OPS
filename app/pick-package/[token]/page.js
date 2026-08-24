@@ -654,6 +654,23 @@ export default function PickPackagePage() {
     return bookingEntries.filter((e) => e.booking_round === round && e.category_id === category.id && e.link);
   }
 
+  // Round 180 — per explicit report: Marketing is supposed to type a real
+  // channel/page name into each booking entry's own channel field, but
+  // some entries end up with that field blank (missed the memo). Rather
+  // than showing nothing for those, fall back to the category's own Hạng
+  // Mục line item text (media_booking_package_lines.detail — the same
+  // "Chi Tiết" text shown on this page's own itemized package table, e.g.
+  // "Lời Ca Tiếng Hát", "Nhạc Thường Thức") so there's still SOME readable
+  // label instead of a bare link. Only used when channel_name is genuinely
+  // missing — a filled-in real channel name always wins. Matches on
+  // category only (not brand/subchannel), since a category can carry more
+  // than one Hạng Mục line — good enough for a safety net, not meant to
+  // be a precise per-entry match.
+  function hangMucFor(category) {
+    const line = packageLines.find((l) => l.category_id === category.id);
+    return line ? formatDetailText(line.detail) || line.brand || null : null;
+  }
+
   // Clicking a card only selects it locally now — nothing commits until
   // Confirm is pressed. This also removes the old race condition where a
   // click could land while isLocked was flipping true (e.g. admin hitting
@@ -1309,26 +1326,31 @@ export default function PickPackagePage() {
                       // channel name as its own plain-text label line,
                       // url as its own link line below it, colored orange
                       // (matching this page's accent, e.g. the category
-                      // headers just above) instead of blue. A link with
-                      // no channel_name recorded just skips that label
-                      // line and shows the url on its own.
+                      // headers just above) instead of blue.
+                      // Round 180 — the label line now falls back to the
+                      // category's Hạng Mục detail text (hangMucFor) when
+                      // an entry's own channel_name is blank, instead of
+                      // just disappearing — see hangMucFor's comment.
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
                         <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: isMobile ? 16 : 12 }}>DONE</span>
-                        {doneLinks.map((e) => (
-                          <div key={e.id} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                            {e.channel_name && (
-                              <span style={{ fontSize: isMobile ? 12 : 11, fontWeight: 700, color: "var(--text-muted)" }}>{e.channel_name}</span>
-                            )}
-                            <a
-                              href={e.link}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{ fontSize: isMobile ? 13 : 12, color: "#ff6b1a", wordBreak: "break-all" }}
-                            >
-                              {e.link}
-                            </a>
-                          </div>
-                        ))}
+                        {doneLinks.map((e) => {
+                          const label = e.channel_name || hangMucFor(c);
+                          return (
+                            <div key={e.id} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              {label && (
+                                <span style={{ fontSize: isMobile ? 12 : 11, fontWeight: 700, color: "var(--text-muted)" }}>{label}</span>
+                              )}
+                              <a
+                                href={e.link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ fontSize: isMobile ? 13 : 12, color: "#ff6b1a", wordBreak: "break-all" }}
+                              >
+                                {e.link}
+                              </a>
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : isDone ? (
                       // Ads (and anything else whose entries carry no
