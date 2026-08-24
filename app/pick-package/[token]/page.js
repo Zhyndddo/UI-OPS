@@ -1301,24 +1301,33 @@ export default function PickPackagePage() {
                       // Round 168 — a bunch of clickable links instead of
                       // a bare "DONE" label, per explicit request, so the
                       // artist/label can open what was actually posted.
-                      // Round 177 — per explicit request, each link now
-                      // shows as readable "channel name: url" text
-                      // instead of a bare 🔗 icon, so it's obvious which
-                      // channel each link actually is without hovering.
-                      // Falls back to just the url when a link has no
-                      // channel_name recorded.
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
+                      // Round 177 — per explicit request, each link shows
+                      // readable text instead of a bare 🔗 icon.
+                      // Round 179 — per explicit report ("kinda hard" to
+                      // read as one run-on line): channel name and url
+                      // are now visually separate rather than one string —
+                      // channel name as its own plain-text label line,
+                      // url as its own link line below it, colored orange
+                      // (matching this page's accent, e.g. the category
+                      // headers just above) instead of blue. A link with
+                      // no channel_name recorded just skips that label
+                      // line and shows the url on its own.
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
                         <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: isMobile ? 16 : 12 }}>DONE</span>
                         {doneLinks.map((e) => (
-                          <a
-                            key={e.id}
-                            href={e.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ fontSize: isMobile ? 13 : 12, color: "#5b9dff", wordBreak: "break-all" }}
-                          >
-                            {e.channel_name ? `${e.channel_name}: ${e.link}` : e.link}
-                          </a>
+                          <div key={e.id} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                            {e.channel_name && (
+                              <span style={{ fontSize: isMobile ? 12 : 11, fontWeight: 700, color: "var(--text-muted)" }}>{e.channel_name}</span>
+                            )}
+                            <a
+                              href={e.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ fontSize: isMobile ? 13 : 12, color: "#ff6b1a", wordBreak: "break-all" }}
+                            >
+                              {e.link}
+                            </a>
+                          </div>
                         ))}
                       </div>
                     ) : isDone ? (

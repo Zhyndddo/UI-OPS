@@ -9852,3 +9852,22 @@ close).
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## 2026-08-24 (179)
+
+pick-package magic link — Booking Progress "DONE" links, per explicit
+follow-up on round 177's item 1.
+
+Round 177 combined channel name and url into one string
+(`channel_name: url`) on a single line, which for a long url ran on far
+enough to be hard to read at a glance. Per explicit report, channel
+name and url are now visually separate: channel name renders as its own
+small plain-text label line, with the url as its own link line directly
+below it (a link with no `channel_name` recorded just shows the url on
+its own, same as before). The url link is also now orange (`#ff6b1a`,
+this page's own accent color — same shade the category headers just
+above use) instead of blue, per explicit request.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
