@@ -366,6 +366,20 @@ export default function PickPackagePage() {
     load();
   }, [token]);
 
+  // Round 175 — `round` defaults to "INT", but a release can have real
+  // booking entries ONLY under Đợt 1/Đợt 2 and none under INT at all.
+  // Once bookingEntries loads, if the currently-selected round has no
+  // data but some other round does, jump to the first round that
+  // actually has entries (BOOKING_ROUNDS order) instead of sitting on an
+  // empty INT view.
+  useEffect(() => {
+    if (bookingEntries.length === 0) return;
+    const withData = BOOKING_ROUNDS.filter((r) => bookingEntries.some((e) => e.booking_round === r));
+    if (withData.length > 0 && !withData.includes(round)) {
+      setRound(withData[0]);
+    }
+  }, [bookingEntries]);
+
   // Round 54 — browser tab title follows the same "Package Offer" →
   // "Media Report" rename as everywhere else this link's name shows up.
   useEffect(() => {
@@ -780,7 +794,16 @@ export default function PickPackagePage() {
   const isMediaReport = !!release?.media_report_status;
   const linkName = isMediaReport ? "Media Report" : "Package Offer";
   const isPipelineStage = ["BRIEF & DATA", "SENT TO MARKETING", "DEALING"].includes(release?.project_type);
-  const hasOtherRounds = bookingEntries.some((e) => e.booking_round === "Đợt 1" || e.booking_round === "Đợt 2");
+  // Round 175 — per explicit report: INT and Đợt 2 tabs were showing up
+  // (and rendering the exact same category cards as Đợt 1) even for a
+  // release that never had a single booking entry logged under those
+  // rounds. The category "targets" (bookedFor) are intentionally
+  // round-agnostic — same as the internal Booking Board — but which
+  // ROUNDS get a tab at all should reflect where real booking activity
+  // actually happened. roundsWithData is the source of truth for both
+  // the switcher's buttons and which round is selected by default.
+  const roundsWithData = BOOKING_ROUNDS.filter((r) => bookingEntries.some((e) => e.booking_round === r));
+  const hasOtherRounds = roundsWithData.length > 1;
 
   // "Rich" cards (real built packages, incl. INT MEDIA) get the wide
   // itemized-table treatment; "compact" ones (the always-offered simple
@@ -1231,7 +1254,7 @@ export default function PickPackagePage() {
                 showing them just invites clicking into an empty view. */}
             {hasOtherRounds && (
               <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
-                {BOOKING_ROUNDS.map((r) => (
+                {roundsWithData.map((r) => (
                   <button
                     key={r}
                     onClick={() => setRound(r)}

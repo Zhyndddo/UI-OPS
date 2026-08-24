@@ -9644,3 +9644,100 @@ recovered by cloning the live repo from GitHub directly (this session
 turned out to have that access after all) rather than asking for a
 re-upload; round 172's changes were confirmed already present in the
 clone before this round's work started.
+
+## 2026-08-24 (174)
+
+Milestone Workstation — 2-item request, per explicit follow-up asking to
+check the current status first.
+
+**Status check (before any fix)**: Save All Charts itself was already
+correct — it upserts on `(chart, track_title, artist, entry_date)`, so
+re-saving the same day updates in place, never duplicates. The actual gap
+was broader than "just the rank column": the Input popup only ever
+pre-filled from entries already saved for TODAY. The moment a new day
+starts and nothing's been saved yet, every chart fell back to ONE blank
+row — song title, artist, AND rank all blank — meaning every previously-
+tracked song had to be retyped from scratch daily, not just its rank
+re-entered.
+
+**Fix, per the same "swipe the number, leave the row intact" rule
+already established for the historical import (round 171)**: when today
+has nothing saved yet for a chart, the popup now pre-fills from the most
+recent PRIOR day's rows for that (platform, chart) — song/artist/DID
+carried over, rank deliberately left blank so today's real number always
+gets entered fresh rather than accidentally reusing yesterday's
+(`findPriorRows` in `app/workstation/milestone/page.js`).
+
+**Re-order button, per explicit request** — added a per-row ↑/↓ control
+in the Input popup, gated behind a "Reorder" checkbox (off by default,
+one flag for the whole popup — not per-chart, since switching chart tabs
+is already a clean context break) so the extra column doesn't clutter
+the table or risk an accidental tap during normal typing. Per explicit
+confirmation this needed to actually persist (survive closing/reopening
+the popup, or a new day), not just live in the popup's in-memory draft —
+`add-round174-milestone-sort-order.sql` adds a nullable `sort_order`
+column to `milestone_chart_entries`; every Save now writes each row's
+current position (not just ones that touched the reorder buttons), and
+both pre-fill paths (today's own rows, and the new prior-day carry-
+forward above) read rows back in that order (`sortByOrder`). Per
+explicit confirmation, Report and Log deliberately do NOT sort by this —
+they group/filter by criteria (status, highlight thresholds), not manual
+position, so this column has zero effect there.
+
+Needs `add-round174-milestone-sort-order.sql` run against the database
+before this ships (adds the nullable column the new code reads/writes;
+harmless if run more than once).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/` and `lib/` (zero errors,
+whole-project pass).
+
+## 2026-08-24 (175)
+
+2-item request, both from the same magic-link screenshot (DID
+BPLL-12082026-0003, "Ba Phi Cưới Vợ").
+
+**Item 1 — Milestone Workstation's round-174 `sort_order` is still null
+on every pre-existing row** (it only ever gets set the next time a
+chart's rows are saved from the popup), so today's/yesterday's rows had
+nothing real for the new carry-forward pre-fill to inherit yet. Per
+explicit confirmation ("just this one time back fill for today use"),
+added `scripts/backfill-round174-sort-order.js` — a one-time script,
+same shape as round 171's import script (dry-run by default, `--confirm`
+to write, safe to re-run). It fills `sort_order` only on rows that are
+still null, grouped by `(chart, platform, entry_date)` — the same
+grouping the Input popup edits as one unit — ordered by each row's `id`
+(insertion order), since there was no prior manual ordering for this
+feature to preserve. Rows that already have a `sort_order` (already
+touched by a Save since round 174) are left untouched. Needs
+`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` and a real run with
+`--confirm` — this session can't run it against the live database
+itself.
+
+**Item 2 — pick-package magic-link's Booking Progress round tabs
+(INT/Đợt 1/Đợt 2) showed identical category cards on every tab**, even
+for a round with zero real bookings. The category *targets* (the
+`/5000`, `/—` numbers) come from the confirmed package itself, which is
+intentionally round-agnostic — same as the internal Booking Board's own
+`bookedFor` (`app/booking/page.js`) — so that part isn't a bug. The
+actual problem, per explicit confirmation: for DID BPLL-12082026-0003,
+INT and Đợt 2 have zero real booking entries, yet their tabs still
+rendered every category card looking exactly like Đợt 1's, since the
+switcher only checked "does ANY round other than INT have entries" (not
+per-round) and always offered all 3 fixed tabs regardless.
+
+**Fix, per explicit choice ("hide whole tabs with zero bookings")** —
+`app/pick-package/[token]/page.js`: added `roundsWithData` (the subset
+of `BOOKING_ROUNDS` that actually has at least one `bookingEntries` row),
+which now drives both which buttons the round switcher renders and
+whether it shows at all (`hasOtherRounds` = more than one round has
+data). A new effect auto-selects the first round with real data as soon
+as `bookingEntries` loads, so a release whose only bookings are under
+Đợt 1 lands there directly instead of sitting on an empty INT view with
+no switcher to get out of it. A release with zero bookings anywhere
+still defaults to INT and shows the normal `0 / target` cards, unchanged
+from before — this only changes rounds that have SOME activity but not
+others.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against `app/pick-package/[token]/page.js` (zero errors).

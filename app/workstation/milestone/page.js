@@ -40,6 +40,39 @@ function todayStr() { return new Date().toISOString().slice(0, 10); }
 function daysAgoStr(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); }
 const key = (chart, track, artist) => `${chart}|${track}|${artist}`.replace(/\s+/g, "").toLowerCase();
 
+// Round 174 — manual row order (see add-round174-milestone-sort-order.sql).
+// null sort_order (every pre-round-174 row, and any row saved before ever
+// touching the reorder buttons) sorts after anything that DOES have one —
+// existing rows just keep whatever order they came back from Supabase in,
+// nothing shuffles unexpectedly the first time this ships.
+function sortByOrder(rows) {
+  return [...rows].sort((a, b) => {
+    const ao = a.sort_order, bo = b.sort_order;
+    if (ao == null && bo == null) return 0;
+    if (ao == null) return 1;
+    if (bo == null) return -1;
+    return ao - bo;
+  });
+}
+
+// Round 174 — the Input popup used to only ever pre-fill from TODAY's own
+// already-saved rows (see ChartEntryPopup below); the moment a new day
+// starts and nothing's been saved yet, every chart fell back to one blank
+// row, meaning every previously-tracked song had to be retyped from
+// scratch daily. Per explicit report + the "swipe the number, leave the
+// row intact" rule already established for the historical import (round
+// 171), this looks at the most recent PRIOR day with any rows for this
+// (platform, chart) and hands those back (still ordered by sort_order) so
+// the caller can carry the song/artist/DID forward while blanking rank.
+function findPriorRows(entries, platform, chart, today) {
+  const priorDates = [...new Set(
+    entries.filter((e) => e.platform === platform && e.chart === chart && e.entry_date < today).map((e) => e.entry_date)
+  )].sort().reverse();
+  if (priorDates.length === 0) return null;
+  const latestDate = priorDates[0];
+  return sortByOrder(entries.filter((e) => e.platform === platform && e.chart === chart && e.entry_date === latestDate));
+}
+
 export default function MilestoneWorkstation() {
   const [tab, setTab] = useState("input");
   const [entries, setEntries] = useState([]);
@@ -68,7 +101,7 @@ export default function MilestoneWorkstation() {
   async function saveRows(platform, chart, rows) {
     const payload = rows
       .filter((r) => r.track_title?.trim())
-      .map((r) => ({
+      .map((r, i) => ({
         chart, platform, entry_date: todayStr(),
         // Round 127 — artist stays "" (not null) for entries with no
         // artist typed, matching the codebase's established fix for this
@@ -83,6 +116,13 @@ export default function MilestoneWorkstation() {
         // null (r.artist || "—").
         track_title: r.track_title.trim(), artist: r.artist?.trim() || "",
         rank: parseInt(r.rank, 10) || 0, did: r.did?.trim() || null,
+        // Round 174 — persists this row's position in the popup's own
+        // list (see sortByOrder above) — index is taken AFTER the
+        // blank-title filter above, so it's always a clean 0..N-1 over
+        // just the rows that actually saved. Every save writes this
+        // (not just ones that touched the reorder buttons), so a row
+        // naturally picks up a real value the next time it's touched.
+        sort_order: i,
       }));
     if (payload.length === 0) return;
     // Real upsert on the natural key so re-entering today's numbers for
@@ -413,17 +453,33 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
   // yet for today are left out of this initial map entirely, so the
   // existing "one blank starter row" fallback below still applies to
   // them exactly as before.
+  // Round 174 — a chart with nothing saved yet TODAY now falls back to the
+  // most recent PRIOR day's row list (song/artist/DID carried over, rank
+  // deliberately blanked — "swipe the number, leave the row intact")
+  // instead of one lone blank row, per explicit report that a fresh day
+  // meant retyping every previously-tracked song from scratch. Both
+  // branches respect sort_order (see sortByOrder above).
   const [rowsByChart, setRowsByChart] = useState(() => {
     const today = todayStr();
     const initial = {};
     charts.forEach((c) => {
       const todays = (entries || []).filter((e) => e.platform === platform && e.chart === c && e.entry_date === today);
       if (todays.length > 0) {
-        initial[c] = todays.map((e) => ({ track_title: e.track_title || "", artist: e.artist || "", rank: e.rank != null ? String(e.rank) : "", did: e.did || "" }));
+        initial[c] = sortByOrder(todays).map((e) => ({ track_title: e.track_title || "", artist: e.artist || "", rank: e.rank != null ? String(e.rank) : "", did: e.did || "" }));
+      } else {
+        const prior = findPriorRows(entries || [], platform, c, today);
+        if (prior && prior.length > 0) {
+          initial[c] = prior.map((e) => ({ track_title: e.track_title || "", artist: e.artist || "", rank: "", did: e.did || "" }));
+        }
       }
     });
     return initial;
   });
+  // Round 174 — off by default so the reorder controls (an extra column
+  // of ↑/↓ buttons) don't clutter the table or risk an accidental tap
+  // during normal typing; per explicit request, gated behind a toggle
+  // switch rather than always shown.
+  const [reorderMode, setReorderMode] = useState(false);
 
   const rows = rowsByChart[activeChart] || [{ track_title: "", artist: "", rank: "", did: "" }];
 
@@ -433,6 +489,17 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
   function updateRow(i, field, value) {
     const next = [...rows];
     next[i] = { ...next[i], [field]: value };
+    setRows(next);
+  }
+  // Round 174 — swaps row i with its neighbor in the reorder direction;
+  // the new array order IS the new sort_order, persisted on the next Save
+  // (see saveRows' payload mapping above) — no separate "confirm order"
+  // step needed.
+  function moveRow(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= rows.length) return;
+    const next = [...rows];
+    [next[i], next[j]] = [next[j], next[i]];
     setRows(next);
   }
   async function handleDidBlur(i, did) {
@@ -498,15 +565,32 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
                   🔗 Tool
                 </a>
               )}
+              {/* Round 174 — off by default; per explicit request the
+                  reorder controls (↑/↓ per row) live behind this toggle
+                  rather than always showing, one flag for the whole
+                  popup (not per-chart) since switching tabs is already a
+                  clean context break. */}
+              <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--text-faint)", cursor: "pointer", userSelect: "none" }}>
+                <input type="checkbox" checked={reorderMode} onChange={(e) => setReorderMode(e.target.checked)} />
+                Reorder
+              </label>
             </div>
             <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer" }}>✕</button>
           </div>
           <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
             <table className={styles.table} style={{ marginBottom: 10 }}>
-              <thead><tr><th>Song</th><th>Artist</th><th>Rank</th><th>DID</th><th></th></tr></thead>
+              <thead><tr>{reorderMode && <th></th>}<th>Song</th><th>Artist</th><th>Rank</th><th>DID</th><th></th></tr></thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i}>
+                    {reorderMode && (
+                      <td>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          <button type="button" onClick={() => moveRow(i, -1)} disabled={i === 0} title="Move up" style={{ background: "none", border: "1px solid var(--border)", borderRadius: 4, color: i === 0 ? "var(--text-faint)" : "var(--text)", cursor: i === 0 ? "default" : "pointer", fontSize: 11, lineHeight: 1, padding: "2px 5px" }}>↑</button>
+                          <button type="button" onClick={() => moveRow(i, 1)} disabled={i === rows.length - 1} title="Move down" style={{ background: "none", border: "1px solid var(--border)", borderRadius: 4, color: i === rows.length - 1 ? "var(--text-faint)" : "var(--text)", cursor: i === rows.length - 1 ? "default" : "pointer", fontSize: 11, lineHeight: 1, padding: "2px 5px" }}>↓</button>
+                        </div>
+                      </td>
+                    )}
                     <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12 }} value={r.track_title} onChange={(e) => updateRow(i, "track_title", e.target.value)} /></td>
                     <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12 }} value={r.artist} onChange={(e) => updateRow(i, "artist", e.target.value)} /></td>
                     <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12, width: 60 }} value={r.rank} onChange={(e) => updateRow(i, "rank", e.target.value)} /></td>
