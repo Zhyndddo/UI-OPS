@@ -485,12 +485,17 @@ export default function PickPackagePage() {
       // internal Package Builder already shows it. `kind` stays
       // "intMedia" (still distinct from "real") since other logic below
       // keys off it, but rendering no longer branches on it.
-      const isIntMedia = p.name === "INT MEDIA";
+      // Round 176 — "Internal Package" (the shortcut follow-up, see
+      // app/releases/[id]/page.js's sendInternalPackageTicket) gets the
+      // exact same treatment as INT MEDIA here, per explicit request —
+      // same itemized rendering, same "REPLACES the plain pick-package
+      // cards below" override (see followUpBuilt further down).
+      const isFollowUpType = p.name === "INT MEDIA" || p.name === "Internal Package";
       const matchedTier = (p.name || "").trim().toLowerCase();
       return {
         value: p.name,
         label: p.name,
-        kind: isIntMedia ? "intMedia" : "real",
+        kind: isFollowUpType ? "intMedia" : "real",
         termsText: termsByName[matchedTier] || null,
         troGiaBookingText: troGiaByName[matchedTier] || null,
         showSharedB: SHARED_B_TIERS.includes(matchedTier),
@@ -527,13 +532,24 @@ export default function PickPackagePage() {
     // releases.project_type (the historical "AR locked Chỉ Phát Hành"
     // fact stays true) — purely what's shown on this page.
     const intMediaBuilt = rel?.project_type === "Chỉ Phát Hành" && realOptions.find((o) => o.value === "INT MEDIA");
-    const options = intMediaBuilt
+    // Round 176 — Internal Package shortcut override: same idea, but
+    // deliberately WITHOUT the "project_type must already be Chỉ Phát
+    // Hành" precondition — the shortcut's whole point is to skip that
+    // resolution step, so a built "Internal Package" tier (one-per-
+    // release, same as every other named tier) is enough on its own to
+    // replace the normal pick-package cards. Guarded on !intMediaBuilt so
+    // the (unlikely) case of both existing for one release stays
+    // deterministic — INT MEDIA wins since it was the original flow.
+    const internalPackageBuilt = !intMediaBuilt && realOptions.find((o) => o.value === "Internal Package");
+    const followUpBuilt = intMediaBuilt || internalPackageBuilt;
+    const followUpName = intMediaBuilt ? "INT MEDIA" : "Internal Package";
+    const options = followUpBuilt
       ? [...realOptions, ...simpleOptions.filter((o) => o.value !== "Chỉ Phát Hành")]
       : [...realOptions, ...simpleOptions];
     setPickOptions(options);
 
-    if (intMediaBuilt) {
-      setSelectedValue("INT MEDIA");
+    if (followUpBuilt) {
+      setSelectedValue(followUpName);
       setConfirmed(true);
     } else if (rel && !["BRIEF & DATA", "SENT TO MARKETING", "DEALING"].includes(rel.project_type)) {
       setSelectedValue(rel.project_type);
@@ -541,11 +557,11 @@ export default function PickPackagePage() {
     }
 
     // Round 168 — feeds bookedFor() below. Pull the LIVE package_lines off
-    // whichever built package is actually confirmed (INT MEDIA's override
-    // follows the same name intMediaBuilt already resolved above), not
-    // the frozen release_package_items snapshot — see the packageLines
-    // state comment for why.
-    const confirmedPackageName = intMediaBuilt ? "INT MEDIA" : rel?.project_type;
+    // whichever built package is actually confirmed (INT MEDIA's and
+    // Internal Package's overrides follow the same name followUpBuilt
+    // already resolved above), not the frozen release_package_items
+    // snapshot — see the packageLines state comment for why.
+    const confirmedPackageName = followUpBuilt ? followUpName : rel?.project_type;
     const confirmedPkgRaw = (realPackages || []).find((p) => p.name === confirmedPackageName);
     setPackageLines(confirmedPkgRaw?.media_booking_package_lines || []);
 
@@ -1285,7 +1301,13 @@ export default function PickPackagePage() {
                       // Round 168 — a bunch of clickable links instead of
                       // a bare "DONE" label, per explicit request, so the
                       // artist/label can open what was actually posted.
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                      // Round 177 — per explicit request, each link now
+                      // shows as readable "channel name: url" text
+                      // instead of a bare 🔗 icon, so it's obvious which
+                      // channel each link actually is without hovering.
+                      // Falls back to just the url when a link has no
+                      // channel_name recorded.
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
                         <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: isMobile ? 16 : 12 }}>DONE</span>
                         {doneLinks.map((e) => (
                           <a
@@ -1293,10 +1315,9 @@ export default function PickPackagePage() {
                             href={e.link}
                             target="_blank"
                             rel="noopener noreferrer"
-                            title={e.channel_name || e.link}
-                            style={{ fontSize: isMobile ? 20 : 16 }}
+                            style={{ fontSize: isMobile ? 13 : 12, color: "#5b9dff", wordBreak: "break-all" }}
                           >
-                            🔗
+                            {e.channel_name ? `${e.channel_name}: ${e.link}` : e.link}
                           </a>
                         ))}
                       </div>

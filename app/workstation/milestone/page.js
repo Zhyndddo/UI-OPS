@@ -475,11 +475,15 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
     });
     return initial;
   });
-  // Round 174 — off by default so the reorder controls (an extra column
-  // of ↑/↓ buttons) don't clutter the table or risk an accidental tap
-  // during normal typing; per explicit request, gated behind a toggle
-  // switch rather than always shown.
+  // Round 174 — off by default so the reorder controls don't clutter the
+  // table or risk an accidental tap during normal typing; per explicit
+  // request, gated behind a toggle switch rather than always shown.
   const [reorderMode, setReorderMode] = useState(false);
+  // Round 177 — per explicit request, the old ↑/↓ button pair is now a
+  // single drag handle (native HTML5 drag-and-drop) — dragIndex tracks
+  // which row is currently being dragged so the drop target can reorder
+  // relative to it.
+  const [dragIndex, setDragIndex] = useState(null);
 
   const rows = rowsByChart[activeChart] || [{ track_title: "", artist: "", rank: "", did: "" }];
 
@@ -491,15 +495,16 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
     next[i] = { ...next[i], [field]: value };
     setRows(next);
   }
-  // Round 174 — swaps row i with its neighbor in the reorder direction;
-  // the new array order IS the new sort_order, persisted on the next Save
-  // (see saveRows' payload mapping above) — no separate "confirm order"
-  // step needed.
-  function moveRow(i, dir) {
-    const j = i + dir;
-    if (j < 0 || j >= rows.length) return;
+  // Round 177 — replaces round 174's moveRow (adjacent swap only) with a
+  // real move-to-position, since a drag can drop a row anywhere in the
+  // list, not just one slot up/down. Same deal as before: the new array
+  // order IS the new sort_order, persisted on the next Save (see
+  // saveRows' payload mapping above) — no separate "confirm order" step.
+  function reorderRows(from, to) {
+    if (from == null || to == null || from === to) return;
     const next = [...rows];
-    [next[i], next[j]] = [next[j], next[i]];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
     setRows(next);
   }
   async function handleDidBlur(i, did) {
@@ -513,10 +518,29 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
     }
   }
 
-  function handleSaveAll() {
-    Object.entries(rowsByChart).forEach(([chart, chartRows]) => {
-      onSave(platform, chart, chartRows);
-    });
+  // Round 178 — fix for "rows aren't persisting after Save + reopen",
+  // per explicit report. onSave (saveRows in the parent) is async — it
+  // awaits the upsert, THEN calls the parent's load() to refresh
+  // `entries`. This used to fire every chart's onSave with no await at
+  // all (fire-and-forget) and close the popup immediately afterward:
+  // closing unmounts this popup instantly, well before any of those
+  // network round-trips even started resolving, so a quick reopen built
+  // its initial rowsByChart from the parent's STILL-STALE `entries` prop
+  // (the just-typed rows genuinely were saved server-side, just not
+  // reflected back into this popup yet) — reading as "it didn't save".
+  // Awaiting each save in sequence (not Promise.all) guarantees every
+  // upsert AND its own reload have both finished — in particular the
+  // LAST chart's reload only fires once every earlier chart's upsert has
+  // already committed, so it reflects the complete picture — before
+  // onClose() ever runs.
+  const [saving, setSaving] = useState(false);
+  async function handleSaveAll() {
+    if (saving) return;
+    setSaving(true);
+    for (const [chart, chartRows] of Object.entries(rowsByChart)) {
+      await onSave(platform, chart, chartRows);
+    }
+    setSaving(false);
     onClose();
   }
 
@@ -566,10 +590,10 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
                 </a>
               )}
               {/* Round 174 — off by default; per explicit request the
-                  reorder controls (↑/↓ per row) live behind this toggle
-                  rather than always showing, one flag for the whole
-                  popup (not per-chart) since switching tabs is already a
-                  clean context break. */}
+                  reorder controls (a drag handle per row, round 177) live
+                  behind this toggle rather than always showing, one flag
+                  for the whole popup (not per-chart) since switching tabs
+                  is already a clean context break. */}
               <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--text-faint)", cursor: "pointer", userSelect: "none" }}>
                 <input type="checkbox" checked={reorderMode} onChange={(e) => setReorderMode(e.target.checked)} />
                 Reorder
@@ -582,13 +606,31 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
               <thead><tr>{reorderMode && <th></th>}<th>Song</th><th>Artist</th><th>Rank</th><th>DID</th><th></th></tr></thead>
               <tbody>
                 {rows.map((r, i) => (
-                  <tr key={i}>
+                  <tr
+                    key={i}
+                    // Round 177 — the row itself is the drop target (drag
+                    // can start ONLY from the handle below, via its own
+                    // draggable=true — the row isn't draggable as a
+                    // whole, so clicking/typing in its inputs is
+                    // unaffected). onDragOver must preventDefault or the
+                    // browser never fires onDrop.
+                    onDragOver={reorderMode ? (e) => e.preventDefault() : undefined}
+                    onDrop={reorderMode ? (e) => { e.preventDefault(); reorderRows(dragIndex, i); setDragIndex(null); } : undefined}
+                    style={reorderMode && dragIndex === i ? { opacity: 0.5 } : undefined}
+                  >
                     {reorderMode && (
                       <td>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                          <button type="button" onClick={() => moveRow(i, -1)} disabled={i === 0} title="Move up" style={{ background: "none", border: "1px solid var(--border)", borderRadius: 4, color: i === 0 ? "var(--text-faint)" : "var(--text)", cursor: i === 0 ? "default" : "pointer", fontSize: 11, lineHeight: 1, padding: "2px 5px" }}>↑</button>
-                          <button type="button" onClick={() => moveRow(i, 1)} disabled={i === rows.length - 1} title="Move down" style={{ background: "none", border: "1px solid var(--border)", borderRadius: 4, color: i === rows.length - 1 ? "var(--text-faint)" : "var(--text)", cursor: i === rows.length - 1 ? "default" : "pointer", fontSize: 11, lineHeight: 1, padding: "2px 5px" }}>↓</button>
-                        </div>
+                        <span
+                          draggable
+                          onDragStart={() => setDragIndex(i)}
+                          onDragEnd={() => setDragIndex(null)}
+                          title="Drag to reorder"
+                          style={{ display: "inline-flex", flexDirection: "column", gap: 3, padding: "6px 7px", border: "1px solid var(--border)", borderRadius: 4, cursor: "grab" }}
+                        >
+                          <span style={{ width: 13, height: 2, background: "var(--text-faint)", borderRadius: 1 }} />
+                          <span style={{ width: 13, height: 2, background: "var(--text-faint)", borderRadius: 1 }} />
+                          <span style={{ width: 13, height: 2, background: "var(--text-faint)", borderRadius: 1 }} />
+                        </span>
                       </td>
                     )}
                     <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12 }} value={r.track_title} onChange={(e) => updateRow(i, "track_title", e.target.value)} /></td>
@@ -603,7 +645,9 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
           </div>
           <button className={styles.btnSmall} onClick={() => setRows([...rows, { track_title: "", artist: "", rank: "", did: "" }])}>+ Add row</button>
           <div style={{ marginTop: 20, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
-            <button className={styles.btnPrimary} onClick={handleSaveAll}>Save All Charts</button>
+            <button className={styles.btnPrimary} onClick={handleSaveAll} disabled={saving} style={saving ? { opacity: 0.6, cursor: "not-allowed" } : undefined}>
+              {saving ? "Saving…" : "Save All Charts"}
+            </button>
           </div>
         </div>
       </div>

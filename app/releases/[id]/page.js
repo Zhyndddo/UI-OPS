@@ -1181,6 +1181,68 @@ export default function ReleaseDetailPage() {
     setRelease((r) => ({ ...r, ...patch }));
   }
 
+  // Round 176 — Internal Package shortcut, per explicit request: the only
+  // way to get an internal-only tracking package built used to be the
+  // Media Booking ticket's own naming popup (someone in Marketing has to
+  // open the ticket and manually click "Internal Package"). This reuses
+  // sendIntMediaTicket()'s exact mechanics — same "reopen the existing
+  // ticket, or create one fresh, pre-filled with the target package name"
+  // shape — but for "Internal Package" instead of "INT MEDIA", and
+  // deliberately WITHOUT the "AR must have already locked Chỉ Phát Hành"
+  // precondition INT MEDIA's button has: the whole point of this shortcut
+  // is to skip straight to reopening the ticket for Marketing, without
+  // making AR walk the artist through picking "no package" first. Tracked
+  // by its own `internal_package_requested` flag (not int_media_requested)
+  // so the two follow-ups stay independent — using one doesn't disable or
+  // interfere with the other. The pick-package magic-link page picks up
+  // the built "Internal Package" package automatically once it exists,
+  // same as INT MEDIA (see app/pick-package/[token]/page.js).
+  async function sendInternalPackageTicket() {
+    if (form.internal_package_requested) return;
+    const { data: mbTab } = await supabase.from("ticket_tabs").select("id").eq("key", "media_booking").single();
+    if (mbTab) {
+      const { data: existing } = await supabase
+        .from("tickets")
+        .select("id, data, status_log")
+        .eq("tab_id", mbTab.id)
+        .contains("data", { releaseId: form.did })
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existing) {
+        const newLog = { ...(existing.status_log || {}), REQUESTED: new Date().toISOString() };
+        const newData = { ...(existing.data || {}), proposedPackage: "Internal Package" };
+        await supabase
+          .from("tickets")
+          .update({ status: "REQUESTED", status_log: newLog, data: newData })
+          .eq("id", existing.id);
+        setMediaBookingTicket((t) => (t && t.id === existing.id ? { ...t, status: "REQUESTED", status_log: newLog, data: newData } : t));
+        await supabase.rpc("fanout_notification", {
+          p_team: "Marketing",
+          p_type: "new_ticket",
+          p_title: "Media Booking ticket reopened",
+          p_body: `${form.title || "A release"} needs an Internal Package add-on package.`,
+          p_link: "/tickets/media-booking",
+          p_ticket_id: existing.id,
+        });
+      } else {
+        await supabase.from("tickets").insert({
+          tab_id: mbTab.id,
+          data: { releaseId: form.did, proposedPackage: "Internal Package" },
+          status: "REQUESTED",
+          status_log: { REQUESTED: new Date().toISOString() },
+        });
+      }
+    }
+
+    const patch = { internal_package_requested: true };
+    await supabase.from("releases").update(patch).eq("id", id);
+    setForm((f) => ({ ...f, ...patch }));
+    setRelease((r) => ({ ...r, ...patch }));
+  }
+
   // Round 77 — item 4b: "SEND INT SUPPORT PACKAGE" (round 83 item 1 —
   // opened up from dev-only to dev + any AR team member, see canSimulate
   // above). Runs the same "simulation" commit Package Runner
@@ -1411,6 +1473,7 @@ export default function ReleaseDetailPage() {
             hasMediaBookingTicket={hasMediaBookingTicket}
             mediaBookingTicket={mediaBookingTicket}
             onSendIntMediaTicket={sendIntMediaTicket}
+            onSendInternalPackageTicket={sendInternalPackageTicket}
             canSimulate={canSimulate}
             onSendIntSupportPackage={sendIntSupportPackage}
             onSendOnlyPh={sendOnlyPh}
@@ -1718,7 +1781,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, canSimulate, onSendIntSupportPackage, onSendOnlyPh, canResetToDealing, onResetToDealing, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, updateArtistTags, artistProfileArtistTags, artistProfileVerifySelected, onToggleArtistProfileArtist, artistProfileTicketByArtist, coTrongNetDraft, onCoTrongNetChange, onSendCoTrongNetYoutube, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError, onCopyrightChange, copyrightGateOk }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, onSendInternalPackageTicket, canSimulate, onSendIntSupportPackage, onSendOnlyPh, canResetToDealing, onResetToDealing, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, updateArtistTags, artistProfileArtistTags, artistProfileVerifySelected, onToggleArtistProfileArtist, artistProfileTicketByArtist, coTrongNetDraft, onCoTrongNetChange, onSendCoTrongNetYoutube, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError, onCopyrightChange, copyrightGateOk }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -2034,6 +2097,21 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
               {form.int_media_requested ? "INT MEDIA Follow-up Sent" : "Send INT MEDIA Follow-up"}
             </button>
           )}
+          {/* Round 176 — Internal Package shortcut, per explicit request:
+              same mechanics as the INT MEDIA button above, but with no
+              "must already be locked to Chỉ Phát Hành" gate — this is the
+              whole point of it being a shortcut, so it's always offered
+              (like Send Package Ticket to Marketing above), not tied to
+              any particular project_type/pipeline stage. */}
+          <button
+            className={styles.btnSmall}
+            onClick={onSendInternalPackageTicket}
+            disabled={form.internal_package_requested}
+            style={form.internal_package_requested ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+            title="Skips straight to reopening the Media Booking ticket for Marketing to build an Internal Package — no need to lock the release to Chỉ Phát Hành first"
+          >
+            {form.internal_package_requested ? "Internal Package Follow-up Sent" : "Send Internal Package Follow-up"}
+          </button>
           {/* Round 77 — item 4b: fast-track buttons that run the same
               "simulation" Package Runner does (see canSimulate,
               lib/packageSimulator.js), directly from the release itself

@@ -9741,3 +9741,114 @@ others.
 
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against `app/pick-package/[token]/page.js` (zero errors).
+
+## 2026-08-24 (176)
+
+Internal Package — turn it into a shortcut, per explicit request.
+
+**Before**: "Internal Package" (round 80) was just a 4th tier button
+inside the Media Booking ticket's own naming popup — Marketing had to
+open that ticket and manually click it, same as picking Vĩnh
+Viễn/Custom Years, with no connection to the release detail page or the
+magic link at all. INT MEDIA, by contrast, has its own dedicated "Send
+INT MEDIA Follow-up" button on the release detail page — but only once
+AR has already locked the release to "Chỉ Phát Hành" — which
+auto-reopens/creates the Media Booking ticket pre-filled with that
+package name so Marketing just builds it, and the built package then
+auto-surfaces on the artist-facing magic link.
+
+**Fix, per explicit choice ("cut straight to the re-open", reusing the
+same button mechanics)** — `app/releases/[id]/page.js`: new
+`sendInternalPackageTicket()`, an exact copy of `sendIntMediaTicket()`'s
+mechanics (reopen the existing Media Booking ticket if one exists,
+pre-filled with `proposedPackage: "Internal Package"`, notify
+Marketing; otherwise create one fresh) but tracked by its own
+`internal_package_requested` flag instead of `int_media_requested`, so
+the two follow-ups stay fully independent. Unlike the INT MEDIA button,
+its new "Send Internal Package Follow-up" button is **not** gated on
+`project_type === "Chỉ Phát Hành"` — it's always available next to "Send
+Package Ticket to Marketing", since skipping that precondition (AR
+walking the artist through picking "no package" first) was the entire
+point of the request. `add-round176-internal-package-requested.sql`
+adds the new nullable-by-default (`default false`) column.
+
+Per explicit choice ("Same as INT MEDIA"), the built "Internal Package"
+now also surfaces on the artist-facing pick-package magic link exactly
+like INT MEDIA does — `app/pick-package/[token]/page.js`: generalized
+the old `isIntMedia`/`intMediaBuilt` override (which REPLACES the
+normal pick-package cards with the built package, full itemized table)
+to also recognize a built "Internal Package" tier, again deliberately
+without requiring `project_type === "Chỉ Phát Hành"` first — existence
+of the one-per-release "Internal Package" tier is enough on its own
+(`internalPackageBuilt`, guarded on `!intMediaBuilt` so the two can't
+collide if both somehow exist for one release — INT MEDIA wins as the
+original flow).
+
+Needs `add-round176-internal-package-requested.sql` run against the
+database before this ships.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## 2026-08-24 (177)
+
+2-item quick fix batch.
+
+**Item 1 — pick-package magic link's "DONE" category cards showed only a
+bare 🔗 icon per posted link**, per explicit report ("show the channel
+name: url instead"). `app/pick-package/[token]/page.js`: each done link
+now renders as its own line of readable text — `channel_name: url` when
+a `media_booking_entries` row has a `channel_name`, falling back to just
+the url when it doesn't — instead of an icon-only link the
+artist/label had to hover or click blind to identify.
+
+**Item 2 — Milestone Workstation's round-174 reorder controls (a per-row
+↑/↓ button pair) replaced with a real drag handle**, per explicit
+request ("3-slash-drag button"). `app/workstation/milestone/page.js`:
+`moveRow` (adjacent-swap only) replaced with `reorderRows(from, to)` (a
+real move-to-any-position, since a drag can drop a row anywhere in the
+list); the row's ↑/↓ buttons are now a single 3-bar grip icon using
+native HTML5 drag-and-drop (`draggable` on the handle only, so dragging
+can't be triggered by clicking/typing elsewhere in the row) — drag
+starts on the handle, drops on the target row's `<tr>`. Same persistence
+as before: the new array order IS the new `sort_order`, written on the
+next Save — nothing about the reorder toggle, the Report/Log
+"doesn't sort by this" rule, or the underlying column changes.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## 2026-08-24 (178)
+
+Milestone Workstation — "rows aren't persisting after Save + reopen",
+per explicit report.
+
+**Root cause**: `ChartEntryPopup`'s `handleSaveAll` fired every chart's
+`onSave(...)` (the parent's `saveRows` — an `async` function that awaits
+the Supabase upsert, THEN calls the parent's `load()` to refresh
+`entries`) with no `await` at all — fire-and-forget — and called
+`onClose()` immediately afterward. Closing unmounts the popup instantly,
+well before any of those network round-trips even started resolving. A
+quick reopen then rebuilt `rowsByChart` from the parent's `entries`
+prop, which was still the STALE pre-save snapshot (the parent's own
+`load()` hadn't run yet) — the rows genuinely had been written
+server-side, they just hadn't been read back into this popup yet, which
+reads identically to "nothing saved."
+
+**Fix** — `app/workstation/milestone/page.js`: `handleSaveAll` now
+awaits each chart's save in sequence (a plain `for...of` loop, not
+`Promise.all`) before calling `onClose()`. Sequential (not parallel) is
+deliberate: it guarantees every earlier chart's upsert has already
+committed by the time the LAST chart's own `saveRows` call runs its
+`load()`, so that final refresh reflects the complete picture rather
+than racing a still-in-flight write from another chart. Added a
+`saving` state so the button shows "Saving…" and disables itself for
+that window instead of looking unresponsive (multi-chart saves are now
+sequential, so this can take a moment longer than the old instant
+close).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
