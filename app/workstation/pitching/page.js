@@ -14,7 +14,11 @@ import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
-import { PITCHING_DOMESTIC_SERVICES_KEY, DEFAULT_PITCHING_DOMESTIC_SERVICES, parsePitchingDomesticServices } from "../../../lib/pitchingDomesticServices";
+import {
+  PITCHING_DOMESTIC_SERVICES_KEY, DEFAULT_PITCHING_DOMESTIC_SERVICES, parsePitchingDomesticServices,
+  PITCHING_NCT_EXTRA_SERVICES_KEY, DEFAULT_PITCHING_NCT_EXTRA_SERVICES, parsePitchingNctExtraServices,
+  PITCHING_ZING_EXTRA_SERVICES_KEY, DEFAULT_PITCHING_ZING_EXTRA_SERVICES, parsePitchingZingExtraServices,
+} from "../../../lib/pitchingDomesticServices";
 import { PITCHING_PIC_LIST_KEY, parsePitchingPicList, applyPitchingPicList } from "../../../lib/pitchingPicList";
 import { buildZingPitchNote } from "../../../lib/zingPitchNote";
 import { rowHighlightColor } from "../../../lib/releaseDateHighlight";
@@ -31,6 +35,11 @@ const CO_GOI_VALUE = "Có gói";
 // list is shared by both NCT and Zing and this was asked for on the NCT
 // side only — see DomesticPlatformColumn's extraItems prop.
 const NCT_ONLY_SERVICES = ["New Release Song"];
+// Round 187 — 2 more config-editable, per-platform extra-item lists
+// (Config → Pitching → NCT/Zing Extra Services) layered on top of the
+// hardcoded one above — see lib/pitchingDomesticServices.js's own
+// comment for the reasoning. NCT ends up with NCT_ONLY_SERVICES PLUS
+// whatever's in the config list; Zing had none before this round.
 
 // Round 106 item 5 — the top-level release-detail checkbox picker merged
 // down to 4 keys (priority/spotifyBanner/spotifyS4a/domestic — see
@@ -186,6 +195,9 @@ export default function PitchingWorkstation() {
   // (Config → Pitching → Domestic "Có Gói" Services), default falls back to
   // DEFAULT_PITCHING_DOMESTIC_SERVICES until load() finishes.
   const [domesticServiceItems, setDomesticServiceItems] = useState(DEFAULT_PITCHING_DOMESTIC_SERVICES);
+  // Round 187 — config-editable NCT/Zing-only extra items, same idiom.
+  const [nctExtraServiceItems, setNctExtraServiceItems] = useState(DEFAULT_PITCHING_NCT_EXTRA_SERVICES);
+  const [zingExtraServiceItems, setZingExtraServiceItems] = useState(DEFAULT_PITCHING_ZING_EXTRA_SERVICES);
 
   useEffect(() => {
     if (!supabase) return;
@@ -270,10 +282,12 @@ export default function PitchingWorkstation() {
     // Pitching → PIC List (blank by default) restricts who shows up as
     // PIC here instead of the usual whole-OPS-team filter. Falls back to
     // the normal OPS filter until an admin actually sets the list.
-    const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", [PITCHING_DOMESTIC_SERVICES_KEY, PITCHING_PIC_LIST_KEY]);
+    const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", [PITCHING_DOMESTIC_SERVICES_KEY, PITCHING_NCT_EXTRA_SERVICES_KEY, PITCHING_ZING_EXTRA_SERVICES_KEY, PITCHING_PIC_LIST_KEY]);
     const settingsByKey = {};
     (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
     setDomesticServiceItems(parsePitchingDomesticServices(settingsByKey[PITCHING_DOMESTIC_SERVICES_KEY]));
+    setNctExtraServiceItems(parsePitchingNctExtraServices(settingsByKey[PITCHING_NCT_EXTRA_SERVICES_KEY]));
+    setZingExtraServiceItems(parsePitchingZingExtraServices(settingsByKey[PITCHING_ZING_EXTRA_SERVICES_KEY]));
     const picList = parsePitchingPicList(settingsByKey[PITCHING_PIC_LIST_KEY]);
     // Round 159 — AR added as a 2nd executor team here (was OPS-only), per
     // explicit "add pitching workstation for AR team as executor" request.
@@ -470,6 +484,8 @@ export default function PitchingWorkstation() {
           onClose={() => setOpenTicketId(null)}
           onUpdateRelease={updateRelease}
           domesticServiceItems={domesticServiceItems}
+          nctExtraServiceItems={nctExtraServiceItems}
+          zingExtraServiceItems={zingExtraServiceItems}
         />
       )}
     </AppShell>
@@ -484,7 +500,7 @@ function PitchingLbmCell({ release, onUpdate }) {
   return <UrlField styles={styles} value={draft} onChange={setDraft} onBlur={() => onUpdate(release, "link_lbm", draft)} />;
 }
 
-function PitchingPopup({ row, profiles, onClose, onUpdateRelease, domesticServiceItems }) {
+function PitchingPopup({ row, profiles, onClose, onUpdateRelease, domesticServiceItems, nctExtraServiceItems, zingExtraServiceItems }) {
   const types = TYPE_TABS.filter(([key]) => isTypeRequested(row.ticket, key));
   const [activeType, setActiveType] = useState(types[0]?.[0]);
   const release = row.release;
@@ -643,7 +659,9 @@ function PitchingPopup({ row, profiles, onClose, onUpdateRelease, domesticServic
               // domesticServiceItems list (Config → Pitching → Domestic
               // "Có Gói" Services), since that list is shared by both NCT
               // and Zing and this was asked for on the NCT side only.
-              extraItems={NCT_ONLY_SERVICES}
+              // Round 187 — nctExtraServiceItems (Config → Pitching → NCT
+              // Extra Services) layered on top of that same hardcoded item.
+              extraItems={[...NCT_ONLY_SERVICES, ...nctExtraServiceItems]}
             />
             <DomesticPlatformColumn
               label="Zing Status"
@@ -652,6 +670,9 @@ function PitchingPopup({ row, profiles, onClose, onUpdateRelease, domesticServic
               services={release?.pitching_domestic_services_zing || []}
               onServicesChange={(next) => onUpdateRelease(release, "pitching_domestic_services_zing", next)}
               domesticServiceItems={domesticServiceItems}
+              // Round 187 — Zing's first-ever extra item(s), same
+              // Config-editable list mechanism as NCT's above.
+              extraItems={zingExtraServiceItems}
             />
           </div>
           {/* Round 162 — item 1: same generator as the standalone "Zing"

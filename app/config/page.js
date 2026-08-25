@@ -9,7 +9,11 @@ import { ROLES, ROLE_LABELS, isDev as isDevRole, isAdminOrAbove, canManageOrgCon
 import { filterProfilesByTeam } from "../../lib/workstationHelpers";
 import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../lib/troGiaBooking";
 import { DEFAULT_LINKFIRE_URL } from "../../lib/externalTools";
-import { PITCHING_DOMESTIC_SERVICES_KEY, DEFAULT_PITCHING_DOMESTIC_SERVICES, parsePitchingDomesticServices } from "../../lib/pitchingDomesticServices";
+import {
+  PITCHING_DOMESTIC_SERVICES_KEY, DEFAULT_PITCHING_DOMESTIC_SERVICES, parsePitchingDomesticServices,
+  PITCHING_NCT_EXTRA_SERVICES_KEY, DEFAULT_PITCHING_NCT_EXTRA_SERVICES, parsePitchingNctExtraServices,
+  PITCHING_ZING_EXTRA_SERVICES_KEY, DEFAULT_PITCHING_ZING_EXTRA_SERVICES, parsePitchingZingExtraServices,
+} from "../../lib/pitchingDomesticServices";
 import { PITCHING_PIC_LIST_KEY, DEFAULT_PITCHING_PIC_LIST, parsePitchingPicList } from "../../lib/pitchingPicList";
 import { MILESTONE_HIGHLIGHT_SETTING_KEY, DEFAULT_MILESTONE_HIGHLIGHT_CONFIG, parseMilestoneHighlightConfig } from "../../lib/milestoneHighlight";
 import styles from "../shared.module.css";
@@ -1093,49 +1097,87 @@ function TroGiaBookingSection() {
 //      at least one profile is checked, the Pitching Workstation's PIC
 //      dropdowns show ONLY these profiles instead of the whole OPS team
 //      (see lib/pitchingPicList.js's applyPitchingPicList).
+// Round 187 — small generic editor reused for all 3 of Pitching's plain
+// string-array settings below (shared Domestic services, NCT-only extra
+// items, Zing-only extra items) — same add/remove-row-over-a-
+// global_settings-key idiom as the shared list already had, just factored
+// out instead of copy-pasted 3 times.
+function StringListSettingEditor({ settingKey, items, onSaved, placeholder, emptyLabel, addLabel, confirmRemoveText }) {
+  const [saved, setSaved] = useState(false);
+
+  async function saveAll(next) {
+    onSaved(next);
+    await supabase.from("global_settings").upsert(
+      { key: settingKey, value: JSON.stringify(next), updated_at: new Date().toISOString() },
+      { onConflict: "key" }
+    );
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+  function updateItem(index, value) {
+    saveAll(items.map((s, i) => (i === index ? value : s)));
+  }
+  function addItem() {
+    saveAll([...items, ""]);
+  }
+  function removeItem(index) {
+    if (!window.confirm(confirmRemoveText)) return;
+    saveAll(items.filter((_, i) => i !== index));
+  }
+
+  return (
+    <>
+      <div style={{ display: "grid", gap: 8, marginBottom: 12, maxWidth: 420 }}>
+        {items.map((s, i) => (
+          <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              className={styles.input}
+              style={{ flex: 1 }}
+              defaultValue={s}
+              placeholder={placeholder}
+              onBlur={(e) => updateItem(i, e.target.value)}
+            />
+            <button type="button" onClick={() => removeItem(i)} className={styles.btnSmall} style={{ fontSize: 10, padding: "3px 8px" }}>
+              Remove
+            </button>
+          </div>
+        ))}
+        {items.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)" }}>{emptyLabel}</div>}
+        {saved && <span style={{ color: "var(--success-fg)", fontWeight: 700, fontSize: 12 }}>Saved</span>}
+      </div>
+      <button type="button" onClick={addItem} className={styles.btnSmall}>
+        {addLabel}
+      </button>
+    </>
+  );
+}
+
 function PitchingSettingsSection() {
   const [services, setServices] = useState(DEFAULT_PITCHING_DOMESTIC_SERVICES);
+  const [nctExtraServices, setNctExtraServices] = useState(DEFAULT_PITCHING_NCT_EXTRA_SERVICES);
+  const [zingExtraServices, setZingExtraServices] = useState(DEFAULT_PITCHING_ZING_EXTRA_SERVICES);
   const [picListIds, setPicListIds] = useState(DEFAULT_PITCHING_PIC_LIST);
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [savedServices, setSavedServices] = useState(false);
   const [savedPicList, setSavedPicList] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
     (async () => {
       const [{ data: settingsRows }, { data: profs }] = await Promise.all([
-        supabase.from("global_settings").select("key, value").in("key", [PITCHING_DOMESTIC_SERVICES_KEY, PITCHING_PIC_LIST_KEY]),
+        supabase.from("global_settings").select("key, value").in("key", [PITCHING_DOMESTIC_SERVICES_KEY, PITCHING_NCT_EXTRA_SERVICES_KEY, PITCHING_ZING_EXTRA_SERVICES_KEY, PITCHING_PIC_LIST_KEY]),
         supabase.from("profiles").select("id, name, segment, role").order("name"),
       ]);
       const settingsByKey = {};
       (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
       setServices(parsePitchingDomesticServices(settingsByKey[PITCHING_DOMESTIC_SERVICES_KEY]));
+      setNctExtraServices(parsePitchingNctExtraServices(settingsByKey[PITCHING_NCT_EXTRA_SERVICES_KEY]));
+      setZingExtraServices(parsePitchingZingExtraServices(settingsByKey[PITCHING_ZING_EXTRA_SERVICES_KEY]));
       setPicListIds(parsePitchingPicList(settingsByKey[PITCHING_PIC_LIST_KEY]));
       setProfiles(filterProfilesByTeam(profs || [], "OPS"));
       setLoading(false);
     })();
   }, []);
-
-  async function saveServices(next) {
-    setServices(next);
-    await supabase.from("global_settings").upsert(
-      { key: PITCHING_DOMESTIC_SERVICES_KEY, value: JSON.stringify(next), updated_at: new Date().toISOString() },
-      { onConflict: "key" }
-    );
-    setSavedServices(true);
-    setTimeout(() => setSavedServices(false), 1500);
-  }
-  function updateServiceItem(index, value) {
-    saveServices(services.map((s, i) => (i === index ? value : s)));
-  }
-  function addServiceItem() {
-    saveServices([...services, ""]);
-  }
-  function removeServiceItem(index) {
-    if (!window.confirm("Remove this service? It'll disappear from the Domestic \"Có gói\" checklist immediately.")) return;
-    saveServices(services.filter((_, i) => i !== index));
-  }
 
   async function savePicList(next) {
     setPicListIds(next);
@@ -1159,29 +1201,58 @@ function PitchingSettingsSection() {
         <div className={styles.subheading} style={{ marginTop: 0 }}>Domestic "Có Gói" Services</div>
         <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16, maxWidth: 640 }}>
           Shown as a multiple-choice checklist on the Pitching Workstation's Domestic tab once NCT or Zing's
-          status is set to "Có gói". Changes save immediately.
-          {savedServices && <span style={{ color: "var(--success-fg)", fontWeight: 700, marginLeft: 8 }}>Saved</span>}
+          status is set to "Có gói" — shared by both platforms. Changes save immediately.
         </p>
-        <div style={{ display: "grid", gap: 8, marginBottom: 12, maxWidth: 420 }}>
-          {services.map((s, i) => (
-            <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input
-                className={styles.input}
-                style={{ flex: 1 }}
-                defaultValue={s}
-                placeholder="e.g. Banner"
-                onBlur={(e) => updateServiceItem(i, e.target.value)}
-              />
-              <button type="button" onClick={() => removeServiceItem(i)} className={styles.btnSmall} style={{ fontSize: 10, padding: "3px 8px" }}>
-                Remove
-              </button>
-            </div>
-          ))}
-          {services.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)" }}>No services yet.</div>}
-        </div>
-        <button type="button" onClick={addServiceItem} className={styles.btnSmall}>
-          + Add Service
-        </button>
+        <StringListSettingEditor
+          settingKey={PITCHING_DOMESTIC_SERVICES_KEY}
+          items={services}
+          onSaved={setServices}
+          placeholder="e.g. Banner"
+          emptyLabel="No services yet."
+          addLabel="+ Add Service"
+          confirmRemoveText={'Remove this service? It\'ll disappear from the Domestic "Có gói" checklist immediately.'}
+        />
+      </div>
+
+      {/* Round 187 — 2 more per-platform-only extra items, per explicit
+          request ("for zing option: noti push. for NCT option: social
+          post, noti push... is making a config list for this now worth
+          it"). Same shared list above stays untouched (still both
+          platforms); these 2 are additive on top of it, NCT's also on
+          top of the pre-existing hardcoded "New Release Song" item (see
+          app/workstation/pitching/page.js's NCT_ONLY_SERVICES). */}
+      <div style={{ marginBottom: 32 }}>
+        <div className={styles.subheading} style={{ marginTop: 0 }}>NCT Extra Services</div>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16, maxWidth: 640 }}>
+          Shown ONLY under NCT's own "Có gói" checklist, on top of the shared list above (and on top of
+          "New Release Song", which stays fixed). Changes save immediately.
+        </p>
+        <StringListSettingEditor
+          settingKey={PITCHING_NCT_EXTRA_SERVICES_KEY}
+          items={nctExtraServices}
+          onSaved={setNctExtraServices}
+          placeholder="e.g. Social Post"
+          emptyLabel="No NCT-only extra services."
+          addLabel="+ Add NCT Extra Service"
+          confirmRemoveText="Remove this NCT-only service? It'll disappear from NCT's checklist immediately."
+        />
+      </div>
+
+      <div style={{ marginBottom: 32 }}>
+        <div className={styles.subheading} style={{ marginTop: 0 }}>Zing Extra Services</div>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16, maxWidth: 640 }}>
+          Shown ONLY under Zing's own "Có gói" checklist, on top of the shared list above. Changes save
+          immediately.
+        </p>
+        <StringListSettingEditor
+          settingKey={PITCHING_ZING_EXTRA_SERVICES_KEY}
+          items={zingExtraServices}
+          onSaved={setZingExtraServices}
+          placeholder="e.g. Noti Push"
+          emptyLabel="No Zing-only extra services."
+          addLabel="+ Add Zing Extra Service"
+          confirmRemoveText="Remove this Zing-only service? It'll disappear from Zing's checklist immediately."
+        />
       </div>
 
       <div>

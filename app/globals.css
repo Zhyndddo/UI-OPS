@@ -1,8 +1,8 @@
-/* Theme variables — dark is the default (matches the original design),
-   [data-theme="light"] on <html> overrides them. Every color used across
-   shared.module.css (and ideally page-level inline styles) should
-   reference one of these instead of a hardcoded hex, so the whole app
-   actually responds to the toggle rather than just isolated pieces of it. */
+/* Theme variables — dark is the default. [data-theme="light"] on <html>
+   overrides them. Every color used across shared.module.css (and ideally
+   page-level inline styles) should reference one of these instead of a
+   hardcoded hex, so the whole app actually responds to the toggle rather
+   than just isolated pieces of it. */
 
 :root {
   /* Height of the sticky TopBar — table header rows (see .table th in
@@ -110,6 +110,49 @@
      overridden — see that comment. */
   --missing-highlight: #9d00ff;
   --missing-highlight-bg: rgba(157, 0, 255, 0.12);
+}
+
+/* Round 186 — "Zhyn's Special" (purple), a real third theme value
+   alongside dark and light, not an override layered on top of either
+   one. Rounds 184/185 tried this as a dark-theme replacement, then as a
+   `[data-zhyn-theme]:not([data-theme="light"])` scoped override — per
+   explicit correction ("it's not a change of theme, it's a dark, light,
+   and zhyn's special... normal account only have dark, light,
+   an.thien@vieent.vn have the third") it's now its own selector exactly
+   like [data-theme="light"] below it, selected the same way (<html
+   data-theme="zhyn">, set by ThemeContext.js). Every other account only
+   ever sees "dark" and "light" as options — TopBar.js only renders the
+   "Zhyn's Special" choice for the one allowed account (AuthContext.js's
+   `canUseZhynTheme`), and AuthContext.js also clamps back to "dark" if
+   this value is ever active for anyone else.
+
+   Values unchanged from rounds 184/185 — iterated live via a preview
+   artifact before shipping; see DATA_FIXES.md round 184 for the full
+   before/after and reasoning (synced card/input surface, corrected
+   text-hierarchy ordering, softened/pastel'd accent + border, lightened
+   accent-on text). --error-*, --highlight-*, and --missing-highlight*
+   are deliberately left undefined here, same as they're only partially
+   redefined in [data-theme="light"] — falls through to :root's values,
+   same fixed/out-of-scope colors as every other theme. */
+[data-theme="zhyn"] {
+  --bg: #121212;
+  --bg-body: #121212;
+  --bg-card: #1a1420;
+  --bg-input: #1a1420;
+  --bg-hover: #241a2c;
+  --border: #a865c9;
+  --border-strong: #c99bdf;
+  --text: #ebcdfa;
+  --text-muted: #c9bad1;
+  --text-faint: #8a7a92;
+  --text-dim: #6b5d73;
+  --accent: #9b6bd1;
+  --accent-soft: #c9a8ef;
+  --accent-on: #f5ecff;
+  --success-bg: rgba(59, 255, 255, 0.15);
+  --success-fg: #5eead4;
+  --warn-bg: rgba(255, 131, 7, 0.15);
+  --warn-fg: #ffb84d;
 }
 
 * {

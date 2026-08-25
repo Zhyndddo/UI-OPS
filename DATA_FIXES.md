@@ -10019,3 +10019,200 @@ used everywhere else on this page — instead of always claiming "DONE"
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## 2026-08-25 (184)
+
+Shipped "Zhyn's Special" (purple) as the app's new dark theme, per
+explicit request following item 3 of round 182 (the theme-token
+reference artifact). Built and iterated as a live preview artifact
+first — the team submitted a full color sheet, several rounds of
+feedback narrowed it down before anything touched production:
+
+- Flagged and fixed real problems in the originally submitted sheet:
+  flat/identical surface shades (destroys card/hover separation),
+  inverted text-hierarchy luminance ordering (faint/dim sat too close
+  to muted instead of clearly darker), inverted border/border-strong
+  prominence, and status colors that clashed with the app's own
+  translucent-fill convention.
+- Accent shifted to purple per explicit answer ("let's try purple"),
+  then pastel'd down on request — `--accent`/`--accent-soft` softened
+  from a punchy violet to a muted lavender-violet, and `--accent-on`
+  (button text) moved from black to a soft off-white per explicit
+  feedback that black felt "shaky" to look at.
+- `--bg-card`/`--bg-input` synced to one shared shade per explicit
+  request; `--bg-hover` deliberately kept as a separate, lighter shade
+  so a hovered row still reads differently from a resting card.
+- Dark-only, by explicit design decision ("each template should just
+  have 1 version... no hidden color") — `[data-theme="light"]` in
+  `app/globals.css` is completely untouched, no purple light companion
+  exists.
+- `--error-*` and the theme-fixed "Highlight"/"Missing field" groups
+  (`--highlight-*`, `--missing-highlight*`) left unchanged — out of
+  scope for this request and, per their own original design intent,
+  meant to stay identical across every theme anyway.
+
+**Access control** — per explicit request, the light/dark toggle itself
+is now restricted to a single account. `lib/TopBar.js`'s Settings panel
+only renders the "Switch to Light/Dark" button when the signed-in
+profile's email matches `an.thien@vieent.vn` (case-insensitive, same
+convention as `AuthContext.js`'s own `.ilike` lookup) — everyone else's
+Settings panel simply doesn't show the control, so they're locked to
+whatever theme is currently active (now purple dark) with no way to
+switch. Note: this only gates *future* changes — anyone who had
+already flipped to light mode via `localStorage` before this shipped
+keeps seeing light until they manually clear it or someone resets it
+for them; nothing here force-resets existing sessions, since that
+wasn't asked for. Flag it if a hard reset for everyone else is wanted
+too.
+
+Files: `app/globals.css` (`:root` token block only), `lib/TopBar.js`
+(toggle button gated behind `canToggleTheme`).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## 2026-08-25 (185)
+
+Correction to round 184, per explicit follow-up ("only keep the new
+zhyn's special to me, every one still can swap between dark and
+light"). Round 184 had implemented this the wrong way — it replaced
+`:root` outright (so purple became the dark theme for literally every
+account) and hid the light/dark toggle for everyone except
+`an.thien@vieent.vn`. That's backwards from what was actually wanted:
+the toggle should stay available to everyone as it always was, and
+only the purple look itself should be exclusive to one account.
+
+**Fix:**
+- `app/globals.css`: `:root` reverted back to the original orange dark
+  theme (exact pre-184 values). The purple palette now lives in a new,
+  separately-scoped rule instead: `[data-zhyn-theme]:not([data-theme=
+  "light"])`. It only applies when both the `data-zhyn-theme` attribute
+  is present on `<html>` AND light mode is not active — so it never
+  shows up as a "purple light" variant, and never applies to anyone the
+  attribute isn't set for.
+- `lib/AuthContext.js`: added the one bit of account logic — a small
+  effect that sets/clears `data-zhyn-theme` on `<html>` based on
+  whether the signed-in profile's email matches `an.thien@vieent.vn`
+  (case-insensitive, same convention as this file's own `.ilike`
+  lookup). Runs independently of the dark/light toggle itself.
+- `lib/TopBar.js`: the round-184 gate on the "Switch to Light/Dark"
+  button (`canToggleTheme`) is fully reverted — the button is
+  unconditional again, exactly like before round 184. Every account can
+  freely swap between dark and light; only the one account additionally
+  sees purple instead of orange while in dark mode.
+
+Same purple values as round 184 (unchanged) — synced card/input
+surface, corrected text hierarchy, pastel'd accent/border, off-white
+accent-on. `--error-*`, `--highlight-*`, and `--missing-highlight*`
+still untouched.
+
+Files: `app/globals.css`, `lib/AuthContext.js`, `lib/TopBar.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## 2026-08-25 (186)
+
+Second correction to the theme work, per explicit follow-up ("it's not
+a change of theme, it's a dark, light, and zhyn's special. normal
+account only have dark, light, an.thien@vieent.vn have the third").
+Round 185 scoped the purple palette with a `[data-zhyn-theme]:not(...)`
+CSS hack layered on top of the dark/light attribute — functionally
+close, but not the actual shape asked for: a real third theme value,
+selectable as its own option, not an invisible variant of "dark".
+
+**Fix:**
+- `lib/ThemeContext.js`: `theme` is now one of three real values —
+  `"dark"` | `"light"` | `"zhyn"` — validated against a small allowlist
+  on read from `localStorage` and on every `setTheme(next)` call. Added
+  `setTheme` (direct setter) alongside the existing `toggleTheme`
+  (kept, but now only ever cycles dark/light — it has no notion of
+  which account is allowed "zhyn"). Removed the unused `ThemeToggle`
+  export (dead code, confirmed unreferenced anywhere in the app).
+- `app/globals.css`: replaced the round-185 `[data-zhyn-theme]:not(
+  [data-theme="light"])` override with a plain `[data-theme="zhyn"]`
+  block — same purple values, but now a real theme selector exactly
+  like `[data-theme="light"]` next to it, not a conditional layered on
+  the dark theme.
+- `lib/AuthContext.js`: exposes a new `canUseZhynTheme` boolean on the
+  auth context (true only for `an.thien@vieent.vn`, case-insensitive).
+  Also added a safety-clamp effect: if `theme === "zhyn"` for anyone
+  `!canUseZhynTheme` (a shared machine, stale localStorage in someone
+  else's browser, etc.), it's forced back to `"dark"`. Gated on
+  `!loading` so this doesn't misfire and wipe the allowed account's own
+  saved "zhyn" preference during the brief window before their profile
+  finishes loading.
+- `lib/TopBar.js`: the Settings panel's single toggle button is now a
+  small segmented control. Every account sees Dark/Light; only the
+  allowed account additionally sees a third "✦ Zhyn's Special" option.
+
+Same purple values as rounds 184/185 (unchanged) — synced card/input
+surface, corrected text hierarchy, pastel'd accent/border, off-white
+accent-on.
+
+Files: `lib/ThemeContext.js`, `app/globals.css`, `lib/AuthContext.js`,
+`lib/TopBar.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## 2026-08-25 (187)
+
+Two items, per explicit request:
+
+**Item 1 — new per-platform "Có Gói" checklist options.** "for zing
+option: noti push. for NCT option: social post, noti push" — plus the
+open question "is making a config list for this now worth it, if the
+team would add more option (once in a while though)". Answer: yes —
+the shared 8-item Domestic "Có Gói" Services checklist
+(`lib/pitchingDomesticServices.js`) already has a working
+Config-editable add/remove-row editor (Config → Pitching), so extending
+that same idiom to 2 more per-platform lists costs almost nothing and
+avoids a code deploy every time the team wants to tweak these.
+
+- `lib/pitchingDomesticServices.js`: added
+  `PITCHING_NCT_EXTRA_SERVICES_KEY` (default `["Social Post", "Noti
+  Push"]`) and `PITCHING_ZING_EXTRA_SERVICES_KEY` (default `["Noti
+  Push"]`), same `global_settings` blob / parse-with-fallback idiom as
+  the existing shared list — refactored the shared parser into a
+  generic `parseStringListSetting` internally, no external API change.
+- `app/workstation/pitching/page.js`: NCT's `DomesticPlatformColumn`
+  now gets `extraItems={[...NCT_ONLY_SERVICES, ...nctExtraServiceItems]}`
+  (the pre-existing round-170 hardcoded "New Release Song" item is left
+  as-is, not migrated — these 2 new items are additive on top of it).
+  Zing's column gets `extraItems={zingExtraServiceItems}` — its first
+  extra item(s) ever; previously had none.
+- `app/config/page.js`: added "NCT Extra Services" and "Zing Extra
+  Services" sections under Config → Pitching, right below the existing
+  shared-list editor. Factored the 3 now-near-identical string-array
+  editors (shared/NCT/Zing) into one small `StringListSettingEditor`
+  component instead of copy-pasting a 3rd near-duplicate block.
+
+**Item 2 — NCT tool URL check.** Confirmed the codebase does NOT have
+any code that would override a fix made through the Tool Directory
+editor (`app/tool-directory/page.js`): `mergeToolDirectory()` in
+`lib/toolDirectory.js` always uses a saved bucket's tools array
+wholesale once one exists in `global_settings` — the hardcoded
+`DEFAULT_TOOL_DIRECTORY` only ever applies as the first-run seed before
+any dev has saved that bucket. Also confirmed via grep that the
+"pitching workstation" Tools button and the Tool Directory page (the
+"tool sidebar item") both read from this exact same single bucket
+(`pitching.tools`, key `"nct"`) — there's no second, separately
+hardcoded NCT link anywhere else (checked `lib/Sidebar.js` too).
+
+Still updated the stale seed default itself for hygiene — it was
+pointing at an old/wrong spreadsheet
+(`.../d/1437pddgRHq_.../edit?gid=0`); now points at the sheet given
+(`.../d/17cS2Sz1niaGDADOSrZQ_PdP9s2Pv8UtYcKHAkvoL35Y/edit?gid=1965064666`).
+This only matters for a brand-new install/reset that's never had this
+bucket saved — it does not touch or risk an already-saved fix.
+
+Files: `lib/pitchingDomesticServices.js`, `app/workstation/pitching/page.js`,
+`app/config/page.js`, `lib/toolDirectory.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
