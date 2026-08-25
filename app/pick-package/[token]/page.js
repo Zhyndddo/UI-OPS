@@ -1319,13 +1319,23 @@ export default function PickPackagePage() {
                 const booked = bookedFor(c);
                 const added = addedFor(c);
                 const isDone = booked != null && booked > 0 && added >= booked;
-                const doneLinks = isDone ? linksFor(c) : [];
+                // Round 183 — per explicit report: a category that's
+                // only PARTIALLY booked (added < booked) showed nothing
+                // but a bare "X / Y" count, even when some of those
+                // already-booked entries genuinely have posted links —
+                // linksFor was previously gated behind isDone, so a
+                // partially-done category's real, already-posted links
+                // were invisible here even though the Booking Board
+                // clearly had them. Links now show whenever they exist,
+                // regardless of whether the category has hit its full
+                // target yet.
+                const doneLinks = linksFor(c);
                 return (
                   <div key={c.id} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
                       {c.name}
                     </div>
-                    {isDone && doneLinks.length > 0 ? (
+                    {doneLinks.length > 0 ? (
                       // Round 168 — a bunch of clickable links instead of
                       // a bare "DONE" label, per explicit request, so the
                       // artist/label can open what was actually posted.
@@ -1358,8 +1368,19 @@ export default function PickPackagePage() {
                       // light) instead of a fixed orange, per explicit
                       // request — better contrast in light mode than a
                       // peachy orange on a near-white background.
+                      // Round 183 — the status line above the links now
+                      // reflects reality instead of always saying "DONE"
+                      // (which used to be safe only because this branch
+                      // was unreachable unless isDone): "DONE" in green
+                      // when the category has actually hit its target,
+                      // otherwise the same muted "added / booked" count
+                      // shown everywhere else on this page.
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
-                        <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: isMobile ? 16 : 12 }}>DONE</span>
+                        {isDone ? (
+                          <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: isMobile ? 16 : 12 }}>DONE</span>
+                        ) : (
+                          <span style={{ color: "var(--text-muted)", fontSize: isMobile ? 16 : 12, fontWeight: 700 }}>{added} / {booked ?? "—"}</span>
+                        )}
                         {doneLinks.map((e) => {
                           const realChannel = e.platform || null;
                           const label = realChannel || hangMucFor(c);

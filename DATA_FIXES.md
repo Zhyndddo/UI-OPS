@@ -9990,3 +9990,32 @@ both map directly onto these same variables.
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## 2026-08-25 (183)
+
+pick-package magic link — Booking Progress links missing for a
+partially-booked category, per explicit report ("Community isn't
+showing the url at all... there are url there, just not fully done").
+
+Root cause: `doneLinks` (the list of posted links a category card
+renders) was gated behind `isDone` — a category still short of its
+target (`added < booked`) always got `doneLinks = []`, even though some
+of its already-booked entries had real, already-posted links sitting
+right there in `bookingEntries` (confirmed on the Booking Board itself).
+So a partially-done category showed nothing but a bare "X / Y" count,
+hiding links that genuinely existed.
+
+**Fix** — `app/pick-package/[token]/page.js`: `doneLinks` now comes from
+`linksFor(c)` unconditionally (any entry with a link, regardless of
+whether the category has hit its target), so a partially-booked
+category's real posted links show immediately instead of waiting for
+full completion. The status line above the links list now reflects
+which case it actually is — the green "DONE" badge only when the
+category is truly done, otherwise the same muted "added / booked" count
+used everywhere else on this page — instead of always claiming "DONE"
+(which used to be safe only because that branch was unreachable unless
+`isDone` was already true).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
