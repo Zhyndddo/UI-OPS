@@ -1123,16 +1123,56 @@ export default function ReleaseDetailPage() {
   // built yet) — this page only reads/displays an existing link now,
   // fetched on load below, never creates one.
 
-  // INT MEDIA follow-up — special, not a normal "create a package" flow.
-  // Only ever offered after AR has locked in "Chỉ Phát Hành" (see the
-  // button's gating below). Reopens the SAME media_booking ticket rather
-  // than creating a duplicate — pulls it out of COMPLETE back to
-  // REQUESTED and pre-fills Propose Package = INT MEDIA, so Marketing
-  // sees it land back on their queue as new work. The magic-link page
-  // picks up the built INT MEDIA package automatically once it exists
-  // (see app/pick-package/[token]/page.js) — nothing else to wire here.
-  async function sendIntMediaTicket() {
-    if (form.int_media_requested) return;
+  // Round 188 — INT Package, consolidated per explicit request ("we have
+  // [...] button doing differently to the INT package... make it so it
+  // only have 1 button at a time" — confirmed on follow-up to cover all 3
+  // of the former "Send INT MEDIA Follow-up", "Send Internal Package
+  // Follow-up", and "SEND INT SUPPORT PACKAGE" buttons). One button, one
+  // function, always offered (no more "must already be locked to Chỉ
+  // Phát Hành" precondition), always targeting proposedPackage = "INT
+  // MEDIA" — "Internal Package" as a separate name/flag is retired,
+  // internal_package_requested is no longer written by this flow (the
+  // column stays in the schema, just unused going forward). 3 states,
+  // all driven off the SAME Media Booking ticket:
+  //
+  //   A. No ticket yet for this release  -> creates one fresh, proposed
+  //      Package = INT MEDIA. Package stays unresolved, waiting on
+  //      Marketing — exactly like the old "Send Package Ticket to
+  //      Marketing" flow, just pre-filled.
+  //   B. Ticket exists, not yet COMPLETE -> force it back to REQUESTED
+  //      (existing built detail untouched), re-set proposedPackage, and
+  //      re-notify Marketing. Per explicit request this stays clickable
+  //      right up until the click itself, i.e. it can force a resend even
+  //      while one is already in flight — the button then goes into its
+  //      own one-time disabled state until Marketing completes it (see
+  //      the render logic below, not this function).
+  //   C. Ticket IS COMPLETE          -> dev/AR-team only (canSimulate,
+  //      same audience the old SEND INT SUPPORT PACKAGE had): runs the
+  //      exact commit path a real artist magic-link confirm would (the
+  //      same runOne() Package Runner uses), locking this release
+  //      straight to INT MEDIA so Phụ Lục etc. auto-create identically to
+  //      a real pick. Everyone else has no action left here — the
+  //      release resolves through the ordinary magic-link confirm once
+  //      Marketing's built INT MEDIA package shows up there, completely
+  //      unchanged from before.
+  //
+  // State C is only ever reached if THIS flow is the one that requested
+  // the ticket (form.int_media_requested) — a ticket that happened to
+  // complete for an unrelated normal package request doesn't make this
+  // button offer to "lock" anything.
+  async function sendIntPackage() {
+    if (form.int_media_requested && mediaBookingTicket?.status === "COMPLETE") {
+      // State C.
+      if (!canSimulate || form.package_locked) return;
+      const r = await runOne({ did: form.did, legacyDid: "", contractType: "INT MEDIA" }, { allowOverwrite: false });
+      if (!r.ok) { setError(r.reason); return; }
+      const patch = { project_type: "INT MEDIA", package_locked: true, package_total_value: null };
+      setForm((f) => ({ ...f, ...patch }));
+      setRelease((rel) => ({ ...rel, ...patch }));
+      return;
+    }
+
+    // States A/B.
     const { data: mbTab } = await supabase.from("ticket_tabs").select("id").eq("key", "media_booking").single();
     if (mbTab) {
       const { data: existing } = await supabase
@@ -1153,25 +1193,30 @@ export default function ReleaseDetailPage() {
           .update({ status: "REQUESTED", status_log: newLog, data: newData })
           .eq("id", existing.id);
         setMediaBookingTicket((t) => (t && t.id === existing.id ? { ...t, status: "REQUESTED", status_log: newLog, data: newData } : t));
+        setHasMediaBookingTicket(true);
         // Same as sendPackageTicket's reopen path — an UPDATE never fires
         // trg_notify_on_ticket_insert, so tell Marketing by hand.
         await supabase.rpc("fanout_notification", {
           p_team: "Marketing",
           p_type: "new_ticket",
           p_title: "Media Booking ticket reopened",
-          p_body: `${form.title || "A release"} needs an INT MEDIA add-on package.`,
+          p_body: `${form.title || "A release"} needs an INT Package add-on package.`,
           p_link: "/tickets/media-booking",
           p_ticket_id: existing.id,
         });
       } else {
-        // No prior ticket somehow — fall back to creating one fresh
-        // rather than silently doing nothing.
-        await supabase.from("tickets").insert({
-          tab_id: mbTab.id,
-          data: { releaseId: form.did, proposedPackage: "INT MEDIA" },
-          status: "REQUESTED",
-          status_log: { REQUESTED: new Date().toISOString() },
-        });
+        const { data: created } = await supabase
+          .from("tickets")
+          .insert({
+            tab_id: mbTab.id,
+            data: { releaseId: form.did, proposedPackage: "INT MEDIA" },
+            status: "REQUESTED",
+            status_log: { REQUESTED: new Date().toISOString() },
+          })
+          .select()
+          .single();
+        if (created) setMediaBookingTicket(created);
+        setHasMediaBookingTicket(true);
       }
     }
 
@@ -1179,94 +1224,6 @@ export default function ReleaseDetailPage() {
     await supabase.from("releases").update(patch).eq("id", id);
     setForm((f) => ({ ...f, ...patch }));
     setRelease((r) => ({ ...r, ...patch }));
-  }
-
-  // Round 176 — Internal Package shortcut, per explicit request: the only
-  // way to get an internal-only tracking package built used to be the
-  // Media Booking ticket's own naming popup (someone in Marketing has to
-  // open the ticket and manually click "Internal Package"). This reuses
-  // sendIntMediaTicket()'s exact mechanics — same "reopen the existing
-  // ticket, or create one fresh, pre-filled with the target package name"
-  // shape — but for "Internal Package" instead of "INT MEDIA", and
-  // deliberately WITHOUT the "AR must have already locked Chỉ Phát Hành"
-  // precondition INT MEDIA's button has: the whole point of this shortcut
-  // is to skip straight to reopening the ticket for Marketing, without
-  // making AR walk the artist through picking "no package" first. Tracked
-  // by its own `internal_package_requested` flag (not int_media_requested)
-  // so the two follow-ups stay independent — using one doesn't disable or
-  // interfere with the other. The pick-package magic-link page picks up
-  // the built "Internal Package" package automatically once it exists,
-  // same as INT MEDIA (see app/pick-package/[token]/page.js).
-  async function sendInternalPackageTicket() {
-    if (form.internal_package_requested) return;
-    const { data: mbTab } = await supabase.from("ticket_tabs").select("id").eq("key", "media_booking").single();
-    if (mbTab) {
-      const { data: existing } = await supabase
-        .from("tickets")
-        .select("id, data, status_log")
-        .eq("tab_id", mbTab.id)
-        .contains("data", { releaseId: form.did })
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (existing) {
-        const newLog = { ...(existing.status_log || {}), REQUESTED: new Date().toISOString() };
-        const newData = { ...(existing.data || {}), proposedPackage: "Internal Package" };
-        await supabase
-          .from("tickets")
-          .update({ status: "REQUESTED", status_log: newLog, data: newData })
-          .eq("id", existing.id);
-        setMediaBookingTicket((t) => (t && t.id === existing.id ? { ...t, status: "REQUESTED", status_log: newLog, data: newData } : t));
-        await supabase.rpc("fanout_notification", {
-          p_team: "Marketing",
-          p_type: "new_ticket",
-          p_title: "Media Booking ticket reopened",
-          p_body: `${form.title || "A release"} needs an Internal Package add-on package.`,
-          p_link: "/tickets/media-booking",
-          p_ticket_id: existing.id,
-        });
-      } else {
-        await supabase.from("tickets").insert({
-          tab_id: mbTab.id,
-          data: { releaseId: form.did, proposedPackage: "Internal Package" },
-          status: "REQUESTED",
-          status_log: { REQUESTED: new Date().toISOString() },
-        });
-      }
-    }
-
-    const patch = { internal_package_requested: true };
-    await supabase.from("releases").update(patch).eq("id", id);
-    setForm((f) => ({ ...f, ...patch }));
-    setRelease((r) => ({ ...r, ...patch }));
-  }
-
-  // Round 77 — item 4b: "SEND INT SUPPORT PACKAGE" (round 83 item 1 —
-  // opened up from dev-only to dev + any AR team member, see canSimulate
-  // above). Runs the same "simulation" commit Package Runner
-  // uses (lib/packageSimulator.js's runOne — the exact 3 writes
-  // confirmChoice() does on the real artist-facing magic link), but with
-  // contractType "INT MEDIA" instead of "Chỉ Phát Hành" — this is the
-  // "lock the package name to INTERNAL" part of the ask: the real package
-  // name for the internal-support tier is "INT MEDIA" (see
-  // media_booking_packages.name in app/tickets/media-booking/page.js —
-  // matched against release.project_type the same way every other package
-  // is), there's no separate "INTERNAL" value anywhere in the schema.
-  // Then reuses sendIntMediaTicket() verbatim for the "resend for internal
-  // support" half — that function already reopens the SAME existing Media
-  // Booking ticket rather than creating a second one (or creates exactly
-  // one if none exists yet), so running these two steps back-to-back here
-  // sends the ticket exactly once, not twice.
-  async function sendIntSupportPackage() {
-    if (!canSimulate || form.int_media_requested) return;
-    const r = await runOne({ did: form.did, legacyDid: "", contractType: "INT MEDIA" }, { allowOverwrite: false });
-    if (!r.ok) { setError(r.reason); return; }
-    const patch = { project_type: "INT MEDIA", package_locked: true, package_total_value: null };
-    setForm((f) => ({ ...f, ...patch }));
-    setRelease((rel) => ({ ...rel, ...patch }));
-    await sendIntMediaTicket();
   }
 
   // Round 77 — item 4b: "ONLY PH" (round 83 item 1 — opened up from
@@ -1285,6 +1242,22 @@ export default function ReleaseDetailPage() {
     const patch = { project_type: "Chỉ Phát Hành", package_locked: true, package_total_value: null };
     setForm((f) => ({ ...f, ...patch }));
     setRelease((rel) => ({ ...rel, ...patch }));
+  }
+
+  // Round 188 — "Send Artist" moved here from the Booking Board's Media
+  // Report cell, per explicit correction ("I believe i ask you to do it,
+  // bet i word it wrong"). Same one-time, irreversible action as before
+  // (media_report_status "ready" -> "sent", release marked complete) —
+  // just relocated, and the Booking Board's own MediaReportCell now shows
+  // the magic link URL directly once converted instead of this button
+  // (see convertMediaReport/MediaReportCell in app/booking/page.js).
+  async function sendArtistMediaReport() {
+    if (form.media_report_status !== "ready") return;
+    if (!window.confirm("Send this Media Report to the artist? This can only be done once, and marks the product as complete.")) return;
+    const patch = { media_report_status: "sent", status: "Hoàn thành" };
+    await supabase.from("releases").update(patch).eq("id", id);
+    setForm((f) => ({ ...f, ...patch }));
+    setRelease((r) => ({ ...r, ...patch }));
   }
 
   async function togglePackageLock() {
@@ -1472,10 +1445,8 @@ export default function ReleaseDetailPage() {
             onSendPackageTicket={sendPackageTicket}
             hasMediaBookingTicket={hasMediaBookingTicket}
             mediaBookingTicket={mediaBookingTicket}
-            onSendIntMediaTicket={sendIntMediaTicket}
-            onSendInternalPackageTicket={sendInternalPackageTicket}
+            onSendIntPackage={sendIntPackage}
             canSimulate={canSimulate}
-            onSendIntSupportPackage={sendIntSupportPackage}
             onSendOnlyPh={sendOnlyPh}
             canResetToDealing={canResetToDealing}
             onResetToDealing={resetToDealing}
@@ -1781,7 +1752,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntMediaTicket, onSendInternalPackageTicket, canSimulate, onSendIntSupportPackage, onSendOnlyPh, canResetToDealing, onResetToDealing, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, updateArtistTags, artistProfileArtistTags, artistProfileVerifySelected, onToggleArtistProfileArtist, artistProfileTicketByArtist, coTrongNetDraft, onCoTrongNetChange, onSendCoTrongNetYoutube, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError, onCopyrightChange, copyrightGateOk }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntPackage, canSimulate, onSendOnlyPh, canResetToDealing, onResetToDealing, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, updateArtistTags, artistProfileArtistTags, artistProfileVerifySelected, onToggleArtistProfileArtist, artistProfileTicketByArtist, coTrongNetDraft, onCoTrongNetChange, onSendCoTrongNetYoutube, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError, onCopyrightChange, copyrightGateOk }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -1975,6 +1946,25 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
               </div>
             </div>
           )}
+          {/* Round 188 — "Send Artist" moved here from the Booking Board's
+              Media Report cell, per explicit request ("right next to the
+              package, in the between of label and package text"). Only
+              shows once the Booking Board's "Convert Media Report" step
+              has run (media_report_status "ready") — nothing to send
+              before that. Same one-time click as before: confirms, then
+              locks to "sent" and marks the release complete. */}
+          {form.media_report_status === "ready" && (
+            <div style={{ marginTop: 4 }}>
+              <button className={styles.btnSmall} onClick={sendArtistMediaReport} style={{ border: "1px solid #ffca4d", color: "#ffca4d" }}>
+                Send Artist
+              </button>
+            </div>
+          )}
+          {form.media_report_status === "sent" && (
+            <div style={{ marginTop: 4, fontSize: 11, color: "#7ee6a8", fontWeight: 700 }}>
+              ✓ Sent to Artist
+            </div>
+          )}
         </div>
       </div>
 
@@ -2086,48 +2076,66 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
               ? "Send Package Ticket Again"
               : "Package Ticket Already Sent"}
           </button>
-          {form.project_type === "Chỉ Phát Hành" && (
-            <button
-              className={styles.btnSmall}
-              onClick={onSendIntMediaTicket}
-              disabled={form.int_media_requested}
-              style={form.int_media_requested ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
-              title="Reopens the Media Booking ticket for Marketing to build an INT MEDIA add-on package"
-            >
-              {form.int_media_requested ? "INT MEDIA Follow-up Sent" : "Send INT MEDIA Follow-up"}
-            </button>
+          {/* Round 188 — the 3 former INT-package buttons ("Send INT MEDIA
+              Follow-up", "Send Internal Package Follow-up", "SEND INT
+              SUPPORT PACKAGE") collapse into this ONE button, per explicit
+              request ("we have [...] button doing differently to the INT
+              package... make it so it only have 1 button at a time").
+              Always offered — no more "must already be Chỉ Phát Hành"
+              gate. Its label/action switches across the 3 states
+              sendIntPackage() itself documents (send a new ticket / force
+              a resend / dev-AR-only instant-lock once Marketing's ticket
+              is COMPLETE) — see that function for the full writeup. Hidden
+              entirely once this release is actually resolved to INT
+              MEDIA, replaced by a plain locked indicator right below. */}
+          {!(form.project_type === "INT MEDIA" && form.package_locked) && (() => {
+            const ticketComplete = mediaBookingTicket?.status === "COMPLETE";
+            const requested = form.int_media_requested;
+            let label, disabled, title;
+            if (requested && ticketComplete) {
+              if (canSimulate) {
+                label = "Lock INT Package";
+                disabled = false;
+                title = "Marketing has completed the ticket — lock this release straight to INT MEDIA, same as a real artist confirm.";
+              } else {
+                label = "INT Package Ready";
+                disabled = true;
+                title = "Marketing has completed the built INT MEDIA package — confirm it via the artist magic link.";
+              }
+            } else if (requested) {
+              label = "INT Package Requested";
+              disabled = true;
+              title = "Waiting on Marketing to complete the Media Booking ticket.";
+            } else {
+              label = "Send INT Package";
+              disabled = false;
+              title = "Sends (or reopens) the Media Booking ticket to Marketing with an INT MEDIA package request — skips the normal artist-picks-Chỉ-Phát-Hành-first flow entirely.";
+            }
+            return (
+              <button
+                className={styles.btnSmall}
+                onClick={onSendIntPackage}
+                disabled={disabled}
+                style={disabled ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+                title={title}
+              >
+                {label}
+              </button>
+            );
+          })()}
+          {form.project_type === "INT MEDIA" && form.package_locked && (
+            <span style={{ fontSize: 11, color: "#7ee6a8", fontWeight: 700 }}>✓ INT Package Locked</span>
           )}
-          {/* Round 176 — Internal Package shortcut, per explicit request:
-              same mechanics as the INT MEDIA button above, but with no
-              "must already be locked to Chỉ Phát Hành" gate — this is the
-              whole point of it being a shortcut, so it's always offered
-              (like Send Package Ticket to Marketing above), not tied to
-              any particular project_type/pipeline stage. */}
-          <button
-            className={styles.btnSmall}
-            onClick={onSendInternalPackageTicket}
-            disabled={form.internal_package_requested}
-            style={form.internal_package_requested ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
-            title="Skips straight to reopening the Media Booking ticket for Marketing to build an Internal Package — no need to lock the release to Chỉ Phát Hành first"
-          >
-            {form.internal_package_requested ? "Internal Package Follow-up Sent" : "Send Internal Package Follow-up"}
-          </button>
-          {/* Round 77 — item 4b: fast-track buttons that run the same
+          {/* Round 77 — item 4b: fast-track button that runs the same
               "simulation" Package Runner does (see canSimulate,
               lib/packageSimulator.js), directly from the release itself
               instead of a separate tool page. Round 83 item 1 — opened up
-              to every AR team member, not just dev (see canSimulate). */}
+              to every AR team member, not just dev (see canSimulate).
+              Round 188 — its INT-MEDIA-specific sibling (SEND INT SUPPORT
+              PACKAGE) is gone, folded into the unified button above; ONLY
+              PH (the Chỉ Phát Hành fast-track) is untouched. */}
           {canSimulate && (
             <>
-              <button
-                className={styles.btnSmall}
-                onClick={onSendIntSupportPackage}
-                disabled={form.int_media_requested}
-                style={form.int_media_requested ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
-                title="Locks this release straight to INT MEDIA and reopens/sends the Media Booking ticket for Marketing to build it, without waiting on the magic link."
-              >
-                {form.int_media_requested ? "INT SUPPORT PACKAGE Sent" : "SEND INT SUPPORT PACKAGE"}
-              </button>
               <button
                 className={styles.btnSmall}
                 onClick={onSendOnlyPh}
@@ -2144,8 +2152,8 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
             </>
           )}
           {/* Round 121 — the undo for a resolved package decision (INT
-              MEDIA via SEND INT SUPPORT PACKAGE above, or any other real
-              contract type) — puts the release back at DEALING. Admin+
+              MEDIA via the unified INT Package button above, or any other
+              real contract type) — puts the release back at DEALING. Admin+
               only (canResetToDealing), independent of canSimulate — this
               is a step up from the shortcuts above, not another one of
               them. Only shown once there's actually something resolved to

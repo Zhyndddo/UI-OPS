@@ -421,17 +421,20 @@ export default function BookingBoard() {
   // Round 54 — item B.1: "Convert Media Report" turns this release's
   // magic link from a "Package Offer" into a "Media Report" everywhere it's
   // named (see release.media_report_status, read by app/pick-package,
-  // app/releases/[id], and the media-booking ticket). 'ready' shows
-  // "Send Artist" here next; clicking that is one-time — it flips to
-  // 'sent' (locked, no more clicks) and marks the release complete.
+  // app/releases/[id], and the media-booking ticket).
+  //
+  // Round 188 — per explicit correction ("I believe i ask you to do it,
+  // bet i word it wrong"): the one-time confirm warning belongs on THIS
+  // click, not on a "Send Artist" click here — that button moved entirely
+  // to the release detail page (see sendArtistMediaReport in
+  // app/releases/[id]/page.js, which flips media_report_status straight
+  // from "ready" to "sent"). Once converted ('ready' or 'sent'),
+  // MediaReportCell below shows the magic link URL itself instead of any
+  // button — nothing left to click here either way.
   async function convertMediaReport(release) {
+    if (!window.confirm("Convert this magic link to a Media Report? This can only be done once — the artist will then see a Media Report instead of a Package Offer.")) return;
     setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, media_report_status: "ready" } : r)));
     await supabase.from("releases").update({ media_report_status: "ready" }).eq("id", release.id);
-  }
-
-  async function sendArtistMediaReport(release) {
-    setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, media_report_status: "sent" } : r)));
-    await supabase.from("releases").update({ media_report_status: "sent", status: "Hoàn thành" }).eq("id", release.id);
   }
 
   // Mirrors phu_luc_status() in schema.sql
@@ -1275,7 +1278,6 @@ export default function BookingBoard() {
             setPackagePreview={setPackagePreview}
             updateReleaseNote={updateReleaseNote}
             convertMediaReport={convertMediaReport}
-            sendArtistMediaReport={sendArtistMediaReport}
             expandedCell={expandedCell}
             setExpandedCell={setExpandedCell}
             addEntry={addEntry}
@@ -1392,7 +1394,7 @@ export default function BookingBoard() {
                     <NoteCell release={r} onSave={updateReleaseNote} />
                   </td>
                   <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>
-                    <MediaReportCell release={r} onConvert={convertMediaReport} onSendArtist={sendArtistMediaReport} />
+                    <MediaReportCell release={r} onConvert={convertMediaReport} />
                   </td>
                   {columns.map((c, i) => {
                     const prev = columns[i - 1];
@@ -1497,7 +1499,7 @@ export default function BookingBoard() {
 function BookingBoardCards({
   releases, categories, columns, bookedFor, addedFor, roundEntries, categoryIdByName,
   hangMucFilter, subFilter, round, phuLucStatus, setPackagePreview, updateReleaseNote,
-  convertMediaReport, sendArtistMediaReport, expandedCell, setExpandedCell, addEntry, addEntries,
+  convertMediaReport, expandedCell, setExpandedCell, addEntry, addEntries,
   cycleStatus, bookingChannels, saveAdsQuantity, updateYoutubeAdsField,
 }) {
   // Same grouping the table's header uses (columns are already sorted by
@@ -1572,7 +1574,7 @@ function BookingBoardCards({
               </div>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Media Report</div>
-                <MediaReportCell release={r} onConvert={convertMediaReport} onSendArtist={sendArtistMediaReport} />
+                <MediaReportCell release={r} onConvert={convertMediaReport} />
               </div>
             </div>
 
@@ -1843,34 +1845,43 @@ function NoteCell({ release, onSave }) {
   );
 }
 
-// Round 54 — item B.1: 3-state fixed cell.
+// Round 54 — item B.1, reshaped in round 188 per explicit correction.
 //   no magic link yet        → nothing to convert, shows a dash
 //   link exists, not yet     → "Convert Media Report" button (special
-//     converted                accent styling per explicit request)
-//   media_report_status      → "Send Artist" button
-//     === "ready"
-//   media_report_status      → locked "Artist Sent" label, no more clicks
-//     === "sent"
-function MediaReportCell({ release, onConvert, onSendArtist }) {
+//     converted                accent styling per explicit request) — the
+//                               one-time confirm warning now lives on THIS
+//                               click (see convertMediaReport above),
+//                               since it's the only irreversible action
+//                               left in this cell.
+//   media_report_status      → the magic link URL itself, shown directly
+//     === "ready" or "sent"    (no more "Send Artist" button here — that
+//                               moved to the release detail page, see
+//                               sendArtistMediaReport in
+//                               app/releases/[id]/page.js). "sent" adds a
+//                               small "✓ Sent to Artist" tag underneath —
+//                               that data now comes from the detail page's
+//                               button, not from any action in this cell.
+function MediaReportCell({ release, onConvert }) {
   if (!release.link_media_report) {
     return <span style={{ color: "var(--text-faint)", fontSize: 12 }}>—</span>;
   }
-  if (release.media_report_status === "sent") {
+  if (release.media_report_status === "ready" || release.media_report_status === "sent") {
     return (
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "#7ee6a8", fontWeight: 700 }}>
-        ✓ Artist Sent
-      </span>
-    );
-  }
-  if (release.media_report_status === "ready") {
-    return (
-      <button
-        className={styles.btnSmall}
-        onClick={() => { if (window.confirm("Send this Media Report to the artist? This can only be done once, and marks the product as complete.")) onSendArtist(release); }}
-        style={{ border: "1px solid #ffca4d", color: "#ffca4d" }}
-      >
-        Send Artist
-      </button>
+      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        <a
+          href={release.link_media_report}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ fontSize: 11, color: "#ff9d5c", wordBreak: "break-all" }}
+        >
+          {release.link_media_report}
+        </a>
+        {release.media_report_status === "sent" && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#7ee6a8", fontWeight: 700 }}>
+            ✓ Sent to Artist
+          </span>
+        )}
+      </div>
     );
   }
   return (

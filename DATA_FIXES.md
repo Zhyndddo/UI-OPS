@@ -10216,3 +10216,84 @@ Files: `lib/pitchingDomesticServices.js`, `app/workstation/pitching/page.js`,
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## 2026-08-25 (188)
+
+Three items, per explicit request.
+
+**Item 1 — Media Report cell rework.** Correction of a prior mis-scoped
+ask ("I believe i ask you to do it, bet i word it wrong"). The Booking
+Board's "Convert Media Report" click now carries the one-time confirm
+warning (it didn't before — the confirm used to sit on "Send Artist"
+instead). Once converted (`media_report_status` "ready" or "sent"),
+the cell shows the magic link URL itself directly instead of a "Send
+Artist" button — that button is gone from here entirely (moved to the
+release detail page, item 2). A small "✓ Sent to Artist" tag appears
+under the URL once `media_report_status` is "sent" — that status now
+only ever gets set from the detail page's own button.
+
+Files: `app/booking/page.js` — `convertMediaReport` gained the confirm;
+`sendArtistMediaReport` and all `onSendArtist` plumbing removed;
+`MediaReportCell` reshaped to show the URL + tag instead of a button
+once converted.
+
+**Item 2 — "Send Artist" relocated.** Moved from the Booking Board to
+the release detail page's Overview tab, in the right-hand column right
+below the Label/Hợp Tác block (vertically beside the "Package (Gói Hỗ
+Trợ Truyền Thông)" text on the left), per the attached screenshot. Same
+function as before — one-time click, confirm dialog, flips
+`media_report_status` "ready" → "sent" and marks the release
+`"Hoàn thành"`. Shows a small "✓ Sent to Artist" line once sent. Since
+both pages read/write the same `releases.media_report_status` column,
+the Booking Board's own tag (item 1) reflects a send made here
+immediately (next load).
+
+Files: `app/releases/[id]/page.js` — new `sendArtistMediaReport()`, new
+button/tag block in the Overview tab's Label/Hợp Tác column.
+
+**Item 3 — INT Package, consolidated to one button.** Confirmed over 2
+follow-up rounds of clarification: all 3 former INT-related buttons
+("Send INT MEDIA Follow-up", "Send Internal Package Follow-up", "SEND
+INT SUPPORT PACKAGE") collapse into ONE always-visible "Send INT
+Package" button, no more "must already be locked to Chỉ Phát Hành"
+precondition, always targeting `proposedPackage = "INT MEDIA"` — the
+separate "Internal Package" name/flag is retired (its DB column,
+`internal_package_requested`, stays in the schema but is no longer
+written by this flow).
+
+One button, 3 states, all driven off the release's single Media
+Booking ticket:
+- **No ticket yet** → creates one fresh with `proposedPackage: "INT
+  MEDIA"`. Package stays unresolved, waiting on Marketing.
+- **Ticket exists, not yet COMPLETE** → force it back to `REQUESTED`
+  (existing built detail untouched), re-set `proposedPackage`,
+  re-notify Marketing. Per explicit confirmation ("keep a one-time
+  disable"), the button then shows a disabled "INT Package Requested"
+  state until Marketing completes it — it does NOT stay endlessly
+  re-clickable.
+- **Ticket IS COMPLETE** → dev/AR-team only (`canSimulate`, same
+  audience the old SEND INT SUPPORT PACKAGE had — confirmed to stay
+  restricted, not opened to everyone): runs the exact commit path a
+  real artist magic-link confirm would (`runOne()`, same as Package
+  Runner), locking the release straight to INT MEDIA so Phụ Lục etc.
+  auto-create identically to a real pick. Everyone else sees a disabled
+  "INT Package Ready" state — their path is the ordinary magic-link
+  confirm once Marketing's built package shows up there, completely
+  unchanged from before. This state is only ever reached if THIS flow
+  requested the ticket in the first place (`int_media_requested` true)
+  — a ticket that completed for an unrelated normal package request
+  doesn't make this button start offering to lock anything.
+
+Once resolved (`project_type === "INT MEDIA" && package_locked`), the
+button disappears entirely, replaced by a plain "✓ INT Package Locked"
+indicator — matches the existing "done" pattern used elsewhere on this
+page. "ONLY PH" and "Reset to DEALING" are untouched.
+
+Files: `app/releases/[id]/page.js` — `sendIntMediaTicket`,
+`sendInternalPackageTicket`, and `sendIntSupportPackage` replaced by
+one `sendIntPackage()`; the 3 old buttons replaced by 1 in
+`OverviewTab`'s Package Actions row.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
