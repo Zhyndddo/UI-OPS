@@ -9930,3 +9930,63 @@ sentence-like label better than jamming it into one line.
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## 2026-08-24 (182)
+
+3-item batch: pick-package channel label theming, a real Milestone
+Workstation data-loss bug, and a theme token reference (no code — an
+artifact).
+
+**Item 1 — pick-package channel label now theme-aware.** The real-channel
+label from round 181 (`app/pick-package/[token]/page.js`) was a fixed
+`#ff9d5c` orange; per explicit request it's now `var(--text)` — white on
+this page's dark theme, black on light — for better contrast than a
+peachy orange on a near-white light-mode background.
+
+**Item 2 — Milestone Workstation Input popup: a real bug, not user
+error, per explicit report ("some retain, some don't... quirk").**
+Root cause: `handleDidBlur` (fired when a row's DID field loses focus)
+computed its patched row off the `rows` array closed over at the moment
+of that blur event, then waited on an async `releases` lookup before
+calling `setRows(next)`. Any edit made to that chart's rows WHILE that
+lookup was still in flight — typing in another row, adding or deleting
+a row, dragging a reorder — got silently overwritten the instant the
+lookup resolved and wrote back its now-stale snapshot. A classic
+stale-closure race, and exactly "quirky": it only reproduces when a DID
+lookup happens to still be pending when something else touches the same
+chart's rows (network latency dependent, so intermittent by nature).
+
+Fixed by routing `handleDidBlur` through `setRowsByChart`'s functional
+updater instead of the closed-over `rows` array, so its patch always
+applies on top of whatever state is CURRENT when the lookup resolves —
+and bails out safely if the row it was targeting no longer exists by
+then (e.g. deleted mid-flight), instead of writing into a stale index.
+
+Also hardened `saveRows` (the parent's own save function) while in
+there: it had zero error handling on the upsert call — a payload with
+two rows sharing the same natural key (chart/track_title/artist/
+entry_date), e.g. a song typed in twice, makes Postgres reject the
+WHOLE batch (`ON CONFLICT DO UPDATE command cannot affect row a second
+time`), and this call swallowed that completely, calling `load()`
+right after regardless — which then reflected none of that chart's
+just-typed rows, reading exactly like they'd been deleted. Now de-dupes
+the payload (last occurrence wins) before upserting, and on any upsert
+error, alerts the user and throws instead of silently reloading as if
+it had succeeded — `handleSaveAll` catches that so the popup stays open
+(nothing lost) and the Save button re-enables for another try, instead
+of dying with an unhandled rejection.
+
+**Item 3 — theme color reference, per explicit request** ("a table of
+what color we are using for a theme so I can give you a color
+combination for new theme"). Not a code change — published as an
+artifact: every dark/light CSS variable `app/globals.css` actually
+defines (surfaces, borders, text, accent, status, and the handful of
+deliberately theme-fixed highlight colors), grouped with swatches and a
+short "used for" note per token, plus a live dark/light preview toggle
+on the page itself. Meant as the menu for a future "change the theme"
+request — naming a token group and a target hex, or describing a mood,
+both map directly onto these same variables.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).

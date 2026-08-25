@@ -125,9 +125,31 @@ export default function MilestoneWorkstation() {
         sort_order: i,
       }));
     if (payload.length === 0) return;
+    // Round 182 — de-dupe on the exact same natural key the upsert itself
+    // conflicts on (chart/track_title/artist/entry_date — platform is
+    // fixed per call already), keeping the LAST occurrence. Two rows in
+    // one popup save sharing that key (e.g. a song typed in twice, or
+    // left over from a carry-forward that wasn't cleaned up) used to make
+    // Postgres itself reject the whole batch — "ON CONFLICT DO UPDATE
+    // command cannot affect row a second time" — and this call had no
+    // error handling at all, so that failure was completely silent: the
+    // popup called load() right after regardless, which then reflected
+    // NONE of this chart's just-typed rows, reading exactly like they'd
+    // been deleted.
+    const seen = new Map();
+    payload.forEach((row) => seen.set(`${row.track_title}␟${row.artist}`, row));
+    const deduped = [...seen.values()];
     // Real upsert on the natural key so re-entering today's numbers for
     // the same chart/song just updates rather than duplicating.
-    await supabase.from("milestone_chart_entries").upsert(payload, { onConflict: "chart,track_title,artist,entry_date" });
+    const { error } = await supabase.from("milestone_chart_entries").upsert(deduped, { onConflict: "chart,track_title,artist,entry_date" });
+    if (error) {
+      // Round 182 — surface a failed save instead of silently reloading
+      // as if it had worked; the caller (ChartEntryPopup's handleSaveAll)
+      // still awaits this, so throwing here stops it from moving on to
+      // the next chart or closing the popup on a failed write.
+      alert(`Failed to save ${chart}: ${error.message}`);
+      throw error;
+    }
     load();
   }
 
@@ -507,15 +529,37 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
     next.splice(to, 0, moved);
     setRows(next);
   }
-  async function handleDidBlur(i, did) {
+  // Round 182 — fix for "rows getting deleted, some retain, some don't"
+  // (a real bug, not user error): this used to compute `next` off the
+  // `rows` closure captured at the moment the DID input was blurred, then
+  // call setRows(next) only after awaiting a network round-trip (the
+  // releases lookup). Any edit made to this chart's rows WHILE that
+  // lookup was in flight — typing in another row, adding/deleting a row,
+  // dragging a reorder — got silently clobbered the instant this resolved
+  // and wrote back its now-stale snapshot, overwriting whatever the user
+  // had done in the meantime. Classic stale-closure race, and exactly
+  // "quirky": only reproduces when a DID lookup happens to still be
+  // pending when something else touches the same chart's rows. Fixed by
+  // reading and writing through setRowsByChart's functional updater, so
+  // this always applies its patch on top of whatever `rowsByChart` state
+  // is CURRENT when the lookup resolves, not a snapshot from before it
+  // started. Also now bails out safely (no-op) if the row at index `i`
+  // no longer exists by then (e.g. it was deleted while the lookup was
+  // in flight) instead of writing into an out-of-bounds hole.
+  async function handleDidBlur(i, did, chart) {
     if (!did.trim()) return;
     const { data } = await supabase.from("releases").select("title, main_artist").eq("did", did.trim()).maybeSingle();
-    if (data) {
-      const next = [...rows];
-      if (!next[i].track_title) next[i].track_title = data.title;
-      if (!next[i].artist) next[i].artist = data.main_artist;
-      setRows(next);
-    }
+    if (!data) return;
+    setRowsByChart((prev) => {
+      const currentRows = prev[chart];
+      if (!currentRows || !currentRows[i]) return prev;
+      const next = [...currentRows];
+      const row = { ...next[i] };
+      if (!row.track_title) row.track_title = data.title;
+      if (!row.artist) row.artist = data.main_artist;
+      next[i] = row;
+      return { ...prev, [chart]: next };
+    });
   }
 
   // Round 178 — fix for "rows aren't persisting after Save + reopen",
@@ -537,11 +581,20 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
   async function handleSaveAll() {
     if (saving) return;
     setSaving(true);
-    for (const [chart, chartRows] of Object.entries(rowsByChart)) {
-      await onSave(platform, chart, chartRows);
+    try {
+      for (const [chart, chartRows] of Object.entries(rowsByChart)) {
+        await onSave(platform, chart, chartRows);
+      }
+      onClose();
+    } catch {
+      // Round 182 — saveRows now throws (after alerting) on a real
+      // upsert failure instead of failing silently — catch it here so
+      // the popup stays open (nothing was closed/lost) and the button
+      // re-enables for another try, instead of the whole save flow
+      // dying with an unhandled rejection.
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    onClose();
   }
 
   return (
@@ -636,7 +689,7 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
                     <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12 }} value={r.track_title} onChange={(e) => updateRow(i, "track_title", e.target.value)} /></td>
                     <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12 }} value={r.artist} onChange={(e) => updateRow(i, "artist", e.target.value)} /></td>
                     <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12, width: 60 }} value={r.rank} onChange={(e) => updateRow(i, "rank", e.target.value)} /></td>
-                    <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12, width: 100 }} value={r.did} onChange={(e) => updateRow(i, "did", e.target.value)} onBlur={(e) => handleDidBlur(i, e.target.value)} /></td>
+                    <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12, width: 100 }} value={r.did} onChange={(e) => updateRow(i, "did", e.target.value)} onBlur={(e) => handleDidBlur(i, e.target.value, activeChart)} /></td>
                     <td><button onClick={() => setRows(rows.filter((_, idx) => idx !== i))} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button></td>
                   </tr>
                 ))}

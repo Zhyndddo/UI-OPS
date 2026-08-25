@@ -1346,13 +1346,18 @@ export default function PickPackagePage() {
                       // now renders the same compact single-line "channel:
                       // url" layout the internal Booking Board's own entry
                       // rows use (app/booking/page.js's renderEntryRow) —
-                      // bold orange label immediately followed by the
-                      // link, both on one line. Round 179's stacked
-                      // two-line layout (label above, link below) is kept
-                      // as the fallback presentation — only used when
-                      // there's no real channel and this is showing the
-                      // Hạng Mục text instead, where the extra room reads
-                      // better for a longer, more sentence-like label.
+                      // bold label immediately followed by the link, both
+                      // on one line. Round 179's stacked two-line layout
+                      // (label above, link below) is kept as the fallback
+                      // presentation — only used when there's no real
+                      // channel and this is showing the Hạng Mục text
+                      // instead, where the extra room reads better for a
+                      // longer, more sentence-like label.
+                      // Round 182 — the channel label is now `var(--text)`
+                      // (white on this page's dark theme, black on
+                      // light) instead of a fixed orange, per explicit
+                      // request — better contrast in light mode than a
+                      // peachy orange on a near-white background.
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
                         <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: isMobile ? 16 : 12 }}>DONE</span>
                         {doneLinks.map((e) => {
@@ -1361,7 +1366,7 @@ export default function PickPackagePage() {
                           if (realChannel) {
                             return (
                               <div key={e.id} style={{ fontSize: isMobile ? 13 : 12, wordBreak: "break-all" }}>
-                                <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{realChannel}: </span>
+                                <span style={{ color: "var(--text)", fontWeight: 700 }}>{realChannel}: </span>
                                 <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a" }}>{e.link}</a>
                               </div>
                             );
