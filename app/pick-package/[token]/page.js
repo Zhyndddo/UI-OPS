@@ -654,18 +654,29 @@ export default function PickPackagePage() {
     return bookingEntries.filter((e) => e.booking_round === round && e.category_id === category.id && e.link);
   }
 
-  // Round 180 — per explicit report: Marketing is supposed to type a real
-  // channel/page name into each booking entry's own channel field, but
-  // some entries end up with that field blank (missed the memo). Rather
-  // than showing nothing for those, fall back to the category's own Hạng
-  // Mục line item text (media_booking_package_lines.detail — the same
-  // "Chi Tiết" text shown on this page's own itemized package table, e.g.
-  // "Lời Ca Tiếng Hát", "Nhạc Thường Thức") so there's still SOME readable
-  // label instead of a bare link. Only used when channel_name is genuinely
-  // missing — a filled-in real channel name always wins. Matches on
-  // category only (not brand/subchannel), since a category can carry more
-  // than one Hạng Mục line — good enough for a safety net, not meant to
-  // be a precise per-entry match.
+  // Round 181 — per explicit correction: round 180 read `channel_name`
+  // as "the real channel name", but that's not actually the field the
+  // Booking Board's own "Channel name" input writes to — see
+  // app/booking/page.js's BrandCell/saveEdit, whose Channel-name field
+  // patches `platform` (`channel_name` on media_booking_entries is set
+  // once at insert time from the cell's own `brand`/column grouping —
+  // effectively a Hạng Mục-level label, not a per-entry one, which is
+  // exactly why round 180's fallback data looked identical across every
+  // link in a category). `entries.platform` is what actually varies
+  // per-entry and is what Marketing types in — same field the internal
+  // Booking Board's own read-only row (renderEntryRow) displays as the
+  // label. This page now follows that same source of truth.
+  //
+  // Fallback, per explicit report: Marketing is supposed to type a real
+  // channel/page name into each entry, but some entries end up with that
+  // field blank (missed the memo). Rather than showing nothing for
+  // those, fall back to the category's own Hạng Mục line item text
+  // (media_booking_package_lines.detail — the same "Chi Tiết" text shown
+  // on this page's own itemized package table, e.g. "Lời Ca Tiếng Hát",
+  // "Nhạc Thường Thức") so there's still SOME readable label instead of
+  // a bare link. Matches on category only (not brand/subchannel), since
+  // a category can carry more than one Hạng Mục line — good enough for a
+  // safety net, not meant to be a precise per-entry match.
   function hangMucFor(category) {
     const line = packageLines.find((l) => l.category_id === category.id);
     return line ? formatDetailText(line.detail) || line.brand || null : null;
@@ -1322,19 +1333,39 @@ export default function PickPackagePage() {
                       // readable text instead of a bare 🔗 icon.
                       // Round 179 — per explicit report ("kinda hard" to
                       // read as one run-on line): channel name and url
-                      // are now visually separate rather than one string —
-                      // channel name as its own plain-text label line,
-                      // url as its own link line below it, colored orange
-                      // (matching this page's accent, e.g. the category
-                      // headers just above) instead of blue.
-                      // Round 180 — the label line now falls back to the
+                      // are visually separate rather than one string,
+                      // colored orange (matching this page's accent, e.g.
+                      // the category headers just above) instead of blue.
+                      // Round 180 — the label falls back to the
                       // category's Hạng Mục detail text (hangMucFor) when
-                      // an entry's own channel_name is blank, instead of
-                      // just disappearing — see hangMucFor's comment.
+                      // an entry has no real channel, instead of just
+                      // disappearing — see hangMucFor's comment.
+                      // Round 181 — per explicit request, a REAL per-entry
+                      // channel (`platform` — see hangMucFor's comment on
+                      // why that's the correct field, not channel_name)
+                      // now renders the same compact single-line "channel:
+                      // url" layout the internal Booking Board's own entry
+                      // rows use (app/booking/page.js's renderEntryRow) —
+                      // bold orange label immediately followed by the
+                      // link, both on one line. Round 179's stacked
+                      // two-line layout (label above, link below) is kept
+                      // as the fallback presentation — only used when
+                      // there's no real channel and this is showing the
+                      // Hạng Mục text instead, where the extra room reads
+                      // better for a longer, more sentence-like label.
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
                         <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: isMobile ? 16 : 12 }}>DONE</span>
                         {doneLinks.map((e) => {
-                          const label = e.channel_name || hangMucFor(c);
+                          const realChannel = e.platform || null;
+                          const label = realChannel || hangMucFor(c);
+                          if (realChannel) {
+                            return (
+                              <div key={e.id} style={{ fontSize: isMobile ? 13 : 12, wordBreak: "break-all" }}>
+                                <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{realChannel}: </span>
+                                <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a" }}>{e.link}</a>
+                              </div>
+                            );
+                          }
                           return (
                             <div key={e.id} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                               {label && (

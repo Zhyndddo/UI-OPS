@@ -9900,3 +9900,33 @@ per-entry match.
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## 2026-08-24 (181)
+
+pick-package magic link — Booking Progress "DONE" links, correction +
+follow-up on round 180.
+
+**Correction**: round 180 treated `channel_name` as the real per-entry
+channel field. It isn't — the internal Booking Board's own "Channel
+name" input (`app/booking/page.js`'s `BrandCell`/`saveEdit`) actually
+patches `platform`, not `channel_name` (`channel_name` gets set once at
+insert time from the booking cell's own brand/column grouping — a
+Hạng-Mục-level label, not a per-entry one). That's exactly why round
+180's data looked identical across every link in a category — it was
+reading the category-level grouping label, not each entry's own typed-in
+channel. `hangMucFor` now documents this and the page reads
+`entries.platform` as the real channel — same field the Booking Board's
+own read-only row (`renderEntryRow`) already displays.
+
+**Layout, per explicit request**: a real per-entry channel now renders
+as one compact line — bold orange channel name immediately followed by
+the link — matching the internal Booking Board's own entry-row style
+exactly. Round 179's stacked two-line layout (label above, link below)
+is kept, but now only as the fallback presentation: it's used when
+there's no real channel and the category's Hạng Mục text is shown
+instead, where the extra vertical room suits a longer, more
+sentence-like label better than jamming it into one line.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
