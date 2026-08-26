@@ -187,7 +187,7 @@ export default function ConfirmWorkstation() {
                 key={key}
                 onClick={() => { setPhase(key); setShowDone(false); }}
                 className={`${styles.tabBtn} ${phase === key ? styles.tabBtnActive : ""}`}
-                style={{ border: "1px solid var(--border)", borderRadius: 6 }}
+                style={{ border: phase === key ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: phase === key ? "rgba(255,107,26,0.1)" : "transparent" }}
               >
                 {label}
               </button>

@@ -362,7 +362,7 @@ export default function MilestoneWorkstation() {
 
           <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
             {[["input", "Input"], ["report", "Report"], ["log", "Log"]].map(([k, label]) => (
-              <button key={k} onClick={() => setTab(k)} className={`${styles.tabBtn} ${tab === k ? styles.tabBtnActive : ""}`} style={{ border: "1px solid var(--border)", borderRadius: 6 }}>
+              <button key={k} onClick={() => setTab(k)} className={`${styles.tabBtn} ${tab === k ? styles.tabBtnActive : ""}`} style={{ border: tab === k ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: tab === k ? "rgba(255,107,26,0.1)" : "transparent" }}>
                 {label}
               </button>
             ))}

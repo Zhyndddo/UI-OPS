@@ -242,7 +242,7 @@ export default function MediaBookingList() {
           {isExecutorView && tab && (
             <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
               {tab.status_options.map((s) => (
-                <button key={s} onClick={() => setStatusFilter(s)} className={`${styles.tabBtn} ${statusFilter === s ? styles.tabBtnActive : ""}`} style={{ border: "1px solid var(--border)", borderRadius: 6 }}>
+                <button key={s} onClick={() => setStatusFilter(s)} className={`${styles.tabBtn} ${statusFilter === s ? styles.tabBtnActive : ""}`} style={{ border: statusFilter === s ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: statusFilter === s ? "rgba(255,107,26,0.1)" : "transparent" }}>
                   {s}
                 </button>
               ))}
@@ -2666,7 +2666,7 @@ function PackagesPanel({
                 key={p.id}
                 onClick={() => setActivePackageId(p.id)}
                 className={`${styles.tabBtn} ${activePackageId === p.id ? styles.tabBtnActive : ""}`}
-                style={{ border: "1px solid var(--border)", borderRadius: 6, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                style={{ border: activePackageId === p.id ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: activePackageId === p.id ? "rgba(255,107,26,0.1)" : "transparent", display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer"  }}
               >
                 {p.name}
                 <span onClick={(e) => { e.stopPropagation(); deletePackage(p); }} style={{ color: "var(--text-faint)", fontSize: 11 }}>✕</span>

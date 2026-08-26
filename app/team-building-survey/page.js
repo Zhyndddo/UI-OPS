@@ -102,13 +102,13 @@ export default function TeamBuildingSurveyPage() {
           </p>
 
           <div style={{ display: "flex", gap: 4, marginBottom: 24 }}>
-            <button onClick={() => setTab("survey")} className={`${styles.tabBtn} ${tab === "survey" ? styles.tabBtnActive : ""}`} style={{ border: "1px solid var(--border)", borderRadius: 6 }}>
+            <button onClick={() => setTab("survey")} className={`${styles.tabBtn} ${tab === "survey" ? styles.tabBtnActive : ""}`} style={{ border: tab === "survey" ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: tab === "survey" ? "rgba(255,107,26,0.1)" : "transparent" }}>
               Survey
             </button>
             {/* Round 85 follow-up — Report tab hidden from everyone except
                 dev, per explicit request. */}
             {canSeeReport && (
-              <button onClick={() => setTab("report")} className={`${styles.tabBtn} ${tab === "report" ? styles.tabBtnActive : ""}`} style={{ border: "1px solid var(--border)", borderRadius: 6 }}>
+              <button onClick={() => setTab("report")} className={`${styles.tabBtn} ${tab === "report" ? styles.tabBtnActive : ""}`} style={{ border: tab === "report" ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: tab === "report" ? "rgba(255,107,26,0.1)" : "transparent" }}>
                 Report
               </button>
             )}

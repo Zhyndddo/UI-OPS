@@ -222,7 +222,7 @@ function PitchingInfoTickets() {
               key={s}
               onClick={() => setStatusFilter(s)}
               className={`${styles.tabBtn} ${statusFilter === s ? styles.tabBtnActive : ""}`}
-              style={{ border: "1px solid var(--border)", borderRadius: 6 }}
+              style={{ border: statusFilter === s ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: statusFilter === s ? "rgba(255,107,26,0.1)" : "transparent" }}
             >
               {s}
             </button>

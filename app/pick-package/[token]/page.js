@@ -1303,7 +1303,7 @@ export default function PickPackagePage() {
                     key={r}
                     onClick={() => setRound(r)}
                     className={`${styles.tabBtn} ${round === r ? styles.tabBtnActive : ""}`}
-                    style={{ border: "1px solid var(--border)", borderRadius: 6 }}
+                    style={{ border: round === r ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: round === r ? "rgba(255,107,26,0.1)" : "transparent" }}
                   >
                     {r}
                   </button>

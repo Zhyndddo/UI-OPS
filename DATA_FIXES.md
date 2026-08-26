@@ -10731,3 +10731,135 @@ Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 class of bug on its own, since checkJs is off; the fix here was found by
 a targeted scope-vs-prop-list scan of every handler reference in this
 file, not by tsc).
+
+## Round 198 — 2026-08-26
+
+Item 1 of a 2-item request. Direct report: "fix button type tab if
+picked has a differrent button color (currently the tab in popup panel
+from booking ticket and milestone)." Turned out to be a systemic bug,
+not isolated to those two — same root cause repeated across most of the
+app's tab strips, which is why it looked like it was only in a couple of
+specific places when actually noticed.
+
+**Root cause:** every one of these tab buttons applies BOTH the shared
+`styles.tabBtn`/`styles.tabBtnActive` CSS classes (which differentiate
+the active tab via `border-bottom-color: var(--accent)`) AND an inline
+`style={{ border: "1px solid var(--border)", borderRadius: 6 }}` to give
+it a boxed/pill look. Inline `style` always wins over a CSS class,
+regardless of source order — so that inline `border` shorthand silently
+overwrote all four sides back to plain grey, cancelling out the active
+tab's only visual difference. Active and inactive tabs ended up looking
+identical wherever this combination was used.
+
+**Fixed** by making the inline border (and adding a subtle background
+tint) conditional on the same active-state check the className ternary
+already uses — matching the "picked" convention already used correctly
+elsewhere in the app (e.g. the Media Booking category/brand pickers):
+accent-colored border + `rgba(255,107,26,0.1)` background when active,
+plain grey border + transparent when not. Any other properties already
+in that style object (e.g. the Media Booking package tab's
+`display`/`alignItems`/`gap`/`cursor`) were preserved as-is.
+
+Found and fixed in every file with this exact pattern — 28 tab strips
+across 24 files, not just the two originally reported:
+`lib/TicketListPage.js` (the shared list-page component, covering
+several ticket types that route through it), the two explicitly reported
+spots (`app/workstation/milestone/page.js`'s Input/Report/Log tabs,
+`app/tickets/media-booking/page.js`'s status-filter tabs AND its
+package-switcher tabs inside the booking ticket popup), plus
+`app/config/page.js` (×2), `app/report/page.js` (×2),
+`app/team-building-survey/page.js` (×2), `app/workstation/confirm/page.js`,
+`app/workstation/stream/page.js`, `app/package-runner/page.js`,
+`app/pick-package/[token]/page.js`, and 12 more ticket-type list pages
+with their own bespoke status tabs (artist-profile, co-trong-net-youtube,
+discovery-mode-spotify, manual-claim, mv-spotify, phai-sinh, pitching,
+pre-order-itunes, priority-sync-lyric, sony-publish, split-share, design,
+report-conflict, pitching-info).
+
+Deliberately NOT touched: `app/workstation/pitching/page.js` (its tab
+style is already fully dynamic, colored by ticket-done state, not this
+static broken pattern) and `app/releases/[id]/page.js` /
+`app/tool-directory/page.js` (their tab buttons never had the
+conflicting inline `border` override in the first place — already
+correct).
+
+Files: the 24 files listed above.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## Round 199 — 2026-08-26
+
+Item 2 of the round-198 request, scoped via 3 clarifying questions
+first: confirmed this is the Label List page's Hợp Tác flow (Youtube /
+Publishing / Nhạc Số tags — "Send HĐ {tag}" normally opens a Yes/No
+popup, Yes creates a real Hợp Đồng ticket that then gets worked through
+Legal's own ticket list to done); confirmed the simulated ticket should
+be a REAL row in `tickets` (auto-filled + auto-resolved), not just a
+status flip with no ticket; confirmed it should be clearly marked so
+it's never mistaken for a real completed legal review later.
+
+**New dev-only "⚡ Simulate Mode" switch** on the Label List page
+(`app/labels/page.js`), next to "+ Create" — only ever rendered for
+`profile.role === "dev"`, same gate this app's existing "View As"
+feature already uses (`lib/AuthContext.js`). Off by default.
+
+While on, clicking any label's "Send HĐ {tag}" button (only shown for a
+tag not yet started) skips the normal Yes/No popup and instead:
+creates the real Hợp Đồng ticket for that tag (same shape
+`sendHopTacTicket` already writes — `data.labelId`/`labelName`/`note`,
+no other fields exist on this ticket type per `lib/ticketConfigs.js`
+so there's nothing else needing a fake default), but writes it directly
+into that ticket type's own LAST `status_options` entry instead of its
+default status — the same "last option = terminal/finished status"
+convention `syncHopTacTicketStatuses` (this file) already relies on to
+detect a real ticket finishing, so a simulated ticket is indistinguishable
+from a genuinely finished one to every other part of the app. Then runs
+the exact same `markTagDone` cascade a real completion triggers
+(auto-strips the label's pending-contract prefix and marks
+`contract_signed` if this was its first done tag; for the Publishing tag
+specifically, force-locks Phụ Lục Publishing on every release currently
+under that label) — so simulate mode genuinely exercises "the whole
+process," not just a shortcut end state.
+
+Marked so it's never confused with a real send: the ticket's `note`
+field reads "SIMULATED — created and auto-resolved via dev Simulate
+mode. No real legal review happened." and its `data.simulated: true`
+flag is set (carried through into the label's own `hop_tac_status[tag]`
+entry too). The button itself gets a ⚡ prefix and an accent border while
+Simulate Mode is on, so it's visually obvious before you even click.
+Still confirms via a plain `window.confirm()` before writing anything —
+dev mode doesn't mean no safety net, since this is the real production
+database, not a sandbox.
+
+Files: `app/labels/page.js` — new `simulateMode` state, new
+`simulateHopTacTicket()`/`simulateTag()`, the switch UI, and the "Send
+HĐ {tag}" button's onClick made conditional on simulate mode.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## Round 200 — 2026-08-26
+
+Follow-up to round 199. Direct request: "can you make the simulate
+mode, if click still ask for confirm, incasse misclick?" — each "Send
+HĐ {tag}" click already confirmed before writing anything, but the
+Simulate Mode switch itself didn't — a stray click on that checkbox
+alone silently armed the whole mode with no warning, so the NEXT "Send
+HĐ" click (possibly also a misclick) would only then show a confirm,
+by which point the mode was already on without the person necessarily
+meaning to turn it on.
+
+Turning the switch ON now also confirms first ("Turn on Simulate Mode?
+While on, \"Send HĐ {tag}\" buttons skip the real Yes/No flow and
+instantly create + resolve a SIMULATED ticket instead. Dev testing
+only."). Turning it back OFF stays immediate — there's nothing
+destructive about leaving the mode, only entering it.
+
+Files: `app/labels/page.js` (the Simulate Mode checkbox's `onChange`).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).

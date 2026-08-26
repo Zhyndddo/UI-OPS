@@ -147,7 +147,7 @@ export default function PackageRunnerPage() {
                   key={key}
                   onClick={() => setMode(key)}
                   className={`${styles.tabBtn} ${mode === key ? styles.tabBtnActive : ""}`}
-                  style={{ border: "1px solid var(--border)", borderRadius: 6 }}
+                  style={{ border: mode === key ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: mode === key ? "rgba(255,107,26,0.1)" : "transparent" }}
                 >
                   {label}
                 </button>

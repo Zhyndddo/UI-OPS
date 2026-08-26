@@ -294,7 +294,7 @@ export default function StreamWorkstation() {
                 key={key}
                 onClick={() => setTab(key)}
                 className={`${styles.tabBtn} ${tab === key ? styles.tabBtnActive : ""}`}
-                style={{ border: "1px solid var(--border)", borderRadius: 6 }}
+                style={{ border: tab === key ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: tab === key ? "rgba(255,107,26,0.1)" : "transparent" }}
               >
                 {label}
               </button>

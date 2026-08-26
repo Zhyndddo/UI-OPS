@@ -50,6 +50,16 @@ export default function LabelsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [contractFilter, setContractFilter] = useState(""); // "" | "signed" | "unsigned"
   const [selectedHopTacTags, setSelectedHopTacTags] = useState([]);
+  // Round 199 — dev-only "Simulate" mode, per explicit request: a switch
+  // that lets a dev fast-forward a label's whole Hợp Tác flow (send to
+  // legal -> ticket created -> ticket worked through to done) with one
+  // click on "Send HĐ {tag}", instead of manually creating the ticket and
+  // then separately walking it through every status on its own ticket
+  // list page. Off by default, and only ever rendered for profile.role
+  // === "dev" (see the switch below) — this writes real rows into the
+  // real `tickets`/`labels` tables, just pre-filled and pre-resolved, so
+  // it's gated the same way "View As" (also dev-only) already is.
+  const [simulateMode, setSimulateMode] = useState(false);
 
   async function load() {
     const { data } = await supabase.from("labels").select("*").order("label_name");
@@ -180,6 +190,63 @@ export default function LabelsPage() {
       .select()
       .single();
     return { sentToLegal: true, ticketId: ticket?.id ?? null, done: false };
+  }
+
+  // Round 199 — the Simulate-mode version of sendHopTacTicket above: same
+  // ticket gets created (same tab, same data.labelId/labelName shape, so
+  // it's a real, findable Hợp Đồng ticket, not a fake stand-in), but it's
+  // written straight into its OWN LAST status_options entry instead of
+  // default_status — the same "last option = terminal/finished status"
+  // convention syncHopTacTicketStatuses (above) already relies on to
+  // detect a real ticket finishing. No fields on this ticket type are
+  // ever required beyond labelId/labelName/note (checked against
+  // lib/ticketConfigs.js — hop_dong_* tickets only need `note`, which a
+  // real Legal reviewer fills in as they work it; there's nothing else
+  // to fake a default for), so there's no extra "simulated required
+  // field" to invent here — the note itself carries a clear marker so
+  // this is never mistaken for a real completed legal review later.
+  async function simulateHopTacTicket(labelRow, tag) {
+    const typeKey = HOP_TAC_TICKET_TYPE[tag];
+    const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status, status_options").eq("key", typeKey).single();
+    if (!tab) return { sentToLegal: true, ticketId: null, done: false };
+    const doneStatus = tab.status_options?.[tab.status_options.length - 1] || tab.default_status;
+    const now = new Date().toISOString();
+    const { data: ticket } = await supabase
+      .from("tickets")
+      .insert({
+        tab_id: tab.id,
+        data: {
+          labelId: labelRow.id,
+          labelName: labelRow.label_name,
+          note: "SIMULATED — created and auto-resolved via dev Simulate mode. No real legal review happened.",
+          simulated: true,
+        },
+        status: doneStatus,
+        status_log: doneStatus === tab.default_status ? { [doneStatus]: now } : { [tab.default_status]: now, [doneStatus]: now },
+        requester_segment: profile?.segment || null,
+      })
+      .select()
+      .single();
+    return { sentToLegal: true, ticketId: ticket?.id ?? null, done: true, simulated: true };
+  }
+
+  // Round 199 — what "Send HĐ {tag}" runs instead of opening the normal
+  // Yes/No popup while Simulate mode is on. Confirms first even in dev
+  // mode, since this still writes real rows — just pre-filled/pre-
+  // resolved ones — into the real tickets/labels tables, not a sandbox.
+  // Reuses markTagDone for the exact same auto-sign-contract /
+  // lock-Phụ-Lục-Publishing cascade a real finished ticket triggers via
+  // syncHopTacTicketStatuses, so simulated and real completions behave
+  // identically everywhere else in the app.
+  async function simulateTag(label, tag) {
+    if (!window.confirm(`Simulate "${tag}" for "${label.label_name}"? This creates a real Hợp Đồng ticket (marked SIMULATED) and immediately marks it done. Dev-only testing action — not a real legal send.`)) return;
+    const entry = await simulateHopTacTicket(label, tag);
+    const nextHopTac = (label.hop_tac || []).includes(tag) ? label.hop_tac : [...(label.hop_tac || []), tag];
+    if (nextHopTac !== label.hop_tac) {
+      await supabase.from("labels").update({ hop_tac: nextHopTac }).eq("id", label.id);
+      setLabels((prev) => prev.map((l) => (l.id === label.id ? { ...l, hop_tac: nextHopTac } : l)));
+    }
+    await markTagDone({ ...label, hop_tac: nextHopTac }, tag, entry);
   }
 
   // "Send HĐ …" button on an existing row, or a tag re-clicked after the
@@ -332,9 +399,36 @@ export default function LabelsPage() {
             <div className={styles.eyebrow}>// Reference Table</div>
             <h1 className={styles.title}>Label List</h1>
           </div>
-          <button className={styles.btnPrimary} type="button" onClick={() => setShowCreatePopup(true)} style={{ whiteSpace: "nowrap" }}>
-            + Create
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {/* Round 199 — dev-only, per explicit request. Never rendered
+                for anyone but profile.role === "dev", same gate as this
+                app's other dev-only surface ("View As" in AuthContext). */}
+            {profile?.role === "dev" && (
+              <label
+                title="When on, 'Send HĐ {tag}' skips the real Yes/No flow and instantly creates + resolves a SIMULATED ticket instead — dev testing only."
+                style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: simulateMode ? "var(--accent)" : "var(--text-faint)", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={simulateMode}
+                  onChange={(e) => {
+                    // Round 200 — per explicit follow-up ("in case
+                    // misclick"): turning the switch ON also confirms, on
+                    // top of the confirm each individual "Send HĐ" click
+                    // already had — a stray click on this checkbox alone
+                    // used to silently arm the whole mode with no warning.
+                    // Turning it back OFF is always safe, no confirm needed.
+                    if (e.target.checked && !window.confirm("Turn on Simulate Mode? While on, \"Send HĐ {tag}\" buttons skip the real Yes/No flow and instantly create + resolve a SIMULATED ticket instead. Dev testing only.")) return;
+                    setSimulateMode(e.target.checked);
+                  }}
+                />
+                ⚡ Simulate Mode
+              </label>
+            )}
+            <button className={styles.btnPrimary} type="button" onClick={() => setShowCreatePopup(true)} style={{ whiteSpace: "nowrap" }}>
+              + Create
+            </button>
+          </div>
         </div>
 
         {error && <div className={styles.errorBox}>{error}</div>}
@@ -438,10 +532,11 @@ export default function LabelsPage() {
                             key={tag}
                             type="button"
                             className={styles.btnSmall}
-                            style={{ fontSize: 10, padding: "3px 8px", whiteSpace: "nowrap" }}
-                            onClick={() => setLegalPopup({ mode: "row", label: l, tag })}
+                            style={simulateMode ? { fontSize: 10, padding: "3px 8px", whiteSpace: "nowrap", border: "1px solid var(--accent)", color: "var(--accent-soft)" } : { fontSize: 10, padding: "3px 8px", whiteSpace: "nowrap" }}
+                            title={simulateMode ? "Simulate mode — creates a real ticket, marked SIMULATED, and instantly marks it done" : undefined}
+                            onClick={() => (simulateMode ? simulateTag(l, tag) : setLegalPopup({ mode: "row", label: l, tag }))}
                           >
-                            Send HĐ {tag}
+                            {simulateMode ? "⚡ " : ""}Send HĐ {tag}
                           </button>
                         ))}
                       </div>

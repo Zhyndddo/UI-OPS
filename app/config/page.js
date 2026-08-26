@@ -110,7 +110,7 @@ export default function ConfigPage() {
                     key={key}
                     onClick={() => setSection(key)}
                     className={`${styles.tabBtn} ${section === key ? styles.tabBtnActive : ""}`}
-                    style={{ border: "1px solid var(--border)", borderRadius: 6 }}
+                    style={{ border: section === key ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: section === key ? "rgba(255,107,26,0.1)" : "transparent" }}
                   >
                     {label}
                   </button>
@@ -186,7 +186,7 @@ function LookupOptionsSection() {
             key={c}
             onClick={() => setCategory(c)}
             className={`${styles.tabBtn} ${category === c ? styles.tabBtnActive : ""}`}
-            style={{ border: "1px solid var(--border)", borderRadius: 6 }}
+            style={{ border: category === c ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: category === c ? "rgba(255,107,26,0.1)" : "transparent" }}
           >
             {c}
           </button>
