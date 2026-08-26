@@ -10640,3 +10640,45 @@ column on desktop).
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 196 — 2026-08-26
+
+Follow-up to the Artist Profile sweep: confirmed with the user which of
+the two known-open items from round 166 to act on now.
+
+**1. Add Song's Yes/No gate — confirmed staying exactly as-is** ("yeah
+same, no change"). Still informational only, no blocking logic. Not
+touched this round.
+
+**2. Gộp Profile's name-match rule — built as a WARNING, not a gate**
+("can we send a warning instead of blocking out right?"). Two new
+fields added to the merge request type: `wrongProfileName` and
+`correctProfileName` — what the artist's name actually shows as on each
+of the two profiles being merged (this app has no way to read a
+platform page itself, so these are typed in manually, straight off what
+the user sees on each profile). A new `mergeNamesMismatch()` helper
+(`lib/artistProfileRequestTypes.js`) does an exact, trimmed string
+comparison (case- and diacritic-sensitive on purpose — "Nguyễn Văn
+Chung" vs "Nguyen Van Chung" is exactly the mismatch this exists to
+catch) and both the creation popup and the edit popup show a small
+amber warning banner when the two don't match. Nothing about submitting
+or saving a ticket is blocked by it — it's a heads-up, not validation
+that stops anything.
+
+**3. Wrote a standing "Artist Profile — open items" reference doc to
+the project** (not this repo — the attached Claude Project), since the
+user asked directly for something to pick up from later without having
+to re-derive it from git history. Covers what's implemented, what's
+still open (just item 1 above now), and where to look in the code.
+Kept in sync with the running comment at the top of
+`lib/artistProfileRequestTypes.js`, which is still the authoritative
+source if the two ever drift.
+
+Files: `lib/artistProfileRequestTypes.js` (new merge fields,
+`mergeNamesMismatch`, updated header comment),
+`lib/NewArtistProfileTicketPopup.js`, `lib/ArtistProfileEditPopup.js`
+(warning banner wired into both).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
