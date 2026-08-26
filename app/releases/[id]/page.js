@@ -1472,6 +1472,7 @@ export default function ReleaseDetailPage() {
             setTab={setTab}
             onCopyrightChange={() => setCopyrightGateVersion((v) => v + 1)}
             copyrightGateOk={copyrightGateOk}
+            onSendArtistMediaReport={sendArtistMediaReport}
           />
         )}
         {tab === "copyrights" && (
@@ -1752,7 +1753,7 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntPackage, canSimulate, onSendOnlyPh, canResetToDealing, onResetToDealing, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, updateArtistTags, artistProfileArtistTags, artistProfileVerifySelected, onToggleArtistProfileArtist, artistProfileTicketByArtist, coTrongNetDraft, onCoTrongNetChange, onSendCoTrongNetYoutube, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError, onCopyrightChange, copyrightGateOk }) {
+function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntPackage, canSimulate, onSendOnlyPh, canResetToDealing, onResetToDealing, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, updateArtistTags, artistProfileArtistTags, artistProfileVerifySelected, onToggleArtistProfileArtist, artistProfileTicketByArtist, coTrongNetDraft, onCoTrongNetChange, onSendCoTrongNetYoutube, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError, onCopyrightChange, copyrightGateOk, onSendArtistMediaReport }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -1955,7 +1956,7 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
               locks to "sent" and marks the release complete. */}
           {form.media_report_status === "ready" && (
             <div style={{ marginTop: 4 }}>
-              <button className={styles.btnSmall} onClick={sendArtistMediaReport} style={{ border: "1px solid #ffca4d", color: "#ffca4d" }}>
+              <button className={styles.btnSmall} onClick={onSendArtistMediaReport} style={{ border: "1px solid #ffca4d", color: "#ffca4d" }}>
                 Send Artist
               </button>
             </div>

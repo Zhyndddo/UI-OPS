@@ -10682,3 +10682,52 @@ Files: `lib/artistProfileRequestTypes.js` (new merge fields,
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 197 — 2026-08-26
+
+**Real bug, not a stale deploy** — correcting my own earlier diagnosis.
+Direct report: "one of the product from the newrelease dashboard just
+run into this [Application error]... crash right on the overview,
+nothing click yet, just click on it to go to detail page and it crash."
+Console showed `ReferenceError: sendArtistMediaReport is not defined`.
+
+I first (wrongly) concluded this had to be a stale production deploy,
+since `sendArtistMediaReport` IS defined in the file and IS wired to the
+"Send Artist" button — both true. What I missed on the first pass: the
+function is defined inside `ReleaseDetailPage` (the top-level component,
+round 188 item 2), but the button that calls it lives inside
+`OverviewTab` — a SEPARATE sibling function component, not nested inside
+`ReleaseDetailPage`. Sibling components don't share scope; `OverviewTab`
+was never given `sendArtistMediaReport` as a prop, so any render that
+actually reaches that line throws immediately. Round 188 added the
+function to the parent and the button to the child in the same round
+without threading it through as a prop between them — a real regression
+that slipped past `tsc --checkJs false` (checkJs is off, so this class of
+plain "undefined variable" bug isn't type-checked) and past manual
+testing, since the button only renders when `media_report_status ===
+"ready"` — a narrow, easy-to-miss window (Booking Board's "Convert Media
+Report" has run, but nobody's hit Send Artist yet). GHL#-22082026-0441
+("Gửi H" / Lamoon) happened to be sitting in exactly that state, which is
+why it — and only it, at the time — crashed.
+
+Fixed by threading it through properly: `sendArtistMediaReport` is now
+passed to `<OverviewTab>` as `onSendArtistMediaReport`, added to
+`OverviewTab`'s own prop list, and the button's `onClick` now calls the
+prop instead of the free (out-of-scope) variable.
+
+Also swept every other tab component in this file (`CopyrightsTab`,
+`UrlTab`, `MediaBookingTab`, `PitchingTab`, `PreReleaseTab`,
+`StreamingMilestoneTab`, `TasklistTab`, `PipelineControl`,
+`ReleaseNotePanel`) for the same class of bug — a bare
+`on___={identifier}` handler reference that isn't a prop or a local
+`useState`/declared variable of that component. Found nothing else.
+
+Files: `app/releases/[id]/page.js` (`OverviewTab` prop list, its
+`<OverviewTab>` call site, the Send Artist button's `onClick`).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass — note this check does NOT catch this
+class of bug on its own, since checkJs is off; the fix here was found by
+a targeted scope-vs-prop-list scan of every handler reference in this
+file, not by tsc).
