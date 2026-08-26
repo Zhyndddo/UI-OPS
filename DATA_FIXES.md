@@ -10365,3 +10365,57 @@ extended), `scripts/import-milestone-total-streak.js` (now imports
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 190 — 2026-08-26
+
+Follow-up correction to round 189's milestone backfill. The `input`
+sheet's per-block "Ngày DD/MM/YYYY" date labels turned out to be
+unreliable — the team copies the block structure forward day to day and
+the date label doesn't always get updated, so round 189's import
+silently wrote its 105 rows dated `2026-08-25` when the underlying
+song/rank data was actually for `2026-08-26`. Caught by cross-checking
+against the same workbook's `total today` sheet: identical songs/ranks
+(e.g. "Vô Giá" #7 under ZingCharts appears in both), but `total today`
+carries a real, reliable per-row date column instead of a manually-typed
+block header.
+
+`total today` is also structurally simpler and safer to import from
+going forward — it's a flat table with the exact same column layout as
+`TOTAL_STREAK` (chart, date, title, artist, rank, platform) and uses the
+same raw chart-name vocabulary, so it needs no new `CHART_MAP` aliases
+beyond what already existed (117 of 119 rows matched cleanly against the
+current `CHART_MAP`; only `"New Release on Apple"` / Apple, 2 rows, is a
+genuinely new chart not yet tracked anywhere — reported and skipped, not
+guessed at, same convention as every other unmapped pair).
+
+New script `scripts/import-milestone-total-today.js` — near-identical
+to `import-milestone-total-streak.js` (same shared `CHART_MAP`, same
+dry-run/`--confirm`/chunked-upsert safety), just pointed at the "total
+today" sheet instead. `scripts/import-milestone-input.js` is marked
+superseded in its own file header (kept for reference, not deleted) —
+should not be used for new imports.
+
+Cleanup needed on the user's side for the mis-dated round-189 data (not
+run from this sandbox — no production DB credentials here, per this
+project's standing convention that DB writes are run by the user):
+
+```sql
+delete from milestone_chart_entries where entry_date = '2026-08-25';
+```
+
+Safe: `TOTAL_STREAK`'s historical import only covers through
+`2026-08-19` (see round 171), so no legitimate data should exist at
+`2026-08-25` — it was written exclusively by round 189's flawed import.
+After running the delete, re-import with the new script:
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/import-milestone-total-today.js "<xlsx path>" --confirm
+```
+
+Files: `scripts/import-milestone-total-today.js` (new),
+`scripts/import-milestone-input.js` (superseded-notice header added,
+logic unchanged).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).

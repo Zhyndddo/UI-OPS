@@ -1,4 +1,17 @@
 #!/usr/bin/env node
+// ⚠ SUPERSEDED — do not use for new imports. Kept only for reference.
+// The very first run of this script (round 189) silently wrote 105 rows
+// under the WRONG entry_date: this sheet's per-block "Ngày DD/MM/YYYY"
+// date labels turned out to be stale (left over from a prior day when
+// the team copies the sheet forward day to day) even though the actual
+// song/rank data underneath was genuinely current. Confirmed by
+// cross-checking against the same workbook's "total today" sheet, which
+// carries the identical underlying data with a correct, reliable
+// per-row date column. Use scripts/import-milestone-total-today.js
+// instead — same CHART_MAP, same safety, no stale-date-label risk.
+//
+// Original round-189 comment below, left intact for context:
+//
 // Backfill/upsert for the "input" sheet of the team's "Sam milestone" xlsx
 // (e.g. "Sam _ milstone 2.0.2026 2.xlsx") into milestone_chart_entries.
 // Round 189, per explicit request — "the total streak is the log, the
