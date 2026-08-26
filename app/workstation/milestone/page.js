@@ -23,7 +23,11 @@ const PLATFORM_CHARTS = {
   // respectively) in the TOTAL_STREAK historical import but had no home
   // in this list yet — see scripts/import-milestone-total-streak.js's
   // CHART_MAP for the full mapping this round worked from.
-  Apple: ["Playlist Vietnam Ơi!", "Playlist New Music Daily", "APPLE MUSIC - Top ALBUMs Vietnam", "APPLE MUSIC - Top POP Albums", "APPLE MUSIC -Top HIPHOP/RAP Albums", "APPLE MUSIC - Top DANCE Albums", "APPLE MUSIC - Top ALTERNATIVE Albums", "Apple Music - Top Songs Vietnam", "Apple Music - Top POP Songs", "Apple - Top Alternative Songs", "Apple Music - Top Dance Songs", "Apple Music - Top Hiphop/Rap Songs", "Vietnam iTunes Top Songs", "Apple Daily Album"],
+  // Round 190 — "New Release on Apple" added: showed up unmapped in both
+  // "total today" and TOTAL_STREAK (2 rows each), a real recurring chart
+  // the team's started tracking, not a one-off typo — see
+  // lib/milestoneChartMap.js's CHART_MAP for the raw-name mapping.
+  Apple: ["Playlist Vietnam Ơi!", "Playlist New Music Daily", "APPLE MUSIC - Top ALBUMs Vietnam", "APPLE MUSIC - Top POP Albums", "APPLE MUSIC -Top HIPHOP/RAP Albums", "APPLE MUSIC - Top DANCE Albums", "APPLE MUSIC - Top ALTERNATIVE Albums", "Apple Music - Top Songs Vietnam", "Apple Music - Top POP Songs", "Apple - Top Alternative Songs", "Apple Music - Top Dance Songs", "Apple Music - Top Hiphop/Rap Songs", "Vietnam iTunes Top Songs", "Apple Daily Album", "New Release on Apple"],
   TikTok: ["TIKTOK POPULAR", "TIKTOK BREAKOUT", "TIKTOK HOT"],
   Instagram: ["INSTAGRAM"],
   // Round 171 — 5 new charts added, same reasoning as Apple's two above:

@@ -10419,3 +10419,37 @@ logic unchanged).
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 191 — 2026-08-26
+
+Two follow-ups from round 190.
+
+**Correction to round 190's cleanup guidance**: the `delete from
+milestone_chart_entries where entry_date = '2026-08-25'` statement
+documented there turned out to be unsafe in practice — `TOTAL_STREAK`
+had in fact accumulated real `2026-08-25` entries beyond the
+`2026-08-19` cutoff documented back in round 171 (it's the team's
+ongoing running log, so its coverage keeps growing), and the blanket
+delete removed that legitimate data along with round 189's mis-dated
+batch. Recovered by re-running `scripts/import-milestone-total-streak.js
+--confirm` against the current xlsx — safe because it upserts on the
+same natural key, so it restored whatever the delete had wiped without
+touching anything already correct. Lesson for next time: never delete by
+`entry_date` alone without first confirming (via `count`/`min(created_at)`/
+`max(created_at)`) that every matching row actually came from the import
+being corrected.
+
+**"New Release on Apple" added** — showed up unmapped in both `total
+today` and `TOTAL_STREAK` (2 rows each, across two different sheets),
+confirming it's a real recurring Apple chart the team has started
+tracking, not a one-off typo. Added to `PLATFORM_CHARTS` (`Apple` list,
+`app/workstation/milestone/page.js`) and to the shared `CHART_MAP`
+(`lib/milestoneChartMap.js`). Re-running either import script will now
+pick up rows for this chart instead of skipping them.
+
+Files: `app/workstation/milestone/page.js` (`PLATFORM_CHARTS.Apple`),
+`lib/milestoneChartMap.js` (`CHART_MAP`).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
