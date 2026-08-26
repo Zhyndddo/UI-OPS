@@ -1755,7 +1755,8 @@ function SessionsSection() {
 // exact real-system numbers these default to). Same app_settings idiom
 // as ArtistProfileLinksSection right above.
 function MilestoneHighlightSection() {
-  const [topNRank, setTopNRank] = useState(DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.topNRank);
+  const [climbToRankHighlight, setClimbToRankHighlight] = useState(DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.climbToRankHighlight);
+  const [topRankAlwaysHighlight, setTopRankAlwaysHighlight] = useState(DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.topRankAlwaysHighlight);
   const [minChartCount, setMinChartCount] = useState(DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.minChartCount);
   const [chartDepth, setChartDepth] = useState(DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.chartDepth);
   const [excludedChartsText, setExcludedChartsText] = useState(DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.excludedCharts.join("\n"));
@@ -1767,7 +1768,8 @@ function MilestoneHighlightSection() {
     if (!supabase) return;
     supabase.from("app_settings").select("value").eq("key", MILESTONE_HIGHLIGHT_SETTING_KEY).maybeSingle().then(({ data }) => {
       const parsed = parseMilestoneHighlightConfig(data?.value);
-      setTopNRank(parsed.topNRank);
+      setClimbToRankHighlight(parsed.climbToRankHighlight);
+      setTopRankAlwaysHighlight(parsed.topRankAlwaysHighlight);
       setMinChartCount(parsed.minChartCount);
       setChartDepth(parsed.chartDepth);
       setExcludedChartsText(parsed.excludedCharts.join("\n"));
@@ -1780,7 +1782,13 @@ function MilestoneHighlightSection() {
     const excludedCharts = excludedChartsText.split("\n").map((s) => s.trim()).filter(Boolean);
     await supabase.from("app_settings").upsert({
       key: MILESTONE_HIGHLIGHT_SETTING_KEY,
-      value: { topNRank: Number(topNRank) || DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.topNRank, minChartCount: Number(minChartCount) || DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.minChartCount, chartDepth: Number(chartDepth) || DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.chartDepth, excludedCharts },
+      value: {
+        climbToRankHighlight: Number(climbToRankHighlight) || DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.climbToRankHighlight,
+        topRankAlwaysHighlight: Number(topRankAlwaysHighlight) || DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.topRankAlwaysHighlight,
+        minChartCount: Number(minChartCount) || DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.minChartCount,
+        chartDepth: Number(chartDepth) || DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.chartDepth,
+        excludedCharts,
+      },
     });
     setSaving(false);
     setSaved(true);
@@ -1793,12 +1801,18 @@ function MilestoneHighlightSection() {
     <div style={{ maxWidth: 480 }}>
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
         What counts as "highlight-worthy" on the Milestone workstation's Report tab — a song is
-        always highlighted the moment it enters or returns to a chart, or hits #1; it's also
-        highlighted while remaining charted if it climbed AND is at or better than the rank below.
+        always highlighted the moment it enters or returns to a chart. While it stays charted
+        (REMAIN), it's highlighted if EITHER it's climbing and its new rank is at or better than
+        the first number below, OR its rank — climbing, holding, or falling — is at or better
+        than the second number (this also covers holding #1, so there's no separate rule for that).
       </p>
       <div className={styles.field}>
-        <label className={styles.fieldLabel}>Highlight a climb when rank is at or better than</label>
-        <input className={styles.input} type="number" min="1" value={topNRank} onChange={(e) => setTopNRank(e.target.value)} style={{ maxWidth: 100 }} />
+        <label className={styles.fieldLabel}>Highlight a climb when the new rank is at or better than</label>
+        <input className={styles.input} type="number" min="1" value={climbToRankHighlight} onChange={(e) => setClimbToRankHighlight(e.target.value)} style={{ maxWidth: 100 }} />
+      </div>
+      <div className={styles.field}>
+        <label className={styles.fieldLabel}>Always highlight while rank is at or better than (regardless of movement)</label>
+        <input className={styles.input} type="number" min="1" value={topRankAlwaysHighlight} onChange={(e) => setTopRankAlwaysHighlight(e.target.value)} style={{ maxWidth: 100 }} />
       </div>
       <div className={styles.field}>
         <label className={styles.fieldLabel}>Chart summary block: only list a chart with more than this many entries</label>
@@ -1809,7 +1823,7 @@ function MilestoneHighlightSection() {
         <input className={styles.input} type="number" min="1" value={chartDepth} onChange={(e) => setChartDepth(e.target.value)} style={{ maxWidth: 100 }} />
       </div>
       <div className={styles.field}>
-        <label className={styles.fieldLabel}>Charts excluded from the summary block (one per line)</label>
+        <label className={styles.fieldLabel}>Charts excluded from the summary block (one per line — use the app's canonical chart name)</label>
         <textarea className={styles.textarea} rows={4} value={excludedChartsText} onChange={(e) => setExcludedChartsText(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
       </div>
       <button className={styles.btnPrimary} onClick={save} disabled={saving}>

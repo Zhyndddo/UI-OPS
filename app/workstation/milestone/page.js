@@ -40,8 +40,32 @@ const PLATFORM_CHARTS = {
 };
 const PLATFORMS = Object.keys(PLATFORM_CHARTS);
 
-function todayStr() { return new Date().toISOString().slice(0, 10); }
-function daysAgoStr(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); }
+// Round 193 — fixed a real timezone bug, per explicit report ("import
+// somehow drop the rank column data... should be us wiping the thing
+// after every save or at open"). Both of these used to build the date
+// string via `new Date().toISOString().slice(0, 10)` — toISOString
+// always converts to UTC first. For this team (Vietnam, UTC+7), any
+// time between local midnight and ~7am, the UTC date is still
+// YESTERDAY's date, so todayStr() silently returned the wrong (earlier)
+// day during that ~7-hour window every single day. The Input popup's
+// "does today already have rows saved?" check (see ChartEntryPopup
+// below) uses this exact string to filter `entries` — when it's wrong,
+// today's already-imported rows (real ranks and all) don't match, the
+// popup falls through to the round-174 "carry forward prior day, rank
+// deliberately blank" branch instead, and the rank column reads empty
+// even though the real data is sitting right there in the database.
+// Fixed by reading the LOCAL date components directly instead of
+// converting through UTC — this reflects whatever calendar day it
+// actually is for the person looking at the screen, in their own
+// timezone, at any hour.
+function localDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+function todayStr() { return localDateStr(new Date()); }
+function daysAgoStr(n) { const d = new Date(); d.setDate(d.getDate() - n); return localDateStr(d); }
 const key = (chart, track, artist) => `${chart}|${track}|${artist}`.replace(/\s+/g, "").toLowerCase();
 
 // Round 174 — manual row order (see add-round174-milestone-sort-order.sql).
@@ -105,30 +129,75 @@ export default function MilestoneWorkstation() {
   async function saveRows(platform, chart, rows) {
     const payload = rows
       .filter((r) => r.track_title?.trim())
-      .map((r, i) => ({
-        chart, platform, entry_date: todayStr(),
-        // Round 127 — artist stays "" (not null) for entries with no
-        // artist typed, matching the codebase's established fix for this
-        // exact class of bug (see MUSHED_BRAND_CATEGORIES in
-        // app/booking/page.js): NULL is never equal to NULL in a unique
-        // constraint, so an artist column that could be null let every
-        // artist-less save silently create a NEW duplicate row instead of
-        // upserting onto the existing one — found while importing the
-        // real system's historical log (see add-round127-milestone-
-        // artist-notnull.sql), not something visible from this file
-        // alone since every read path already tolerates "" the same as
-        // null (r.artist || "—").
-        track_title: r.track_title.trim(), artist: r.artist?.trim() || "",
-        rank: parseInt(r.rank, 10) || 0, did: r.did?.trim() || null,
-        // Round 174 — persists this row's position in the popup's own
-        // list (see sortByOrder above) — index is taken AFTER the
-        // blank-title filter above, so it's always a clean 0..N-1 over
-        // just the rows that actually saved. Every save writes this
-        // (not just ones that touched the reorder buttons), so a row
-        // naturally picks up a real value the next time it's touched.
-        sort_order: i,
-      }));
-    if (payload.length === 0) return;
+      .map((r, i) => {
+        const parsedRank = parseInt(r.rank, 10);
+        return {
+          chart, platform, entry_date: todayStr(),
+          // Round 127 — artist stays "" (not null) for entries with no
+          // artist typed, matching the codebase's established fix for this
+          // exact class of bug (see MUSHED_BRAND_CATEGORIES in
+          // app/booking/page.js): NULL is never equal to NULL in a unique
+          // constraint, so an artist column that could be null let every
+          // artist-less save silently create a NEW duplicate row instead of
+          // upserting onto the existing one — found while importing the
+          // real system's historical log (see add-round127-milestone-
+          // artist-notnull.sql), not something visible from this file
+          // alone since every read path already tolerates "" the same as
+          // null (r.artist || "—").
+          track_title: r.track_title.trim(), artist: r.artist?.trim() || "",
+          // Round 193 — a blank/unparseable rank used to become a real
+          // `0` here (`parseInt(...) || 0`); kept as `null` now and
+          // filtered out below instead, so a row with no rank typed in
+          // is simply left out of what gets (re)written rather than
+          // recorded as rank 0.
+          rank: Number.isFinite(parsedRank) ? parsedRank : null, did: r.did?.trim() || null,
+          // Round 174 — persists this row's position in the popup's own
+          // list (see sortByOrder above) — index is taken AFTER the
+          // blank-title filter above, so it's always a clean 0..N-1 over
+          // just the rows that actually saved. Every save writes this
+          // (not just ones that touched the reorder buttons), so a row
+          // naturally picks up a real value the next time it's touched.
+          sort_order: i,
+        };
+      })
+      .filter((r) => r.rank != null);
+
+    // Round 194 — full replace instead of merge-upsert, per explicit
+    // request/confirmation ("usually only 1-2 people but they do not
+    // overlap doing it on the same platform"). A plain upsert (the old
+    // behavior) only ever created/updated rows present in the popup's
+    // current list — a row REMOVED from the popup (a wrong entry the
+    // user deleted) stayed sitting in the database forever, since
+    // nothing ever told it to go away. Since this team never has two
+    // people editing the same chart at once, it's safe to treat
+    // "what's in the popup right now" as the full, authoritative set of
+    // today's rows for this chart: clear everything already saved for
+    // (platform, chart, today), then write back exactly what's here —
+    // an intentionally blank/removed row now actually disappears
+    // instead of lingering with stale data.
+    //
+    // Not fully atomic (two separate requests, not one DB transaction):
+    // if the delete succeeds but the insert below fails (e.g. a network
+    // drop), today's rows for this chart are gone until the next
+    // successful save. The error is surfaced (not swallowed) specifically
+    // so a failed save is obvious and worth retrying rather than assumed
+    // to have silently kept the old data.
+    const { error: deleteError } = await supabase
+      .from("milestone_chart_entries")
+      .delete()
+      .eq("platform", platform)
+      .eq("chart", chart)
+      .eq("entry_date", todayStr());
+    if (deleteError) {
+      alert(`Failed to clear old rows for ${chart}: ${deleteError.message}`);
+      throw deleteError;
+    }
+    if (payload.length === 0) {
+      // Every row was blank/deleted — today's rows for this chart are
+      // now intentionally empty. Still reload so the UI reflects that.
+      load();
+      return;
+    }
     // Round 182 — de-dupe on the exact same natural key the upsert itself
     // conflicts on (chart/track_title/artist/entry_date — platform is
     // fixed per call already), keeping the LAST occurrence. Two rows in
@@ -143,8 +212,10 @@ export default function MilestoneWorkstation() {
     const seen = new Map();
     payload.forEach((row) => seen.set(`${row.track_title}␟${row.artist}`, row));
     const deduped = [...seen.values()];
-    // Real upsert on the natural key so re-entering today's numbers for
-    // the same chart/song just updates rather than duplicating.
+    // Still upserts (not a plain insert) even after the delete above —
+    // a defensive no-op in the normal case, but a safety net rather than
+    // a hard failure if anything else (a concurrent import script, say)
+    // wrote a matching row in the moment between the delete and here.
     const { error } = await supabase.from("milestone_chart_entries").upsert(deduped, { onConflict: "chart,track_title,artist,entry_date" });
     if (error) {
       // Round 182 — surface a failed save instead of silently reloading
@@ -230,24 +301,22 @@ export default function MilestoneWorkstation() {
 
   // Round 127 — the "Highlight" rule set (see lib/milestoneHighlight.js),
   // computed straight from report.todayRows using the admin-editable
-  // thresholds. A row counts as highlight-worthy when ANY of: it's IN,
-  // it's RETURN, its rank is exactly #1, or it's REMAIN + climbed + at or
-  // better than highlightConfig.topNRank — matches the real Highlight
-  // sheet's filter formula exactly, just with the two hardcoded numbers
-  // (5, and the excluded-charts/min-count pair below) now configurable.
+  // thresholds. Round 192 — simplified to 3 rules per explicit request:
+  // it's IN, it's RETURN, or (while REMAIN) it's either climbing and now
+  // at or better than climbToRankHighlight, OR its rank — regardless of
+  // movement — is at or better than topRankAlwaysHighlight. That last
+  // condition subsumes the old separate "held #1" rule, so there's no
+  // longer a 4th case to track.
   const highlight = useMemo(() => {
-    const isHighlighted = (r) =>
-      r.status === "IN" || r.status === "RETURN" || r.rank === 1 ||
-      (r.status === "REMAIN" && r.rankChange?.dir === "up" && r.rank <= highlightConfig.topNRank);
+    const isRemainHighlighted = (r) =>
+      r.status === "REMAIN" &&
+      ((r.rankChange?.dir === "up" && r.rank <= highlightConfig.climbToRankHighlight) || r.rank <= highlightConfig.topRankAlwaysHighlight);
+
+    const isHighlighted = (r) => r.status === "IN" || r.status === "RETURN" || isRemainHighlighted(r);
 
     const inRows = report.todayRows.filter((r) => r.status === "IN");
-    const climbedRows = report.todayRows.filter((r) => r.status === "REMAIN" && r.rankChange?.dir === "up" && r.rank <= highlightConfig.topNRank);
     const returnRows = report.todayRows.filter((r) => r.status === "RETURN");
-    // #1 rows are always highlighted but may already be IN/RETURN/climbed
-    // above — only add rows here that wouldn't otherwise be listed
-    // (a REMAIN #1 that didn't climb, e.g. held #1 from yesterday).
-    const alreadyListed = new Set([...inRows, ...climbedRows, ...returnRows]);
-    const topOneOnlyRows = report.todayRows.filter((r) => r.rank === 1 && !alreadyListed.has(r));
+    const topRows = report.todayRows.filter(isRemainHighlighted);
 
     // Chart Highlight summary — per platform, every chart currently
     // charting more than highlightConfig.minChartCount entries, excluding
@@ -267,7 +336,7 @@ export default function MilestoneWorkstation() {
     }
     chartSummary.sort((a, b) => a.platform.localeCompare(b.platform));
 
-    return { inRows, climbedRows, returnRows, topOneOnlyRows, chartSummary, isHighlighted };
+    return { inRows, returnRows, topRows, chartSummary, isHighlighted };
   }, [report, highlightConfig]);
 
   // Digest grouping for the Report panel — every today row grouped by
@@ -341,11 +410,35 @@ function SongLine({ r, showChart }) {
   return (
     <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "3px 0", display: "flex", flexWrap: "wrap", gap: 6, alignItems: "baseline" }}>
       <span style={{ fontWeight: 700, color: "var(--text)" }}>#{r.rank}</span>
-      {showChart && <span style={{ color: "#ff9d5c" }}>{r.chart} |</span>}
+      {/* Round 192 — relabeled to "Platform | Chart" per explicit
+          request, so a chart name shown outside its own group header
+          (Fell-off, and previously the Highlight panel) is unambiguous
+          even though the underlying value is the CHART_MAP-canonicalized
+          name, not whatever raw label the sheet happened to use. */}
+      {showChart && <span style={{ color: "#ff9d5c" }}>{r.platform} | {r.chart} |</span>}
       <span>{r.track_title}{r.artist ? ` - ${r.artist}` : ""}</span>
       {r.dayIn && <span style={{ color: "var(--text-faint)" }}>{fmtDate(r.dayIn)}</span>}
       {r.rankChange && <RankChangeArrow rankChange={r.rankChange} />}
       <span style={{ color: TAG_COLOR[r.status], fontWeight: 700 }}>{r.status}</span>
+    </div>
+  );
+}
+
+// Round 192 — compact per-row line for the Highlight panel specifically
+// (IN / RETURN / Top rows), split out from SongLine per explicit
+// request: "yes do that, but keep the arrow, since highlight is each
+// day already" — the Highlight panel doesn't need SongLine's date or
+// status tag (each Highlight section's own title already says the
+// status; the date matters for the full Report digest, not for a
+// same-day highlight), but the rank-change arrow stays since it's the
+// whole point of the "Thăng Hạng" section.
+function HighlightLine({ r }) {
+  return (
+    <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "3px 0", display: "flex", flexWrap: "wrap", gap: 6, alignItems: "baseline" }}>
+      <span style={{ fontWeight: 700, color: "var(--text)" }}>#{r.rank}</span>
+      <span style={{ color: "#ff9d5c" }}>{r.platform} | {r.chart} |</span>
+      <span>{r.track_title}{r.artist ? ` - ${r.artist}` : ""}</span>
+      {r.rankChange && <RankChangeArrow rankChange={r.rankChange} />}
     </div>
   );
 }
@@ -390,9 +483,8 @@ function ReportAndHighlight({ digest, highlight, report, highlightConfig }) {
         <div style={{ fontSize: 12, fontWeight: 800, color: "#ff6b1a", textTransform: "uppercase", marginBottom: 10 }}>Highlight</div>
 
         <HighlightSection title="Bắt Đầu Vào Chart" rows={highlight.inRows} />
-        <HighlightSection title={`Thăng Hạng (top ${highlightConfig.topNRank})`} rows={highlight.climbedRows} />
         <HighlightSection title="Quay Lại Chart" rows={highlight.returnRows} />
-        <HighlightSection title="Giữ #1" rows={highlight.topOneOnlyRows} />
+        <HighlightSection title={`Thăng Hạng (lên top ${highlightConfig.climbToRankHighlight}) / Top ${highlightConfig.topRankAlwaysHighlight}`} rows={highlight.topRows} />
 
         {highlight.chartSummary.length > 0 && (
           <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
@@ -419,7 +511,7 @@ function HighlightSection({ title, rows }) {
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 4, textTransform: "uppercase" }}>{title}</div>
-      {rows.map((r) => <SongLine key={r.id} r={r} showChart />)}
+      {rows.map((r) => <HighlightLine key={r.id} r={r} />)}
     </div>
   );
 }
@@ -501,6 +593,32 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
     });
     return initial;
   });
+  // Round 195 — "Rewind" reference panel. Round 194 made Save a full
+  // replace (a row removed from the popup is genuinely gone from the
+  // database once saved — "any save that delete by user saving is on
+  // them"), so this exists purely as a fast, no-retype way to look at
+  // what used to be there and pull a row back in with one click, not to
+  // auto-recover anything. Two sources, both already sitting in memory
+  // (no extra DB read — `entries` already holds every date's rows):
+  // yesterday's saved rows for the active chart (recomputed live per
+  // chart below, since "yesterday" never changes while this popup is
+  // open — no need to snapshot it), and a ONE-TIME snapshot of today's
+  // rows exactly as they were loaded when this popup opened, captured
+  // once here and never updated as the user edits. Per explicit request
+  // ("keep the rewind temporary for them") this only ever lives in this
+  // component's own state — never written to the database — so it's
+  // gone the moment this popup closes.
+  const [rewindToday] = useState(() => {
+    const today = todayStr();
+    const initial = {};
+    charts.forEach((c) => {
+      const todays = (entries || []).filter((e) => e.platform === platform && e.chart === c && e.entry_date === today);
+      if (todays.length > 0) {
+        initial[c] = sortByOrder(todays).map((e) => ({ track_title: e.track_title || "", artist: e.artist || "", rank: e.rank != null ? String(e.rank) : "", did: e.did || "" }));
+      }
+    });
+    return initial;
+  });
   // Round 174 — off by default so the reorder controls don't clutter the
   // table or risk an accidental tap during normal typing; per explicit
   // request, gated behind a toggle switch rather than always shown.
@@ -533,6 +651,22 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
     next.splice(to, 0, moved);
     setRows(next);
   }
+  // Round 195 — appends a Rewind row back into the active chart's live
+  // table. `keepRank` is true only for the "Today (before edit)" tab,
+  // where the rank shown is real and worth restoring as-is (a fast
+  // undo); the "Yesterday" tab always blanks the rank on restore, same
+  // convention as the round-174 carry-forward fallback below — a prior
+  // day's rank isn't necessarily today's, so it's left for the user to
+  // retype rather than silently reused.
+  function restoreRow(row, keepRank) {
+    setRows([...rows, { track_title: row.track_title || "", artist: row.artist || "", rank: keepRank ? row.rank || "" : "", did: row.did || "" }]);
+  }
+  // Round 195 — recomputed live per render (not snapshotted like
+  // rewindToday above) since "yesterday" is fixed data that can't change
+  // while this popup is open; reuses the same prior-day lookup the
+  // round-174 carry-forward fallback already relies on.
+  const priorRows = (findPriorRows(entries || [], platform, activeChart, todayStr()) || [])
+    .map((e) => ({ track_title: e.track_title || "", artist: e.artist || "", rank: e.rank != null ? String(e.rank) : "", did: e.did || "" }));
   // Round 182 — fix for "rows getting deleted, some retain, some don't"
   // (a real bug, not user error): this used to compute `next` off the
   // `rows` closure captured at the moment the DID input was blurred, then
@@ -603,7 +737,7 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 0, maxWidth: 780, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 0, maxWidth: 1000, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ width: isMobile ? "100%" : 200, maxHeight: isMobile ? 140 : undefined, borderRight: isMobile ? "none" : "1px solid var(--border)", borderBottom: isMobile ? "1px solid var(--border)" : "none", overflowY: "auto", flexShrink: 0 }}>
           <div style={{ padding: 14, fontSize: 13, fontWeight: 800 }}>{platform}</div>
           {charts.map((c) => {
@@ -707,7 +841,59 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
             </button>
           </div>
         </div>
+        {/* Round 195 — Rewind panel sits right next to the main table,
+            same as the chart-list sidebar on the other side, per explicit
+            request. Stacks below on mobile since the whole popup already
+            drops to a column layout there. */}
+        <div style={{ width: isMobile ? "100%" : 240, maxHeight: isMobile ? 220 : undefined, borderLeft: isMobile ? "none" : "1px solid var(--border)", borderTop: isMobile ? "1px solid var(--border)" : "none", overflowY: "auto", flexShrink: 0, padding: 14 }}>
+          <RewindPanel priorRows={priorRows} todayBefore={rewindToday[activeChart] || []} onRestore={restoreRow} />
+        </div>
       </div>
+    </div>
+  );
+}
+
+// Round 195 — read-only reference list with a one-click restore per row;
+// never auto-applies anything to the live table on its own. See the
+// `rewindToday`/`priorRows` comments in ChartEntryPopup above for what
+// each tab actually sources.
+function RewindPanel({ priorRows, todayBefore, onRestore }) {
+  const [tab, setTab] = useState("today");
+  const list = tab === "today" ? todayBefore : priorRows;
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", marginBottom: 8 }}>Rewind</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        <button
+          onClick={() => setTab("today")}
+          className={styles.btnSmall}
+          style={{ fontSize: 10, padding: "3px 8px", background: tab === "today" ? "var(--bg-hover)" : "transparent" }}
+        >
+          Today (before edit)
+        </button>
+        <button
+          onClick={() => setTab("yesterday")}
+          className={styles.btnSmall}
+          style={{ fontSize: 10, padding: "3px 8px", background: tab === "yesterday" ? "var(--bg-hover)" : "transparent" }}
+        >
+          Yesterday
+        </button>
+      </div>
+      {list.length === 0 && <div style={{ fontSize: 10, color: "var(--text-faint)" }}>Nothing here.</div>}
+      {list.map((r, i) => (
+        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, fontSize: 10, padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`${r.track_title}${r.artist ? ` - ${r.artist}` : ""}`}>
+            <span style={{ fontWeight: 700 }}>{r.rank || "–"}</span> {r.track_title}{r.artist ? ` - ${r.artist}` : ""}
+          </div>
+          <button
+            title="Add this row back into the table"
+            onClick={() => onRestore(r, tab === "today")}
+            style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", flexShrink: 0, fontSize: 13 }}
+          >
+            ↩
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

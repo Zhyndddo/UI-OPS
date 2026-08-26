@@ -10453,3 +10453,190 @@ Files: `app/workstation/milestone/page.js` (`PLATFORM_CHARTS.Apple`),
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 192 — 2026-08-26
+
+Format comparison against the real tool's actual Highlight/Report
+exports (pasted in full by the user for side-by-side comparison),
+resulting in 4 explicit changes:
+
+**1. Chart names now shown as "Platform | Chart"** everywhere a chart
+name is displayed standalone (`SongLine`'s `showChart` case, and the new
+`HighlightLine` below) — keeps the canonical (mapped) chart value
+internally, just relabels it for display, per explicit request
+("mapped everything, then relabel the chart to 'Platform | Chart'").
+
+**2. Highlight panel rows trimmed** — date and status tag removed from
+each line (new `HighlightLine` component replaces `SongLine` there), but
+the rank-change arrow (↑/↓) is kept, since "highlight is each day
+already" (the date is redundant — the whole panel is today only) but the
+arrow still carries real information.
+
+**3. Highlight rules simplified from 4 down to 3** — was: IN, RETURN,
+"held #1" (rank===1), and "climbed into top 5" (climbed AND rank<=5) as
+four separate cases. Now: IN, RETURN, and REMAIN-with-a-rule — a REMAIN
+row is highlight-worthy if EITHER it climbed and its new rank is at or
+better than a configurable `climbToRankHighlight` (default 10), OR its
+rank — regardless of movement, holding or falling too — is at or better
+than a configurable `topRankAlwaysHighlight` (default 5). This subsumes
+the old separate "held #1" case (rank 1 always qualifies under the
+second clause), so it's not a fourth rule anymore. Both thresholds are
+admin-editable under Config → Milestone (previously one combined
+`topNRank` field; back-compat mapping in `parseMilestoneHighlightConfig`
+migrates an old saved config onto both new fields). Two rounds of
+clarification landed on the exact two-threshold shape: initial ask
+("3 rules: IN status, going up, now in first 5") plus a follow-up
+correction ("those going up but going up to rank 10 at least, while
+remain must be in top 5") — the "climbing" and "always top-5" checks are
+independent ORs, not one combined AND-gated rule.
+
+**4. Sort order intentionally left unchanged** — the real tool's
+reference Highlight/Report text showed charts in a specific (mostly
+descending) order, but per explicit instruction this is the user's own
+manual curation when pasting from the sheet, not something the system
+should replicate ("no need for sort order, the sort is me doing the
+heavy work").
+
+**Bug found and fixed along the way**: `excludedCharts`'s default value
+in `lib/milestoneHighlight.js` held stale RAW pre-canonicalization chart
+names ("ZingCharts", "BXH NHẠC MỚI") that never matched what's actually
+stored in `entries.chart` after `CHART_MAP` normalization on import —
+silently making the Zing exclusion in the Chart Highlight summary a
+permanent no-op. Fixed to the canonical values (`"ZMP3|ZING CHART"`,
+`"ZMP3|BXH NHẠC MỚI"`), confirmed against the user's real reference
+export where Zing (11 and 21 charting entries, both past the >2
+threshold) was correctly absent from that summary.
+
+Files: `lib/milestoneHighlight.js` (thresholds, excludedCharts fix,
+back-compat parsing), `app/workstation/milestone/page.js` (`highlight`
+useMemo, render section, `SongLine`, new `HighlightLine`),
+`app/config/page.js` (`MilestoneHighlightSection` — two separate number
+inputs instead of one).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## Round 193 — 2026-08-26
+
+Bug fix, reported directly: "the import somehow drop the rank column
+data... I see it in the import on the input pop up table. should be us
+wiping the thing after every save or at open." Two separate,
+compounding root causes:
+
+**1. Timezone bug in date calculation.** `todayStr()`/`daysAgoStr()`
+used `new Date().toISOString().slice(0, 10)`, which converts to UTC
+*before* slicing off the date — wrong for Vietnam (UTC+7) during the
+local midnight–7am window, where it returns *yesterday's* date instead
+of today's. This made the Input popup fail to find today's
+already-imported rows during that window, falling back to the existing
+(round 174) "carry forward the most recent prior day's rows, blank
+rank" behavior — explaining the "at open" half of the symptom. Fixed
+with a `localDateStr(d)` helper using local (non-UTC-converting) `Date`
+getters (`getFullYear()`/`getMonth()`/`getDate()`), used by both
+`todayStr()` and `daysAgoStr()`.
+
+**2. Blank rank silently became a real `0`.** `saveRows` computed
+`rank: parseInt(r.rank, 10) || 0` — any blank or unparseable rank
+input converted straight to the literal number `0` instead of signaling
+"no value here." Combined with `ChartEntryPopup.handleSaveAll` saving
+*every* chart present in the popup on one Save click (not just the one
+being actively edited), a single blank-appearing row — from the
+timezone bug above, or any other reason — could get force-written as
+rank `0` over a real existing value on the very next save. Fixed:
+`saveRows` now computes `Number.isFinite(parsedRank) ? parsedRank :
+null`, and rows with a `null` rank are filtered out of the save payload
+entirely, so a blank rank is simply never written rather than being
+recorded as `0`.
+
+Files: `app/workstation/milestone/page.js` (`localDateStr`, `todayStr`,
+`daysAgoStr`, `saveRows`).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## Round 194 — 2026-08-26
+
+Follow-up to round 193 — a design question about save mechanics, asked
+directly: "how will it save now?? ... racing would mean, anything later
+would over-ride the first." Confirmed with the user that concurrent
+editing of the *same* platform/chart never actually happens on their
+team ("usually only 1-2 people but they do not overlap doing it on the
+same platform"), and that the real problems they'd hit were: a row
+deleted in the popup (wrong input) stayed sitting in the database
+forever, and a rank correction could land on the wrong/stale row instead
+of cleanly replacing it.
+
+**`saveRows` now does a full clear-and-rewrite instead of a merge
+upsert.** Previously, saving only ever created/updated rows present in
+the popup's current list — a row removed from the popup was never
+deleted from the database, it just sat there untouched. Now, each save
+first deletes every existing row for that exact (platform, chart,
+today) before writing back exactly what's currently in the popup, so a
+row removed in the UI is genuinely gone after saving, and every save is
+a clean, complete snapshot of "what's really on the chart today" rather
+than an accumulation of edits layered on old data.
+
+Practical effect for the team: with only one person ever editing a
+given chart at a time, this is strictly safer than before — no more
+stale rows lingering after a delete. The tradeoff (accepted, since it
+doesn't apply to how the team actually works): if two people *did* ever
+save the same chart around the same time, the second save's full
+snapshot would wholesale replace the first person's — not just the
+overlapping songs, the whole chart — so the first person's save would
+be entirely lost rather than merged.
+
+Not fully atomic — delete and insert are two separate Supabase calls,
+not one database transaction. If the delete succeeds but the insert
+fails (e.g. a dropped connection), today's rows for that chart are gone
+until the next successful save. The error is surfaced via `alert()` and
+re-thrown (not swallowed) specifically so a failed save reads as failed,
+not as silently having kept the old data.
+
+Files: `app/workstation/milestone/page.js` (`saveRows`).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## Round 195 — 2026-08-26
+
+Follow-up to round 194's full-replace save, addressing a real concern
+raised about it: "any save that delete by user saving is on them" — the
+user explicitly confirmed that's the accepted tradeoff — but asked for a
+fast way to recover from their own mistake without retyping a row from
+scratch, rather than making the save itself less destructive again.
+
+**New "Rewind" panel** in the Input popup, sitting next to the main
+editing table (mirrors the chart-list sidebar on the other side; stacks
+below the table on mobile, same as the rest of the popup already does).
+Two tabs, both read-only reference lists with a one-click "↩" per row
+that appends it back into the table you're editing — nothing here
+auto-applies itself, you still have to hit Save:
+
+- **"Today (before edit)"** — a snapshot of exactly what was saved for
+  the active chart the moment this popup was opened, before any of this
+  session's edits. Restoring a row here keeps its real rank as-is (a
+  fast undo for "I didn't mean to delete that").
+- **"Yesterday"** — the active chart's most recent prior day's rows
+  (same lookup the round-174 carry-forward fallback already uses).
+  Restoring a row here blanks the rank, same convention as carry-forward
+  — a prior day's rank isn't necessarily today's, so it's left to
+  retype rather than silently reused.
+
+Both sources come from data already loaded client-side (`entries`
+already holds every date's rows) — no extra database read. The "Today"
+snapshot is captured once, in this popup instance's own React state,
+and is never written to the database — per explicit request ("keep the
+rewind temporary for them") it's gone the moment the popup closes, not
+a persisted history table.
+
+Files: `app/workstation/milestone/page.js` (`ChartEntryPopup` —
+`rewindToday` snapshot, `restoreRow`, `priorRows`; new `RewindPanel`
+component; modal widened from 780px to 1000px max-width to fit the new
+column on desktop).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
