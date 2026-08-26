@@ -10297,3 +10297,71 @@ one `sendIntPackage()`; the 3 old buttons replaced by 1 in
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 189 — 2026-08-26
+
+Milestone chart data backfill from the team's "Sam milestone" xlsx
+(`Sam _ milstone 2.0.2026 2.xlsx`), per explicit request: "the total
+streak is the log, the input is input, can you make the backfill." The
+`TOTAL_STREAK` sheet (already imported historically, round 171) is the
+log — nothing to re-import there. The `input` sheet is the team's
+day-of manual entry form and had never been imported.
+
+New script `scripts/import-milestone-input.js`, same dry-run-by-default
+/ `--confirm`-to-write / chunked-upsert convention as
+`scripts/import-milestone-total-streak.js`. Reads the `input` sheet's 7
+horizontal blocks (Zing Chart, BXH Nhạc Mới, Spotify Chart, Spotify
+Playlist, Apple Music, TikTok/Instagram combined, YouTube) — 2 blocks
+have one fixed chart name for the whole block, the other 5 repeat the
+chart name per row. Every block also has a decorative multi-row-merged
+"label" column immediately to its left (confirmed via
+`ws.merged_cells.ranges` during investigation) which duplicates the
+title for readability only — skipped, since only its top-left cell is
+ever populated. The whole sheet shares exactly one date (every block's
+title reads "Ngày DD/MM/YYYY") — read once off the Spotify Chart
+block's own per-row date column rather than assumed as "today", so the
+script stays correct if re-run against a future day's copy of the same
+workbook shape.
+
+`CHART_MAP` (the raw-name → canonical `(chart, platform)` table) is now
+shared: extracted from `import-milestone-total-streak.js` into
+`lib/milestoneChartMap.js` so both scripts stay in sync — no logic
+change to `import-milestone-total-streak.js` beyond this extraction.
+Added 3 new entries the `input` sheet needed that `TOTAL_STREAK`'s
+historical dump never touched: `"APPLE CHARTS - Top ALBUMs
+Vietnam"` (a 3rd wording variant of an already-mapped Apple album
+chart), plus pass-through aliases for `"ZMP3|ZING CHART"` and
+`"ZMP3|BXH NHẠC MỚI"` (the `input` sheet's own block titles are already
+the exact canonical strings, unlike `TOTAL_STREAK`'s messier
+`"ZingCharts"` / `"BXH NHẠC MỚI"` raw labels for the same charts).
+
+The TikTok/Instagram block has no platform column of its own — before
+relying on a chart-name-only reverse lookup for it, checked the full
+`CHART_MAP` (72 entries, 67 distinct raw chart names) for any raw name
+mapped to different platforms under different entries: zero collisions,
+so a name-only lookup is safe and used only for this one block.
+
+Ran the uploaded workbook through this script's parsing logic (dry run,
+verified in Python/openpyxl since this sandbox has neither `xlsx` nor
+`@supabase/supabase-js` installed and no network access to add them):
+109 raw data rows extracted, all 109 matched `CHART_MAP` (0 unmapped —
+listed here as a sanity record, not a promise about future uploads:
+this script always prints and skips anything unmapped rather than
+guessing), 4 rows collapsed as same-chart/song/artist/date duplicates,
+**105 rows ready to upsert** for `entry_date = 2026-08-26`.
+
+To run for real: `npm install xlsx --no-save`, then
+`SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node
+scripts/import-milestone-input.js "Sam _ milstone 2.0.2026 2.xlsx"`
+(dry run), add `--confirm` to actually write. Safe to re-run — same
+natural-key upsert (`chart, track_title, artist, entry_date`) every
+other write path in this app uses.
+
+Files: `lib/milestoneChartMap.js` (new, `CHART_MAP` extracted +
+extended), `scripts/import-milestone-total-streak.js` (now imports
+`CHART_MAP` instead of defining it inline — no behavior change),
+`scripts/import-milestone-input.js` (new).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
