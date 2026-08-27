@@ -11428,3 +11428,54 @@ pre-release/page.js`, `app/workstation/stream/page.js`.
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 216 — 2026-08-27
+
+Three requests about the special third theme ("Zhyn's Special"):
+
+1. Real bug fix: "every time i log in, i have to change from dark
+   theme to it." Root cause was in `lib/AuthContext.js`'s round-186
+   safety clamp (resets the theme to "dark" if it's "zhyn" but the
+   signed-in account isn't the one allowed account). That clamp was
+   gated only on `!loading`, but `loading` also settles to `false` for
+   the logged-OUT state — no session yet, `profile` is null (e.g.
+   sitting on `/login`, or the brief window before a session resolves).
+   In that state `canUseZhynTheme` reads false too (nothing to check an
+   email against), so the clamp fired and reset the theme to "dark"
+   *before* the allowed account had even finished logging in — wiping
+   the saved preference every single time, not just when a different
+   account was actually signed in. Fixed by requiring an actual
+   `profile` to be present before clamping (`!loading && profile &&
+   theme === "zhyn" && !canUseZhynTheme`) — the clamp still fires
+   correctly for a genuinely different signed-in account, it just no
+   longer fires while nobody (or nobody yet) is signed in.
+2. Renamed the user-facing name from "Zhyn's Special" to "Cosmic"
+   (`lib/TopBar.js`'s `ZHYN_THEME_OPTION` label). Left the internal
+   stored value / CSS selector as `"zhyn"` / `[data-theme="zhyn"]` —
+   only the label changed, so anyone's already-saved localStorage
+   preference keeps working with no migration needed.
+3. Re-colored the theme per explicit request ("check the cosmic theme
+   with black, purple, blue, orange and re-color") — previously a flat
+   purple-on-near-black palette with no blue or orange anywhere in it.
+   Rebuilt as an actual "deep space" scene: black void backgrounds
+   (`--bg`/`--bg-body`/`--bg-input`), purple nebula surfaces/borders/
+   text tint (`--bg-card`, `--border*`, text hierarchy — same family as
+   before, rebalanced), a cool blue for the primary accent/interactive
+   color (`--accent`/`--accent-soft` — was purple before, blended into
+   the purple surfaces; blue now actually stands out as "this is
+   clickable"), and warm orange moved into `--warn-*` (was a muted
+   amber) so the 4th requested color has a real, visible spot instead
+   of just sitting in a comment. `--success-*` kept as its existing
+   teal/cyan — no 5th hue was asked for, and teal reads as distinct from
+   both the new blue and the purple surfaces. Iterated with a local
+   HTML/Playwright preview (buttons, badges, table, links, muted/faint
+   text) before finalizing — screenshot checked for contrast, not
+   shipped on guesswork.
+
+Files: `lib/AuthContext.js` (clamp fix), `lib/TopBar.js` (label rename),
+`app/globals.css` (`[data-theme="zhyn"]` recolor), `lib/ThemeContext.js`
+(comment only, no logic change).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).

@@ -112,9 +112,11 @@
   --missing-highlight-bg: rgba(157, 0, 255, 0.12);
 }
 
-/* Round 186 — "Zhyn's Special" (purple), a real third theme value
-   alongside dark and light, not an override layered on top of either
-   one. Rounds 184/185 tried this as a dark-theme replacement, then as a
+/* Round 186 — "Cosmic" (renamed from "Zhyn's Special" in round 216,
+   still internally the "zhyn" value/selector — see the round-216 note in
+   lib/TopBar.js), a real third theme value alongside dark and light, not
+   an override layered on top of either one. Rounds 184/185 tried this as
+   a dark-theme replacement, then as a
    `[data-zhyn-theme]:not([data-theme="light"])` scoped override — per
    explicit correction ("it's not a change of theme, it's a dark, light,
    and zhyn's special... normal account only have dark, light,
@@ -122,37 +124,48 @@
    like [data-theme="light"] below it, selected the same way (<html
    data-theme="zhyn">, set by ThemeContext.js). Every other account only
    ever sees "dark" and "light" as options — TopBar.js only renders the
-   "Zhyn's Special" choice for the one allowed account (AuthContext.js's
+   "Cosmic" choice for the one allowed account (AuthContext.js's
    `canUseZhynTheme`), and AuthContext.js also clamps back to "dark" if
-   this value is ever active for anyone else.
+   this value is ever active for anyone else (round 216 fixed a real bug
+   in that clamp — see the comment on it in lib/AuthContext.js).
 
-   Values unchanged from rounds 184/185 — iterated live via a preview
-   artifact before shipping; see DATA_FIXES.md round 184 for the full
-   before/after and reasoning (synced card/input surface, corrected
-   text-hierarchy ordering, softened/pastel'd accent + border, lightened
-   accent-on text). --error-*, --highlight-*, and --missing-highlight*
-   are deliberately left undefined here, same as they're only partially
-   redefined in [data-theme="light"] — falls through to :root's values,
-   same fixed/out-of-scope colors as every other theme. */
+   Round 216 — full recolor per explicit request ("check the cosmic theme
+   with black, purple, blue, orange and re-color"), replacing rounds
+   184/185's flat purple-on-near-black palette. Reads as an actual "deep
+   space" scene rather than one hue: black void backgrounds, purple
+   nebula surfaces/borders/text tint (kept from before, just re-balanced),
+   a cool blue for the primary accent/interactive color (buttons, active
+   tab, links — was purple before, now the odd one out against the purple
+   surfaces so interactive elements actually stand out instead of
+   blending into the card/border purple), and warm orange carried into
+   --warn-* (was a muted amber before) so the fourth requested color has
+   a real, visible home instead of just living in a comment. --success-*
+   kept as the same teal/cyan family as before — a genuine 5th hue wasn't
+   asked for, and teal already reads as "cool, not blue, not purple" next
+   to the new blue accent instead of competing with it. --error-*,
+   --highlight-*, and --missing-highlight* are still deliberately left
+   undefined here, same as they're only partially redefined in
+   [data-theme="light"] — falls through to :root's values, same
+   fixed/out-of-scope colors as every other theme. */
 [data-theme="zhyn"] {
-  --bg: #121212;
-  --bg-body: #121212;
-  --bg-card: #1a1420;
-  --bg-input: #1a1420;
-  --bg-hover: #241a2c;
-  --border: #a865c9;
-  --border-strong: #c99bdf;
-  --text: #ebcdfa;
-  --text-muted: #c9bad1;
-  --text-faint: #8a7a92;
-  --text-dim: #6b5d73;
-  --accent: #9b6bd1;
-  --accent-soft: #c9a8ef;
-  --accent-on: #f5ecff;
-  --success-bg: rgba(59, 255, 255, 0.15);
+  --bg: #0a0714;
+  --bg-body: #0a0714;
+  --bg-card: #170f28;
+  --bg-input: #1b1330;
+  --bg-hover: #241a3f;
+  --border: #4a3574;
+  --border-strong: #7355ad;
+  --text: #ede7fb;
+  --text-muted: #b6a7d8;
+  --text-faint: #8577a8;
+  --text-dim: #5c4f7e;
+  --accent: #5b8cff;
+  --accent-soft: #93b4ff;
+  --accent-on: #0a0714;
+  --success-bg: rgba(94, 234, 212, 0.15);
   --success-fg: #5eead4;
-  --warn-bg: rgba(255, 131, 7, 0.15);
-  --warn-fg: #ffb84d;
+  --warn-bg: rgba(255, 145, 42, 0.16);
+  --warn-fg: #ffab5c;
 }
 
 * {
