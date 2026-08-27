@@ -198,7 +198,7 @@ export default function ConfirmWorkstation() {
   return (
     <AppShell>
       <div className={styles.page}>
-        <div className={styles.container} style={{ maxWidth: 1300 }}>
+        <div className={styles.container} style={{ maxWidth: 1800 }}>
           <TypeSwitcher kind="workstation" current="confirm" />
           <div className={styles.eyebrow}>// Workstation</div>
           <h1 className={styles.title} style={{ marginBottom: 16 }}>Re-Check</h1>
@@ -243,7 +243,7 @@ export default function ConfirmWorkstation() {
                     sortKey="release_date"
                     sort={sort}
                     onToggle={toggleSort}
-                    style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}
+                    style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}
                   >
                     Release info
                   </SortableTh>
@@ -266,7 +266,7 @@ export default function ConfirmWorkstation() {
                   const highlight = rowHighlightColor(r);
                   return (
                   <tr key={r.id} style={highlight ? { background: highlight } : undefined}>
-                    <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight || "var(--bg)", borderRight: "2px solid var(--accent)" }}>
+                    <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight || "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}>
                       <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
                       <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)} {r.release_time}</div>
                     </td>
@@ -305,7 +305,7 @@ export default function ConfirmWorkstation() {
                     sortKey="release_date"
                     sort={sort}
                     onToggle={toggleSort}
-                    style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}
+                    style={{ position: "sticky", left: 0, zIndex: 21, background: "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}
                   >
                     Release info
                   </SortableTh>
@@ -330,7 +330,7 @@ export default function ConfirmWorkstation() {
                   const highlight = rowHighlightColor(r);
                   return (
                   <tr key={r.id} style={highlight ? { background: highlight } : undefined}>
-                    <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight || "var(--bg)", borderRight: "2px solid var(--accent)" }}>
+                    <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight || "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}>
                       <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
                       <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)} {r.release_time}</div>
                     </td>

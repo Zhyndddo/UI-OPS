@@ -11348,3 +11348,48 @@ desktop and mobile).
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 214 — 2026-08-27
+
+Report: "everything is gone" on Re-Check — Phase 2 showing 0/0/0 and
+"No releases yet.", with console errors on the releases query (400) and
+a `created_at.desc`-ordered query (404).
+
+Root cause is NOT a code bug — it's that the two pending SQL migrations
+from rounds 211 and 213 haven't been run against production yet:
+- `add-round211-link-lbm-source.sql` adds `releases.link_lbm_source`.
+  The Re-Check workstation's `SELECT_FIELDS` has selected that column
+  since round 211 — PostgREST returns 400 Bad Request for a select
+  naming a column that doesn't exist in its schema cache, which is
+  exactly the 400 seen on the releases query. This blanks the whole
+  list because `fetchAllRows` (lib/helpers.js) swallows the error and
+  returns whatever it collected so far — nothing, on a first-page
+  failure — instead of throwing, so the page just renders as if there
+  were no releases at all rather than surfacing an error.
+- `add-round213-phai-sinh-smartlinks.sql` creates the
+  `phai_sinh_smartlinks` table. Round 213's new query against that
+  table 404s (relation doesn't exist) until it's run.
+
+**Action needed from the team, not a code change**: run both
+`add-round211-link-lbm-source.sql` and
+`add-round213-phai-sinh-smartlinks.sql` against production (in that
+order — 213 doesn't depend on 211, but that's the order they were
+written in). This session has no live database access to run them
+directly or confirm which migrations are already applied — every prior
+migration file in this repo needs the same manual step, this just
+happened to surface visibly because a query now genuinely fails instead
+of silently returning nothing extra.
+
+Also handled the two small layout requests that came with the report:
+Re-Check's page container widened 1300px → 1800px ("expand the
+container of the workstation to show more"), and the sticky "Release
+info" column (both Phase 1 and Phase 2 tables) given `minWidth: 260`
+("expand the release column width too") — it previously had no
+explicit width and sized to content only.
+
+Files: `app/workstation/confirm/page.js` (container maxWidth, Release
+info column minWidth on both tables' header + body cell).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
