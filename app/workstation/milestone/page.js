@@ -498,6 +498,43 @@ function buildReportText(digest, report, highlightConfig) {
   return lines.join("\n");
 }
 
+// Round 205 — same fix as songLineText/buildReportText above, applied to
+// the Highlight panel per explicit request ("same button for highlight
+// table, no change, just different content"). Plain-text version of one
+// HighlightLine (rank, platform|chart, title-artist, rank-change arrow —
+// no date/status, matching what HighlightLine actually shows on screen).
+function rankChangeText(rankChange) {
+  if (!rankChange || rankChange.dir === "same") return "0";
+  return rankChange.dir === "up" ? `↑${rankChange.amount}` : `↓${rankChange.amount}`;
+}
+function highlightLineText(r) {
+  return `#${r.rank} ${r.platform} | ${r.chart} | ${r.track_title}${r.artist ? ` - ${r.artist}` : ""} ${rankChangeText(r.rankChange)}`;
+}
+
+// Round 205 — builds the whole Highlight panel as one plain-text block,
+// same sections/order as on screen: the 3 HighlightSections (skipped if
+// empty, same as their on-screen counterparts), then the Chart Highlight
+// summary if there is one.
+function buildHighlightText(highlight, highlightConfig) {
+  const lines = [];
+  const section = (title, rows) => {
+    if (rows.length === 0) return;
+    lines.push(title);
+    rows.forEach((r) => lines.push(highlightLineText(r)));
+  };
+  section("Bắt Đầu Vào Chart", highlight.inRows);
+  section("Quay Lại Chart", highlight.returnRows);
+  section(`Thăng Hạng (lên top ${highlightConfig.climbToRankHighlight}) / Top ${highlightConfig.topRankAlwaysHighlight}`, highlight.topRows);
+  if (highlight.chartSummary.length > 0) {
+    lines.push("Chart Highlight");
+    highlight.chartSummary.forEach(({ platform, charts }) => {
+      lines.push(platform);
+      charts.forEach(([chart, count]) => lines.push(`${chart} — ${count}/${highlightConfig.chartDepth}`));
+    });
+  }
+  return lines.join("\n");
+}
+
 // Round 127 — the Report tab, rebuilt to match the real system's "report"
 // + "Highlight" sheets side by side, per explicit request ("showing side
 // by side for comparison is preferred"). Left = the full digest (every
@@ -515,6 +552,17 @@ function ReportAndHighlight({ digest, highlight, report, highlightConfig }) {
     navigator.clipboard?.writeText(buildReportText(digest, report, highlightConfig)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
+    });
+  }
+  // Round 205 — separate copied/handler pair for the Highlight panel
+  // (its own button, own text builder) — kept independent of the Report
+  // panel's so each button's "Copied!" only shows on the button actually
+  // clicked, not both at once.
+  const [copiedHighlight, setCopiedHighlight] = useState(false);
+  function handleCopyHighlight() {
+    navigator.clipboard?.writeText(buildHighlightText(highlight, highlightConfig)).then(() => {
+      setCopiedHighlight(true);
+      setTimeout(() => setCopiedHighlight(false), 1500);
     });
   }
   if (report.todayRows.length === 0) {
@@ -548,7 +596,10 @@ function ReportAndHighlight({ digest, highlight, report, highlightConfig }) {
 
       {/* Highlight */}
       <div style={{ flex: 1, minWidth: 0, width: isMobile ? "100%" : undefined, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
-        <div style={{ fontSize: 12, fontWeight: 800, color: "#ff6b1a", textTransform: "uppercase", marginBottom: 10 }}>Highlight</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#ff6b1a", textTransform: "uppercase" }}>Highlight</div>
+          <button className={styles.btnSmall} onClick={handleCopyHighlight}>{copiedHighlight ? "Copied!" : "Copy for Telegram"}</button>
+        </div>
 
         <HighlightSection title="Bắt Đầu Vào Chart" rows={highlight.inRows} />
         <HighlightSection title="Quay Lại Chart" rows={highlight.returnRows} />

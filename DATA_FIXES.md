@@ -11024,3 +11024,26 @@ Files: `app/workstation/milestone/page.js` (new `songLineText()` /
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 205 — 2026-08-27
+
+Follow-up to round 204. Direct request: "can you do a same button for
+highlight table?? no change, just different content for each table."
+
+Same "Copy for Telegram" treatment, applied to the Highlight panel next
+to the Report panel. Builds the Highlight panel's own plain text —
+Bắt Đầu Vào Chart / Quay Lại Chart / Thăng Hạng sections (each skipped
+if empty, same as their on-screen counterparts) as `#rank platform |
+chart | Song - Artist ↑N` lines, then the Chart Highlight summary if
+there is one — instead of copying the on-screen HTML, so it can't pick
+up the same wrapping-dependent line breaks round 204 fixed for the
+Report panel. Its own "Copied!" button state, independent of the Report
+panel's button.
+
+Files: `app/workstation/milestone/page.js` (new `rankChangeText()` /
+`highlightLineText()` / `buildHighlightText()` helpers, "Copy for
+Telegram" button on the Highlight panel).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
