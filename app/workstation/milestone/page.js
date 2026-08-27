@@ -128,7 +128,20 @@ export default function MilestoneWorkstation() {
 
   async function saveRows(platform, chart, rows) {
     const payload = rows
-      .filter((r) => r.track_title?.trim())
+      // Round 202 — was `.filter((r) => r.track_title?.trim())`, which
+      // required EVERY row on EVERY chart to have a Song filled in. That's
+      // fine for song charts, but an artist-ranking chart (e.g. Spotify's
+      // "WEEKLY TOP ARTIST"/"DAILY TOP ARTIST", YouTube's "TOP ARTISTS
+      // WEEKLY") has no song at all — the user only fills in Artist and
+      // leaves Song blank, since there's nothing to put there. Every row on
+      // those charts was silently dropped by this filter, so `payload`
+      // ended up empty even though the user genuinely typed data in — and
+      // since the delete below runs unconditionally BEFORE the
+      // `payload.length === 0` check, that emptied payload meant today's
+      // real rows got deleted with nothing to reinsert: "click save just
+      // throws everything away," exactly as reported for the Weekly Artist
+      // tab. Now a row counts as real if EITHER Song or Artist is filled.
+      .filter((r) => r.track_title?.trim() || r.artist?.trim())
       .map((r, i) => {
         const parsedRank = parseInt(r.rank, 10);
         return {
@@ -144,7 +157,11 @@ export default function MilestoneWorkstation() {
           // artist-notnull.sql), not something visible from this file
           // alone since every read path already tolerates "" the same as
           // null (r.artist || "—").
-          track_title: r.track_title.trim(), artist: r.artist?.trim() || "",
+          // track_title stays "" (not left undefined) for artist-only
+          // charts — the column is NOT NULL but has no default, unlike
+          // artist, so an explicit "" is required rather than relying on
+          // the DB to fill it in.
+          track_title: r.track_title?.trim() || "", artist: r.artist?.trim() || "",
           // Round 193 — a blank/unparseable rank used to become a real
           // `0` here (`parseInt(...) || 0`); kept as `null` now and
           // filtered out below instead, so a row with no rank typed in

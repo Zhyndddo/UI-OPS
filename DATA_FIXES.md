@@ -10950,3 +10950,36 @@ touched, `handleSaveAll`'s save loop, and the outer modal's `width`).
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 203 — 2026-08-27
+
+Follow-up to round 202. User and person re-checked: "user and I
+re-checked the spotify platform, weekly artist tab, click save just
+throw everything away." Round 202's `touchedCharts` fix stopped the
+"other charts get wiped" bug, but didn't touch this one — it's a
+separate, older bug that hits a chart the user IS actively editing.
+
+`saveRows` filtered every row down to only ones with a Song
+(`track_title`) filled in, before deciding what to save. That's correct
+for song charts, but charts like Spotify's "WEEKLY TOP ARTIST"/"DAILY
+TOP ARTIST" and YouTube's "TOP ARTISTS WEEKLY" rank artists, not songs
+— there's no song to type, so every row on those charts only ever has
+Artist filled in. The filter dropped all of them, `payload` came back
+empty, and — since the delete-today's-rows step runs unconditionally
+before the empty-payload check (round 194's full-replace design) —
+today's real, already-saved rows for that chart got deleted with
+nothing to write back in their place. Reproduces on every save of an
+artist chart, not just some of the time, which matches "click save
+just throw everything away."
+
+Fixed by counting a row as real if EITHER Song or Artist is filled in,
+not just Song. `track_title` still gets written as `""` rather than
+left undefined for these rows (the column is `NOT NULL` with no
+default, unlike `artist`).
+
+Files: `app/workstation/milestone/page.js` (`saveRows`'s row filter and
+`track_title` mapping).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
