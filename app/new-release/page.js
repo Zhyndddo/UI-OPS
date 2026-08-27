@@ -46,6 +46,13 @@ const EMPTY_FORM = {
   release_time: "19:00",
   theme: "",
   drive_link: "",
+  // Round 212 — new field, per explicit request/layout change. Starts
+  // blank (it's usually not known yet at setup time — "empty on the come
+  // in, and then get filled by OPS team" via the same releases.upc
+  // column the Upload/Re-Check workstations and the release detail
+  // page's URL tab already read/write); just gives it a home on this
+  // form's row 1 too instead of only ever being added later elsewhere.
+  upc: "",
   brief: "",
   linkshare_tiktok_timing: "",
   linkshare_facebook_timing: "",
@@ -329,6 +336,7 @@ export default function NewReleasePage() {
       requester_segment: form.requester_segment || null,
       theme: form.theme || null,
       drive_link: form.drive_link || null,
+      upc: form.upc || null,
       brief: form.brief || null,
     };
 
@@ -772,21 +780,12 @@ export default function NewReleasePage() {
           </button>
         </div>
 
-        <div className={styles.didBox}>
-          <div className={styles.didLabel}>// Release ID (DID)</div>
-          {createdDid ? (
-            <div className={styles.didValue}>{createdDid}</div>
-          ) : form.title.trim() || form.main_artist.trim() ? (
-            <>
-              <div className={styles.didValue}>{didPreview(form.title, form.main_artist, form.release_date)}</div>
-              <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 4 }}>
-                Preview — the final 4 digits are assigned by the database on creation, to guarantee no collisions
-              </div>
-            </>
-          ) : (
-            <div className={styles.didPlaceholder}>---- ---- ----</div>
-          )}
-        </div>
+        {/* Round 212 — DID moved out of here. It used to be its own big
+            dashed box right at the top of the page; per explicit request
+            it now sits as a slim accent line directly above the Release
+            Time field instead (see .didAccent in styles.module.css and
+            the Release Time field further down, row 6 of the new
+            layout) — same content, just relocated. */}
 
         {error && <div className={styles.errorBox}>{error}</div>}
         {autofillNote && (
@@ -806,32 +805,59 @@ export default function NewReleasePage() {
 
         <form onSubmit={(e) => handleSubmit(e, "detail")}>
           <div className={styles.grid}>
+            {/* Round 212 — reordered per explicit request. Row 1: Link Drive
+                + UPC share one row (Drive Link keeps a generous preferred
+                width since URLs run long; UPC is flex:1, so it always
+                fills whatever's left of the row). UPC is a brand-new field
+                on this form — starts blank ("empty on the come in, and
+                then get filled by OPS team" via the release detail page's
+                URL tab or the Upload/Re-Check workstations, same
+                releases.upc column). */}
+            <div className={`${styles.field} ${styles.fieldFull}`}>
+              <div style={{ display: "flex", gap: 16, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <div style={{ flex: "0 1 480px", display: "flex", flexDirection: "column", gap: 6, minWidth: 220 }}>
+                  <label className={styles.fieldLabel}>Link Drive</label>
+                  <input
+                    className={styles.input}
+                    placeholder="https://drive.google.com/..."
+                    value={form.drive_link}
+                    onChange={(e) => update("drive_link", e.target.value)}
+                  />
+                </div>
+                <div style={{ flex: "1 1 160px", display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label className={styles.fieldLabel}>UPC</label>
+                  <input
+                    className={styles.input}
+                    placeholder="UPC"
+                    value={form.upc}
+                    onChange={(e) => update("upc", e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Row 2: Song name */}
+            <div className={`${styles.field} ${styles.fieldFull}`}>
+              <label className={styles.fieldLabel}>
+                Tên bài hát / EP / Album <span className={styles.required}>*</span>
+              </label>
+              <input
+                className={styles.input}
+                placeholder="Nhập tên dự án"
+                value={form.title}
+                onChange={(e) => update("title", e.target.value)}
+              />
+            </div>
+
+            {/* Row 3 — everything not explicitly called out in the new
+                order (per explicit confirmation: "3-10 supposed to be 1
+                request" — consolidated into one block here, between Song
+                name and Artist, keeping this group's own original
+                relative order/styling). */}
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Trạng Thái Gói (Loại Dự Án)</label>
               <div style={{ padding: "9px 12px", background: "var(--bg-card)", border: "1px solid #2a2a2a", borderRadius: 6, color: "var(--text-faint)", fontSize: 13 }}>
                 BRIEF & DATA — sẽ tiến triển qua quy trình gói sau khi tạo
-              </div>
-            </div>
-
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Hãng Đĩa <span className={styles.required}>*</span></label>
-              <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
-                <div style={{ flex: 1 }}>
-                  <LabelInput
-                    styles={styles}
-                    value={form.label}
-                    onChange={(v) => update("label", v)}
-                    labels={labels}
-                    placeholder="Tên label"
-                  />
-                </div>
-                <QuickCreate
-                  kind="label"
-                  onCreated={(newLabel) => {
-                    setLabels((prev) => [...prev, newLabel]);
-                    update("label", newLabel.label_name);
-                  }}
-                />
               </div>
             </div>
 
@@ -934,44 +960,6 @@ export default function NewReleasePage() {
               </div>
             )}
 
-            <div className={`${styles.field} ${styles.fieldFull}`}>
-              <label className={styles.fieldLabel}>
-                Tên bài hát / EP / Album <span className={styles.required}>*</span>
-              </label>
-              <input
-                className={styles.input}
-                placeholder="Nhập tên dự án"
-                value={form.title}
-                onChange={(e) => update("title", e.target.value)}
-              />
-            </div>
-
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>
-                Main Artist <span className={styles.required}>*</span>
-              </label>
-              <ArtistTagInput
-                styles={styles}
-                value={form.main_artist_tags}
-                onChange={(tags) => updateArtistTags("main_artist_tags", "main_artist", tags)}
-                artists={artists}
-                placeholder="Tìm nghệ sĩ chính…"
-                onArtistCreated={(newArtist) => setArtists((prev) => [...prev, newArtist])}
-              />
-            </div>
-
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Feature Artist</label>
-              <ArtistTagInput
-                styles={styles}
-                value={form.feature_artist_tags}
-                onChange={(tags) => updateArtistTags("feature_artist_tags", "feature_artist", tags)}
-                artists={artists}
-                placeholder="Tìm nghệ sĩ feat (nếu có)…"
-                onArtistCreated={(newArtist) => setArtists((prev) => [...prev, newArtist])}
-              />
-            </div>
-
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Thể loại</label>
               <select
@@ -1016,26 +1004,6 @@ export default function NewReleasePage() {
               />
             </div>
 
-            <div className={styles.field}>
-              <label className={styles.fieldLabel}>Giờ phát hành</label>
-              <input
-                type="time"
-                className={styles.input}
-                value={form.release_time}
-                onChange={(e) => update("release_time", e.target.value)}
-              />
-            </div>
-
-            <div className={`${styles.field} ${styles.fieldFull}`}>
-              <label className={styles.fieldLabel}>Link Drive</label>
-              <input
-                className={styles.input}
-                placeholder="https://drive.google.com/..."
-                value={form.drive_link}
-                onChange={(e) => update("drive_link", e.target.value)}
-              />
-            </div>
-
             <div className={`${styles.field} ${styles.fieldFull}`}>
               <label className={styles.fieldLabel}>Next Step Note</label>
               <textarea
@@ -1072,6 +1040,90 @@ export default function NewReleasePage() {
               <pre style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-wrap", margin: 0 }}>
                 {buildLinkshareNote(form)}
               </pre>
+            </div>
+
+            {/* Row 4: Artist */}
+            <div className={styles.field}>
+              <label className={styles.fieldLabel}>
+                Main Artist <span className={styles.required}>*</span>
+              </label>
+              <ArtistTagInput
+                styles={styles}
+                value={form.main_artist_tags}
+                onChange={(tags) => updateArtistTags("main_artist_tags", "main_artist", tags)}
+                artists={artists}
+                placeholder="Tìm nghệ sĩ chính…"
+                onArtistCreated={(newArtist) => setArtists((prev) => [...prev, newArtist])}
+              />
+            </div>
+
+            <div className={styles.field}>
+              <label className={styles.fieldLabel}>Feature Artist</label>
+              <ArtistTagInput
+                styles={styles}
+                value={form.feature_artist_tags}
+                onChange={(tags) => updateArtistTags("feature_artist_tags", "feature_artist", tags)}
+                artists={artists}
+                placeholder="Tìm nghệ sĩ feat (nếu có)…"
+                onArtistCreated={(newArtist) => setArtists((prev) => [...prev, newArtist])}
+              />
+            </div>
+
+            {/* Row 5: Label, on its own row now (used to share a row with
+                Category) — "Label:" prefix added per explicit request so
+                it still reads unambiguously on its own full-width row,
+                distinct from the Artist row right above it. */}
+            <div className={`${styles.field} ${styles.fieldFull}`}>
+              <label className={styles.fieldLabel}>Hãng Đĩa <span className={styles.required}>*</span></label>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <span className={styles.labelPrefix}>Label:</span>
+                <div style={{ flex: 1 }}>
+                  <LabelInput
+                    styles={styles}
+                    value={form.label}
+                    onChange={(v) => update("label", v)}
+                    labels={labels}
+                    placeholder="Tên label"
+                  />
+                </div>
+                <QuickCreate
+                  kind="label"
+                  onCreated={(newLabel) => {
+                    setLabels((prev) => [...prev, newLabel]);
+                    update("label", newLabel.label_name);
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Row 6: Release Time. DID moved here too (see .didAccent in
+                styles.module.css) — used to be its own big dashed box at
+                the very top of the page; per explicit request, it now
+                sits as a slim accent line directly above this field
+                instead, since this row has the height for it. */}
+            <div className={`${styles.field} ${styles.fieldFull}`}>
+              <div className={styles.didAccent}>
+                <div className={styles.didLabel}>// Release ID (DID)</div>
+                {createdDid ? (
+                  <div className={styles.didValue}>{createdDid}</div>
+                ) : form.title.trim() || form.main_artist.trim() ? (
+                  <>
+                    <div className={styles.didValue}>{didPreview(form.title, form.main_artist, form.release_date)}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 4 }}>
+                      Preview — the final 4 digits are assigned by the database on creation, to guarantee no collisions
+                    </div>
+                  </>
+                ) : (
+                  <div className={styles.didPlaceholder}>---- ---- ----</div>
+                )}
+              </div>
+              <label className={styles.fieldLabel}>Giờ phát hành</label>
+              <input
+                type="time"
+                className={styles.input}
+                value={form.release_time}
+                onChange={(e) => update("release_time", e.target.value)}
+              />
             </div>
           </div>
 

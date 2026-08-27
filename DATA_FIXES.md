@@ -11213,3 +11213,138 @@ Files: `lib/milestoneHighlight.js`
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 211 — 2026-08-27
+
+Item 1 of a 3-item "new round" ("send upload button in the detail page
+now has this scenario that the ops team doesn't do the lbm url... need
+some kind of note to dictate"). Original proposal was to write a
+"Label upload"/"OPS upload" note directly into the Link LBM field
+itself — checked first and flagged a real problem with that: Link LBM
+is a `UrlField` (every non-empty line treated as a real clickable URL),
+and every "is this filled in yet" check across the app (Upload
+workstation, Re-Check phase 1, dashboard NOT-DONE counts) is a plain
+non-empty check on it. A text note there would render as a broken link
+AND falsely mark it "already filled in" before any real URL exists.
+Confirmed with the team: use a separate field instead.
+
+New `releases.link_lbm_source` column ("label" | "ops" | null,
+`lib/LinkLbmSourceBadge.js`'s two `<option>`s are the only real
+values). Clicking SEND UPLOAD on the release detail page now shows a
+small popup first (`SendUploadSourcePopup`) asking who's actually
+expected to create the upload — picking either option sends the upload
+exactly as before, just also stamping this field; Cancel closes the
+popup without sending anything. Not one-shot: the badge stays editable
+afterward wherever Link LBM itself is edited, in case the real answer
+turns out different — release detail page's URL tab, the Upload
+workstation's row, and the Re-Check workstation's `LbmCell` (shared by
+both its phase 1 and phase 2 tables).
+
+Files: `lib/LinkLbmSourceBadge.js` (new), `app/releases/[id]/page.js`
+(`sendUpload()`, `SendUploadSourcePopup`, `OverviewTab`'s SEND UPLOAD
+button, `UrlTab`'s Link LBM field), `app/workstation/upload/page.js`
+(select query, `UploadRow`'s Link LBM cell), `app/workstation/confirm/
+page.js` (`SELECT_FIELDS`, `LbmCell`), `add-round211-link-lbm-
+source.sql` (new — adds the column; needs to be run by the team against
+production, this session has no direct database access).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## Round 212 — 2026-08-27
+
+Item 3 of the same 3-item round ("just a re-layout for new release
+setup workstation"). Turned out to have more open questions than
+expected for "the easy one" — confirmed directly before touching
+anything:
+
+- The row-1 instruction assumed a UPC field already existed on this
+  form; it didn't (UPC has only ever lived on the release detail page's
+  URL tab and the Upload/Re-Check workstations). Confirmed: add it here
+  too, blank by default ("empty on the come in, and then get filled by
+  OPS team" — same `releases.upc` column those other 3 places already
+  read/write, so nothing typed there conflicts with this).
+- The given row numbering skipped "row 3" and only covered 6 of the
+  form's ~17 fields. Confirmed: that gap was a numbering mistake — every
+  field not explicitly called out consolidates into one "row 3" block
+  (kept in its original relative order/styling) sitting between Song
+  name and Artist.
+- "row 5: 'label' && 'label row'" — no second UI element called "label
+  row" actually exists on this page. Confirmed: just the Label field,
+  on its own row, with a plain "Label:" text prefix in front of the
+  input so it still reads unambiguously now that it no longer shares a
+  row with Category.
+
+Changes: `.container` widened 720px → 864px (~1.2x, per explicit
+request — only the column, not individual field styling). New order:
+row 1 Link Drive + UPC (Drive Link keeps a generous preferred width,
+UPC is `flex:1` so it always fills whatever's left of the row); row 2
+Song name; row 3 the consolidated "everything else" block (Trạng Thái
+Gói, Category, Single/Album/EP, Media Channel, Tracklist, Thể loại,
+Chủ đề, Release Date, Next Step Note, Tiktok/FB Release Timing,
+Linkshare Note preview — same relative order as before); row 4 Main
+Artist + Feature Artist; row 5 Label (now its own full-width row, was
+sharing one with Category); row 6 Release Time. DID's old standalone
+dashed box (previously sitting at the very top of the page, above the
+whole form) is now a slim accent-bordered line directly above the
+Release Time field instead — same content (live preview / placeholder /
+final DID after creation), per explicit "since it now has enough
+height to contain the DID now." This last piece is my best-effort read
+of that instruction; flagged back to the team as easy to adjust with a
+screenshot if it's not quite what they pictured.
+
+Files: `app/new-release/page.js` (EMPTY_FORM's new `upc` field,
+`handleSubmit`'s insert payload, the whole `.grid` section reordered,
+DID relocated), `app/new-release/styles.module.css` (`.container`
+width, new `.didAccent` / `.labelPrefix` classes).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## Round 213 — 2026-08-27
+
+Item 2 of the same 3-item round ("Re-Check workstation, phase 2:
+Smartlink"). Some phái sinh items — some from a phái sinh ticket, some
+not tied to any ticket at all — need a smartlink and the team wants it
+tracked. Researched the existing data model first (single phái sinh
+tickets store fields in JSONB `tickets.data`; Kho Nhạc-family types use
+a separate `phai_sinh_batch_items` child table) and found no existing
+precedent for "a workstation row that can be prefilled by picking a
+ticket, or filled in fully by hand" — closest analog was Milestone's
+manual-entry `ChartEntryPopup`. Proposed a new table plus a shared
+picker/manual popup, confirmed with the team before building, then got
+one follow-up: "i want it to be one workstation so the team won't be
+confused of where is the smartlink" — resolved by asking where exactly
+that one place should be; team picked "Same Phase 2 tab, second section
+below the release table."
+
+Built a new `phai_sinh_smartlinks` table (own row per smartlink,
+`source_ticket_id` nullable — populated when created via the ticket
+picker or the ticket page's own button, left null for fully manual
+rows). One shared popup (`lib/PhaiSinhSmartlinkPopup.js`) covers both
+entry points: "Pick a ticket" (searches phái sinh tickets, excludes
+Kho Nhạc-family since those have no single tenBai/artist/did of their
+own, autofills Song Title/Artist/DID from the ticket but leaves them
+editable) or "Manual entry" (type everything by hand). Smartlink is
+required; PIC and Note are optional. The Re-Check workstation's Phase 2
+tab now has a second table ("Phái Sinh Smartlinks") below the existing
+release-smartlink table, with a "+ Add Smartlink" button opening the
+popup in ticket-or-manual mode, and inline edit (Smartlink/PIC/Note) +
+delete per row. The phái sinh ticket list page now has a small "Track
+Smartlink" button per single-song row (hidden on Kho Nhạc-family rows),
+opening the same popup preset to that ticket.
+
+Files: `add-round213-phai-sinh-smartlinks.sql` (new — creates the
+table; needs to be run by the team against production, this session has
+no direct database access), `lib/PhaiSinhSmartlinkPopup.js` (new —
+shared popup), `app/workstation/confirm/page.js` (new state/load/CRUD
+for `phai_sinh_smartlinks`, new "Phái Sinh Smartlinks" table section +
+`PhaiSinhSmartlinkRow` under Phase 2), `app/tickets/phai-sinh/page.js`
+("Track Smartlink" button + popup wired into `PhaiSinhRow`, both
+desktop and mobile).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).

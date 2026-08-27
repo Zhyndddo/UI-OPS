@@ -10,6 +10,7 @@ import { isOpsTeam } from "../../../lib/teamTypes";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import LinkOrEditCell from "../../../lib/LinkOrEditCell";
+import PhaiSinhSmartlinkPopup from "../../../lib/PhaiSinhSmartlinkPopup";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
@@ -294,6 +295,13 @@ const phaiSinhFieldLabelStyle = { fontSize: 10, fontWeight: 700, color: "var(--t
 
 function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, batchItems, canEditDeadline, onUpdateField, onUpdateStatus, onUpdatePic, onAcknowledgeEdit, onUpdateDeadline, mobile = false }) {
   const d = ticket.data || {};
+  // Round 213 — item 2: "Track Smartlink" opens the same popup the
+  // Re-Check workstation's "+ Add Smartlink" button does
+  // (lib/PhaiSinhSmartlinkPopup.js), preset to this ticket so the fields
+  // start pre-filled. Kho Nhạc-family (batch) tickets have no single
+  // tenBai/artist/did to autofill from — button left off those rows,
+  // matching every other single-song-only field's grey-out treatment.
+  const [showSmartlinkPopup, setShowSmartlinkPopup] = useState(false);
   const color = statusColor(ticket.status);
   const isRefundLike = REFUND_LIKE.includes(ticket.status);
   const statusEditable = isExecutorView || isRefundLike;
@@ -356,7 +364,26 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
           ))}
         </div>
       )}
+      {!isBatch && (
+        <button
+          type="button"
+          onClick={() => setShowSmartlinkPopup(true)}
+          className={styles.btnSmall}
+          style={{ marginTop: 4, fontSize: 9, padding: "3px 8px" }}
+        >
+          Track Smartlink
+        </button>
+      )}
     </>
+  );
+
+  const smartlinkPopup = showSmartlinkPopup && (
+    <PhaiSinhSmartlinkPopup
+      presetTicket={ticket}
+      profiles={profiles}
+      onClose={() => setShowSmartlinkPopup(false)}
+      onSaved={() => {}}
+    />
   );
 
   const tenBaiBody = (
@@ -525,6 +552,7 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
             </div>
           )}
         </div>
+        {smartlinkPopup}
       </div>
     );
   }
@@ -578,7 +606,7 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
       {/* Round 80 — hover reveals the reason folded into data.note by
           statusNoteGate for refund/cancel-like status moves. */}
       <td style={{ verticalAlign: "top" }} title={ticket.data?.note || undefined}>{statusBody}</td>
-      <td style={{ fontSize: 10, verticalAlign: "top" }}>{progressBody}</td>
+      <td style={{ fontSize: 10, verticalAlign: "top" }}>{progressBody}{smartlinkPopup}</td>
     </tr>
   );
 }

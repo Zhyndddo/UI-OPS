@@ -8,6 +8,8 @@ import { fmtDate, fetchAllRows } from "../../../lib/helpers";
 import { BoolToggle } from "../../../lib/GateFields";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
+import LinkLbmSourceBadge from "../../../lib/LinkLbmSourceBadge";
+import PhaiSinhSmartlinkPopup from "../../../lib/PhaiSinhSmartlinkPopup";
 import StatusCounter from "../../../lib/StatusCounter";
 import { sortByReleaseDateDesc, filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { rowHighlightColor } from "../../../lib/releaseDateHighlight";
@@ -48,7 +50,7 @@ function ArtistPickSelect({ value, onChange }) {
   );
 }
 
-const SELECT_FIELDS = "id, did, title, main_artist, release_date, release_time, link_lbm, release_category, project_type, smartlink, upc, confirm_insta_sound, confirm_tiktok_sound_updated, confirm_smartlink_updated, confirm_tag, artist_pick_status, needs_update, confirm_note, " + DSP_CHECK_FIELDS.join(", ");
+const SELECT_FIELDS = "id, did, title, main_artist, release_date, release_time, link_lbm, link_lbm_source, release_category, project_type, smartlink, upc, confirm_insta_sound, confirm_tiktok_sound_updated, confirm_smartlink_updated, confirm_tag, artist_pick_status, needs_update, confirm_note, " + DSP_CHECK_FIELDS.join(", ");
 
 // Round 135 — per explicit request: "filter out product that hasn't had
 // the UPC && smartlink filled yet" (item 1). A release only counts as
@@ -78,6 +80,11 @@ export default function ConfirmWorkstation() {
   // of isDone.
   const [showMissingUpcSmartlink, setShowMissingUpcSmartlink] = useState(false);
   const [query, setQuery] = useState(""); // round 76 — quick index search box
+  // Round 213 — item 2: phái sinh smartlinks tracked alongside the release
+  // smartlink table, same Phase 2 tab per the team's explicit "one
+  // workstation" request (see lib/PhaiSinhSmartlinkPopup.js).
+  const [phaiSinhSmartlinks, setPhaiSinhSmartlinks] = useState([]);
+  const [showAddSmartlink, setShowAddSmartlink] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
@@ -104,7 +111,22 @@ export default function ConfirmWorkstation() {
     setDefaultPics(defs);
     setAssignments(rows);
 
+    const { data: psLinks } = await supabase.from("phai_sinh_smartlinks").select("*").order("created_at", { ascending: false });
+    setPhaiSinhSmartlinks(psLinks || []);
+
     setLoading(false);
+  }
+
+  // Round 213 — same inline-edit-and-write convention as updateField above,
+  // just against phai_sinh_smartlinks instead of releases.
+  async function updatePhaiSinhSmartlinkField(row, field, value) {
+    setPhaiSinhSmartlinks((prev) => prev.map((r) => (r.id === row.id ? { ...r, [field]: value } : r)));
+    await supabase.from("phai_sinh_smartlinks").update({ [field]: value }).eq("id", row.id);
+  }
+
+  async function deletePhaiSinhSmartlink(row) {
+    setPhaiSinhSmartlinks((prev) => prev.filter((r) => r.id !== row.id));
+    await supabase.from("phai_sinh_smartlinks").delete().eq("id", row.id);
   }
 
   async function updateField(release, field, value) {
@@ -346,6 +368,51 @@ export default function ConfirmWorkstation() {
             </table>
             </div>
             <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+
+            {/* Round 213 — item 2: Phái Sinh Smartlinks, second section on
+                this same Phase 2 tab, below the release smartlink table —
+                per the team's explicit "one workstation" decision so
+                there's exactly one place to look for any smartlink. */}
+            <h2 className={styles.subheading} style={{ marginTop: 32 }}>Phái Sinh Smartlinks</h2>
+            <button onClick={() => setShowAddSmartlink(true)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
+              + Add Smartlink
+            </button>
+            {phaiSinhSmartlinks.length === 0 ? (
+              <div className={styles.emptyState}>No phái sinh smartlinks tracked yet.</div>
+            ) : (
+              <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "50vh" }}>
+                <table className={styles.table} style={{ minWidth: 900 }}>
+                  <thead>
+                    <tr>
+                      <th>Song / Artist / DID</th>
+                      <th>Smartlink</th>
+                      <th>Source</th>
+                      <th>PIC</th>
+                      <th>Note</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {phaiSinhSmartlinks.map((r) => (
+                      <PhaiSinhSmartlinkRow
+                        key={r.id}
+                        row={r}
+                        profiles={profiles}
+                        onUpdateField={updatePhaiSinhSmartlinkField}
+                        onDelete={deletePhaiSinhSmartlink}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {showAddSmartlink && (
+              <PhaiSinhSmartlinkPopup
+                profiles={profiles}
+                onClose={() => setShowAddSmartlink(false)}
+                onSaved={(row) => setPhaiSinhSmartlinks((prev) => [row, ...prev])}
+              />
+            )}
             </>
           )}
         </div>
@@ -354,9 +421,49 @@ export default function ConfirmWorkstation() {
   );
 }
 
+function PhaiSinhSmartlinkRow({ row, profiles, onUpdateField, onDelete }) {
+  const [draftLink, setDraftLink] = useState(row.smartlink || "");
+  return (
+    <tr>
+      <td>
+        <div style={{ fontWeight: 700 }}>{row.song_title || "—"}</div>
+        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{row.artist || "—"} · {row.did || "no DID"}</div>
+      </td>
+      <td style={{ minWidth: 180 }}>
+        <UrlField styles={styles} value={draftLink} onChange={setDraftLink} onBlur={() => onUpdateField(row, "smartlink", draftLink)} />
+      </td>
+      <td>
+        {row.source_ticket_id ? (
+          <Link href={`/tickets/phai-sinh`} className={styles.rowLink} style={{ fontSize: 11 }}>From ticket ↗</Link>
+        ) : (
+          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Manual</span>
+        )}
+      </td>
+      <td>
+        <select className={styles.select} style={{ minWidth: "16ch" }} value={row.pic_profile_id || ""} onChange={(e) => onUpdateField(row, "pic_profile_id", e.target.value || null)}>
+          <option value="">— Unassigned —</option>
+          {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      </td>
+      <td>
+        <input className={styles.input} style={{ minWidth: 140 }} defaultValue={row.note || ""} onBlur={(e) => onUpdateField(row, "note", e.target.value || null)} />
+      </td>
+      <td>
+        <button onClick={() => { if (confirm("Remove this smartlink row?")) onDelete(row); }} className={styles.btnSmall}>Delete</button>
+      </td>
+    </tr>
+  );
+}
+
 function LbmCell({ release, onUpdateField }) {
   const [draft, setDraft] = useState(release.link_lbm || "");
-  return <UrlField styles={styles} value={draft} onChange={setDraft} onBlur={() => onUpdateField(release, "link_lbm", draft)} />;
+  return (
+    <>
+      <UrlField styles={styles} value={draft} onChange={setDraft} onBlur={() => onUpdateField(release, "link_lbm", draft)} />
+      {/* Round 211 — who's actually expected to create this upload, see lib/LinkLbmSourceBadge.js. Shared by both phase 1 and phase 2 tables, same as this cell already is. */}
+      <LinkLbmSourceBadge styles={styles} value={release.link_lbm_source} onChange={(v) => onUpdateField(release, "link_lbm_source", v)} />
+    </>
+  );
 }
 
 function SmartlinkCell({ release, onUpdateField }) {

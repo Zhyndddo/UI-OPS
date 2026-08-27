@@ -11,6 +11,7 @@ import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import ArtistTagInput from "../../../lib/ArtistTagInput";
 import UrlField from "../../../lib/UrlField";
+import LinkLbmSourceBadge from "../../../lib/LinkLbmSourceBadge";
 import { validateLabelNameEdit } from "../../../lib/labelHelpers";
 import { MV_TYPE_OPTIONS, LABEL_HOP_TAC_OPTIONS } from "../../../lib/pickerOptions";
 import { hopTacTagStatus, hopTacStatusColor, publishingHdDone } from "../../../lib/labelHopTacStatus";
@@ -879,7 +880,14 @@ export default function ReleaseDetailPage() {
   // so this whole function — including the sendPackageTicket() call below
   // — only ever runs once per release from this path; Send Package
   // Ticket's own button is a separate, repeatable action (see its comment).
-  async function sendUpload() {
+  // Round 211 — `source` ("label" | "ops" | undefined) comes from the new
+  // popup OverviewTab now shows before this ever runs (see
+  // SendUploadSourcePopup below) — records who's actually expected to
+  // CREATE the Link LBM upload, not who eventually pastes the URL in.
+  // Written once here as a starting value, but link_lbm_source stays a
+  // normal editable field afterward (LinkLbmSourceBadge, wherever Link
+  // LBM itself is edited) in case the real answer turns out different.
+  async function sendUpload(source) {
     if (form.requested) return;
 
     const { data: uploadTab } = await supabase.from("ticket_tabs").select("id").eq("key", "newrelease_upload").single();
@@ -890,7 +898,7 @@ export default function ReleaseDetailPage() {
       });
     }
 
-    const patch = { requested: true };
+    const patch = { requested: true, link_lbm_source: source || null };
     // Went out via the Priority Pitching shortcut (required checklist items
     // not yet all filled in, only allowed through because Priority is
     // ticked — see uploadReady above). priority_pitching_used records that
@@ -1753,6 +1761,33 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
+// Round 211 — shown once, right when SEND UPLOAD is clicked, per explicit
+// request ("send upload button ... add a small popup to pick 'label
+// upload' or 'OPS upload'"). Purely informational — Cancel just closes it
+// without sending anything; picking either option sends the upload
+// exactly as before, just also stamping releases.link_lbm_source so the
+// Upload/Re-Check workstations can show who's actually expected to
+// create the Link LBM upload (see lib/LinkLbmSourceBadge.js). Not a
+// one-shot decision — link_lbm_source stays editable afterward wherever
+// Link LBM itself is edited, in case the real answer changes.
+function SendUploadSourcePopup({ styles, onPick, onClose }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 380, width: "100%" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ fontWeight: 700, marginBottom: 6 }}>Who's doing the Link LBM upload?</div>
+        <p style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 0, marginBottom: 16 }}>
+          Just tags the Link LBM field so whoever checks it later in the Upload/Re-Check workstations knows what to expect — doesn't change anything about sending the upload either way.
+        </p>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className={styles.btnPrimary} onClick={() => onPick("label")}>Label upload</button>
+          <button className={styles.btnPrimary} onClick={() => onPick("ops")}>OPS upload</button>
+        </div>
+        <button className={styles.btnSmall} style={{ marginTop: 14 }} onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntPackage, canSimulate, onSendOnlyPh, canResetToDealing, onResetToDealing, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, updateArtistTags, artistProfileArtistTags, artistProfileVerifySelected, onToggleArtistProfileArtist, artistProfileTicketByArtist, coTrongNetDraft, onCoTrongNetChange, onSendCoTrongNetYoutube, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError, onCopyrightChange, copyrightGateOk, onSendArtistMediaReport }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
@@ -1765,6 +1800,8 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
   // that has additional input... live in a popup, show the current choices
   // under the tick"), same treatment as every gate field in GateFields.js.
   const [showMvTypePopup, setShowMvTypePopup] = useState(false);
+  // Round 211 — see SendUploadSourcePopup below and lib/LinkLbmSourceBadge.js.
+  const [showUploadSourcePopup, setShowUploadSourcePopup] = useState(false);
 
   useEffect(() => {
     setLabelDraft(form.label || "");
@@ -2286,11 +2323,18 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
         <button
           className={styles.btnPrimary}
           disabled={!uploadReady || form.requested}
-          onClick={onUpload}
+          onClick={() => setShowUploadSourcePopup(true)}
           style={{ opacity: form.requested ? 0.5 : uploadReady ? 1 : 0.3 }}
         >
           {form.requested ? "UPLOAD SENT" : "SEND UPLOAD"}
         </button>
+        {showUploadSourcePopup && (
+          <SendUploadSourcePopup
+            styles={styles}
+            onClose={() => setShowUploadSourcePopup(false)}
+            onPick={(source) => { setShowUploadSourcePopup(false); onUpload(source); }}
+          />
+        )}
         {!form.requested && !!pitchingTicket?.data?.priority && requiredMetaDone < REQUIRED_META_KEYS.length && (
           <p style={{ color: "#e57373", fontSize: 11, marginTop: 8, marginBottom: 0 }}>
             Priority Pitching is ticked — Send Upload is unlocked, please fill in Metadata Checklist.
@@ -2675,6 +2719,13 @@ function UrlTab({ form, update, onSave, saving, did, releaseId }) {
           key === "smartlink" && form.needs_update ? (
             <Field key={key} label={label}>
               <UrlField styles={styles} wide value={form[key]} onChange={(v) => update(key, v)} disabled disabledTitle={PRIORITY_MODE_WARNING} />
+            </Field>
+          ) : key === "link_lbm" ? (
+            // Round 211 — Label-vs-OPS-upload tag lives next to the field,
+            // not inside it — see lib/LinkLbmSourceBadge.js.
+            <Field key={key} label={label}>
+              <UrlField styles={styles} wide value={form[key]} onChange={(v) => update(key, v)} />
+              <LinkLbmSourceBadge styles={styles} value={form.link_lbm_source} onChange={(v) => update("link_lbm_source", v)} />
             </Field>
           ) : (
             <Field key={key} label={label}>

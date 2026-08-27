@@ -9,6 +9,7 @@ import SonyPublishLockRow from "../../../lib/SonyPublishLockRow";
 import { useSonyPublishDids } from "../../../lib/useSonyPublishDids";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
+import LinkLbmSourceBadge from "../../../lib/LinkLbmSourceBadge";
 import StatusCounter from "../../../lib/StatusCounter";
 import { sortByReleaseDateDesc, isThisWeekOrNext, filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { rowHighlightColor } from "../../../lib/releaseDateHighlight";
@@ -59,7 +60,7 @@ export default function UploadWorkstation() {
       supabase
         .from("releases")
         .select(
-          "id, did, title, main_artist, release_date, release_time, upc, drive_link, link_lbm, link_share, smartlink, link_preorder, upload_status, " +
+          "id, did, title, main_artist, release_date, release_time, upc, drive_link, link_lbm, link_lbm_source, link_share, smartlink, link_preorder, upload_status, " +
           "link_ugc, link_media_report, requester_segment, linkshare_tiktok_timing, linkshare_facebook_timing, needs_update, " +
           // Round 88 2nd follow-up — Copyright popup column
           "single_album_ep, copyright_checklist"
@@ -313,6 +314,8 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, dateHighligh
       </td>
       <td style={{ minWidth: 180, ...missingHighlightStyle(drafts.link_lbm) }}>
         <UrlField styles={styles} value={drafts.link_lbm} onChange={(v) => setDrafts((d) => ({ ...d, link_lbm: v }))} onBlur={() => onUpdateField(release, "link_lbm", drafts.link_lbm)} />
+        {/* Round 211 — who's actually expected to create this upload, see lib/LinkLbmSourceBadge.js */}
+        <LinkLbmSourceBadge styles={styles} value={release.link_lbm_source} onChange={(v) => onUpdateField(release, "link_lbm_source", v)} />
       </td>
       <td style={{ minWidth: 180, ...missingHighlightStyle(drafts.link_share) }}>
         <UrlField styles={styles} value={drafts.link_share} onChange={(v) => setDrafts((d) => ({ ...d, link_share: v }))} onBlur={() => onUpdateField(release, "link_share", drafts.link_share)} />
