@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate } from "../../../lib/helpers";
@@ -557,6 +557,39 @@ function LogTable({ entries }) {
   );
 }
 
+// Round 201 — Song/Artist swapped from plain single-line <input>s to
+// this, per explicit request: wider fields that GROW IN HEIGHT (wrap to
+// a second/third line, same as a textarea) once typed content outruns
+// the width, instead of silently scrolling sideways inside a fixed-height
+// box the way a native <input> always does — a native input can't wrap
+// at all, so a textarea is the only way to get that. Auto-resize is the
+// classic two-step: reset height to "auto" so scrollHeight reports the
+// CURRENT content's real height (otherwise it only ever reports the
+// tallest height this element has ever had), then set height to that.
+// Runs on every value change AND once on mount, so a row that already
+// has a long title (loaded from today's saved data, or carried forward
+// from yesterday) starts at the right height instead of a single blank
+// line that only grows the next time it's typed into.
+function AutoGrowField({ value, onChange, style, ...props }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={value}
+      onChange={onChange}
+      style={{ resize: "none", overflow: "hidden", whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.4, ...style }}
+      {...props}
+    />
+  );
+}
+
 function ChartEntryPopup({ platform, onClose, onSave, entries }) {
   const isMobile = useIsMobile();
   const charts = PLATFORM_CHARTS[platform];
@@ -824,8 +857,14 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
                         </span>
                       </td>
                     )}
-                    <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12 }} value={r.track_title} onChange={(e) => updateRow(i, "track_title", e.target.value)} /></td>
-                    <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12 }} value={r.artist} onChange={(e) => updateRow(i, "artist", e.target.value)} /></td>
+                    {/* Round 201 — Song is 2x, Artist 1.5x the app's
+                        common 100px field unit (the DID field two
+                        columns over is exactly that unit, unchanged) —
+                        both now auto-grow in height via AutoGrowField
+                        instead of scrolling sideways once text outruns
+                        the width. */}
+                    <td><AutoGrowField className={styles.input} style={{ padding: "4px 6px", fontSize: 12, width: 200 }} value={r.track_title} onChange={(e) => updateRow(i, "track_title", e.target.value)} /></td>
+                    <td><AutoGrowField className={styles.input} style={{ padding: "4px 6px", fontSize: 12, width: 150 }} value={r.artist} onChange={(e) => updateRow(i, "artist", e.target.value)} /></td>
                     <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12, width: 60 }} value={r.rank} onChange={(e) => updateRow(i, "rank", e.target.value)} /></td>
                     <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 12, width: 100 }} value={r.did} onChange={(e) => updateRow(i, "did", e.target.value)} onBlur={(e) => handleDidBlur(i, e.target.value, activeChart)} /></td>
                     <td><button onClick={() => setRows(rows.filter((_, idx) => idx !== i))} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button></td>

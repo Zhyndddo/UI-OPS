@@ -10863,3 +10863,34 @@ Files: `app/labels/page.js` (the Simulate Mode checkbox's `onChange`).
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 201 — 2026-08-26
+
+Quick fix, Milestone workstation. Direct request: "make the width of
+the field twice as long for song, and 1.5 as long for artist. and if
+they surpass this length, the content grow row wise."
+
+In the Input popup's editing table (`ChartEntryPopup`), Song and Artist
+had no explicit width before this — plain `<input>`s at 100% of
+whatever the table's auto-layout happened to give that column. Now
+explicitly sized against the same table's DID field (100px, unchanged)
+as the unit: Song 200px (2x), Artist 150px (1.5x).
+
+"Grow row-wise" needed an actual field swap, not just a wider box — a
+native `<input>` can never wrap text; it only ever scrolls sideways
+inside its fixed height once content outruns the width. Song and Artist
+are now a small `<textarea>`-based `AutoGrowField` component instead:
+wraps like normal text, and re-measures its own `scrollHeight` on every
+change (and once on mount, so a row loaded with an already-long title —
+today's saved data, or carried forward from yesterday — starts at the
+right height instead of a single line that only grows the next time
+it's typed into) to grow or shrink its height to fit, expanding the
+table row along with it. Rank and DID are untouched, still plain
+single-line inputs.
+
+Files: `app/workstation/milestone/page.js` (new `AutoGrowField`
+component, Song/Artist cells in `ChartEntryPopup`).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
