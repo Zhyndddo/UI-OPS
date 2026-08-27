@@ -664,8 +664,22 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
 
   const rows = rowsByChart[activeChart] || [{ track_title: "", artist: "", rank: "", did: "" }];
 
+  // Round 202 — fix for "2 out of 5 it doesn't save, just returns blank".
+  // handleSaveAll below used to loop over EVERY chart in `rowsByChart`, not
+  // just the one the user actually worked on. Round 174's carry-forward
+  // feature pre-populates rowsByChart for every chart that has today's OR
+  // a prior day's rows, with rank left blank on carry-forward — so any
+  // chart the user never touched this session still had payload.length
+  // === 0 in saveRows (see parent), whose unconditional delete-before-
+  // check then wiped that chart's real, already-saved data for today with
+  // nothing re-inserted. touchedCharts tracks which charts were actually
+  // edited in THIS popup session so handleSaveAll can skip (not delete,
+  // not even call onSave for) every chart the user never touched.
+  const [touchedCharts, setTouchedCharts] = useState(() => new Set());
+
   function setRows(newRows) {
     setRowsByChart((prev) => ({ ...prev, [activeChart]: newRows }));
+    setTouchedCharts((prev) => (prev.has(activeChart) ? prev : new Set(prev).add(activeChart)));
   }
   function updateRow(i, field, value) {
     const next = [...rows];
@@ -731,6 +745,9 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
       next[i] = row;
       return { ...prev, [chart]: next };
     });
+    // Round 202 — this auto-fill is a real edit too; mark the chart touched
+    // so a save afterward doesn't skip it (see touchedCharts above).
+    setTouchedCharts((prev) => (prev.has(chart) ? prev : new Set(prev).add(chart)));
   }
 
   // Round 178 — fix for "rows aren't persisting after Save + reopen",
@@ -753,7 +770,14 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
     if (saving) return;
     setSaving(true);
     try {
+      // Round 202 — only save charts the user actually touched this
+      // session (see touchedCharts above). A chart sitting untouched in
+      // rowsByChart is either today's already-saved data (nothing to do)
+      // or a carry-forward preview with blank ranks (not real data yet)
+      // — saving either one would hit saveRows' unconditional delete and
+      // silently wipe that chart's existing rows for today.
       for (const [chart, chartRows] of Object.entries(rowsByChart)) {
+        if (!touchedCharts.has(chart)) continue;
         await onSave(platform, chart, chartRows);
       }
       onClose();
@@ -770,7 +794,14 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 0, maxWidth: 1000, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
+      {/* Round 202 — widened again (was maxWidth 1000, round 195) per
+          direct report that the table's Song(200)/Artist(150)/Rank(60)/
+          DID(100) columns — round 201's wider Song/Artist plus the
+          existing Rewind panel — no longer fit without an internal
+          horizontal scrollbar cutting off DID. "min(…, calc(100vw -
+          40px))" matches the same responsive idiom this app's other
+          popups already use (e.g. lib/NewArtistProfileTicketPopup.js). */}
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 0, width: isMobile ? "100%" : "min(1360px, calc(100vw - 40px))", maxHeight: "85vh", display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ width: isMobile ? "100%" : 200, maxHeight: isMobile ? 140 : undefined, borderRight: isMobile ? "none" : "1px solid var(--border)", borderBottom: isMobile ? "1px solid var(--border)" : "none", overflowY: "auto", flexShrink: 0 }}>
           <div style={{ padding: 14, fontSize: 13, fontWeight: 800 }}>{platform}</div>
           {charts.map((c) => {

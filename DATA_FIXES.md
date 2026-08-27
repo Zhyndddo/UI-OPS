@@ -10894,3 +10894,59 @@ component, Song/Artist cells in `ChartEntryPopup`).
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 202 — 2026-08-27
+
+Report: "user report that while doing spotify tab. either they change
+the tab without saving or saving while still on that tab, 2 out of 5 it
+doesn't save, jsut returns blank." A mid-turn follow-up with a
+screenshot corrected the location to the Milestone workstation's Input
+popup (`ChartEntryPopup`, e.g. platform Spotify / chart WEEKLY TOP
+ALBUM), not the Pitching workstation, and added a second request:
+"also expand the main panel so that it show every columns too" — the
+screenshot showed the table's Song/Artist/Rank/DID columns cut off
+behind an internal horizontal scrollbar, hiding DID.
+
+Two fixes, same popup:
+
+**1. Data loss on Save All Charts (the real bug behind "2 out of 5
+doesn't save").** Round 194 made Save a full replace per chart: delete
+today's rows for that (platform, chart), then re-insert whatever's in
+the popup. Round 174's carry-forward feature pre-populates every chart
+that has today's OR a prior day's rows the moment the popup opens —
+with rank deliberately left blank on carry-forward — so a chart the
+user hasn't typed into yet still sits in `rowsByChart` with 0 real
+rows. `handleSaveAll` looped over every chart in `rowsByChart`, not
+just the one being worked on, so clicking "Save All Charts" ran the
+delete-then-insert on EVERY chart the popup had auto-populated —
+including ones the user never touched this session — and an untouched
+chart has nothing to re-insert. Result: that chart's real, already-
+saved data for today was silently wiped. This reproduces exactly as
+reported: switching tabs, or saving from the tab you're still on, both
+trigger the same all-charts save, and "2 out of 5" just depends on how
+many of that platform's charts hadn't been typed into yet when Save was
+clicked.
+
+Fixed with a `touchedCharts` set in `ChartEntryPopup`, marked whenever a
+chart's rows are actually edited (typing, reordering, add/delete row,
+Rewind restore, or the DID auto-fill lookup). `handleSaveAll` now only
+calls save for charts in that set — an untouched chart is skipped
+entirely, no delete call made, so its existing data is left alone.
+
+**2. Popup too narrow.** Round 201's wider Song (200px) and Artist
+(150px) fields, on top of the existing Rewind side panel, no longer fit
+inside the popup's `maxWidth: 1000` (set back in round 195) without an
+internal horizontal scrollbar — which is what was cutting off the DID
+column in the screenshot. Widened to `width: min(1360px, calc(100vw -
+40px))`, the same responsive idiom already used elsewhere in this app
+(e.g. `lib/NewArtistProfileTicketPopup.js`), so all four columns show
+without scrolling on any normal screen, and it still shrinks
+gracefully on narrow viewports.
+
+Files: `app/workstation/milestone/page.js` (`ChartEntryPopup` —
+`touchedCharts` state, `setRows`/`handleDidBlur` marking a chart
+touched, `handleSaveAll`'s save loop, and the outer modal's `width`).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
