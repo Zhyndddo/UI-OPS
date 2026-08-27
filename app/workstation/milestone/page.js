@@ -460,6 +460,44 @@ function HighlightLine({ r }) {
   );
 }
 
+// Round 204 — plain-text version of one SongLine, for the "Copy for
+// Telegram" button below. SongLine itself renders rank/song-artist/date/
+// status as separate flex spans that wrap onto their own visual line
+// once the panel gets narrow — fine on screen, but per explicit report
+// ("tab here somehow show line break in telegram text box"), copying
+// that on-screen text (the only way to get it into Telegram before this
+// button existed) copied each wrapped line as its own line in the
+// clipboard, turning one song into 4 separate lines once pasted. This
+// builds the same fields as one deliberate string instead, so the
+// button's output can never pick up stray wrapping.
+function songLineText(r, showChart) {
+  return `${showChart ? `${r.platform} | ${r.chart} | ` : ""}#${r.rank} ${r.track_title}${r.artist ? ` - ${r.artist}` : ""} — ${fmtDate(r.dayIn || r.entry_date)} — ${r.status}`;
+}
+
+// Round 204 — builds the whole day's digest as one plain-text block,
+// same order/grouping as the on-screen Report panel (digest groups, then
+// the Fell-off section if there is one). Header line matches the format
+// already used when sending these by hand ("Em gửi BXH hnay d.m.yyyy").
+function buildReportText(digest, report, highlightConfig) {
+  // Reuses fmtDate (same "YYYY-MM-DD" -> locale date-string conversion
+  // already used everywhere else in this file, e.g. the on-screen "Report
+  // — {fmtDate(report.today)}" heading) rather than a second, separate
+  // `new Date(...)` parse — keeps this in exact sync with what's already
+  // shown on screen instead of risking a different date under a different
+  // parsing path. Only reformats fmtDate's "27/8/2026" to the dotted
+  // "27.8.2026" the team already writes by hand ("hnay 27.8.2026").
+  const lines = [`Em gửi BXH hnay ${fmtDate(report.today).replace(/\//g, ".")}`];
+  digest.forEach((g, i) => {
+    lines.push(`${i + 1}. ${g.platform} | ${g.chart} — ${g.rows.length}/${highlightConfig.chartDepth}`);
+    g.rows.forEach((r) => lines.push(songLineText(r, false)));
+  });
+  if (report.outRows.length > 0) {
+    lines.push(`Fell off since ${fmtDate(report.yesterday)}`);
+    report.outRows.forEach((r) => lines.push(songLineText(r, true)));
+  }
+  return lines.join("\n");
+}
+
 // Round 127 — the Report tab, rebuilt to match the real system's "report"
 // + "Highlight" sheets side by side, per explicit request ("showing side
 // by side for comparison is preferred"). Left = the full digest (every
@@ -469,6 +507,16 @@ function HighlightLine({ r }) {
 // summary — same shape as the real Highlight sheet's O4 TEXTJOIN digest).
 function ReportAndHighlight({ digest, highlight, report, highlightConfig }) {
   const isMobile = useIsMobile();
+  // Round 204 — brief "Copied!" confirmation on the button itself so a
+  // click gives visible feedback without a popup/alert interrupting the
+  // flow of copy → switch to Telegram → paste.
+  const [copied, setCopied] = useState(false);
+  function handleCopyReport() {
+    navigator.clipboard?.writeText(buildReportText(digest, report, highlightConfig)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
   if (report.todayRows.length === 0) {
     return <div className={styles.emptyState}>No entries for today ({fmtDate(report.today)}) yet — use the Input tab.</div>;
   }
@@ -476,7 +524,10 @@ function ReportAndHighlight({ digest, highlight, report, highlightConfig }) {
     <div style={{ display: "flex", gap: 16, flexDirection: isMobile ? "column" : "row", alignItems: "flex-start" }}>
       {/* Report — full digest */}
       <div style={{ flex: 1, minWidth: 0, width: isMobile ? "100%" : undefined, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
-        <div style={{ fontSize: 12, fontWeight: 800, color: "#ff6b1a", textTransform: "uppercase", marginBottom: 10 }}>Report — {fmtDate(report.today)}</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#ff6b1a", textTransform: "uppercase" }}>Report — {fmtDate(report.today)}</div>
+          <button className={styles.btnSmall} onClick={handleCopyReport}>{copied ? "Copied!" : "Copy for Telegram"}</button>
+        </div>
         {digest.map((g, i) => (
           <div key={`${g.platform}||${g.chart}`} style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>

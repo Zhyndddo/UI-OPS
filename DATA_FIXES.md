@@ -10983,3 +10983,44 @@ Files: `app/workstation/milestone/page.js` (`saveRows`'s row filter and
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 204 — 2026-08-27
+
+Report + screenshots: pasting the BXH digest into Telegram was landing
+with a stray line break after every single field (rank on its own line,
+song-artist on its own line, date on its own line, status on its own
+line) instead of one clean line per song — "so tab here some how show
+line break in telegram text box."
+
+There was no "copy" button for the Report tab at all — the only way to
+get this text out was selecting it on screen and copying it directly.
+Each song's rank/title-artist/date/status is its own `<span>` inside a
+`flex-wrap` row (`SongLine`), which is fine visually (it wraps onto a
+second line only if the panel's too narrow to fit them side by side),
+but a browser's copy of visually-wrapped inline content copies each
+wrapped line as its own line in the clipboard — so once pasted into
+Telegram (or anywhere), every song came out as 4 separate lines glued
+to the next song's 4 lines with no blank line between them, exactly
+matching the screenshots.
+
+Added a "Copy for Telegram" button to the Report tab (`report`
+sub-tab of the Milestone workstation) that builds the day's whole
+digest as one deliberate plain-text block via `navigator.clipboard`
+instead of relying on copying the on-screen layout — this can't pick
+up wrapping-dependent line breaks since it's built as a string, not
+copied from rendered HTML. Per explicit confirmation: one line per
+song as `#rank Song - Artist — date — STATUS` (matching the fields
+already shown on screen, just joined instead of stacked), grouped
+under numbered `platform | chart — n/depth` headers in the same order
+as the on-screen digest, with a `Em gửi BXH hnay d.m.yyyy` header line
+matching how these are already written by hand, plus the Fell-off
+section (if any) at the end. Button shows "Copied!" for 1.5s as
+confirmation.
+
+Files: `app/workstation/milestone/page.js` (new `songLineText()` /
+`buildReportText()` helpers, "Copy for Telegram" button in
+`ReportAndHighlight`).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
