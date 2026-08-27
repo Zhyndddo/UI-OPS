@@ -11393,3 +11393,38 @@ info column minWidth on both tables' header + body cell).
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 215 — 2026-08-27
+
+Two small requests:
+
+1. "make the container on all workstation a bit bigger and uniform,
+   about 1.2 of the current booking board." Booking Board's own
+   container is 1400px (`app/booking/page.js`, left untouched — it's
+   the reference point, not itself being resized). 1.2x = 1680px,
+   applied uniformly to every real workstation page's container:
+   Pitching, Milestone, Upload, Re-Check (was just widened ad hoc to
+   1800 in round 214 — superseded by this uniform pass), Pre-Release,
+   Streaming. Package Price Management was left at its CSS default
+   (1100px) — it's still an empty placeholder page with no real content
+   to give more room to.
+
+2. "milestone chart report, can you make the report auto sort the
+   highest rank first (smaller number stay higher)." The Report tab's
+   digest (`app/workstation/milestone/page.js`, the `digest` useMemo)
+   groups today's rows by (platform, chart) but never sorted the rows
+   *within* a group — they showed in whatever order they were
+   imported/typed. Added a plain ascending sort by `rank` on each
+   group's rows before rendering, so #1 always sits above #2 above #12,
+   etc. `buildReportText` (the "Copy for Telegram" button) reads the
+   same `digest.rows` array, so the copied text picks up the same order
+   for free — no separate change needed there.
+
+Files: `app/workstation/pitching/page.js`, `app/workstation/milestone/
+page.js` (container width + digest rows sort), `app/workstation/
+upload/page.js`, `app/workstation/confirm/page.js`, `app/workstation/
+pre-release/page.js`, `app/workstation/stream/page.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).

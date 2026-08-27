@@ -356,7 +356,7 @@ export default function PitchingWorkstation() {
   return (
     <AppShell>
       <div className={styles.page}>
-        <div className={styles.container} style={{ maxWidth: 1200 }}>
+        <div className={styles.container} style={{ maxWidth: 1680 }}>
           <TypeSwitcher kind="workstation" current="pitching" />
           <div className={styles.eyebrow}>// Workstation</div>
           <h1 className={styles.title} style={{ marginBottom: 8 }}>Pitching</h1>

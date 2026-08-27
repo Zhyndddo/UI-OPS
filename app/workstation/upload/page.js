@@ -150,7 +150,7 @@ export default function UploadWorkstation() {
   return (
     <AppShell>
       <div className={styles.page}>
-        <div className={styles.container} style={{ maxWidth: 1300 }}>
+        <div className={styles.container} style={{ maxWidth: 1680 }}>
           <TypeSwitcher kind="workstation" current="upload" />
           <div className={styles.eyebrow}>// Workstation</div>
           <h1 className={styles.title} style={{ marginBottom: 8 }}>New Release Setup</h1>

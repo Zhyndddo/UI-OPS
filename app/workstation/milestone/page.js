@@ -387,13 +387,18 @@ export default function MilestoneWorkstation() {
       if (!groups.has(gk)) groups.set(gk, { platform: r.platform || "—", chart: r.chart, rows: [] });
       groups.get(gk).rows.push(r);
     });
+    // Round 215 — per explicit request, each chart's rows now auto-sort
+    // highest rank first (smaller rank number = higher, so plain
+    // ascending numeric sort — #1 above #2 above #12, etc.) instead of
+    // whatever order they happened to be imported/entered in.
+    groups.forEach((g) => g.rows.sort((a, b) => a.rank - b.rank));
     return [...groups.values()].sort((a, b) => platformCompare(a.platform, b.platform) || a.chart.localeCompare(b.chart));
   }, [report]);
 
   return (
     <AppShell>
       <div className={styles.page}>
-        <div className={styles.container} style={{ maxWidth: 1200 }}>
+        <div className={styles.container} style={{ maxWidth: 1680 }}>
           <TypeSwitcher kind="workstation" current="milestone" />
           <div className={styles.eyebrow}>// Workstation</div>
           <h1 className={styles.title} style={{ marginBottom: 16 }}>Milestone</h1>
