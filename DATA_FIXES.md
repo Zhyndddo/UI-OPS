@@ -11047,3 +11047,169 @@ Telegram" button on the Highlight panel).
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 206 — 2026-08-27
+
+Item 1 of a 2-item request ("new round... 1. first of all is adding new
+tool for apple platform" — 8 chart URLs listed by name). Item 2 (a
+YouTube tab-label recheck) is explicitly on hold: "no worry, i will
+give a list you need it after the sweep" — nothing to do there yet.
+
+All 8 chart names given already exist as tabs under the Apple platform
+(`PLATFORM_CHARTS.Apple` in `app/workstation/milestone/page.js`) — this
+was purely a missing-link gap, not a missing tab. The Input popup's
+per-chart tool-link button (round 155 item 1h) only renders when
+`MILESTONE_CHART_LINKS` has an entry for that exact chart name, and
+these 8 were already flagged in that file's own header comment as
+"still needs a real URL from the team" (imported from the team's xlsx,
+which had no hyperlink for these specific genre charts). Added all 8,
+verified each key string matches its `PLATFORM_CHARTS.Apple` entry
+exactly (a mismatch here fails silently — the button just doesn't
+render, same class of bug the file already warns about, so this was
+checked programmatically rather than by eye):
+
+- APPLE MUSIC - Top POP Albums → /vn/new/top-charts/albums
+- APPLE MUSIC -Top HIPHOP/RAP Albums → /vn/new/top-charts/albums/?genreId=18
+- APPLE MUSIC - Top DANCE Albums → /vn/new/top-charts/albums/?genreId=17
+- APPLE MUSIC - Top ALTERNATIVE Albums → /vn/new/top-charts/albums/?genreId=20
+- Apple Music - Top Songs Vietnam → /vn/new/top-charts/songs
+- Apple Music - Top POP Songs → /vn/new/top-charts/songs/?genreId=14
+- Apple Music - Top Dance Songs → /vn/new/top-charts/songs/?genreId=17
+- Apple Music - Top Hiphop/Rap Songs → /vn/new/top-charts/songs/?genreId=18
+
+Per the given list, "APPLE MUSIC - Top ALBUMs Vietnam" (already linked)
+and "APPLE MUSIC - Top POP Albums" (newly linked) intentionally share
+the same URL — Apple's no-genreId top-albums page is itself the Pop
+default view, not a copy/paste mistake.
+
+Files: `lib/milestoneChartLinks.js` (8 new entries + updated header
+comment removing these from the "still needs a URL" list).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## Round 207 — 2026-08-27
+
+Item 2 of round 206's request. The team rechecked the YouTube tab
+labels and sent the corrected list — 7 tabs, replacing the old 10.
+Before touching anything, confirmed the mapping and the historical-data
+handling directly (this changes what new saves are filed under, and 3
+of the old tabs have no replacement at all — too risky to guess):
+
+- **4 renames**, with real history under the old name: VIETNAM TRENDING
+  MUSIC → Trending Music, Top Videos Daily → Daily Top Music Videos,
+  TOP ARTISTS WEEKLY → Weekly Top Artists, and both PLAYLIST YOUTUBE
+  entries → PLAYLIST YOUTUBE MUSIC (The Hit List / RELEASED).
+- **2 unchanged**: Daily Top Songs on Shorts, Weekly Top Music Videos.
+- **3 dropped entirely**, not renamed into anything: TOP SONGS WEEKLY,
+  TOP SONGS DAILY, Top Video Trending on YTB.
+
+Per explicit confirmation: the 4 renames get their existing rows
+migrated to the new chart name (a SQL migration, `add-round207-youtube-
+chart-renames.sql` — this session has no direct database access, so it
+needs to be run against the production DB by the team) so today-vs-
+yesterday comparisons, REMAIN status, and streaks stay continuous
+across the rename instead of every song resetting to day-1 "IN" status
+the moment the tab renames. The 3 dropped tabs' existing rows are left
+completely untouched per explicit "leave the rows in place" — nothing
+deleted, still visible in the Log tab's full history, just no longer
+editable since there's no Input tab pointing at them anymore, and
+they'll drop out of Report/Highlight the next time "today" doesn't
+include a fresh row for them.
+
+Also updated `lib/milestoneChartMap.js`'s `CHART_MAP` — the raw-sheet-
+label → canonical-name table used by the historical import scripts —
+so the 5 renamed canonical target names match the new tab labels; a
+future re-run of those import scripts (if the team ever backfills more
+history) lands on the currently-correct chart name instead of
+resurrecting the old one. The 2 dropped tabs' `CHART_MAP` targets are
+untouched (nothing to rename them into).
+
+Files: `app/workstation/milestone/page.js` (`PLATFORM_CHARTS.YouTube`),
+`lib/milestoneChartMap.js` (`CHART_MAP`'s 5 renamed target values),
+`add-round207-youtube-chart-renames.sql` (new — 5 UPDATE statements,
+needs to be run by the team against production; not applied by this
+session).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## Round 208 — 2026-08-27
+
+Follow-up to rounds 204/205. Direct request: "can you make the copied
+text also have a line break to separate the platform, and chart" —
+also confirmed round 207's YouTube SQL migration hasn't been run yet
+and that's fine, this round is independent of it.
+
+Two places in the "Copy for Telegram" plain text had `Platform | Chart`
+jammed onto the front of the same line as the song's own details:
+the Report panel's Fell-off section, and every line in the Highlight
+panel (every HighlightLine always shows its chart, unlike the main
+Report digest where the chart's already named once in the group
+header). Both now put `Platform | Chart` on its own line, with the
+`#rank Song - Artist …` details on the line right after.
+
+Files: `app/workstation/milestone/page.js` (`songLineText()`'s
+showChart branch, `highlightLineText()`).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## Round 209 — 2026-08-27
+
+Direct request: "also make zing goes first please." The Input tab's
+platform picker already showed Zing first (it's simply the first key
+declared in `PLATFORM_CHARTS`), but the Report tab's digest grouping
+and its Chart Highlight summary both sorted platforms with a plain
+alphabetical `localeCompare` — which puts "Zing" dead last since Z is
+the last letter, the opposite of what showed everywhere else.
+
+Added a `platformCompare()` helper (Zing always sorts first, everything
+else alphabetical after it) and swapped it in for the plain
+`localeCompare` in both spots.
+
+Files: `app/workstation/milestone/page.js` (new `platformCompare()`,
+digest's `groups` sort, `chartSummary`'s sort).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).
+
+## Round 210 — 2026-08-27
+
+Report: "this is very partial filter for the current highlight list,
+can you check against our rule on the web" — followed by the team's own
+production Google Sheets formula for the Highlight rule
+(`report!H="IN" + report!H="RETURN" + (regexmatch(G,"↑") *
+(rank<=5)) + (output!C="#1")`).
+
+That exact formula was already quoted word-for-word in
+`lib/milestoneHighlight.js`'s own comment as the real system's original
+rule — but round 192 deliberately loosened it per an explicit request
+at the time ("those going up but going up to rank 10 at least, while
+remain must be in top 5"): climb-highlight went from rank ≤5 to ≤10,
+and "always highlight regardless of movement" widened from exactly
+rank #1 to top 5. Confirmed directly with the team this round: revert
+to the formula's own numbers.
+
+`DEFAULT_MILESTONE_HIGHLIGHT_CONFIG.climbToRankHighlight` 10 → 5,
+`.topRankAlwaysHighlight` 5 → 1 (rank #1 only, restoring the old "held
+#1" case as effectively the only thing that threshold can mean).
+
+Important caveat, flagged directly to the team: this only changes the
+DEFAULT baked into the code. These two numbers are admin-editable via
+Config → Milestone (`MilestoneHighlightSection`, saved to the
+`app_settings` table) — if a custom value was ever saved there, it
+still wins over this new default. If the Highlight list still doesn't
+reflect 5/1 after this deploys, re-save 5 / 1 on that Config page
+directly rather than filing another round for it.
+
+Files: `lib/milestoneHighlight.js`
+(`DEFAULT_MILESTONE_HIGHLIGHT_CONFIG`).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).

@@ -30,15 +30,36 @@ const PLATFORM_CHARTS = {
   Apple: ["Playlist Vietnam Ơi!", "Playlist New Music Daily", "APPLE MUSIC - Top ALBUMs Vietnam", "APPLE MUSIC - Top POP Albums", "APPLE MUSIC -Top HIPHOP/RAP Albums", "APPLE MUSIC - Top DANCE Albums", "APPLE MUSIC - Top ALTERNATIVE Albums", "Apple Music - Top Songs Vietnam", "Apple Music - Top POP Songs", "Apple - Top Alternative Songs", "Apple Music - Top Dance Songs", "Apple Music - Top Hiphop/Rap Songs", "Vietnam iTunes Top Songs", "Apple Daily Album", "New Release on Apple"],
   TikTok: ["TIKTOK POPULAR", "TIKTOK BREAKOUT", "TIKTOK HOT"],
   Instagram: ["INSTAGRAM"],
-  // Round 171 — 5 new charts added, same reasoning as Apple's two above:
-  // real recurring volume in the historical import (398/106/70/113/82
-  // rows respectively, each already a merge of several inconsistently-
-  // named variants of the same underlying chart — see CHART_MAP) with no
-  // existing entry here to land in.
-  YouTube: ["YOUTUBE CHARTS | TOP SONGS WEEKLY", "YOUTUBE CHARTS | TOP ARTISTS WEEKLY", "YOUTUBE CHARTS | TOP SONGS DAILY", "YOUTUBE CHARTS | VIETNAM TRENDING MUSIC", "YOUTUBE CHARTS | Top Video Trending on YTB", "YOUTUBE CHARTS | Top Videos Daily", "YOUTUBE CHARTS | Daily Top Songs on Shorts", "YOUTUBE CHARTS | Weekly Top Music Videos", "PLAYLIST YOUTUBE | The Hit List", "PLAYLIST YOUTUBE | RELEASED"],
+  // Round 207 — corrected per the team's own recheck of these tab
+  // labels ("most of them is not correct"). Of the old 10:
+  //  - 4 renamed (existing rows migrated to the new name, see
+  //    add-round207-youtube-chart-renames.sql, so today-vs-yesterday
+  //    comparisons and streaks stay continuous across the rename):
+  //    VIETNAM TRENDING MUSIC -> Trending Music, Top Videos Daily ->
+  //    Daily Top Music Videos, TOP ARTISTS WEEKLY -> Weekly Top Artists,
+  //    both PLAYLIST YOUTUBE entries -> PLAYLIST YOUTUBE MUSIC.
+  //  - 2 unchanged: Daily Top Songs on Shorts, Weekly Top Music Videos.
+  //  - 3 dropped entirely, not renamed into anything (TOP SONGS WEEKLY,
+  //    TOP SONGS DAILY, Top Video Trending on YTB) — per explicit
+  //    confirmation their existing rows are left in place untouched,
+  //    just no longer editable here since there's no tab for them.
+  YouTube: ["YOUTUBE CHARTS | Trending Music", "YOUTUBE CHARTS | Daily Top Music Videos", "YOUTUBE CHARTS | Weekly Top Music Videos", "YOUTUBE CHARTS | Weekly Top Artists", "YOUTUBE CHARTS | Daily Top Songs on Shorts", "PLAYLIST YOUTUBE MUSIC | The Hit List", "PLAYLIST YOUTUBE MUSIC | RELEASED"],
   Shazam: ["Shazam Top Songs"],
 };
 const PLATFORMS = Object.keys(PLATFORM_CHARTS);
+
+// Round 209 — the Input tab's platform picker already shows Zing first
+// (it's just the first key in PLATFORM_CHARTS above), but the Report
+// tab's digest and Chart Highlight summary both group-sort platforms
+// with a plain alphabetical `localeCompare`, which puts "Zing" dead
+// last (Z is the last letter) — per explicit request ("make zing goes
+// first"), those two now use this instead: Zing always sorts first,
+// everything else alphabetical after it.
+function platformCompare(a, b) {
+  if (a === "Zing" && b !== "Zing") return -1;
+  if (b === "Zing" && a !== "Zing") return 1;
+  return a.localeCompare(b);
+}
 
 // Round 193 — fixed a real timezone bug, per explicit report ("import
 // somehow drop the rank column data... should be us wiping the thing
@@ -351,7 +372,7 @@ export default function MilestoneWorkstation() {
       const charts = [...chartCounts.entries()].filter(([, count]) => count > highlightConfig.minChartCount).sort((a, b) => b[1] - a[1]);
       if (charts.length > 0) chartSummary.push({ platform, charts });
     }
-    chartSummary.sort((a, b) => a.platform.localeCompare(b.platform));
+    chartSummary.sort((a, b) => platformCompare(a.platform, b.platform));
 
     return { inRows, returnRows, topRows, chartSummary, isHighlighted };
   }, [report, highlightConfig]);
@@ -366,7 +387,7 @@ export default function MilestoneWorkstation() {
       if (!groups.has(gk)) groups.set(gk, { platform: r.platform || "—", chart: r.chart, rows: [] });
       groups.get(gk).rows.push(r);
     });
-    return [...groups.values()].sort((a, b) => a.platform.localeCompare(b.platform) || a.chart.localeCompare(b.chart));
+    return [...groups.values()].sort((a, b) => platformCompare(a.platform, b.platform) || a.chart.localeCompare(b.chart));
   }, [report]);
 
   return (
@@ -470,8 +491,14 @@ function HighlightLine({ r }) {
 // clipboard, turning one song into 4 separate lines once pasted. This
 // builds the same fields as one deliberate string instead, so the
 // button's output can never pick up stray wrapping.
+// Round 208 — per explicit follow-up ("make the copied text also have
+// a line break to separate the platform, and chart"), the Fell-off
+// section's "Platform | Chart |" prefix (only place songLineText ever
+// sets showChart) now sits on its own line above the song details
+// instead of jammed onto the front of the same line.
 function songLineText(r, showChart) {
-  return `${showChart ? `${r.platform} | ${r.chart} | ` : ""}#${r.rank} ${r.track_title}${r.artist ? ` - ${r.artist}` : ""} — ${fmtDate(r.dayIn || r.entry_date)} — ${r.status}`;
+  const songDetails = `#${r.rank} ${r.track_title}${r.artist ? ` - ${r.artist}` : ""} — ${fmtDate(r.dayIn || r.entry_date)} — ${r.status}`;
+  return showChart ? `${r.platform} | ${r.chart}\n${songDetails}` : songDetails;
 }
 
 // Round 204 — builds the whole day's digest as one plain-text block,
@@ -507,8 +534,12 @@ function rankChangeText(rankChange) {
   if (!rankChange || rankChange.dir === "same") return "0";
   return rankChange.dir === "up" ? `↑${rankChange.amount}` : `↓${rankChange.amount}`;
 }
+// Round 208 — same line-break-before-song-details treatment as
+// songLineText above, applied here too since every HighlightLine always
+// shows its platform|chart (there's no non-showChart variant on this
+// side).
 function highlightLineText(r) {
-  return `#${r.rank} ${r.platform} | ${r.chart} | ${r.track_title}${r.artist ? ` - ${r.artist}` : ""} ${rankChangeText(r.rankChange)}`;
+  return `${r.platform} | ${r.chart}\n#${r.rank} ${r.track_title}${r.artist ? ` - ${r.artist}` : ""} ${rankChangeText(r.rankChange)}`;
 }
 
 // Round 205 — builds the whole Highlight panel as one plain-text block,
