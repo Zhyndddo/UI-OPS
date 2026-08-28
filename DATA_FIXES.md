@@ -11993,3 +11993,121 @@ Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
 (0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
 run build` — clean.
+
+## Round 225 — 2026-08-28 — Milestone Log + Performance report: one row per chart, plus a Streak column
+
+Per explicit request, checked scope first via `AskUserQuestion` before
+touching code — 3 real ambiguities resolved:
+
+1. **Where "one row per chart" applies:** the Milestone workstation's
+   Report/Highlight tabs are daily snapshots (can't have duplicate chart
+   entries within one day, so there's nothing to collapse there). The
+   real target — confirmed — is the Log tab's historical search and the
+   Performance report's Milestones table. Follow-up clarification: the
+   Log tab's **unfiltered** view stays exactly as-is (every dated entry,
+   nothing lost) — the collapse only kicks in once an artist/song filter
+   actually narrows it down.
+2. **What "streak" means:** confirmed as the *current consecutive-day
+   run* — how many calendar days in a row (ending at the chart's most
+   recent logged entry, not necessarily literal "today") the song has
+   held a spot on that chart with no gap. Resets to 0 the instant a day
+   is skipped — this is a "current run," not a lifetime total.
+3. **Which date to show** on a collapsed row: the date of the best rank
+   (not most-recent, not a range).
+
+### Milestone workstation — Log tab (`app/workstation/milestone/page.js`)
+
+`LogTable`'s unfiltered view is untouched. The moment `artistFilter` or
+`songFilter` is non-empty, the filtered rows collapse to one row per
+`(chart, track_title, artist)` — keeping whichever raw entry has the
+best (lowest) rank — with a small "Showing best rank per chart (N of M
+entries)" hint so it's obvious rows are being hidden, not lost. No
+Streak column here — that's song-report-only, per explicit scoping.
+
+### Performance report (`lib/PerformanceReport.js`)
+
+New `collapseToStreakBestRank()` — used by `fetchMilestonesForReleases`,
+so both the artist rollup and the song rollup get it automatically:
+groups raw entries by `(chart, track_title, artist)`, keeps the best
+rank per group, and computes `streak` per group (consecutive calendar
+days ending at that group's latest logged date, walking backward until
+the first gap). `PerformanceRollupView` gained a `mode` prop
+("artist" | "song") that gates a new **Streak** column on the Milestones
+table — shown only when `mode === "song"`, per the explicit "only for
+song report" scoping. Both call sites now pass it: the admin
+Performance tab passes its own `mode` state straight through; the
+public share page passes `link?.query_type`. The Milestones table's
+Date column is now explicitly labeled "Date of Best Rank" to match
+decision #3 above. "Chart Appearances"/"Appearances" stat and column
+values are unchanged in shape (they already just read
+`milestones.length` / a per-release filter's `.length`) — their meaning
+quietly improves from "raw log-entry count" to "distinct charts
+reached," which is the more useful number anyway.
+
+No schema change — this is pure aggregation over the existing
+`milestone_chart_entries` rows, computed client-side same as before.
+
+Files: `app/workstation/milestone/page.js` (`LogTable`),
+`lib/PerformanceReport.js` (`collapseToStreakBestRank`,
+`fetchMilestonesForReleases`, `PerformanceRollupView`),
+`app/report/page.js` and `app/performance-report/[token]/page.js` (pass
+`mode` through to `PerformanceRollupView`).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
+run build` — clean.
+
+## Round 226 — 2026-08-28 — Phái Sinh smartlink "tracked" indicator + Performance report platform tabs
+
+### 1. Phái Sinh ticket page — smartlink tracking indicator
+
+Found a real bug while implementing this: `app/tickets/phai-sinh/page.js`'s
+"Track Smartlink" button opened the shared popup
+(`lib/PhaiSinhSmartlinkPopup.js`) with `onSaved={() => {}}` — a literal
+no-op. The save itself worked fine (the row really did land in
+`phai_sinh_smartlinks`, same table the Confirm/Re-Check workstation's
+"Phái Sinh Smartlinks" section reads from), but nothing on the ticket
+page ever reflected that — no confirmation, and no way to tell whether a
+given ticket already had one tracked, so it read as broken even though
+it wasn't.
+
+Fixed both halves:
+- `load()` now also fetches, in one batched query (not one per row),
+  which of the page's tickets already have a `phai_sinh_smartlinks` row
+  (`source_ticket_id` match) — same "single source of truth" the round
+  213 design already established.
+- The popup's `onSaved` now actually does something: pushes the new row
+  into local state so the indicator updates immediately, no reload
+  needed.
+- The button itself now reflects real state: empty → the original
+  "Track Smartlink" button, unchanged. Already tracked → a green "✓
+  Smartlink Tracked" badge (hover shows the actual link(s)) plus a
+  smaller "+ Add Another" for the edge case of a second smartlink (e.g.
+  audio + video versions) — my call on that shape, since the popup only
+  ever inserts, never edits an existing row.
+
+No schema change, no new table — this reads and writes the existing
+`phai_sinh_smartlinks` table exactly as round 213 designed it.
+
+### 2. Performance report — Milestones split into platform tabs
+
+Per explicit request: the Milestones table (rounds 222/225) is now
+split into one tab per platform (Zing/Spotify/Apple/YouTube/etc — only
+the platforms this specific artist or song's own entries actually cover,
+never every platform the app knows about) instead of one flat table
+mixing every chart from every platform together. The Platform column is
+gone from the table itself now that it's implied by the active tab; each
+tab button shows its own count (e.g. "Zing (3)"). Falls back to a single
+"Other" tab for the rare legacy entry with no platform recorded, so
+nothing silently disappears. Switching artist/song resets the active tab
+back to the first available platform for the new selection, so it can
+never land on an empty/stale tab.
+
+Files: `app/tickets/phai-sinh/page.js` (smartlink fetch/badge/onSaved),
+`lib/PerformanceReport.js` (`PerformanceRollupView`'s platform tabs).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
+run build` — clean.

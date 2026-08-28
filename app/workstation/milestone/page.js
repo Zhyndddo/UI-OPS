@@ -688,6 +688,7 @@ function HighlightSection({ title, rows }) {
 function LogTable({ entries }) {
   const [artistFilter, setArtistFilter] = useState("");
   const [songFilter, setSongFilter] = useState("");
+  const hasFilter = !!(artistFilter.trim() || songFilter.trim());
 
   // Round 221 — corrected per explicit follow-up: round 220 kept date as
   // the primary sort (newest first) and only used rank to break ties on
@@ -704,20 +705,43 @@ function LogTable({ entries }) {
     )
     .sort((a, b) => a.rank - b.rank || b.entry_date.localeCompare(a.entry_date));
 
+  // Round 225 — per explicit request/follow-up ("the log tab still show
+  // everything, just when filter does this apply"): browsing the FULL,
+  // unfiltered log is untouched — every dated entry, nothing collapsed.
+  // The moment a filter narrows this to a specific artist/song, collapse
+  // to one row per chart — its best-ever rank — instead of every date it
+  // was logged on that chart, matching the same rule now applied to the
+  // Performance report's Milestones table (see lib/PerformanceReport.js).
+  const displayRows = useMemo(() => {
+    if (!hasFilter) return filtered;
+    const bestByChart = new Map();
+    filtered.forEach((e) => {
+      const key = `${e.chart}::${e.track_title}::${e.artist || ""}`;
+      const existing = bestByChart.get(key);
+      if (!existing || e.rank < existing.rank) bestByChart.set(key, e);
+    });
+    return [...bestByChart.values()].sort((a, b) => a.rank - b.rank || b.entry_date.localeCompare(a.entry_date));
+  }, [filtered, hasFilter]);
+
   return (
     <div>
-      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, alignItems: "center" }}>
         <input className={styles.input} style={{ maxWidth: 220 }} placeholder="Filter artist…" value={artistFilter} onChange={(e) => setArtistFilter(e.target.value)} />
         <input className={styles.input} style={{ maxWidth: 220 }} placeholder="Filter song…" value={songFilter} onChange={(e) => setSongFilter(e.target.value)} />
+        {hasFilter && (
+          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+            Showing best rank per chart ({displayRows.length} of {filtered.length} entries)
+          </span>
+        )}
       </div>
-      {filtered.length === 0 ? (
+      {displayRows.length === 0 ? (
         <div className={styles.emptyState}>No results.</div>
       ) : (
         <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
           <table className={styles.table}>
             <thead><tr><th>Date</th><th>Chart</th><th>Song</th><th>Artist</th><th>Rank</th><th>Platform</th><th>DID</th></tr></thead>
             <tbody>
-              {filtered.map((e) => (
+              {displayRows.map((e) => (
                 <tr key={e.id}>
                   <td>{fmtDate(e.entry_date)}</td>
                   <td style={{ fontSize: 11 }}>{e.chart}</td>

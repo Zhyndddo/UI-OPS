@@ -47,6 +47,13 @@ export default function PhaiSinhList() {
   const [query, setQuery] = useState(""); // round 76 — quick index search box
   const [relatedReleases, setRelatedReleases] = useState({}); // did -> release (gate_split_share/gate_phu_luc_publishing only)
   const [itemsByBatch, setItemsByBatch] = useState({}); // ticket id -> phai_sinh_batch_items rows, Kho Nhạc-family only
+  // Round 226 — ticket id -> phai_sinh_smartlinks rows already tracked
+  // for it (see lib/PhaiSinhSmartlinkPopup.js). Was never fetched here at
+  // all, so "Track Smartlink" gave zero indication whether a save had
+  // actually gone through — the popup's onSaved was a plain no-op. Now
+  // used to show a real "already tracked" badge instead of always just
+  // offering the button, per explicit request.
+  const [smartlinksByTicket, setSmartlinksByTicket] = useState({});
 
   const canEditDeadline = canEditLockedDeadline(profile); // round 57 — teamlead+
 
@@ -66,6 +73,22 @@ export default function PhaiSinhList() {
     if (!statusFilter) setStatusFilter(tabRow.status_options[0]);
     const { data } = await supabase.from("tickets").select("*, profiles(name)").eq("tab_id", tabRow.id).is("deleted_at", null).order("created_at", { ascending: false });
     setTickets(data || []);
+
+    // Round 226 — one batched query (not one per row) for which of these
+    // tickets already have a phai_sinh_smartlinks row, same table the
+    // Confirm/Re-Check workstation's "Phái Sinh Smartlinks" section reads
+    // from — this is the single source of truth per round 213's "one
+    // workstation" design, so a row here IS a row visible there.
+    const ticketIds = (data || []).map((t) => t.id);
+    if (ticketIds.length > 0) {
+      const { data: links } = await supabase.from("phai_sinh_smartlinks").select("id, source_ticket_id, smartlink").in("source_ticket_id", ticketIds);
+      const byTicket = {};
+      (links || []).forEach((l) => { (byTicket[l.source_ticket_id] = byTicket[l.source_ticket_id] || []).push(l); });
+      setSmartlinksByTicket(byTicket);
+    } else {
+      setSmartlinksByTicket({});
+    }
+
     // Related DID's own product — looked up so the Publishing/Splitshare
     // pill tags under Type can reflect that release's own gate fields
     // (gate_phu_luc_publishing / gate_split_share), per explicit request.
@@ -92,6 +115,15 @@ export default function PhaiSinhList() {
       setItemsByBatch({});
     }
     setLoading(false);
+  }
+
+  // Round 226 — replaces the popup's old no-op onSaved. Drops the newly
+  // saved row straight into local state (same optimistic-update pattern
+  // every other mutation on this page already uses) so the "tracked"
+  // badge appears immediately, without needing a full reload.
+  function addSmartlink(row) {
+    if (!row.source_ticket_id) return;
+    setSmartlinksByTicket((prev) => ({ ...prev, [row.source_ticket_id]: [row, ...(prev[row.source_ticket_id] || [])] }));
   }
 
   async function updateDeadline(t, value) {
@@ -207,12 +239,14 @@ export default function PhaiSinhList() {
                     isExecutorView={isExecutorView}
                     relatedRelease={relatedReleases[t.data?.relatedDid]}
                     batchItems={itemsByBatch[t.id] || []}
+                    smartlinks={smartlinksByTicket[t.id] || []}
                     canEditDeadline={canEditDeadline}
                     onUpdateField={updateField}
                     onUpdateStatus={updateStatus}
                     onUpdatePic={updatePic}
                     onAcknowledgeEdit={acknowledgeEdit}
                     onUpdateDeadline={updateDeadline}
+                    onSmartlinkSaved={addSmartlink}
                   />
                 ))}
               </div>
@@ -265,12 +299,14 @@ export default function PhaiSinhList() {
                     isExecutorView={isExecutorView}
                     relatedRelease={relatedReleases[t.data?.relatedDid]}
                     batchItems={itemsByBatch[t.id] || []}
+                    smartlinks={smartlinksByTicket[t.id] || []}
                     canEditDeadline={canEditDeadline}
                     onUpdateField={updateField}
                     onUpdateStatus={updateStatus}
                     onUpdatePic={updatePic}
                     onAcknowledgeEdit={acknowledgeEdit}
                     onUpdateDeadline={updateDeadline}
+                    onSmartlinkSaved={addSmartlink}
                   />
                 ))}
               </tbody>
@@ -293,7 +329,7 @@ export default function PhaiSinhList() {
 // drift from desktop's behavior.
 const phaiSinhFieldLabelStyle = { fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 };
 
-function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, batchItems, canEditDeadline, onUpdateField, onUpdateStatus, onUpdatePic, onAcknowledgeEdit, onUpdateDeadline, mobile = false }) {
+function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, batchItems, smartlinks = [], canEditDeadline, onUpdateField, onUpdateStatus, onUpdatePic, onAcknowledgeEdit, onUpdateDeadline, onSmartlinkSaved, mobile = false }) {
   const d = ticket.data || {};
   // Round 213 — item 2: "Track Smartlink" opens the same popup the
   // Re-Check workstation's "+ Add Smartlink" button does
@@ -364,15 +400,44 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
           ))}
         </div>
       )}
+      {/* Round 226 — per explicit request: show whether this ticket
+          already has a smartlink tracked (a real phai_sinh_smartlinks
+          row, the same one the Confirm/Re-Check workstation's "Phái Sinh
+          Smartlinks" section reads from — there's only ever the one
+          place a row can live) instead of always just offering "Track
+          Smartlink" with no way to tell whether a prior save actually
+          went through. Empty → the plain button, unchanged. Has one or
+          more → a green "tracked" badge (hover for the link itself),
+          plus a smaller "+ Add Another" for the real edge case of a
+          second smartlink (e.g. audio + video versions). */}
       {!isBatch && (
-        <button
-          type="button"
-          onClick={() => setShowSmartlinkPopup(true)}
-          className={styles.btnSmall}
-          style={{ marginTop: 4, fontSize: 9, padding: "3px 8px" }}
-        >
-          Track Smartlink
-        </button>
+        smartlinks.length > 0 ? (
+          <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span
+              title={smartlinks.map((s) => s.smartlink).join("\n")}
+              style={{ fontSize: 9, fontWeight: 700, color: "var(--success-fg)", border: "1px solid var(--success-fg)", borderRadius: 4, padding: "2px 6px" }}
+            >
+              ✓ Smartlink Tracked{smartlinks.length > 1 ? ` (${smartlinks.length})` : ""}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowSmartlinkPopup(true)}
+              className={styles.btnSmall}
+              style={{ fontSize: 9, padding: "3px 8px" }}
+            >
+              + Add Another
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowSmartlinkPopup(true)}
+            className={styles.btnSmall}
+            style={{ marginTop: 4, fontSize: 9, padding: "3px 8px" }}
+          >
+            Track Smartlink
+          </button>
+        )
       )}
     </>
   );
@@ -382,7 +447,7 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
       presetTicket={ticket}
       profiles={profiles}
       onClose={() => setShowSmartlinkPopup(false)}
-      onSaved={() => {}}
+      onSaved={(row) => onSmartlinkSaved?.(row)}
     />
   );
 

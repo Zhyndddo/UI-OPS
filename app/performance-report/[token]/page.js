@@ -66,7 +66,7 @@ export default function PerformanceSharePage() {
         {rollupLoading || !data ? (
           <div className={styles.emptyState}>Loading…</div>
         ) : (
-          <PerformanceRollupView data={data} styles={styles} linkToReleases={false} />
+          <PerformanceRollupView data={data} styles={styles} linkToReleases={false} mode={link?.query_type} />
         )}
       </div>
     </div>

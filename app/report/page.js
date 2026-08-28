@@ -906,7 +906,7 @@ function PerformanceTab({ profile }) {
                   </button>
                 )}
               </div>
-              <PerformanceRollupView data={data} styles={styles} linkToReleases />
+              <PerformanceRollupView data={data} styles={styles} linkToReleases mode={mode} />
             </>
           )}
         </>
