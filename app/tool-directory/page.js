@@ -158,9 +158,6 @@ export default function ToolDirectoryPage() {
                         <LegacyLinkCard label="Discovery Mode Clip Tool" value={artistLinks.discoveryMode} editing={editing} onChange={(v) => setArtistLinks((p) => ({ ...p, discoveryMode: v }))} />
                       </>
                     )}
-                    {bucketKey === "upload" && (
-                      <NewReleasePreviewCard />
-                    )}
                   </div>
                 </div>
               ))}
@@ -175,6 +172,9 @@ export default function ToolDirectoryPage() {
 function ToolCard({ tool, editing, onChange }) {
   if (tool.generator === "zingPitchNote") {
     return <ZingPitchCard tool={tool} />;
+  }
+  if (tool.generator === "newReleasePreviewNote") {
+    return <NewReleasePreviewCard tool={tool} />;
   }
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 220 }}>
@@ -254,11 +254,14 @@ function ZingPitchCard({ tool }) {
   );
 }
 
-// Item 3 — "New release pre-view" tool, grouped under New Release Setup
-// per explicit request. Pick a release via search, generates the
-// LINK AUDIO / Landing page / per-platform-link text block (see lib/
-// newReleasePreviewNote.js).
-function NewReleasePreviewCard() {
+// Round 155 item 3 — "New release pre-view" tool, grouped under New
+// Release Setup per explicit request. Pick a release via search,
+// generates the LINK AUDIO / Landing page / per-platform-link text block
+// (see lib/newReleasePreviewNote.js). Round 229 — now a real generator
+// entry in the upload bucket (like Pitching's Zing tool) instead of a
+// special-cased render, so the same button also shows up on New Release
+// Setup's own topbar tool row (lib/ToolsButton.js's NewReleasePreviewButton).
+function NewReleasePreviewCard({ tool }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
@@ -290,7 +293,7 @@ function NewReleasePreviewCard() {
 
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 280 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>New release pre-view</div>
+      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{tool?.label || "New release pre-view"}</div>
       <button className={styles.btnSmall} onClick={() => setOpen((o) => !o)}>{open ? "▾" : "▸"} Generate</button>
       {open && (
         <div style={{ marginTop: 8, position: "relative" }}>

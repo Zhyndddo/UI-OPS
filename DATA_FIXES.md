@@ -12145,3 +12145,81 @@ Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` (targeted file + whole-project sweep), `npm run lint:scope`
 (0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
 run build` — clean.
+
+## Round 228 — 2026-08-28 — Streaming table column picker + Songs table "Appearances" redesign
+
+### 1. Performance report Streaming table — column picker & reorder
+
+Per explicit request: the Streaming table (Performance report) no longer
+always shows all 9 stream fields. Spotify Playlist and every field whose
+label ends in "Current" (Spotify/Zing/NCT/YouTube/YTB Music Current —
+these mirror the Stream workstation's own in-progress staging numbers,
+useful there but not meaningful in this report) now start hidden;
+TikTok Views, TikTok Creations, and Facebook Views show by default.
+Nothing is deleted from the data model or query — a new "⚙ Columns"
+button above the table opens a picker (checkbox to show/hide, ↑/↓ to
+reorder) covering all 9 fields, so any of the hidden ones can be brought
+back. Selection + order is remembered per browser tab via sessionStorage
+(`vieent-performance-stream-columns-v1`) — same convention as round
+224's dashboard "remember position" — so it survives navigating within
+the session but resets to the sane default once the tab closes.
+
+### 2. Songs table "Appearances" column — replaced with clickable platform badges
+
+Per explicit report that the old "Appearances" number was confusing: it
+was a raw count of every logged milestone row, which double-counts a
+song that simply stayed on the same chart for many days and gives no
+sense of *where* a song is actually showing up. Replaced with one badge
+per platform where the song has real presence — a milestone chart entry,
+or any stream number at or above 50,000 — clickable to jump straight
+there (a milestone badge switches the Milestones tabs to that platform
+and scrolls to it; a stream-only badge scrolls to that song's row in the
+Streaming table). The Best Rank column also now shows the chart name
+under the rank, so "why is this the best rank" no longer requires a
+separate lookup.
+
+Files: `lib/PerformanceReport.js` (`STREAM_FIELDS_ALL`/column-picker
+state + `StreamColumnsPopover`, Songs table's Best Rank/Appearances
+cells, refs + jump-to helpers).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted file + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
+run build` — clean.
+
+## Round 229 — 2026-08-28 — "New Release Preview" added to New Release Setup's own tool row
+
+Per explicit request: "New release pre-view" (round 155 item 3, the
+LINK AUDIO / Landing page / per-platform-link text generator in lib/
+newReleasePreviewNote.js) was only ever reachable from the standalone
+Tools Directory page (`/tool-directory`) — it was special-cased there
+(`bucketKey === "upload" && <NewReleasePreviewCard />`), never a real
+entry in the `upload` bucket's `tools` list itself, so it never showed
+up on New Release Setup's own topbar tool row the way Label Master and
+Linkfire do.
+
+Fixed by making it a proper generator entry (`lib/toolDirectory.js`'s
+`upload` bucket, same idiom as Pitching's "Zing" tool) and adding a
+matching topbar button (`lib/ToolsButton.js`'s new
+`NewReleasePreviewButton` — same release-search-and-pick popup as the
+Tools Directory page's card, just ported to the topbar). The Tools
+Directory page's own card is unchanged in behavior — it now renders via
+the same generic `tool.generator` check as Zing does, instead of a
+special case, so both places share one source of truth.
+
+One caveat worth knowing: `mergeToolDirectory()` uses a bucket's saved
+`tools` array WHOLESALE once a dev has ever saved the `upload` bucket
+through the Tools Directory page's edit mode — if that's happened, the
+new default third tool won't appear until the saved config also knows
+about it. Added `sql/pending/add-round229-tool-directory-preview-tool.sql`
+as a safety net: a no-op if the bucket was never saved (the code default
+already covers it), otherwise appends the new tool into the saved JSON.
+Safe to run either way, and safe to run more than once.
+
+Files: `lib/toolDirectory.js`, `lib/ToolsButton.js`,
+`app/tool-directory/page.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
+run build` — clean.
