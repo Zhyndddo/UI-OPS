@@ -11528,3 +11528,40 @@ Files: `lib/GateFields.js` (`GateToggle`'s `lockYes`/`lockTitle`),
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 218 — 2026-08-27
+
+Real regression from round 217, reported as a live console error:
+`ReferenceError: release is not defined` on the release detail page.
+
+Root cause: round 217's Metadata Checklist lock (`const locked =
+isRequired && form.requested && release?.[m.key] === "true"`) was
+written inside `OverviewTab`, but `OverviewTab` is a separate function
+component in this file — it only ever sees the props it's explicitly
+handed, and `release` (the last-saved release state, held in the
+parent `ReleasePage` component) was never one of them. `form.requested`
+happened to resolve fine (form IS a prop), which is why this wasn't
+caught by a quick read of the diff — `release` alone was the dangling
+reference. `tsc --checkJs false` doesn't do full semantic checking on
+plain `.js` files (confirmed by re-running with `--checkJs true` just
+on this file — genuinely useful, but far too noisy across the rest of
+this untyped codebase, mostly missing-module/implicit-any noise
+unrelated to this bug, to adopt as the standing verification step), so
+this specific class of bug — a reference that's syntactically valid but
+resolves to nothing at runtime because it crosses a component
+boundary — slips through the usual tsc pass. Caught this time by
+tracing every `release` reference inside `OverviewTab`'s body by hand
+and confirming scope, not by tooling.
+
+Fix: added `release` to `OverviewTab`'s prop list and passed it in from
+the `<OverviewTab .../>` call site, same as every other piece of state
+that component reads from its parent.
+
+Files: `app/releases/[id]/page.js` (`OverviewTab` signature + call
+site — one added prop, no other logic changed).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass) — plus a manual trace of every
+`release` reference inside `OverviewTab` to confirm scope this time,
+since that's exactly what the standard tsc pass missed.
