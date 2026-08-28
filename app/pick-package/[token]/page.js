@@ -387,6 +387,25 @@ export default function PickPackagePage() {
     document.title = `${release.media_report_status ? "Media Report" : "Package Offer"} — ${release.title}`;
   }, [release?.title, release?.media_report_status]);
 
+  // Round 231 — same cover-image crawl as the Performance magic link
+  // (round 230): fetch this release's link_share page (a Labelmaster
+  // share URL) for its og:image via /api/crawl-og-image, shown beside the
+  // title below. Same reasoning applies here — no new column, crawled
+  // fresh per view rather than on save, and the route itself only ever
+  // fetches a url matching a real releases.link_share so it can't be used
+  // as an open fetch proxy despite this page also having no login.
+  const [ogImage, setOgImage] = useState(null);
+  useEffect(() => {
+    setOgImage(null);
+    if (!release?.link_share) return;
+    let cancelled = false;
+    fetch(`/api/crawl-og-image?url=${encodeURIComponent(release.link_share)}`)
+      .then((res) => res.json())
+      .then((body) => { if (!cancelled && body?.image) setOgImage(body.image); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [release?.link_share]);
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -876,14 +895,29 @@ export default function PickPackagePage() {
             widened (320px -> 420px min) so the bigger title still has room
             to stay on one line instead of wrapping. */}
         <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap", marginBottom: 10 }}>
-          <div style={{ flex: "1 1 420px" }}>
-            <div className={styles.eyebrow} style={{ fontSize: 17 }}>// {linkName.toLowerCase()}</div>
-            <h1 className={styles.title} style={{ marginBottom: 4, fontSize: 39, whiteSpace: "nowrap" }}>
-              {release?.title}
-            </h1>
-            <div style={{ color: "var(--text-faint)", fontSize: 18 }}>
-              {/* Round 69 — item 2: feature artist added, "Main ft. Feature" */}
-              {release?.main_artist}{release?.feature_artist ? ` ft. ${release.feature_artist}` : ""} · {release?.release_date} {release?.release_time}
+          <div style={{ flex: "1 1 420px", display: "flex", alignItems: "center", gap: ogImage ? 20 : 0 }}>
+            {/* Round 231 — cover image (when crawled) sits left of the
+                name, same idiom as the Performance magic link; header text
+                scales up alongside it so it reads as one deliberate block
+                rather than a small image jammed next to unchanged text. No
+                image → exactly the original layout, unchanged. */}
+            {ogImage && (
+              <img
+                src={ogImage}
+                alt=""
+                style={{ width: 96, height: 96, borderRadius: 14, objectFit: "cover", flexShrink: 0, border: "1px solid var(--border)" }}
+                onError={() => setOgImage(null)}
+              />
+            )}
+            <div>
+              <div className={styles.eyebrow} style={{ fontSize: ogImage ? 18 : 17 }}>// {linkName.toLowerCase()}</div>
+              <h1 className={styles.title} style={{ marginBottom: 4, fontSize: ogImage ? 42 : 39, whiteSpace: "nowrap" }}>
+                {release?.title}
+              </h1>
+              <div style={{ color: "var(--text-faint)", fontSize: ogImage ? 19 : 18 }}>
+                {/* Round 69 — item 2: feature artist added, "Main ft. Feature" */}
+                {release?.main_artist}{release?.feature_artist ? ` ft. ${release.feature_artist}` : ""} · {release?.release_date} {release?.release_time}
+              </div>
             </div>
           </div>
           <div style={{ flex: "1 1 360px" }}>

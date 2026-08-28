@@ -12223,3 +12223,66 @@ Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
 (0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
 run build` — clean.
+
+## Round 230 — 2026-08-28 — Cover image on the Performance magic link (song mode)
+
+Per explicit request: the public Performance share page
+(`/performance-report/[token]`, song mode only — one release, so there's
+a single unambiguous image to show) now shows that release's cover image
+beside its name, crawled from `releases.link_share` (a Labelmaster share
+page URL — confirmed during the earlier "how does our app read APIs"
+conversation to carry real OpenGraph tags, `og:image` included).
+
+Design, explained since there were a few real choices to make:
+- **No new column, no "crawl on save" hook.** The image is fetched fresh
+  each time the magic link is opened (new route:
+  `app/api/crawl-og-image/route.js`, 1-hour fetch cache) rather than
+  crawled once when `link_share` is edited and stored — simpler than
+  wiring a crawl into every place `link_share` can be edited (New
+  Release Setup's inline table, the release detail page's URL tab), and
+  self-heals if Labelmaster's own image ever changes instead of going
+  stale.
+- **The crawl route is public (the share page has no login) but not an
+  open URL fetcher** — per explicit safety concern about turning it into
+  a server-side-request-forgery proxy, it only ever fetches a `url` that
+  matches an existing `releases.link_share` value in the database first;
+  anything else is rejected with 403.
+- **Layout, per explicit request**: the image sits to the left of the
+  song name; when it's present, the eyebrow/title column scales up a
+  notch (title 28px → 32px) so the header reads as one deliberate block
+  instead of a small image jammed next to unchanged-size text. No image
+  (crawl failed, or the release has no `link_share` yet) → the original
+  layout, byte-for-byte unchanged.
+
+Files: `app/api/crawl-og-image/route.js` (new),
+`app/performance-report/[token]/page.js`, `lib/PerformanceReport.js`
+(`RELEASE_FIELDS` now includes `link_share`).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
+run build` — clean.
+
+## Round 231 — 2026-08-28 — Same cover image on the Package/Media Report magic link
+
+Per explicit follow-up to round 230: the Package Offer / Media Report
+magic link (`/pick-package/[token]`) gets the same cover-image treatment
+as the Performance share link — crawled from `releases.link_share` via
+the same `/api/crawl-og-image` route (now documented as shared by both
+pages), shown to the left of the release name. This page's header text
+was already enlarged (round 69's 1.4x pass), so the image bumps it up
+one notch further (title 39px → 42px, artist/date line 18px → 19px)
+rather than the bigger jump used on the Performance page's smaller
+default header. No image on file / crawl fails → the original layout,
+unchanged, same as round 230.
+
+No code changes needed in `/api/crawl-og-image` itself — this page
+already fetches the full release row (`select("*")`), so `link_share`
+was already in hand.
+
+File: `app/pick-package/[token]/page.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted file + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
+run build` — clean.

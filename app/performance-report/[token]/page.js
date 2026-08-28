@@ -48,6 +48,26 @@ export default function PerformanceSharePage() {
 
   const { data, loading: rollupLoading } = usePerformanceRollup(link?.query_type, link?.query_value);
 
+  // Round 230 — song-mode only: crawl the one release's link_share page
+  // (a Labelmaster share URL) for its cover image via /api/crawl-og-image,
+  // and show it beside the title. Deliberately not attempted for artist
+  // mode (many releases, no single link_share to point at) or when the
+  // release has no link_share on file yet — the header just renders as it
+  // always has in either case, so there's nothing to fix up if the crawl
+  // never runs.
+  const [ogImage, setOgImage] = useState(null);
+  const songLinkShare = link?.query_type === "song" ? data?.releases?.[0]?.link_share : null;
+  useEffect(() => {
+    setOgImage(null);
+    if (!songLinkShare) return;
+    let cancelled = false;
+    fetch(`/api/crawl-og-image?url=${encodeURIComponent(songLinkShare)}`)
+      .then((res) => res.json())
+      .then((body) => { if (!cancelled && body?.image) setOgImage(body.image); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [songLinkShare]);
+
   useEffect(() => {
     if (link?.query_label) document.title = `${link.query_label} — Performance`;
   }, [link?.query_label]);
@@ -58,9 +78,26 @@ export default function PerformanceSharePage() {
   return (
     <div className={styles.page}>
       <div className={styles.container} style={{ maxWidth: 900 }}>
-        <div className={styles.eyebrow}>// Performance</div>
-        <h1 className={styles.title}>{link?.query_label}</h1>
-        <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
+        {/* Round 230 — cover image (when crawled) sits left of the name;
+            the eyebrow/title/expiry column scales up a notch alongside it
+            so the row reads as one deliberate header instead of a small
+            image jammed next to unchanged-size text. No image → exactly
+            the original layout, unchanged. */}
+        <div style={{ display: "flex", alignItems: "center", gap: ogImage ? 18 : 0 }}>
+          {ogImage && (
+            <img
+              src={ogImage}
+              alt=""
+              style={{ width: 72, height: 72, borderRadius: 12, objectFit: "cover", flexShrink: 0, border: "1px solid var(--border)" }}
+              onError={() => setOgImage(null)}
+            />
+          )}
+          <div>
+            <div className={styles.eyebrow} style={ogImage ? { fontSize: 13 } : undefined}>// Performance</div>
+            <h1 className={styles.title} style={ogImage ? { fontSize: 32 } : undefined}>{link?.query_label}</h1>
+          </div>
+        </div>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20, marginTop: ogImage ? -12 : 0 }}>
           Live performance rollup — this link expires {link ? new Date(link.expires_at).toLocaleString() : "—"}.
         </p>
         {rollupLoading || !data ? (
