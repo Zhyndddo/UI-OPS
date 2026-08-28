@@ -330,9 +330,15 @@ export default function MilestoneWorkstation() {
     // own output sheet, but the workflow's earlier draft already showed
     // them and the team's never asked to drop it.
     const todayKeys = new Set(todayRowsRaw.map((r) => key(r.chart, r.track_title, r.artist)));
+    // Round 220 — same "highest rank first" rule as the Report digest
+    // (round 215), extended here per explicit follow-up request ("check
+    // if we have the highest rank in the highlight, filter, and all
+    // that") — the Fell-off list is the one other place on this same
+    // Report panel that was still showing raw fetch order.
     const outRows = yesterdayRows
       .filter((r) => !todayKeys.has(key(r.chart, r.track_title, r.artist)))
-      .map((r) => ({ ...r, status: "OUT", streak: streakEndingYesterday(key(r.chart, r.track_title, r.artist)) + 1, rankChange: null, dayIn: null, entry_date: yesterday }));
+      .map((r) => ({ ...r, status: "OUT", streak: streakEndingYesterday(key(r.chart, r.track_title, r.artist)) + 1, rankChange: null, dayIn: null, entry_date: yesterday }))
+      .sort((a, b) => a.rank - b.rank);
 
     return { today, yesterday, todayRows, outRows };
   }, [entries]);
@@ -352,9 +358,17 @@ export default function MilestoneWorkstation() {
 
     const isHighlighted = (r) => r.status === "IN" || r.status === "RETURN" || isRemainHighlighted(r);
 
-    const inRows = report.todayRows.filter((r) => r.status === "IN");
-    const returnRows = report.todayRows.filter((r) => r.status === "RETURN");
-    const topRows = report.todayRows.filter(isRemainHighlighted);
+    // Round 220 — same "highest rank first" rule as the Report digest
+    // (round 215: plain ascending numeric sort — #1 above #2 above #12)
+    // applied to all 3 Highlight lists too, per explicit follow-up
+    // request. These lists span multiple charts/platforms at once (not
+    // grouped like the Report digest), so "highest rank" here just means
+    // the numerically best rank sits first regardless of which chart it
+    // came from — same reading of "highest rank" as everywhere else on
+    // this page.
+    const inRows = report.todayRows.filter((r) => r.status === "IN").sort((a, b) => a.rank - b.rank);
+    const returnRows = report.todayRows.filter((r) => r.status === "RETURN").sort((a, b) => a.rank - b.rank);
+    const topRows = report.todayRows.filter(isRemainHighlighted).sort((a, b) => a.rank - b.rank);
 
     // Chart Highlight summary — per platform, every chart currently
     // charting more than highlightConfig.minChartCount entries, excluding
@@ -398,7 +412,7 @@ export default function MilestoneWorkstation() {
   return (
     <AppShell>
       <div className={styles.page}>
-        <div className={styles.container} style={{ maxWidth: 1680 }}>
+        <div className={styles.container} style={{ maxWidth: 1400 }}>
           <TypeSwitcher kind="workstation" current="milestone" />
           <div className={styles.eyebrow}>// Workstation</div>
           <h1 className={styles.title} style={{ marginBottom: 16 }}>Milestone</h1>
@@ -675,10 +689,20 @@ function LogTable({ entries }) {
   const [artistFilter, setArtistFilter] = useState("");
   const [songFilter, setSongFilter] = useState("");
 
-  const filtered = entries.filter((e) =>
-    (!artistFilter || (e.artist || "").toLowerCase().includes(artistFilter.toLowerCase())) &&
-    (!songFilter || (e.track_title || "").toLowerCase().includes(songFilter.toLowerCase()))
-  );
+  // Round 221 — corrected per explicit follow-up: round 220 kept date as
+  // the primary sort (newest first) and only used rank to break ties on
+  // the exact same date, which in practice meant this filter showed the
+  // LATEST entry first, not the best one — not what "highest rank
+  // first" was actually asking for. Rank ascending is now the primary
+  // sort (the whole point of typing an artist/song filter here is
+  // usually "what's the best this has ever charted"), with date as the
+  // tiebreaker only when two rows land on the exact same rank.
+  const filtered = entries
+    .filter((e) =>
+      (!artistFilter || (e.artist || "").toLowerCase().includes(artistFilter.toLowerCase())) &&
+      (!songFilter || (e.track_title || "").toLowerCase().includes(songFilter.toLowerCase()))
+    )
+    .sort((a, b) => a.rank - b.rank || b.entry_date.localeCompare(a.entry_date));
 
   return (
     <div>

@@ -8,7 +8,8 @@ import { supabase } from "../../lib/supabaseClient";
 import { fmtDate, fetchAllRows } from "../../lib/helpers";
 import { useAuth } from "../../lib/AuthContext";
 import { REPORTING_TEAMS, TEAM_TICKET_TYPES, TICKET_TYPE_LABELS, SHARED_TICKET_TYPES, resolveTeamKey } from "../../lib/teamTypes";
-import { canViewCrossTeam } from "../../lib/permissions";
+import { canViewCrossTeam, canViewPerformanceReport } from "../../lib/permissions";
+import { fetchDistinctArtists, usePerformanceRollup, PerformanceRollupView } from "../../lib/PerformanceReport";
 import styles from "../shared.module.css";
 
 // Round 56 — "Report" nav item: KPI cards, tables, and column/pie charts
@@ -373,7 +374,11 @@ function ReportPageInner() {
           </p>
 
           <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
-            {[["overview", "Overview"], ["worklist", "Team Worklist"]].map(([key, label]) => (
+            {[
+              ["overview", "Overview"],
+              ["worklist", "Team Worklist"],
+              ...(canViewPerformanceReport(profile) ? [["performance", "Performance"]] : []),
+            ].map(([key, label]) => (
               <button
                 key={key}
                 onClick={() => setTab(key)}
@@ -385,7 +390,9 @@ function ReportPageInner() {
             ))}
           </div>
 
-          {loading ? (
+          {tab === "performance" ? (
+            <PerformanceTab profile={profile} />
+          ) : loading ? (
             <div className={styles.emptyState}>Loading…</div>
           ) : tab === "worklist" ? (
             <>
@@ -579,5 +586,220 @@ function ReportPageInner() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+// Round 222 — the "Performance" tab (admin+ only, gated by
+// canViewPerformanceReport in lib/permissions.js). Own component so its
+// data (artist list, song search, share-link history) only loads once
+// this tab is actually opened, not on every /report visit.
+function PerformanceTab({ profile }) {
+  const [mode, setMode] = useState("artist"); // "artist" | "song"
+  const [artists, setArtists] = useState([]);
+  const [selectedArtist, setSelectedArtist] = useState("");
+  const [songQuery, setSongQuery] = useState("");
+  const [songOptions, setSongOptions] = useState([]);
+  const [selectedSong, setSelectedSong] = useState(null); // { id, title, main_artist }
+  const [shareLinks, setShareLinks] = useState([]);
+  const [linksLoading, setLinksLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [copiedToken, setCopiedToken] = useState(null);
+
+  useEffect(() => {
+    fetchDistinctArtists().then(setArtists);
+    loadShareLinks();
+  }, []);
+
+  useEffect(() => {
+    if (mode !== "song" || !supabase || songOptions.length > 0) return;
+    supabase
+      .from("releases")
+      .select("id, title, main_artist")
+      .order("created_at", { ascending: false })
+      .limit(500)
+      .then(({ data }) => setSongOptions(data || []));
+  }, [mode]);
+
+  async function loadShareLinks() {
+    if (!supabase) return;
+    setLinksLoading(true);
+    const { data } = await supabase.from("performance_share_links").select("*").order("created_at", { ascending: false });
+    setShareLinks(data || []);
+    setLinksLoading(false);
+  }
+
+  const queryType = mode;
+  const queryValue = mode === "artist" ? selectedArtist : selectedSong?.id || "";
+  const queryLabel = mode === "artist" ? selectedArtist : selectedSong ? `${selectedSong.title} — ${selectedSong.main_artist}` : "";
+
+  const { data, loading: rollupLoading } = usePerformanceRollup(queryValue ? queryType : null, queryValue);
+
+  const songMatches = songQuery.trim()
+    ? songOptions.filter((r) => `${r.title} ${r.main_artist}`.toLowerCase().includes(songQuery.trim().toLowerCase())).slice(0, 12)
+    : songOptions.slice(0, 12);
+
+  async function generateLink() {
+    if (!supabase || !queryValue) return;
+    setGenerating(true);
+    const { data: row, error } = await supabase
+      .from("performance_share_links")
+      .insert({ query_type: queryType, query_value: queryValue, query_label: queryLabel, created_by: profile?.name || null })
+      .select()
+      .single();
+    setGenerating(false);
+    if (error) {
+      alert("Couldn't generate the link: " + error.message);
+      return;
+    }
+    setShareLinks((prev) => [row, ...prev]);
+  }
+
+  function copyLink(token) {
+    const url = `${window.location.origin}/performance-report/${token}`;
+    navigator.clipboard?.writeText(url).then(() => {
+      setCopiedToken(token);
+      setTimeout(() => setCopiedToken((t) => (t === token ? null : t)), 1500);
+    });
+  }
+
+  return (
+    <div>
+      <div className={styles.subheading} style={{ marginTop: 0 }}>Filter</div>
+      <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
+        {[["artist", "By Artist"], ["song", "By Song"]].map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => {
+              setMode(key);
+              setSelectedArtist("");
+              setSelectedSong(null);
+            }}
+            className={`${styles.tabBtn} ${mode === key ? styles.tabBtnActive : ""}`}
+            style={{ border: mode === key ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: mode === key ? "rgba(255,107,26,0.1)" : "transparent" }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === "artist" ? (
+        <select
+          value={selectedArtist}
+          onChange={(e) => setSelectedArtist(e.target.value)}
+          style={{ width: "min(420px, 100%)", background: "var(--bg-input)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "8px 10px", fontSize: 13, color: "var(--text)", marginBottom: 20 }}
+        >
+          <option value="">Pick an artist…</option>
+          {artists.map((a) => (
+            <option key={a} value={a}>{a}</option>
+          ))}
+        </select>
+      ) : (
+        <div style={{ position: "relative", width: "min(420px, 100%)", marginBottom: 20 }}>
+          <input
+            placeholder="Search song title or artist…"
+            value={selectedSong ? `${selectedSong.title} — ${selectedSong.main_artist}` : songQuery}
+            onChange={(e) => {
+              setSelectedSong(null);
+              setSongQuery(e.target.value);
+            }}
+            style={{ width: "100%", background: "var(--bg-input)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "8px 10px", fontSize: 13, color: "var(--text)", boxSizing: "border-box" }}
+          />
+          {!selectedSong && songQuery.trim() && (
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50, marginTop: 4, maxHeight: 260, overflowY: "auto", background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}>
+              {songMatches.length === 0 ? (
+                <div style={{ padding: 10, fontSize: 12, color: "var(--text-faint)" }}>No matches.</div>
+              ) : (
+                songMatches.map((r) => (
+                  <div
+                    key={r.id}
+                    onClick={() => {
+                      setSelectedSong(r);
+                      setSongQuery("");
+                    }}
+                    style={{ padding: "8px 10px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid var(--border)" }}
+                  >
+                    {r.title} <span style={{ color: "var(--text-faint)", fontSize: 11 }}>· {r.main_artist}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {queryValue && (
+        <>
+          {rollupLoading || !data ? (
+            <div className={styles.emptyState}>Loading…</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <div className={styles.subheading} style={{ margin: 0 }}>{data.label}</div>
+                <button onClick={generateLink} disabled={generating} className={styles.tabBtn} style={{ border: "1px solid var(--accent)", borderRadius: 6, background: "rgba(255,107,26,0.1)" }}>
+                  {generating ? "Generating…" : "Generate Share Link (72h)"}
+                </button>
+              </div>
+              <PerformanceRollupView data={data} styles={styles} linkToReleases />
+            </>
+          )}
+        </>
+      )}
+
+      <div className={styles.subheading} style={{ marginTop: 24 }}>Share Link History</div>
+      <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: -12, marginBottom: 12 }}>
+        Every link ever generated, admin-visible. A link stops working once it's Expired — the row itself is never deleted.
+      </p>
+      {linksLoading ? (
+        <div className={styles.emptyState}>Loading…</div>
+      ) : shareLinks.length === 0 ? (
+        <div className={styles.emptyState}>No share links generated yet.</div>
+      ) : (
+        <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Filter</th>
+                <th>Type</th>
+                <th>Created By</th>
+                <th>Created</th>
+                <th>Expires</th>
+                <th>Status</th>
+                <th>Link</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shareLinks.map((l) => {
+                const expired = new Date(l.expires_at) < new Date();
+                return (
+                  <tr key={l.id}>
+                    <td>{l.query_label || l.query_value}</td>
+                    <td style={{ fontSize: 12 }}>{l.query_type === "artist" ? "Artist" : "Song"}</td>
+                    <td style={{ fontSize: 12 }}>{l.created_by || "—"}</td>
+                    <td style={{ fontSize: 12 }}>{fmtDate(l.created_at)}</td>
+                    <td style={{ fontSize: 12 }}>{fmtDate(l.expires_at)}</td>
+                    <td>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: expired ? "var(--text-faint)" : "var(--success-fg)" }}>
+                        {expired ? "Expired" : "Active"}
+                      </span>
+                    </td>
+                    <td>
+                      {!expired && (
+                        <button
+                          onClick={() => copyLink(l.token)}
+                          className={styles.tabBtn}
+                          style={{ border: "1px solid var(--border)", borderRadius: 6, background: "transparent", fontSize: 11, padding: "4px 8px" }}
+                        >
+                          {copiedToken === l.token ? "Copied!" : "Copy Link"}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }

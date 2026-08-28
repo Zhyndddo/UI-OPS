@@ -11565,3 +11565,256 @@ Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 (zero errors, whole-project pass) — plus a manual trace of every
 `release` reference inside `OverviewTab` to confirm scope this time,
 since that's exactly what the standard tsc pass missed.
+
+## Round 219 — 2026-08-27
+
+Follow-up to round 218's `ReferenceError: release is not defined`
+regression — direct answer to "can we prevent it in the future, or do
+you have to see it to know it's bugged?" It genuinely was the kind of
+bug `tsc --checkJs false` can't see (a reference that's syntactically
+fine but resolves to nothing because it crosses a component-prop
+boundary — plain-JS `.js` files get no real type checking from that
+command, only syntax/JSX parsing). But it's exactly the kind of bug
+ESLint's scope analysis is built to catch, with zero type annotations
+required. Set up a minimal, targeted ESLint config rather than pulling
+in `eslint-config-next` (which drags in TypeScript tooling and a much
+bigger, noisier default ruleset for a project with no existing lint
+setup at all) — just `no-undef` + `react/jsx-no-undef` (the two rules
+that directly catch "this identifier isn't in scope," including JSX
+component tags) plus `react-hooks/rules-of-hooks` (error) and
+`react-hooks/exhaustive-deps` (warn, since this codebase intentionally
+uses plenty of mount-once `useEffect(() => {...}, [])`, which that rule
+always flags — kept as a warning, not an error, so it surfaces without
+blocking).
+
+Running it for the first time against the whole `app/`+`lib/`+`scripts/`
+tree (same scope `tsc` already covers) immediately caught two genuine,
+pre-existing `ReferenceError` bugs that predate this session — not
+introduced by anything here, just never caught before because nothing
+in the existing verification loop could see them:
+
+- `app/booking/page.js` — `BookingBoardCards` (the mobile card view)
+  referenced `cycleStatusAll`, `updateEntry`, `deleteEntry`,
+  `channelStatuses`, `saveChannelStatus` — all real functions/state on
+  the parent `BookingBoard` component, but never actually passed down
+  as props to this one, same exact mistake as round 218's. Would have
+  thrown the moment a Partner TikTok "Ads"-column cell tried to render
+  the cycle-status/channel-status controls on mobile. Fixed by adding
+  the 5 missing props to `BookingBoardCards`'s signature and its call
+  site.
+- `app/labels/page.js` — `decideForCreate(tag, sendToLegal)` (the
+  create-label form's Hợp Tác legal-decision handler) built its patch
+  object with a shorthand `{ sentToLegal, ... }`, but the function's
+  real parameter is spelled `sendToLegal` — a plain typo (past tense vs
+  present tense) that's been there since this function was written.
+  Would have thrown the moment someone made a Hợp Tác legal decision
+  while filling out the New Label create form. Fixed to
+  `sentToLegal: sendToLegal` (and `done: !sendToLegal`, which had the
+  same typo).
+
+New standing verification step going forward, alongside the existing
+`tsc` pass: `npm run lint:scope` (added to `package.json`), which runs
+this ESLint config against the same file set. Zero errors after the
+two fixes above (49 pre-existing `exhaustive-deps` warnings remain,
+all the ordinary "load once on mount" pattern this codebase uses
+throughout — informational only, not blocking).
+
+Files: `.eslintrc.json` (new), `package.json` (`lint:scope` script +
+`eslint`/`eslint-plugin-react`/`eslint-plugin-react-hooks`
+devDependencies), `app/booking/page.js` (missing props fix),
+`app/labels/page.js` (typo fix).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (zero errors, whole-project pass) AND the new `npm run
+lint:scope` (zero errors) against every `.js` file under `app/`,
+`lib/`, and `scripts/`.
+
+## Round 220 — 2026-08-27
+
+"can you make the workstation from oPS to smaller in width ò the
+container" — round 215's uniform 1680px workstation container width
+(1.2x Booking Board's 1400px) was too wide. Asked for the exact target
+rather than guessing; confirmed: match Booking Board's own container
+exactly. All 6 workstation containers (Pitching, Milestone, Upload,
+Re-Check, Pre-Release, Streaming) narrowed 1680px → 1400px.
+
+Files: `app/workstation/pitching/page.js`, `app/workstation/milestone/
+page.js`, `app/workstation/upload/page.js`, `app/workstation/confirm/
+page.js`, `app/workstation/pre-release/page.js`, `app/workstation/
+stream/page.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` AND `npm run lint:scope` (round 219's new ESLint check) — both
+zero errors, whole-project pass (same 49 pre-existing exhaustive-deps
+warnings as baseline, none new).
+
+## Round 220b — 2026-08-27
+
+Follow-up audit: "can you check if we have the highest rank in the
+highlight, filter, and all that in the milestone workstation?" — round
+215 only added the "highest rank first" sort (plain ascending — #1
+above #2 above #12) to the Report tab's digest groups. Checked every
+other list on the Milestone page for the same rule and found two more
+spots that were still showing raw fetch/insertion order:
+
+- **Highlight** (`inRows`/`returnRows`/`topRows` — Bắt Đầu Vào Chart /
+  Quay Lại Chart / Thăng Hạng): now each sorted ascending by rank. These
+  lists span multiple charts/platforms at once, unlike the Report
+  digest's per-chart groups, so "highest rank first" here just means the
+  numerically best rank sits first regardless of which chart it's from.
+  `report.outRows` (the "Fell off since yesterday" list under the
+  Report digest) got the same treatment.
+- **Log tab's filter** (artist/song text filters): the underlying
+  `entries` list is fetched newest-date-first
+  (`.order("entry_date", {ascending:false})`), which stays the PRIMARY
+  sort — but rows sharing the same date had no secondary order at all,
+  just whatever the database happened to return. Added rank ascending
+  as the tiebreaker among same-date rows (ranks aren't comparable
+  across different dates, so date always wins first).
+
+Both the Highlight "Copy for Telegram" button and the Report tab's
+already read straight from these same sorted arrays, so their copied
+text picks up the same order automatically — no separate change needed
+there (same free win round 215 already established for the Report
+digest).
+
+Files: `app/workstation/milestone/page.js` (`report.outRows`,
+`highlight.inRows`/`returnRows`/`topRows`, `LogTable`'s `filtered`).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` AND `npm run lint:scope` (round 219's ESLint check) — both
+zero errors, whole-project pass (same 49 pre-existing exhaustive-deps
+warnings as baseline, none new).
+
+## Round 221 — 2026-08-27
+
+Correction to round 220's Log tab fix. Asked directly to check whether
+the filter was actually showing highest rank vs latest — read the code
+back and confirmed round 220 had kept DATE as the primary sort (newest
+first) and only used rank as a tiebreaker on an exact date match, so
+typing an artist/song filter was really showing the latest entry first,
+not the best one. Not what "highest rank first" meant.
+
+Fixed: rank ascending is now the PRIMARY sort in the Log tab's filtered
+table, date descending only breaks a tie when two rows land on the
+exact same rank. Typing an artist filter now surfaces that artist's
+best-ever placement first, regardless of which date it happened on.
+
+The Report tab's digest (round 215) and the Highlight lists (round
+220b) were re-checked too and left as-is — both already sort by rank
+ascending as their primary/only key (the Report digest's per-chart
+grouping is a structural thing, not a competing sort key — rank is
+still what orders the rows inside each chart's numbered section), so
+they already meant "highest rank first" correctly.
+
+Files: `app/workstation/milestone/page.js` (`LogTable`'s `filtered`
+sort comparator).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` AND `npm run lint:scope` — both zero errors, whole-project
+pass (same 49 pre-existing exhaustive-deps warnings as baseline).
+
+## Round 222 — 2026-08-28
+
+New feature, per explicit request: a "Performance" tab on the existing
+`/report` sidebar page, admin+ only (not a new sidebar item — Report
+already exists, this is a third tab alongside Overview/Team Worklist).
+Filters and accumulates one artist's or one song's performance across
+the whole app — song count, best-ever chart rank, milestone chart
+history, streaming numbers, and total package cost — plus a button
+that mints a temporary (72h) read-only share link, no login required.
+
+Design decisions, made mostly via research + `AskUserQuestion` before
+writing any code:
+
+- **"Which song is best" = lowest (best) rank ever recorded in
+  `milestone_chart_entries`.** Streaming numbers in
+  `release_stream_metrics` are stored as free-text per platform (not
+  numeric, not reliably comparable), so chart rank is the only clean
+  numeric performance signal in this app. Confirmed via
+  AskUserQuestion.
+- **Artist rollup = main artist only**, via `main_artist_tags` array
+  containment (the collab-safe column) with a plain `main_artist`
+  fallback for legacy untagged rows. Feature-artist credits are
+  deliberately excluded — a feature credit's package cost belongs to
+  the main artist, not the featured one. User deferred to my judgment
+  leaning "main"; went with main-only.
+- **Milestone-to-release linking has no FK** (`milestone_chart_entries`
+  has no `release_id`) — matched by `did` where the release has one
+  (the reliable path), falling back to plain artist-name match for
+  entries never DID-autofilled on the Milestone workstation.
+- **Zero data log / always-live, per explicit request** ("Zero data
+  log I think, since this is just a computed formatted sheet"): the
+  new `performance_share_links` table stores only the FILTER
+  (`query_type`/`query_value`/`query_label`) and the link's own
+  lifecycle (token/created_by/created_at/expires_at) — never a frozen
+  snapshot of the numbers. The public share page re-runs the exact
+  same live rollup query the admin tab runs, every time it's opened.
+- **First link table in this app with a real expiry.** Every other
+  link (`magic_links`) is explicitly permanent by design (see
+  `app/releases/[id]/page.js`: "Magic links never expire once
+  created"). `performance_share_links.expires_at` defaults to
+  `now() + 72 hours`; the public page checks it client-side and shows
+  an "expired" state past that point — the row itself is never
+  deleted, so it keeps showing in the admin history list as Expired.
+- **The share-link table doubles as its own history log**, per
+  explicit request ("we can store a small history log... otherwise
+  just store as a row (nothing more)") — one row per generated link IS
+  the history entry. No separate access/view-count table, no cleanup
+  job. Admin tab shows every row, Active/Expired judged purely by
+  `expires_at` at read time (confirmed via AskUserQuestion: "Show all,
+  mark expired ones").
+- Link visiting requires no login, matching the existing magic-link
+  precedent for external-facing pages (confirmed via
+  AskUserQuestion).
+
+New DB object (SQL migration written, not run — this session has no
+live DB credentials): `add-round222-performance-share-links.sql` —
+`performance_share_links` table (`token` via the existing
+`generate_base36_token()` function, unique index on `token`). No CHECK
+constraint on `query_type`, matching this schema's existing convention
+for short-enum text columns (validated in the app layer).
+
+New files:
+- `lib/PerformanceReport.js` — shared data-fetching (`fetchDistinctArtists`,
+  `fetchArtistRollup`, `fetchSongRollup`, an internal
+  `fetchMilestonesForReleases` helper matching by `did` then `artist`)
+  and a shared presentational component (`PerformanceRollupView`,
+  parameterized by `linkToReleases` so the public page can omit
+  internal release links) plus the `usePerformanceRollup` hook — used
+  by BOTH the admin tab and the public share page so the two can never
+  drift apart.
+- `app/performance-report/[token]/page.js` — the public, no-login,
+  standalone page (no `AppShell`, same convention as
+  `app/pick-package/[token]/page.js`'s magic link). Reads the share
+  link by token, checks `expires_at`, renders the live rollup.
+
+Edited:
+- `lib/permissions.js` — added `canViewPerformanceReport` (admin+),
+  the gate for the new tab.
+- `app/report/page.js` — added the `["performance", "Performance"]`
+  tab button (only rendered when `canViewPerformanceReport(profile)`
+  is true) and the new `PerformanceTab` component: an Artist/Song mode
+  switcher, an artist `<select>` (from `fetchDistinctArtists()`) or a
+  song search-and-pick dropdown (client-filtered over the last 500
+  releases, same "fetch once, filter client-side" pattern as
+  `lib/ReleasePicker.js`), the rollup view, a "Generate Share Link
+  (72h)" button that inserts into `performance_share_links`, and the
+  Share Link History table with per-row Copy Link + Active/Expired
+  badge.
+
+`lib/Sidebar.js` needed no change — Performance is a tab inside the
+existing `/report` nav entry, not a new top-level item.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep) AND `npm run
+lint:scope` — both zero errors. Lint shows only 2 new
+`react-hooks/exhaustive-deps` warnings (`load` in the public page,
+`songOptions.length` in `PerformanceTab`), same pre-existing pattern
+as every other `load()`-on-mount effect across this codebase (51 total
+warnings now, up from 49 baseline — all `exhaustive-deps`, 0 errors).
+
+**Action needed from the team:** run
+`add-round222-performance-share-links.sql` against production before
+this tab will work — until then, generating a share link will fail
+with a missing-table error.

@@ -1286,6 +1286,11 @@ export default function BookingBoard() {
             bookingChannels={bookingChannels}
             saveAdsQuantity={saveAdsQuantity}
             updateYoutubeAdsField={updateYoutubeAdsField}
+            cycleStatusAll={cycleStatusAll}
+            updateEntry={updateEntry}
+            deleteEntry={deleteEntry}
+            channelStatuses={channelStatuses}
+            saveChannelStatus={saveChannelStatus}
           />
           <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} hideCount />
           </>
@@ -1501,6 +1506,7 @@ function BookingBoardCards({
   hangMucFilter, subFilter, round, phuLucStatus, setPackagePreview, updateReleaseNote,
   convertMediaReport, expandedCell, setExpandedCell, addEntry, addEntries,
   cycleStatus, bookingChannels, saveAdsQuantity, updateYoutubeAdsField,
+  cycleStatusAll, updateEntry, deleteEntry, channelStatuses, saveChannelStatus,
 }) {
   // Same grouping the table's header uses (columns are already sorted by
   // category upstream in the `columns` useMemo) — just collected into

@@ -198,7 +198,7 @@ export default function ConfirmWorkstation() {
   return (
     <AppShell>
       <div className={styles.page}>
-        <div className={styles.container} style={{ maxWidth: 1680 }}>
+        <div className={styles.container} style={{ maxWidth: 1400 }}>
           <TypeSwitcher kind="workstation" current="confirm" />
           <div className={styles.eyebrow}>// Workstation</div>
           <h1 className={styles.title} style={{ marginBottom: 16 }}>Re-Check</h1>

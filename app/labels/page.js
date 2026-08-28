@@ -281,7 +281,7 @@ export default function LabelsPage() {
     setForm((f) => ({
       ...f,
       hop_tac: f.hop_tac.includes(tag) ? f.hop_tac : [...f.hop_tac, tag],
-      hop_tac_status: { ...f.hop_tac_status, [tag]: { sentToLegal, ticketId: null, done: !sentToLegal, pendingCreate: sendToLegal } },
+      hop_tac_status: { ...f.hop_tac_status, [tag]: { sentToLegal: sendToLegal, ticketId: null, done: !sendToLegal, pendingCreate: sendToLegal } },
     }));
   }
 
