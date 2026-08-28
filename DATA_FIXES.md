@@ -11479,3 +11479,52 @@ Files: `lib/AuthContext.js` (clamp fix), `lib/TopBar.js` (label rename),
 Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
 (zero errors, whole-project pass).
+
+## Round 217 — 2026-08-27
+
+Follow-up to the Send Upload gate audit from the previous conversation
+(no code change there — confirmed the button correctly reads the
+last-SAVED release state, not the live unsaved draft, so a Yes that's
+never actually saved can never unlock Send Upload). This round is the
+actual fix requested off the back of that: "after the sent, nothing
+can get back out of yes. Can still move around from no, TBU, but once
+it change to yes (and save) no going back."
+
+The real gap the audit surfaced: once Send Upload has already fired
+(`requested: true`), nothing stopped a required Metadata Checklist
+field (Audio/Artwork/Lyric/Metadata — `REQUIRED_META_KEYS`) from later
+being toggled back to No/TBU and saved, silently landing the release in
+an inconsistent state (upload already sent, required field now reads
+incomplete).
+
+Fixed as a one-way ratchet, exactly as described: No and TBU still
+swap freely with each other at any time, but once a required field's
+SAVED value is genuinely "Yes" AND Send Upload has gone out, it locks
+— can never be walked back to No/TBU again. A field still No/TBU
+post-send stays fully open (still needed for the Priority Pitching
+shortcut, which can send Upload before the checklist is complete).
+
+Two layers, same as every other gate on this page:
+- UI: `GateToggle` (`lib/GateFields.js`) gained an optional `lockYes`
+  prop — when true and the toggle currently reads "Yes", the No/TBU
+  buttons disable themselves (greyed out, hover tooltip explains why).
+  The Metadata Checklist (`app/releases/[id]/page.js`, `OverviewTab`)
+  passes `lockYes` computed from `release[key] === "true" &&
+  form.requested` — reads the last-SAVED value, not the live draft, so
+  an unsaved toggle can't itself arm or lift the lock (same "must hit
+  Save first" rule `uploadReady` already follows).
+- Write-time: `saveTab()` independently refuses the same thing — if a
+  dirty required-field value would revert an already-saved Yes while
+  `requested` is true, that one field is dropped from the write and
+  snapped back to "true" in the form, with a message explaining why.
+  Catches a stale tab or a devtools-forced click that got past the
+  disabled UI button; everything else on that same save still goes
+  through normally.
+
+Files: `lib/GateFields.js` (`GateToggle`'s `lockYes`/`lockTitle`),
+`app/releases/[id]/page.js` (Metadata Checklist wiring, `saveTab()`'s
+`blockedMetaKeys` guard + user-facing message).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` against every `.js` file under `app/`, `lib/`, and `scripts/`
+(zero errors, whole-project pass).

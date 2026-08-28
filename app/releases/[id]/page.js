@@ -576,6 +576,27 @@ export default function ReleaseDetailPage() {
     dirtyKeysRef.current.forEach((k) => {
       dirtyPatch[k] = form[k];
     });
+
+    // Round 217 — defense in depth alongside the UI lock on GateToggle
+    // (Metadata Checklist above): once Send Upload has gone out and a
+    // required field's last-SAVED value is genuinely "Yes", that field
+    // can never be walked back to No/TBU — the UI already disables those
+    // buttons once locked, but this refuses the same thing at the actual
+    // write too, in case a stale tab or a devtools edit slips a
+    // disallowed value into dirtyPatch anyway. Checked against `release`
+    // (the value this same save is about to diff against), not `form` —
+    // it's the last-saved truth that decides whether the lock is armed.
+    const blockedMetaKeys = REQUIRED_META_KEYS.filter(
+      (k) => release?.[k] === "true" && release?.requested && k in dirtyPatch && dirtyPatch[k] !== "true"
+    );
+    if (blockedMetaKeys.length > 0) {
+      blockedMetaKeys.forEach((k) => {
+        delete dirtyPatch[k];
+        dirtyKeysRef.current.delete(k);
+      });
+      setForm((f) => ({ ...f, ...Object.fromEntries(blockedMetaKeys.map((k) => [k, "true"])) }));
+    }
+
     const releasePatch = { ...dirtyPatch, ...(sonyPublishSendsUpload ? { requested: true } : {}), ...(didChanged ? { did: newDid } : {}) };
 
     // Round 86 item 4 — Publishing, same "loop until ready" idea as Sony
@@ -871,6 +892,15 @@ export default function ReleaseDetailPage() {
     setForm((f) => ({ ...f, ...releasePatch }));
     setRelease((r) => ({ ...r, ...releasePatch }));
     dirtyKeysRef.current = new Set();
+
+    // Round 217 — surfaces the blockedMetaKeys guard above. Everything
+    // ELSE on this save still went through fine (releasePatch above
+    // simply never included these keys) — this only reports the fields
+    // that got refused, so it doesn't read as a full save failure.
+    if (blockedMetaKeys.length > 0) {
+      const labels = blockedMetaKeys.map((k) => META_ITEMS.find((m) => m.key === k)?.label || k).join(", ");
+      setError(`${labels} — already Yes with Upload already sent, can't be reverted to No/TBU. That change wasn't saved (everything else was).`);
+    }
     setSaved(true);
   }
 
@@ -2275,10 +2305,28 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
 
       <div className={styles.subheading}>Metadata Checklist ({metaDone}/6 — {requiredMetaDone}/{REQUIRED_META_KEYS.length} required)</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 20 }}>
-        {META_ITEMS.map((m) => (
+        {META_ITEMS.map((m) => {
+          const isRequired = REQUIRED_META_KEYS.includes(m.key);
+          // Round 217 — per explicit request: once Send Upload has gone
+          // out, a required field that's genuinely SAVED as Yes can never
+          // be walked back to No/TBU again — No and TBU still swap freely
+          // with each other, and a field still No/TBU post-send stays
+          // fully open (can still become Yes later, e.g. the Priority
+          // Pitching shortcut sent before the checklist was complete).
+          // Reads `release` (the last-saved value), not `form` (the live
+          // draft) — an unsaved toggle in the draft must not itself
+          // trigger or lift the lock, same "must hit Save first" rule the
+          // rest of this gate already follows (see uploadReady above).
+          const locked = isRequired && form.requested && release?.[m.key] === "true";
+          return (
           <div key={m.key} className={styles.field} style={{ marginBottom: 0 }}>
-            <label className={styles.fieldLabel}>{m.label}{REQUIRED_META_KEYS.includes(m.key) ? " *" : ""}</label>
-            <GateToggle value={form[m.key] || "false"} onChange={(v) => update(m.key, v)} />
+            <label className={styles.fieldLabel}>{m.label}{isRequired ? " *" : ""}</label>
+            <GateToggle
+              value={form[m.key] || "false"}
+              onChange={(v) => update(m.key, v)}
+              lockYes={locked}
+              lockTitle="Upload already sent — this required field can't be walked back from Yes."
+            />
             {/* MV type — same field the Pre-release Workstation edits
                 (releases.canva_status, labeled "MV" there), surfaced here
                 too once MV is ticked Yes, per explicit request. */}
@@ -2291,7 +2339,8 @@ function OverviewTab({ form, update, metaDone, requiredMetaDone, requiredMetaDon
               />
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
       {showMvTypePopup && (
         <GatePopupShell title="MV Type" onClose={() => setShowMvTypePopup(false)} width={340}>
