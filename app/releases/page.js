@@ -1,7 +1,7 @@
 "use client";
 
 import AppShell from "../../lib/AppShell";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import { fmtDate, metadataPercent, uploadPercent, fetchAllRows } from "../../lib/helpers";
@@ -16,6 +16,40 @@ import DateRangeFilter, { matchesDateRange } from "../../lib/DateRangeFilter";
 import styles from "../shared.module.css";
 
 const CHANNELS = ["VIEENT", "ENVI"];
+
+// Round 224 — "remember position" for this page: filters, search, date
+// range, sort, page/page size, and scroll position, so clicking into a
+// release and hitting Back lands you exactly where you left off instead
+// of resetting to defaults. Purely a per-tab browser convenience —
+// sessionStorage only (clears when the tab closes, never written to or
+// read from the database, so this costs nothing beyond a few bytes in
+// the browser and is per-device by nature — nobody else's session is
+// affected). Read once via readDashboardState()/setter calls right after
+// mount (so it applies before the "Loading…" gate lifts and nothing ever
+// visibly flickers between default and restored state) and written once
+// on unmount via a ref that always holds the latest values, not on every
+// keystroke — see the component body for both halves.
+const DASHBOARD_STATE_KEY = "vieent-releases-dashboard-v1";
+
+function readDashboardState() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(DASHBOARD_STATE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeDashboardState(state) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(DASHBOARD_STATE_KEY, JSON.stringify(state));
+  } catch {
+    // sessionStorage can throw in private-browsing/storage-full edge cases —
+    // this is a pure convenience, not worth surfacing an error for.
+  }
+}
 
 // Round 86 follow-up item 1 (load speed) — releases is a genuinely wide
 // table (every workstation's own checklist/gate/confirm columns live on
@@ -386,10 +420,61 @@ export default function ReleasesDashboard() {
   // field itself is untouched and still editable from the release detail
   // page.
 
-  const { sorted: sortedReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
+  const { sorted: sortedReleases, sort, setSort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(sortedReleases);
 
   const anyStatClickFilter = statusFilter || channelFilter || createdFilter;
+
+  // Round 224 — restore, once, right after mount (before the "Loading…"
+  // gate ever lifts, so there's nothing to visibly flicker between).
+  // Deliberately NOT read via a useState lazy initializer above — this
+  // page prerenders statically (no sessionStorage at build time), so
+  // seeding state straight from storage at construction time would make
+  // the client's very first render disagree with the prerendered HTML
+  // and trip a hydration mismatch. Applying it a tick later via setters
+  // instead avoids that entirely.
+  const pendingScrollRef = useRef(null);
+  useEffect(() => {
+    const saved = readDashboardState();
+    if (!saved) return;
+    if (saved.search) setSearch(saved.search);
+    if (saved.statusFilter) setStatusFilter(saved.statusFilter);
+    if (saved.createdFilter) setCreatedFilter(saved.createdFilter);
+    if (saved.channelFilter) setChannelFilter(saved.channelFilter);
+    if (saved.typeFilter) setTypeFilter(saved.typeFilter);
+    if (saved.labelFilter) setLabelFilter(saved.labelFilter);
+    if (saved.dateRangeStart) setDateRangeStart(saved.dateRangeStart);
+    if (saved.dateRangeEnd) setDateRangeEnd(saved.dateRangeEnd);
+    if (saved.page) setPage(saved.page);
+    if (saved.pageSize) setPageSize(saved.pageSize);
+    if (saved.sort) setSort(saved.sort);
+    if (typeof saved.scrollY === "number") pendingScrollRef.current = saved.scrollY;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Scroll restore has to wait for the real content to actually be on the
+  // page (rows rendered) — applying it while still showing "Loading…"
+  // would just get overwritten by the layout shift once data arrives.
+  useEffect(() => {
+    if (loading || pendingScrollRef.current == null) return;
+    const y = pendingScrollRef.current;
+    pendingScrollRef.current = null;
+    requestAnimationFrame(() => window.scrollTo(0, y));
+  }, [loading]);
+
+  // Latest filter/sort/page state, mirrored into a ref on every render so
+  // the unmount-time write below (a stable-identity effect, see its own
+  // empty dep array) always sees the CURRENT values instead of whatever
+  // they were at mount — a plain closure over the effect's own deps would
+  // go stale the moment any filter changed after the first render.
+  const latestDashboardStateRef = useRef(null);
+  latestDashboardStateRef.current = { search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort };
+  useEffect(() => {
+    return () => {
+      writeDashboardState({ ...latestDashboardStateRef.current, scrollY: window.scrollY });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <AppShell>

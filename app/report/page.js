@@ -593,9 +593,24 @@ function ReportPageInner() {
 // canViewPerformanceReport in lib/permissions.js). Own component so its
 // data (artist list, song search, share-link history) only loads once
 // this tab is actually opened, not on every /report visit.
+//
+// Round 224 — reworked per explicit request: (1) the artist field is now
+// a search-and-propose picker, same pattern as the song field, instead
+// of a plain <select>; (2) at most one ACTIVE share link exists per
+// artist/song at a time — picking a filter that already has one shows it
+// inline (readonly field + copy icon + a live countdown) instead of a
+// Generate button, so two people looking up the same artist always land
+// on the same link rather than minting duplicates. Once that link
+// expires, the recommended path is "Renew" (same token, same row, just a
+// new expires_at — so anything already pasted/shared with that token
+// keeps working) with "Generate New Link" (a genuinely fresh token, new
+// history row) as the deliberate secondary option for the rare case the
+// old token itself needs to stop being valid. No schema change needed
+// for any of this — renew is a plain UPDATE on the existing row.
 function PerformanceTab({ profile }) {
   const [mode, setMode] = useState("artist"); // "artist" | "song"
   const [artists, setArtists] = useState([]);
+  const [artistQuery, setArtistQuery] = useState("");
   const [selectedArtist, setSelectedArtist] = useState("");
   const [songQuery, setSongQuery] = useState("");
   const [songOptions, setSongOptions] = useState([]);
@@ -604,6 +619,19 @@ function PerformanceTab({ profile }) {
   const [linksLoading, setLinksLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [copiedToken, setCopiedToken] = useState(null);
+
+  // The most recent share-link row for whatever filter is currently
+  // selected (active OR expired — "most recent" is what matters for
+  // deciding whether to show the link, a countdown, or a renew prompt).
+  // Re-queried fresh every time the filter changes, so this always
+  // reflects what's really in the database — including a link someone
+  // else generated a minute ago for the same artist/song.
+  const [linkForQuery, setLinkForQuery] = useState(null);
+  const [linkForQueryLoading, setLinkForQueryLoading] = useState(false);
+  // Ticks every 15s (mid-point of the "10-30s" ask) purely to re-render
+  // the countdown and to notice, without a refetch, the moment an active
+  // link crosses over into expired.
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     fetchDistinctArtists().then(setArtists);
@@ -620,6 +648,11 @@ function PerformanceTab({ profile }) {
       .then(({ data }) => setSongOptions(data || []));
   }, [mode]);
 
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 15000);
+    return () => clearInterval(id);
+  }, []);
+
   async function loadShareLinks() {
     if (!supabase) return;
     setLinksLoading(true);
@@ -634,9 +667,39 @@ function PerformanceTab({ profile }) {
 
   const { data, loading: rollupLoading } = usePerformanceRollup(queryValue ? queryType : null, queryValue);
 
+  // Look up whether this exact filter already has a link, every time the
+  // filter itself changes — this is what makes "someone else already
+  // made one" and "no duplicate creation" actually true, since it's a
+  // live query against the database rather than anything cached in this
+  // browser tab.
+  useEffect(() => {
+    if (!supabase || !queryValue) {
+      setLinkForQuery(null);
+      return;
+    }
+    setLinkForQueryLoading(true);
+    supabase
+      .from("performance_share_links")
+      .select("*")
+      .eq("query_type", queryType)
+      .eq("query_value", queryValue)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .then(({ data: rows }) => {
+        setLinkForQuery(rows?.[0] || null);
+        setLinkForQueryLoading(false);
+      });
+  }, [queryType, queryValue]);
+
+  const artistMatches = artistQuery.trim()
+    ? artists.filter((a) => a.toLowerCase().includes(artistQuery.trim().toLowerCase())).slice(0, 12)
+    : artists.slice(0, 12);
   const songMatches = songQuery.trim()
     ? songOptions.filter((r) => `${r.title} ${r.main_artist}`.toLowerCase().includes(songQuery.trim().toLowerCase())).slice(0, 12)
     : songOptions.slice(0, 12);
+
+  const linkIsExpired = linkForQuery && new Date(linkForQuery.expires_at).getTime() < now;
+  const linkIsActive = linkForQuery && !linkIsExpired;
 
   async function generateLink() {
     if (!supabase || !queryValue) return;
@@ -651,7 +714,30 @@ function PerformanceTab({ profile }) {
       alert("Couldn't generate the link: " + error.message);
       return;
     }
+    setLinkForQuery(row);
     setShareLinks((prev) => [row, ...prev]);
+  }
+
+  // Renew — same token, same row, just a fresh 72h window. Recommended
+  // default once a link expires: anything already shared with that URL
+  // (a Slack message, a doc) starts working again automatically, instead
+  // of needing a brand new link passed around a second time.
+  async function renewLink() {
+    if (!supabase || !linkForQuery) return;
+    setGenerating(true);
+    const { data: row, error } = await supabase
+      .from("performance_share_links")
+      .update({ expires_at: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString() })
+      .eq("id", linkForQuery.id)
+      .select()
+      .single();
+    setGenerating(false);
+    if (error) {
+      alert("Couldn't renew the link: " + error.message);
+      return;
+    }
+    setLinkForQuery(row);
+    setShareLinks((prev) => prev.map((l) => (l.id === row.id ? row : l)));
   }
 
   function copyLink(token) {
@@ -661,6 +747,19 @@ function PerformanceTab({ profile }) {
       setTimeout(() => setCopiedToken((t) => (t === token ? null : t)), 1500);
     });
   }
+
+  function fmtCountdown(msRemaining) {
+    if (msRemaining <= 0) return "expired";
+    const totalMinutes = Math.floor(msRemaining / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m`;
+    return `${Math.max(1, Math.floor(msRemaining / 1000))}s`;
+  }
+
+  const artistLinks = shareLinks.filter((l) => l.query_type === "artist");
+  const songLinks = shareLinks.filter((l) => l.query_type === "song");
 
   return (
     <div>
@@ -672,7 +771,9 @@ function PerformanceTab({ profile }) {
             onClick={() => {
               setMode(key);
               setSelectedArtist("");
+              setArtistQuery("");
               setSelectedSong(null);
+              setSongQuery("");
             }}
             className={`${styles.tabBtn} ${mode === key ? styles.tabBtnActive : ""}`}
             style={{ border: mode === key ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: mode === key ? "rgba(255,107,26,0.1)" : "transparent" }}
@@ -683,16 +784,37 @@ function PerformanceTab({ profile }) {
       </div>
 
       {mode === "artist" ? (
-        <select
-          value={selectedArtist}
-          onChange={(e) => setSelectedArtist(e.target.value)}
-          style={{ width: "min(420px, 100%)", background: "var(--bg-input)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "8px 10px", fontSize: 13, color: "var(--text)", marginBottom: 20 }}
-        >
-          <option value="">Pick an artist…</option>
-          {artists.map((a) => (
-            <option key={a} value={a}>{a}</option>
-          ))}
-        </select>
+        <div style={{ position: "relative", width: "min(420px, 100%)", marginBottom: 20 }}>
+          <input
+            placeholder="Search an artist…"
+            value={selectedArtist || artistQuery}
+            onChange={(e) => {
+              setSelectedArtist("");
+              setArtistQuery(e.target.value);
+            }}
+            style={{ width: "100%", background: "var(--bg-input)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "8px 10px", fontSize: 13, color: "var(--text)", boxSizing: "border-box" }}
+          />
+          {!selectedArtist && artistQuery.trim() && (
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50, marginTop: 4, maxHeight: 260, overflowY: "auto", background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.3)" }}>
+              {artistMatches.length === 0 ? (
+                <div style={{ padding: 10, fontSize: 12, color: "var(--text-faint)" }}>No matches.</div>
+              ) : (
+                artistMatches.map((a) => (
+                  <div
+                    key={a}
+                    onClick={() => {
+                      setSelectedArtist(a);
+                      setArtistQuery("");
+                    }}
+                    style={{ padding: "8px 10px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid var(--border)" }}
+                  >
+                    {a}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       ) : (
         <div style={{ position: "relative", width: "min(420px, 100%)", marginBottom: 20 }}>
           <input
@@ -733,11 +855,56 @@ function PerformanceTab({ profile }) {
             <div className={styles.emptyState}>Loading…</div>
           ) : (
             <>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 10 }}>
                 <div className={styles.subheading} style={{ margin: 0 }}>{data.label}</div>
-                <button onClick={generateLink} disabled={generating} className={styles.tabBtn} style={{ border: "1px solid var(--accent)", borderRadius: 6, background: "rgba(255,107,26,0.1)" }}>
-                  {generating ? "Generating…" : "Generate Share Link (72h)"}
-                </button>
+
+                {linkForQueryLoading ? (
+                  <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Checking for an existing link…</span>
+                ) : linkIsActive ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                      Active link · expires in {fmtCountdown(new Date(linkForQuery.expires_at).getTime() - now)}
+                    </span>
+                    <input
+                      readOnly
+                      value={`${typeof window !== "undefined" ? window.location.origin : ""}/performance-report/${linkForQuery.token}`}
+                      onFocus={(e) => e.target.select()}
+                      style={{ width: 260, background: "var(--bg-input)", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "6px 8px", fontSize: 11, color: "var(--text)" }}
+                    />
+                    <button
+                      onClick={() => copyLink(linkForQuery.token)}
+                      title="Copy link"
+                      style={{ border: "1px solid var(--border-strong)", borderRadius: 6, background: "transparent", fontSize: 14, padding: "6px 9px", cursor: "pointer" }}
+                    >
+                      {copiedToken === linkForQuery.token ? "✓" : "📋"}
+                    </button>
+                  </div>
+                ) : linkIsExpired ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Previous link expired</span>
+                    <button
+                      onClick={renewLink}
+                      disabled={generating}
+                      className={styles.tabBtn}
+                      style={{ border: "1px solid var(--accent)", borderRadius: 6, background: "rgba(255,107,26,0.1)" }}
+                      title="Reuses the same link (same token) with a fresh 72h window — anything already shared with that URL keeps working"
+                    >
+                      {generating ? "Renewing…" : "Renew Previous Link (Recommended)"}
+                    </button>
+                    <button
+                      onClick={generateLink}
+                      disabled={generating}
+                      style={{ border: "1px solid var(--border-strong)", borderRadius: 6, background: "transparent", fontSize: 11, padding: "6px 10px", color: "var(--text-faint)" }}
+                      title="Mints a brand new token instead — the old link stays dead"
+                    >
+                      Generate New Link
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={generateLink} disabled={generating} className={styles.tabBtn} style={{ border: "1px solid var(--accent)", borderRadius: 6, background: "rgba(255,107,26,0.1)" }}>
+                    {generating ? "Generating…" : "Generate Share Link (72h)"}
+                  </button>
+                )}
               </div>
               <PerformanceRollupView data={data} styles={styles} linkToReleases />
             </>
@@ -747,19 +914,37 @@ function PerformanceTab({ profile }) {
 
       <div className={styles.subheading} style={{ marginTop: 24 }}>Share Link History</div>
       <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: -12, marginBottom: 12 }}>
-        Every link ever generated, admin-visible. A link stops working once it's Expired — the row itself is never deleted.
+        Every link ever generated, admin-visible, split by type. Renewing a link reuses its row (same token) rather
+        than adding a new one — a link's row only ever multiplies if "Generate New Link" was used instead of Renew.
       </p>
       {linksLoading ? (
         <div className={styles.emptyState}>Loading…</div>
-      ) : shareLinks.length === 0 ? (
-        <div className={styles.emptyState}>No share links generated yet.</div>
       ) : (
-        <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+        <>
+          <ShareLinkHistoryTable title="Artist Links" rows={artistLinks} copiedToken={copiedToken} onCopy={copyLink} now={now} />
+          <ShareLinkHistoryTable title="Song Links" rows={songLinks} copiedToken={copiedToken} onCopy={copyLink} now={now} />
+        </>
+      )}
+    </div>
+  );
+}
+
+// Round 224 — split out of PerformanceTab so Artist Links and Song Links
+// render as two separate, clearly-labeled tables instead of one flat
+// list interleaving both — per explicit request to "separate the history
+// url from each other."
+function ShareLinkHistoryTable({ title, rows, copiedToken, onCopy, now }) {
+  return (
+    <>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-faint)", marginTop: 12, marginBottom: 6 }}>{title} ({rows.length})</div>
+      {rows.length === 0 ? (
+        <div className={styles.emptyState} style={{ marginBottom: 12 }}>None yet.</div>
+      ) : (
+        <div className={styles.scrollBox} style={{ overflowX: "auto", marginBottom: 16 }}>
           <table className={styles.table}>
             <thead>
               <tr>
                 <th>Filter</th>
-                <th>Type</th>
                 <th>Created By</th>
                 <th>Created</th>
                 <th>Expires</th>
@@ -768,12 +953,11 @@ function PerformanceTab({ profile }) {
               </tr>
             </thead>
             <tbody>
-              {shareLinks.map((l) => {
-                const expired = new Date(l.expires_at) < new Date();
+              {rows.map((l) => {
+                const expired = new Date(l.expires_at).getTime() < now;
                 return (
                   <tr key={l.id}>
                     <td>{l.query_label || l.query_value}</td>
-                    <td style={{ fontSize: 12 }}>{l.query_type === "artist" ? "Artist" : "Song"}</td>
                     <td style={{ fontSize: 12 }}>{l.created_by || "—"}</td>
                     <td style={{ fontSize: 12 }}>{fmtDate(l.created_at)}</td>
                     <td style={{ fontSize: 12 }}>{fmtDate(l.expires_at)}</td>
@@ -785,7 +969,7 @@ function PerformanceTab({ profile }) {
                     <td>
                       {!expired && (
                         <button
-                          onClick={() => copyLink(l.token)}
+                          onClick={() => onCopy(l.token)}
                           className={styles.tabBtn}
                           style={{ border: "1px solid var(--border)", borderRadius: 6, background: "transparent", fontSize: 11, padding: "4px 8px" }}
                         >
@@ -800,6 +984,6 @@ function PerformanceTab({ profile }) {
           </table>
         </div>
       )}
-    </div>
+    </>
   );
 }

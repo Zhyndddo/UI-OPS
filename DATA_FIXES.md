@@ -11900,3 +11900,96 @@ Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 (0 errors, same 51 pre-existing warnings, nothing new), AND a full `npm
 run build` — clean production build, all routes compiled including the
 two new error boundaries and the reorganized `/releases` route.
+
+## Round 224 — 2026-08-28 — Performance report refinements + dashboard "remember position"
+
+Three-part follow-up: two on round 222's Performance tab, one new small
+feature on the releases dashboard ("New Release"). No schema changes —
+everything below is application-layer only.
+
+### 1 & 2. Performance tab — artist search picker, one active link per
+filter, and a Renew flow
+
+**Artist field:** was a plain `<select>` of every distinct artist name.
+Now a search-and-propose picker — same type-ahead UI the song field
+already used (type to filter, click a suggestion, typing again while one
+is selected clears it and searches fresh).
+
+**One active link per artist/song, live-deduplicated:** picking a filter
+now looks up the most recent `performance_share_links` row for that
+exact `(query_type, query_value)` on every filter change — a real query
+against the database, not anything cached client-side, so if a
+teammate already generated a link for this artist/song a minute ago,
+whoever looks it up next sees the SAME link instead of a "Generate"
+button. Three states, right next to the rollup's own title:
+- **No link yet** → the original "Generate Share Link (72h)" button.
+- **An active (non-expired) link exists** → shown inline as a readonly
+  field + a small 📋 copy-icon button, plus a live "expires in Xh Ym"
+  countdown (ticks every 15s — the midpoint of the "10-30s" range asked
+  for) that also silently flips the UI to the expired state the moment
+  it crosses over, no refetch needed.
+- **The most recent link has expired** → per explicit ask ("recommend
+  using the old token but not required" — my call on the exact shape):
+  **Renew Previous Link (Recommended)** as the primary button — this
+  does a plain `UPDATE ... SET expires_at = now() + 72h` on the SAME
+  row, so the SAME token becomes valid again (anything already pasted
+  into Slack/a doc with that URL starts working again automatically,
+  no new link to redistribute) — next to a smaller, deliberately less
+  prominent **Generate New Link** for the real edge case: the old token
+  itself needs to stop being valid (leaked, wrong filter, whatever) and
+  a genuinely fresh token/row is wanted instead.
+
+**History split, per explicit request** ("separate the history url from
+each other"): the flat combined table is now two separate tables —
+Artist Links and Song Links — via a new small `ShareLinkHistoryTable`
+component so they don't render as one interleaved list. Renewing a link
+doesn't add a new history row (same row, just a new `expires_at`) — a
+filter only ever accumulates more than one row if "Generate New Link"
+was used instead of Renew, so the history stays close to "one row per
+artist/song" in the common case, matching round 222's original "zero
+data log, just a row" design even better than before.
+
+No SQL migration needed — Renew is an `UPDATE` on the existing
+`performance_share_links` table, no new columns.
+
+### 3. Releases dashboard — "remember position"
+
+Per explicit ask, checked cost first: this is 100% client-side
+(`sessionStorage`, nothing written to or read from the database), so
+it's free in exactly the sense asked about — per-browser-tab only,
+clears when the tab closes, invisible to any other session/device.
+
+What's restored on returning to the dashboard (e.g. clicking Back after
+opening a release): every filter (status/created/channel/type/label),
+search text, the custom date range, sort column/direction, page number,
+page size, and scroll position — all exactly as left. Implementation
+notes: state is captured into a ref that's kept current on every render
+and written to `sessionStorage` once, on unmount (not on every
+keystroke) — the natural moment a click into a release actually
+happens, since that's what unmounts this page. Restoring happens the
+opposite way — applied via setters in a mount-time effect rather than
+read directly into `useState`'s initial value, specifically to avoid a
+hydration mismatch (`/releases` prerenders statically at build time with
+no `sessionStorage` available, so seeding state straight from storage at
+construction time would make the client's very first render disagree
+with that prerendered HTML). Scroll restore additionally waits for
+`loading` to clear before firing, so it can't fire against an empty,
+not-yet-rendered page.
+
+Two small shared hooks picked up optional, backward-compatible
+additions to support this without duplicating pagination/sort logic
+into this one page: `lib/usePagination.js` gained `defaultPage` (and a
+fix — the existing out-of-range page auto-clamp now skips while `rows`
+is still empty, otherwise a restored page > 1 would get clamped back to
+1 before the first fetch ever resolves) and `lib/useSortableRows.js`
+now also returns a raw `setSort`. Every existing caller of either hook
+(~32 pages) is unaffected — both additions are purely additive.
+
+Files: `app/report/page.js` (`PerformanceTab` reworked, new
+`ShareLinkHistoryTable`), `app/releases/page.js` (restore/persist
+effects), `lib/usePagination.js`, `lib/useSortableRows.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
+run build` — clean.
