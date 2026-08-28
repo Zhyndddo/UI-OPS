@@ -68,6 +68,106 @@ function pitchingSummary(release, ticketData) {
   return { label: "In Progress", tone: "yellow" };
 }
 
+// Round 223 — repeat-visit caching, same short-TTL + in-flight-dedup
+// technique Round 150 used for getNotDoneCount (see
+// lib/notDoneCounts.js's CACHE_TTL_MS/notDoneCountCache) — applied here
+// to this page's own full load() instead. This is the page people bounce
+// back to constantly (open a release, hit Back, repeat), so a revisit
+// within DASHBOARD_CACHE_TTL_MS being free is worth it even though it
+// does nothing for the very first load. Doesn't touch WHAT gets fetched
+// or how much — see project doc "server-side-pagination-pitch.md" for
+// the bigger, still-undecided lever (real server-side pagination,
+// converting this full fetchAllRows into a paginated one) this
+// deliberately does NOT attempt. A manual "↻ Refresh" button (below,
+// next to the filter row) bypasses the cache for anyone who edited
+// something elsewhere and wants this page caught up immediately instead
+// of waiting out the TTL.
+const DASHBOARD_CACHE_TTL_MS = 30000;
+let dashboardCache = null; // { promise } while in flight, or { value, expiresAt } once settled
+
+function loadDashboardData({ bypassCache } = {}) {
+  if (!bypassCache && dashboardCache) {
+    if (dashboardCache.promise) return dashboardCache.promise;
+    if (dashboardCache.expiresAt > Date.now()) return Promise.resolve(dashboardCache.value);
+  }
+
+  const promise = (async () => {
+    // Round 86 follow-up item 1 (load speed) — these 5 fetches don't
+    // depend on each other (each reads its own table/tab), but used to
+    // run one after another, so the page's total wait was roughly the
+    // SUM of all of them instead of just the slowest one. Running them
+    // together cuts that down to one round trip's worth of wall-clock
+    // time. Only the pitching TICKETS fetch below genuinely depends on
+    // pitchTabResult (needs its tab id first), so that one stays
+    // sequential, after this batch resolves.
+    const [releasesResult, bookingsResult, labelsResult, pitchTabResult, tagSets] = await Promise.all([
+      // Round 60 — the Dashboard is the one place a truncated release
+      // list would be most visible (rows just silently missing), so
+      // this reads through fetchAllRows instead of a plain select() —
+      // see DATA_FIXES.md round 59/60 for the 1000-row default cap this
+      // works around. Sort needs a unique tiebreaker (id) for .range()
+      // pagination to be stable across requests — created_at alone can
+      // collide (e.g. a bulk import where many rows share the same
+      // timestamp). select(RELEASE_COLUMNS) instead of select("*") —
+      // see that const's comment just above this component.
+      fetchAllRows(() =>
+        supabase.from("releases").select(RELEASE_COLUMNS).order("created_at", { ascending: false }).order("id", { ascending: true })
+      ),
+      fetchAllRows(() => supabase.from("media_booking_entries").select("release_id, status").order("id")),
+      supabase.from("labels").select("label_name").order("label_name"),
+      // Pitching tickets — one per release (matched by DID, stored oddly
+      // as data->>releaseId, same pattern as app/releases/[id]/page.js).
+      // Used to compute the "Status Pitching" column below without
+      // opening each release individually. Only the tab lookup itself
+      // can join this batch — the tickets fetch that depends on its id
+      // happens below, after this Promise.all resolves.
+      supabase.from("ticket_tabs").select("id").eq("key", "pitching").single(),
+      // Round 86 item 5 — one batched fetch (3 queries total, not one
+      // per row) for the product tag pills' Publishing/Splitshare/Phụ
+      // Lục MG ticket existence — see lib/productTags.js.
+      fetchProductTagSets(supabase),
+    ]);
+
+    const { data, error: err } = releasesResult;
+    if (err) throw err;
+
+    const { data: bookings } = bookingsResult;
+    const grouped = {};
+    (bookings || []).forEach((b) => {
+      if (!grouped[b.release_id]) grouped[b.release_id] = { total: 0, done: 0 };
+      grouped[b.release_id].total++;
+      if (b.status === "Done") grouped[b.release_id].done++;
+    });
+    const pctMap = {};
+    Object.entries(grouped).forEach(([id, g]) => (pctMap[id] = Math.round((g.done / g.total) * 100)));
+
+    const { data: labelRows } = labelsResult;
+
+    const { data: pitchTab } = pitchTabResult;
+    let pitchingMap = {};
+    if (pitchTab) {
+      const { data: pitchTix } = await supabase
+        .from("tickets")
+        .select("data")
+        .eq("tab_id", pitchTab.id)
+        .is("deleted_at", null);
+      (pitchTix || []).forEach((t) => {
+        const did = t.data?.releaseId;
+        if (did) pitchingMap[did] = t.data;
+      });
+    }
+
+    return { releases: data || [], bookingPct: pctMap, labels: labelRows || [], pitchingData: pitchingMap, productTagSets: tagSets };
+  })();
+
+  dashboardCache = { promise };
+  promise
+    .then((value) => { dashboardCache = { value, expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS }; })
+    .catch(() => { dashboardCache = null; }); // don't cache a failure — next visit/refresh should retry for real
+
+  return promise;
+}
+
 export default function ReleasesDashboard() {
   const [releases, setReleases] = useState([]);
   const [bookingPct, setBookingPct] = useState({}); // release_id -> %
@@ -95,83 +195,33 @@ export default function ReleasesDashboard() {
   const [hoverRelease, setHoverRelease] = useState(null);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function runLoad({ bypassCache } = {}) {
+    try {
+      const value = await loadDashboardData({ bypassCache });
+      setReleases(value.releases);
+      setBookingPct(value.bookingPct);
+      setLabels(value.labels);
+      setProductTagSets(value.productTagSets);
+      setPitchingData(value.pitchingData);
+    } catch (err) {
+      setError(err.message || "Failed to load.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }
+
   useEffect(() => {
     if (!supabase) return;
-    (async () => {
-      // Round 86 follow-up item 1 (load speed) — these 5 fetches don't
-      // depend on each other (each reads its own table/tab), but used to
-      // run one after another, so the page's total wait was roughly the
-      // SUM of all of them instead of just the slowest one. Running them
-      // together cuts that down to one round trip's worth of wall-clock
-      // time. Only the pitching TICKETS fetch below genuinely depends on
-      // pitchTabResult (needs its tab id first), so that one stays
-      // sequential, after this batch resolves.
-      const [releasesResult, bookingsResult, labelsResult, pitchTabResult, tagSets] = await Promise.all([
-        // Round 60 — the Dashboard is the one place a truncated release
-        // list would be most visible (rows just silently missing), so
-        // this reads through fetchAllRows instead of a plain select() —
-        // see DATA_FIXES.md round 59/60 for the 1000-row default cap this
-        // works around. Sort needs a unique tiebreaker (id) for .range()
-        // pagination to be stable across requests — created_at alone can
-        // collide (e.g. a bulk import where many rows share the same
-        // timestamp). select(RELEASE_COLUMNS) instead of select("*") —
-        // see that const's comment just above this component.
-        fetchAllRows(() =>
-          supabase.from("releases").select(RELEASE_COLUMNS).order("created_at", { ascending: false }).order("id", { ascending: true })
-        ),
-        fetchAllRows(() => supabase.from("media_booking_entries").select("release_id, status").order("id")),
-        supabase.from("labels").select("label_name").order("label_name"),
-        // Pitching tickets — one per release (matched by DID, stored oddly
-        // as data->>releaseId, same pattern as app/releases/[id]/page.js).
-        // Used to compute the "Status Pitching" column below without
-        // opening each release individually. Only the tab lookup itself
-        // can join this batch — the tickets fetch that depends on its id
-        // happens below, after this Promise.all resolves.
-        supabase.from("ticket_tabs").select("id").eq("key", "pitching").single(),
-        // Round 86 item 5 — one batched fetch (3 queries total, not one
-        // per row) for the product tag pills' Publishing/Splitshare/Phụ
-        // Lục MG ticket existence — see lib/productTags.js.
-        fetchProductTagSets(supabase),
-      ]);
-
-      const { data, error: err } = releasesResult;
-      if (err) { setError(err.message); setLoading(false); return; }
-      setReleases(data || []);
-
-      const { data: bookings } = bookingsResult;
-      const grouped = {};
-      (bookings || []).forEach((b) => {
-        if (!grouped[b.release_id]) grouped[b.release_id] = { total: 0, done: 0 };
-        grouped[b.release_id].total++;
-        if (b.status === "Done") grouped[b.release_id].done++;
-      });
-      const pctMap = {};
-      Object.entries(grouped).forEach(([id, g]) => (pctMap[id] = Math.round((g.done / g.total) * 100)));
-      setBookingPct(pctMap);
-
-      const { data: labelRows } = labelsResult;
-      setLabels(labelRows || []);
-
-      setProductTagSets(tagSets);
-
-      const { data: pitchTab } = pitchTabResult;
-      if (pitchTab) {
-        const { data: pitchTix } = await supabase
-          .from("tickets")
-          .select("data")
-          .eq("tab_id", pitchTab.id)
-          .is("deleted_at", null);
-        const map = {};
-        (pitchTix || []).forEach((t) => {
-          const did = t.data?.releaseId;
-          if (did) map[did] = t.data;
-        });
-        setPitchingData(map);
-      }
-
-      setLoading(false);
-    })();
+    runLoad();
   }, []);
+
+  function refresh() {
+    setRefreshing(true);
+    runLoad({ bypassCache: true });
+  }
 
   const stats = useMemo(() => {
     const now = new Date();
@@ -401,6 +451,14 @@ export default function ReleasesDashboard() {
             </button>
           )}
           <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
+          <button
+            onClick={refresh}
+            disabled={refreshing}
+            title="This list is cached for up to 30s between visits — force a fresh reload if you just edited something elsewhere"
+            style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "6px 12px", fontSize: 11, color: "var(--text-faint)", cursor: refreshing ? "default" : "pointer" }}
+          >
+            {refreshing ? "Refreshing…" : "↻ Refresh"}
+          </button>
         </div>
 
         {error && <div className={styles.errorBox}>{error}</div>}

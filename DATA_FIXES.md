@@ -11818,3 +11818,85 @@ warnings now, up from 49 baseline — all `exhaustive-deps`, 0 errors).
 `add-round222-performance-share-links.sql` against production before
 this tab will work — until then, generating a share link will fail
 with a missing-table error.
+
+## Round 223 — 2026-08-28 — 3-item batch: crash containment, SQL cleanup, dashboard caching
+
+Three unrelated asks, bundled into one round.
+
+### 1. Reliability — error boundaries + a deploy-safety runbook
+
+Two new files: `app/error.js` (catches a runtime error anywhere in the
+app except the root layout — shows "Something went wrong" with a Try
+Again button and a link back to the dashboard, instead of falling
+through to Next.js's bare default error screen) and `app/global-error.js`
+(catches an error in the root layout itself — `ThemeProvider`/
+`AuthProvider`/`app/layout.js`'s own markup — which `app/error.js` can't
+reach since that crash happens above it in the tree; deliberately bare/
+inline-styled, no dependency on app context or CSS modules, since if the
+root layout broke nothing that depends on it should be assumed to still
+work). This contains a broken page to that one page — it doesn't fix the
+underlying bug, it's a net, not a fix.
+
+Also wrote a new project doc, `deploy-safety-runbook.md`, covering the
+other half of item 1 (bad SQL ordering, not bad code): the concrete rule
+"run a round's SQL before promoting its code," using Round 214's real
+"everything is gone" incident (which was pending migrations, not a code
+bug) as the cautionary example, plus how Vercel's Instant Rollback
+actually works and — the important caveat — that it rolls back CODE
+only, never a SQL migration that already ran against the database.
+
+### 2. Repo cleanup — SQL files out of the root
+
+9 round migration files (rounds 153–222) were sitting loose in the repo
+root alongside a 97KB schema reference dump and a completely empty dead
+file. Reorganized into `sql/`:
+- `sql/applied/` — the 8 migrations confirmed already run against
+  production (rounds 153, 154, 161, 174, 176, 207, 211, 213).
+- `sql/pending/` — round 222's `performance_share_links` migration,
+  still not confirmed run.
+- `sql/reference/` — `prod_schema_clean.sql`, the schema dump (not a
+  migration, never meant to be run).
+- `prod_full.sql` deleted outright — 0 bytes, dead weight.
+- New `sql/README.md` documents the convention going forward: new round
+  migrations land in `pending/`, move to `applied/` once you confirm
+  they've been run.
+
+Nothing here changes app behavior — pure file reorg, no code touched.
+
+### 3. Load time — /releases dashboard ("New Release")
+
+Per project docs `server-side-pagination-pitch.md` and
+`load-reduction-additional-ideas.md`, this page already went through two
+rounds of fetch optimization (Round 86 follow-up: parallelized 5
+independent fetches + column-pruned `releases`; still, per the pagination
+pitch, real server-side pagination here is a bigger, UX-tradeoff-heavy
+project with real unresolved design questions — not something to bolt on
+without a scoping decision).
+
+Applied the lighter-weight, zero-risk lever the pagination pitch doc
+itself calls out: a short-TTL + in-flight-dedup cache on the dashboard's
+full `load()`, same technique Round 150 used for `getNotDoneCount` (see
+`lib/notDoneCounts.js`). This is the page people bounce back to
+constantly (open a release, hit Back, repeat) — a revisit within 30s is
+now free instead of re-running all 5+ queries. Doesn't reduce the very
+first load's cost, and does introduce up to 30s of staleness on a
+revisit — mitigated with a new "↻ Refresh" button next to the filter row
+that force-bypasses the cache for anyone who just edited something
+elsewhere and wants this page caught up immediately.
+
+**Not attempted this round** (flagged, not done): real server-side
+pagination for this page, and the parallel win on Booking Board's "All"
+column (a DB-trigger-backed materialized total) — both still need a
+live-Supabase-instance step (diff-testing against real data) this
+session can't do, per the existing pitch docs.
+
+Files: `app/error.js` (new), `app/global-error.js` (new),
+`app/releases/page.js` (`loadDashboardData` cache wrapper + `refresh()` +
+Refresh button), `sql/` reorg (see above), plus the new project docs
+`deploy-safety-runbook.md` and `sql/README.md`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), AND a full `npm
+run build` — clean production build, all routes compiled including the
+two new error boundaries and the reorganized `/releases` route.
