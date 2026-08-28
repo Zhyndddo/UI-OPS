@@ -12111,3 +12111,37 @@ Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
 (0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
 run build` — clean.
+
+## Round 227 — 2026-08-28 — Fix "Apple" vs "Apple Music" showing as two Performance report tabs
+
+Bug report, correctly flagged as likely old data: round 226's new
+platform-tabs split on the Performance report's Milestones table showed
+"APPLE (7)" and "APPLE MUSIC (1)" as two separate tabs. They should be
+one — `app/workstation/milestone/page.js`'s `PLATFORM_CHARTS` has always
+saved every Apple-family chart ("Apple Music - Top Songs Vietnam",
+"Vietnam iTunes Top Songs", "New Release on Apple", etc.) under the
+single platform `"Apple"`; there has never been an "Apple Music"
+platform in that map. A handful of older rows in `milestone_chart_entries`
+(most likely pre-dating that convention, or written by the TOTAL_STREAK
+import) were saved with the raw provider name instead, and round 226's
+new tab split surfaced that inconsistency for the first time.
+
+Two-part fix, matching the "SQL-before-code" runbook:
+- `lib/PerformanceReport.js`: `fetchMilestonesForReleases` now
+  normalizes each entry's `platform` at read time (`normalizePlatform()`,
+  a small alias table: "Apple Music" / "iTunes" → "Apple") before it's
+  handed to the platform-tabs grouping. This fixes the UI immediately,
+  with no write needed.
+- `sql/pending/add-round226-normalize-apple-platform.sql` (new): cleans
+  up the stored values themselves (`UPDATE ... SET platform = 'Apple'
+  WHERE lower(trim(platform)) IN ('apple music', 'itunes')`), safe to
+  run more than once. Not required for the UI fix to take effect — the
+  JS normalization already covers it — but keeps the raw table honest
+  for anyone querying it directly.
+
+File: `lib/PerformanceReport.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted file + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
+run build` — clean.
