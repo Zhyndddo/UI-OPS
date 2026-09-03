@@ -12286,3 +12286,48 @@ Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` (targeted file + whole-project sweep), `npm run lint:scope`
 (0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
 run build` — clean.
+
+## Round 232 — 2026-09-02 — Daily digest: "Missing Data" section + a custom note field
+
+Per explicit request, two additions to the daily digest email
+(`/api/cron/daily-digest`, Config → Notifications):
+
+### 1. "Missing Data" table
+
+A new section listing every release with at least one outstanding item
+on the same 6-item checklist as the release detail page's Metadata
+Checklist (Audio/Artwork/Working Files/Lyric/MV/Metadata — labels copied
+verbatim from that page so this never drifts from what the real
+checklist says), each with its release date and days-left countdown
+(negative = already past its date, still flagged since missing data on
+an overdue release is exactly what this exists to surface). Sorted most
+urgent first.
+
+Per explicit instruction, releases whose `release_date` is the team's
+own placeholder value (`2026-12-31` — "a presumed date when the project
+has no real date," per the request) are excluded entirely, not shown
+with a misleading countdown.
+
+Rendered as a table (missing items as small red badges, an urgent —
+≤7 days or overdue — Days Left cell in red/bold) rather than the
+one-sentence-per-song text block shown as a reference — a table reads
+far cleaner in an email client, and keeps the whole digest visually
+consistent with the existing Tickets/Workstation tables. This was an
+explicit "your call on the format" from the request.
+
+### 2. Custom note field
+
+Config → Notifications now has a "Custom note" textarea
+(`notification_settings.digest_custom_note`, new column) rendered near
+the top of the email, right below the title, whenever it's non-empty —
+blank hides it entirely, so today's email is unaffected until this gets
+used. Meant as a stopgap for whatever the digest's content needs to say
+next, without a new round for every wording change.
+
+Files: `app/api/cron/daily-digest/route.js`, `app/config/page.js`.
+New migration: `sql/pending/add-round232-digest-custom-note.sql`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
+run build` — clean.

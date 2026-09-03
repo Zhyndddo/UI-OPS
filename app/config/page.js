@@ -1288,6 +1288,7 @@ function PitchingSettingsSection() {
 function NotificationsSection() {
   const [settings, setSettings] = useState(null);
   const [recipientsDraft, setRecipientsDraft] = useState("");
+  const [noteDraft, setNoteDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -1303,6 +1304,7 @@ function NotificationsSection() {
     const { data } = await supabase.from("notification_settings").select("*").eq("id", 1).maybeSingle();
     setSettings(data);
     setRecipientsDraft((data?.digest_recipients || []).join(", "));
+    setNoteDraft(data?.digest_custom_note || "");
     setLoading(false);
   }
 
@@ -1320,6 +1322,15 @@ function NotificationsSection() {
   function saveRecipients() {
     const list = recipientsDraft.split(",").map((s) => s.trim()).filter(Boolean);
     updateSetting({ digest_recipients: list });
+  }
+
+  // Round 232 — free-text note shown near the top of the digest email,
+  // per explicit request ("a field ... so I can change the email content
+  // when things get more developed"). Blank = nothing shown, same as
+  // today's email. onBlur-saved like Recipients above, not on every
+  // keystroke.
+  function saveNote() {
+    updateSetting({ digest_custom_note: noteDraft.trim() || null });
   }
 
   async function sendTestDigest() {
@@ -1394,6 +1405,17 @@ function NotificationsSection() {
             placeholder="alice@vieent.com, bob@vieent.com"
           />
         </div>
+        <label className={styles.fieldLabel} style={{ fontSize: 10, marginTop: 10, display: "block" }}>
+          Custom note (shown near the top of the email — blank hides it entirely)
+        </label>
+        <textarea
+          className={styles.input}
+          style={{ width: "100%", minHeight: 60, fontSize: 12, boxSizing: "border-box" }}
+          value={noteDraft}
+          onChange={(e) => setNoteDraft(e.target.value)}
+          onBlur={saveNote}
+          placeholder="e.g. a one-off announcement, a link, a reminder for the team — whatever's useful this week."
+        />
         <p style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 10 }}>
           Sent via SMTP through a real mailbox (SMTP_HOST/SMTP_USER/SMTP_PASS in the deployment's environment) — no
           domain ownership needed. Without those set, "Send test" below still computes the digest but reports the
