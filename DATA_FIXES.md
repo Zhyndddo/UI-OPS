@@ -12792,3 +12792,135 @@ pre-existing warnings — both scripts live in `scripts/`, outside lint's
 scope), and by re-running the dry run post-refactor to confirm identical
 output to round 240 (shown above). No `npm run build` needed — neither
 file is imported by the live app.
+
+## Round 242 — 2026-09-03 — Milestone's eager load scoped to a rolling window; Log tab now lazy
+
+Report: "the slow load is back for milestone too" after running the
+round 240/241 wipe/reinstate against the live database. Not the round
+237 1000-row-cap bug again (that fix is still correct) — `load()`'s
+`fetchAllRows` was still pulling the ENTIRE `milestone_chart_entries`
+table on every mount, and that table is now genuinely ~20.9k rows
+(the historical reinstate) plus ~200/day ongoing, not the couple
+thousand rows it was when round 237 was written. Report and Input never
+needed all of that: Report's streak walk stops at the first gap it
+finds, and Input's carry-forward (`findPriorRows`) only ever wants the
+single most recent prior date. Log is the one tab that genuinely
+browses full history.
+
+`load()` now scopes its query to `RECENT_WINDOW_DAYS` (60 days,
+`.gte("entry_date", cutoff)`) instead of the whole table — covers any
+realistic chart streak and Input's carry-forward with room to spare, at
+roughly 1/4 to 1/3 of the previous payload size for the eager,
+every-visit fetch. Full history moved to a new `loadLog()`, fetched
+lazily into a separate `logEntries` pool (`null` = not fetched yet, so
+the UI can show a loading state instead of a false "log's actually
+empty" flash) — fired once by a trigger effect the moment it's actually
+needed: a full-access user switches to the Log tab, or a Log-only
+viewer (AR/Marketing) is on this page at all, since Log is their entire
+reason for being here. A save only ever touches today's rows (always
+inside the 60-day window), so `load()` alone keeps Report/Input correct
+after a save; a new `refreshAfterSave()` helper additionally re-runs
+`loadLog()` if the Log pool had already been fetched this visit, so
+switching to Log right after saving doesn't show a stale pre-save
+snapshot.
+
+Talked through the longer-run tradeoff with the team before doing this
+round: given ~200 rows/day of ongoing growth, a real date-range/paginated
+Log tab (so browsing history doesn't keep getting slower every month —
+this round's lazy fetch still pulls the FULL table once Log is opened,
+it just avoids paying for it on every visit) is the next lever that
+actually keeps scaling with the table, more so than moving the streak
+calculation server-side — this round's windowing already makes that
+calculation cheap client-side, since it now runs over ~60 days of data
+instead of the whole table. Not started this round; flagged for
+whenever Log's own load time becomes the next complaint.
+
+Files: `app/workstation/milestone/page.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit`, `npm run lint:scope` (0 errors, same 51 pre-existing
+warnings — one new warning from the added trigger effect was caught and
+fixed, not left in scope creep), and a full `npm run build` — clean.
+
+## Round 243 — 2026-09-03 — Milestone Log tab: real section-by-section pagination + full-history search
+
+Follow-up to round 242, which stopped the eager Report/Input load from
+pulling the whole table but only made Log's own full-history fetch
+*lazy* (still one big ~20k+-row pull the first time Log was actually
+opened). Talked through the long-term shape with the team first — this
+round replaces that lazy-but-still-full fetch with the real thing:
+30-day sections, loaded read-ahead of what's actually on screen, plus a
+proper full-history search so a filter never silently misses something
+just because it's further back than whatever's been scrolled to yet.
+
+**Browsing (no filter typed).** `logEntries` starts as exactly the same
+60-day window Input/Report already loaded (`entries`) — no separate
+fetch needed to show Log's first section. From there, `seedLog()` kicks
+off `prefetchNextLogSection()`, which fetches the next-older 30-day
+chunk into a `logBuffer` WITHOUT rendering it yet. A sentinel element at
+the bottom of the table (`IntersectionObserver`, `rootMargin: "400px"`
+so it fires a little before actually hitting the bottom) reports back up
+to the parent via `onSentinelChange`; a reveal effect appends the buffer
+to `logEntries` and immediately fires the next prefetch the moment BOTH
+"sentinel visible" and "buffer ready" are true — covers both orderings
+(buffer already ready when the user scrolls, and user already scrolled
+before the buffer finished) so there's normally at most one section's
+worth of scrolling before the next chunk is already sitting there
+waiting, not a fresh network wait every time. `logExhausted` flips true
+once a section fetch comes back empty (genuinely reached the oldest row
+in the table) — the sentinel then shows "— end of history —" instead of
+continuing to try.
+
+**Search.** A filter used to only ever narrow whatever had been
+paginated into `logEntries` so far — meaning searching for an artist
+who only charted back in, say, February would come back "no results"
+if nobody had scrolled that far back yet, which reads as broken, not
+just slow. Typing into either filter now fires a real, debounced (300ms)
+server-side query (`.ilike()` on `artist`/`track_title`, ANDed the same
+way the old client filter combined both fields) scanning the WHOLE
+table — bounded by how many rows actually match, not by how far back a
+match happens to be, so it stays flat no matter how big the table gets.
+While that resolves, whatever's already loaded from browsing is shown
+as an instant, zero-latency preview (the exact same client-filter logic
+this used to be the ONLY mechanism for), then swapped for the
+authoritative server result the moment it lands — a `searchTokenRef`
+drops any stale response from a filter that's since been superseded by
+further typing. A small "— searching full history…" note shows next to
+the result count while this is in flight.
+
+**AR/Marketing (Log-only viewers)** get no special-cased eager load
+anymore — round 242 had them eager-fetching full history immediately
+since Log is their whole reason for being on this page; now they get
+the exact same section-by-section experience as everyone else, just
+starting immediately instead of waiting for a tab click. Their landing
+view is now fast too, instead of paying for the whole table's cost on
+arrival.
+
+**Save refresh.** A save only ever touches today's rows, which always
+fall inside the 60-day `entries` window — so instead of round 242's
+approach (re-fetch Log's ENTIRE accumulated history on every save), a
+new effect re-syncs just the recent slice of `logEntries` (everything
+`>= ` the 60-day cutoff) from the freshly reloaded `entries`, leaving
+every already-paginated-in older section untouched. Same ~60-day cost
+as a normal `load()`, not proportional to however much history Log has
+accumulated by then.
+
+Explicitly discussed and decided against pure client-side "auto-chain
+sections in the background until a search match is found" — it would've
+made the wait feel smoother but the actual data pulled for an old/rare
+search would still scale with table size forever. The server-side
+`.ilike()` query is what actually keeps a search's cost flat as this
+grows at ~200 rows/day; noted for the record in case anyone wonders why
+this wasn't simpler. One flagged-not-urgent caveat: `ILIKE '%term%'`
+can't use a normal index — fine as a sequential scan at today's ~22k
+rows, but worth adding a `pg_trgm` GIN index on `artist`/`track_title`
+if this table eventually reaches the hundreds of thousands and search
+gets sluggish again.
+
+Files: `app/workstation/milestone/page.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit`, `npm run lint:scope` (0 errors, same 51 pre-existing
+warnings — one new warning from the seed effect was caught and fixed
+the same way round 242's was, not left in scope creep), and a full
+`npm run build` — clean.

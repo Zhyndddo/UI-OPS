@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, fetchAllRows } from "../../../lib/helpers";
@@ -91,6 +91,16 @@ function localDateStr(d) {
 }
 function todayStr() { return localDateStr(new Date()); }
 function daysAgoStr(n) { const d = new Date(); d.setDate(d.getDate() - n); return localDateStr(d); }
+// Round 243 — like daysAgoStr, but shifts from an arbitrary date string
+// instead of always from today. Log's section-by-section pagination walks
+// backward from wherever its cursor currently is, not from "today", so it
+// needs this instead. UTC on purpose (no local-timezone drift creeping in
+// as this gets called over and over walking further and further back).
+function shiftDateStr(dateStr, deltaDays) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + deltaDays);
+  return d.toISOString().slice(0, 10);
+}
 const key = (chart, track, artist) => `${chart}|${track}|${artist}`.replace(/\s+/g, "").toLowerCase();
 
 // Round 174 — manual row order (see add-round174-milestone-sort-order.sql).
@@ -133,6 +143,26 @@ function findPriorRows(entries, platform, chart, today) {
 const FULL_ACCESS_TABS = [["input", "Input"], ["report", "Report"], ["log", "Log"]];
 const LOG_ONLY_TABS = [["log", "Log"]];
 
+// Round 242 — how far back the eager Report/Input load reaches. Report's
+// own streak walk (see the `report` useMemo below) only ever needs to look
+// back until it hits a gap, so any chart whose current streak is shorter
+// than this window computes exactly right; a chart that's been
+// uninterrupted for longer than this just reports a streak capped at the
+// window instead of its true, longer count — a quiet undercount, not a
+// crash, and not a realistic case for how this team's charts move day to
+// day. Input's carry-forward (`findPriorRows`) only ever wants the single
+// most recent prior date, which is always well inside this window too.
+const RECENT_WINDOW_DAYS = 60;
+
+// Round 243 — Log tab's own pagination, replacing round 242's "fetch the
+// whole table the first time Log is opened" with real section-by-section
+// browsing (see the loadLog-era comment this replaces, further down).
+// 30 days per section — at this team's ongoing ~200 rows/day, that's
+// roughly a 6,000-row chunk per scroll step, small enough to feel
+// instant, big enough that scrolling doesn't trigger a network request
+// every few rows.
+const LOG_SECTION_DAYS = 30;
+
 export default function MilestoneWorkstation() {
   const { profile } = useAuth();
   const hasFullAccess = isDev(profile) || isOpsTeam(profile?.segment);
@@ -145,6 +175,32 @@ export default function MilestoneWorkstation() {
   }, [profile, hasFullAccess, tab]);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Round 243 — Log tab's own section-by-section pagination state,
+  // replacing round 242's "fetch the whole table the first time Log is
+  // opened" (that was already an improvement over the original full fetch
+  // on EVERY mount, but still meant one big ~20k+-row pull the first time
+  // anyone actually looked at Log — this walks it back 30 days at a time
+  // instead). `logEntries` is what's actually revealed/rendered so far;
+  // null means "not seeded yet" (distinct from [] — seeded, genuinely
+  // empty) so the render below can tell the difference. `logBuffer` holds
+  // a section that's been fetched ahead of need but not revealed yet (see
+  // prefetchNextLogSection below) — kept separate from logEntries so it
+  // doesn't render until the user actually scrolls to it; its own
+  // `cursor` field is threaded through directly into the next
+  // prefetchNextLogSection call on reveal, so there's no separate
+  // "current cursor" state to keep in sync. `logExhausted` flips true once
+  // a section fetch comes back empty (reached the oldest row in the
+  // table).
+  const [logEntries, setLogEntries] = useState(null);
+  const [logBuffer, setLogBuffer] = useState(null);
+  const [logBufferLoading, setLogBufferLoading] = useState(false);
+  const [logExhausted, setLogExhausted] = useState(false);
+  // Whether the Log tab's scroll sentinel is currently in view — reported
+  // by LogTable's own IntersectionObserver via onLogSentinelChange below.
+  // Kept here (not inside LogTable) so the reveal effect can react the
+  // instant a prefetch resolves even if the sentinel became visible
+  // BEFORE that prefetch finished (the "wait for it, then cycle in" case).
+  const [logSentinelVisible, setLogSentinelVisible] = useState(false);
   const [openPlatform, setOpenPlatform] = useState(null);
   // Round 127 — Config → Milestone's admin-editable Highlight thresholds
   // (see lib/milestoneHighlight.js). Starts at the real system's own
@@ -182,27 +238,123 @@ export default function MilestoneWorkstation() {
 
   async function load() {
     setLoading(true);
-    // Round 237 — this used to be a bare `.select("*")` with no pagination,
-    // same bug class already fixed elsewhere in this app (Booking, Report,
-    // Releases, Tickets — see lib/helpers.js's fetchAllRows and DATA_FIXES.md
-    // round 59/60/142/150): Supabase/PostgREST caps a plain select() at 1000
-    // rows and truncates silently, no error. The real table is already well
-    // past that (18k+ rows as of this round, and about to grow by another
-    // ~22k from the round-237 CSV reimport) — this page's Input/Report/Log
-    // tabs have been silently working off whatever partial, arbitrarily-cut
-    // slice Postgres happened to hand back, not the full history. Very
-    // likely the actual cause of "some dates (June) look missing" reported
-    // this round — the DB itself isn't missing June, the browser just never
-    // received it. `.order("entry_date", ...)` alone isn't a unique sort for
-    // stable `.range()` paging (many rows share a date) — `id` is added as
-    // the tiebreaker fetchAllRows' own doc calls for.
+    // Round 237 fixed the silent-1000-row-cap bug here (see
+    // lib/helpers.js's fetchAllRows and DATA_FIXES.md round 59/60/142/150)
+    // by paginating a full-table fetch instead of a bare `.select("*")`.
+    // That was correct at the time, but round 240's wipe/reinstate put the
+    // table's real row count well into five figures (~20.9k historical
+    // rows alone, plus ~200/day ongoing) — "slow load is back" after that
+    // reimport isn't the cap bug returning, it's this same full-table
+    // fetch now genuinely being a lot of data to pull on every mount, for
+    // tabs (Report, Input) that only ever look at recent rows anyway.
+    //
+    // Round 242 — scoped to a rolling RECENT_WINDOW_DAYS window instead of
+    // the whole table. Report's streak walk and Input's carry-forward
+    // (findPriorRows) are both bounded lookups by nature (see
+    // RECENT_WINDOW_DAYS' own comment above) — neither one needed full
+    // history, they were just getting it because this was the only fetch
+    // in the file. `.order("entry_date", ...)` alone isn't a unique sort
+    // for stable `.range()` paging (many rows share a date) — `id` stays
+    // as the tiebreaker fetchAllRows' own doc calls for.
+    const cutoff = daysAgoStr(RECENT_WINDOW_DAYS);
     const { data } = await fetchAllRows(() =>
-      supabase.from("milestone_chart_entries").select("*").order("entry_date", { ascending: false }).order("id", { ascending: false })
+      supabase.from("milestone_chart_entries").select("*").gte("entry_date", cutoff).order("entry_date", { ascending: false }).order("id", { ascending: false })
     );
     setEntries(data || []);
     const { data: cfg } = await supabase.from("app_settings").select("value").eq("key", MILESTONE_HIGHLIGHT_SETTING_KEY).maybeSingle();
     setHighlightConfig(parseMilestoneHighlightConfig(cfg?.value));
     setLoading(false);
+  }
+
+  // Round 243 — replaces round 242's loadLog() (one fetch, the WHOLE rest
+  // of the table, the first time Log was opened). That was already better
+  // than fetching everything on every mount, but still meant paying for
+  // ~20k+ rows in one shot the first time anyone actually looked at Log.
+  // Real section-by-section pagination instead: `entries` (the rolling
+  // RECENT_WINDOW_DAYS window Input/Report already loaded) IS Log's first
+  // section — no separate fetch needed to show it — and every section
+  // after that is fetched LOG_SECTION_DAYS at a time, read-ahead of what's
+  // actually revealed (see prefetchNextLogSection + the reveal effect
+  // below), so scrolling to the bottom of what's loaded almost always
+  // finds the next chunk already sitting there instead of waiting on a
+  // fresh network round trip.
+  function seedLog() {
+    const cutoff = daysAgoStr(RECENT_WINDOW_DAYS);
+    setLogEntries(entries);
+    setLogExhausted(false);
+    setLogBuffer(null);
+    prefetchNextLogSection(cutoff);
+  }
+
+  // Fetches the next-older LOG_SECTION_DAYS chunk (the half-open interval
+  // [cursor - LOG_SECTION_DAYS, cursor)) into `logBuffer`, WITHOUT
+  // revealing it — the reveal effect below is what actually appends it to
+  // `logEntries`, once the user scrolls far enough to need it. An empty
+  // result means there's nothing older left in the table at all.
+  async function prefetchNextLogSection(fromDate) {
+    setLogBufferLoading(true);
+    const nextLower = shiftDateStr(fromDate, -LOG_SECTION_DAYS);
+    const { data } = await fetchAllRows(() =>
+      supabase.from("milestone_chart_entries").select("*").gte("entry_date", nextLower).lt("entry_date", fromDate).order("entry_date", { ascending: false }).order("id", { ascending: false })
+    );
+    setLogBufferLoading(false);
+    if (!data || data.length === 0) {
+      setLogExhausted(true);
+      return;
+    }
+    setLogBuffer({ data, cursor: nextLower });
+  }
+
+  // Seeds Log the first time it's actually needed: a full-access user
+  // switches to the Log tab, or a Log-only viewer (AR/Marketing) is on
+  // this page at all (their whole reason for being here) — `hasFullAccess`
+  // is false for them from the start, so this fires as soon as `profile`
+  // resolves. Gated on `!loading` so `entries` (this section's starting
+  // data) is actually populated by the time it's used.
+  useEffect(() => {
+    if (!supabase || !profile || loading) return;
+    if ((tab === "log" || !hasFullAccess) && logEntries === null) seedLog();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, hasFullAccess, tab, loading, logEntries]);
+
+  // Reveals a buffered section the moment BOTH are true: the sentinel's in
+  // view, and a prefetched section is actually sitting in `logBuffer`.
+  // Handles both orderings the read-ahead design needs to cover — buffer
+  // already ready when the user scrolls down (instant reveal), and user
+  // already scrolled down before the buffer finished (this effect re-fires
+  // the moment `logBuffer` is set, since `logSentinelVisible` is already
+  // true by then). Immediately kicks off the NEXT prefetch on reveal, so
+  // there's always at most one section's worth of scrolling before the
+  // next wait, never more.
+  useEffect(() => {
+    if (!logSentinelVisible || logExhausted || !logBuffer) return;
+    setLogEntries((prev) => [...(prev || []), ...logBuffer.data]);
+    const nextCursor = logBuffer.cursor;
+    setLogBuffer(null);
+    prefetchNextLogSection(nextCursor);
+  }, [logSentinelVisible, logBuffer, logExhausted]);
+
+  const onLogSentinelChange = useCallback((visible) => setLogSentinelVisible(visible), []);
+
+  // Round 243 — a save only ever touches TODAY's rows. Those always fall
+  // inside the rolling `entries` window, so refreshing `entries` (via
+  // load()) keeps Report/Input correct on its own. If Log has already
+  // been seeded this visit, its own revealed set is now stale by exactly
+  // that same "today" slice — re-sync just that slice (everything with
+  // entry_date >= the RECENT_WINDOW_DAYS cutoff) from the freshly reloaded
+  // `entries`, keeping every older, already-paginated-in section
+  // untouched. Cheap (same ~60-day cost as load() itself) instead of
+  // round 242's approach of re-fetching Log's entire accumulated history
+  // on every save.
+  useEffect(() => {
+    if (logEntries === null) return;
+    const cutoff = daysAgoStr(RECENT_WINDOW_DAYS);
+    setLogEntries((prev) => [...entries, ...prev.filter((e) => e.entry_date < cutoff)]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries]);
+
+  function refreshAfterSave() {
+    load();
   }
 
   async function saveRows(platform, chart, rows) {
@@ -291,7 +443,7 @@ export default function MilestoneWorkstation() {
     if (payload.length === 0) {
       // Every row was blank/deleted — today's rows for this chart are
       // now intentionally empty. Still reload so the UI reflects that.
-      load();
+      refreshAfterSave();
       return;
     }
     // Round 182 — de-dupe on the exact same natural key the upsert itself
@@ -321,7 +473,7 @@ export default function MilestoneWorkstation() {
       alert(`Failed to save ${chart}: ${error.message}`);
       throw error;
     }
-    load();
+    refreshAfterSave();
   }
 
   // Round 127 — rewritten to match the REAL system's refreshDashboard()
@@ -467,6 +619,21 @@ export default function MilestoneWorkstation() {
     return [...groups.values()].sort((a, b) => platformCompare(a.platform, b.platform) || a.chart.localeCompare(b.chart));
   }, [report]);
 
+  // Round 243 — shared between both places Log renders (full-access user's
+  // Log tab, and the Log-only viewer's whole page) so the prop list isn't
+  // duplicated twice and doesn't drift between the two call sites.
+  const logTableEl =
+    logEntries === null ? (
+      <div className={styles.emptyState}>Loading…</div>
+    ) : (
+      <LogTable
+        entries={logEntries}
+        hasMore={!logExhausted}
+        loadingMore={logSentinelVisible && logBufferLoading && !logExhausted}
+        onSentinelChange={onLogSentinelChange}
+      />
+    );
+
   return (
     <AppShell>
       <div className={styles.page}>
@@ -490,7 +657,12 @@ export default function MilestoneWorkstation() {
             // directly rather than trusting `tab` state, so there's no
             // one-render flash of the Input grid before the effect above
             // catches up.
-            <LogTable entries={entries} />
+            // Round 243 — Log now reads from `logEntries` (seeded from the
+            // rolling window, paginated further back section-by-section as
+            // the user scrolls) — a log-only viewer's whole reason for
+            // being on this page is browsing history, so `seedLog()`'s
+            // trigger effect above fires for them immediately.
+            logTableEl
           ) : tab === "input" ? (
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {PLATFORMS.map((p) => (
@@ -506,7 +678,8 @@ export default function MilestoneWorkstation() {
           ) : tab === "report" ? (
             <ReportAndHighlight digest={digest} highlight={highlight} report={report} highlightConfig={highlightConfig} />
           ) : (
-            <LogTable entries={entries} />
+            // tab === "log"
+            logTableEl
           )}
         </div>
       </div>
@@ -749,10 +922,55 @@ function HighlightSection({ title, rows }) {
   );
 }
 
-function LogTable({ entries }) {
+function LogTable({ entries, hasMore, loadingMore, onSentinelChange }) {
   const [artistFilter, setArtistFilter] = useState("");
   const [songFilter, setSongFilter] = useState("");
   const hasFilter = !!(artistFilter.trim() || songFilter.trim());
+
+  // Round 243 — a filter used to only ever narrow whatever's currently
+  // been paginated into `entries` (the browsing set — see the parent's
+  // seedLog/prefetchNextLogSection above), which meant searching for
+  // something older than wherever the user happened to have scrolled to
+  // would silently come back "no results" even though it's really in the
+  // table. This fires a real server-side query (debounced, `.ilike()` on
+  // whichever field(s) are filled in) scanning the WHOLE table the moment
+  // a filter's typed, so a match is found no matter how far back it is —
+  // its cost is bounded by how many rows actually match, not by how far
+  // the person happened to have scrolled. `entries` (whatever's already
+  // loaded/revealed from browsing) is used as an instant, zero-latency
+  // preview while that resolves — same client-filter logic this used to
+  // be the ONLY mechanism for — then swapped for the authoritative server
+  // result the moment it lands. `searchTokenRef` guards against a stale
+  // response landing after a NEWER filter has already superseded it (e.g.
+  // typing fast) — only the most recently fired query is ever applied.
+  const [searchResults, setSearchResults] = useState(null);
+  const [searching, setSearching] = useState(false);
+  const searchTokenRef = useRef(0);
+
+  useEffect(() => {
+    if (!hasFilter || !supabase) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+    const token = ++searchTokenRef.current;
+    setSearching(true);
+    setSearchResults(null);
+    const artist = artistFilter.trim();
+    const song = songFilter.trim();
+    const handle = setTimeout(async () => {
+      const { data } = await fetchAllRows(() => {
+        let q = supabase.from("milestone_chart_entries").select("*");
+        if (artist) q = q.ilike("artist", `%${artist}%`);
+        if (song) q = q.ilike("track_title", `%${song}%`);
+        return q.order("entry_date", { ascending: false }).order("id", { ascending: false });
+      });
+      if (searchTokenRef.current !== token) return; // superseded by a newer filter — drop this stale response
+      setSearchResults(data || []);
+      setSearching(false);
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [artistFilter, songFilter, hasFilter]);
 
   // Round 221 — corrected per explicit follow-up: round 220 kept date as
   // the primary sort (newest first) and only used rank to break ties on
@@ -763,10 +981,14 @@ function LogTable({ entries }) {
   // typing an artist/song filter here is usually "what's the best this
   // has ever charted") — see round 236's note on the unfiltered browsing
   // sort, which is deliberately different.
-  const filtered = entries.filter((e) =>
-    (!artistFilter || (e.artist || "").toLowerCase().includes(artistFilter.toLowerCase())) &&
-    (!songFilter || (e.track_title || "").toLowerCase().includes(songFilter.toLowerCase()))
-  );
+  const filtered = useMemo(() => {
+    if (!hasFilter) return entries;
+    if (searchResults !== null) return searchResults; // authoritative, full-history match
+    return entries.filter((e) =>
+      (!artistFilter || (e.artist || "").toLowerCase().includes(artistFilter.toLowerCase())) &&
+      (!songFilter || (e.track_title || "").toLowerCase().includes(songFilter.toLowerCase()))
+    );
+  }, [entries, hasFilter, searchResults, artistFilter, songFilter]);
 
   // Round 225 — per explicit request/follow-up ("the log tab still show
   // everything, just when filter does this apply"): browsing the FULL,
@@ -795,6 +1017,22 @@ function LogTable({ entries }) {
     return [...bestByChart.values()].sort((a, b) => a.rank - b.rank || b.entry_date.localeCompare(a.entry_date));
   }, [filtered, hasFilter]);
 
+  // Round 243 — infinite-scroll sentinel for the browsing (unfiltered)
+  // case only; a search bypasses this entirely (the server query above
+  // already scans the whole table in one go, there's nothing to page
+  // through). `rootMargin: "400px"` fires the callback a bit before the
+  // sentinel is actually on-screen, so the read-ahead buffer (see the
+  // parent) has a head start rather than the reveal only starting once
+  // the user has already scrolled all the way to the bottom.
+  const sentinelRef = useRef(null);
+  useEffect(() => {
+    if (hasFilter || !onSentinelChange || !sentinelRef.current) return;
+    const el = sentinelRef.current;
+    const obs = new IntersectionObserver(([entry]) => onSentinelChange(entry.isIntersecting), { rootMargin: "400px" });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasFilter, onSentinelChange]);
+
   return (
     <div>
       <div style={{ display: "flex", gap: 10, marginBottom: 16, alignItems: "center" }}>
@@ -803,11 +1041,12 @@ function LogTable({ entries }) {
         {hasFilter && (
           <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
             Showing best rank per chart ({displayRows.length} of {filtered.length} entries)
+            {searching && " — searching full history…"}
           </span>
         )}
       </div>
       {displayRows.length === 0 ? (
-        <div className={styles.emptyState}>No results.</div>
+        <div className={styles.emptyState}>{searching ? "Searching…" : "No results."}</div>
       ) : (
         <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
           <table className={styles.table}>
@@ -826,6 +1065,11 @@ function LogTable({ entries }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {!hasFilter && (
+        <div ref={sentinelRef} style={{ padding: 12, textAlign: "center", fontSize: 11, color: "var(--text-faint)" }}>
+          {loadingMore ? "Loading more…" : hasMore ? "" : "— end of history —"}
         </div>
       )}
     </div>
