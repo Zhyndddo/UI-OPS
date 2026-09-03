@@ -407,6 +407,44 @@ export default function StreamWorkstation() {
   );
 }
 
+// Round 244 — per explicit request: a metric number changing should
+// regenerate this row's note, but ONLY when there's actually an existing
+// note that regenerating would change — an empty note has nothing to
+// protect (stays exactly as manual/optional as before), and a metric
+// that doesn't move buildStreamNote's output at all (typing the SAME
+// value back, or a Facebook column, which isn't part of the note formula
+// — see buildStreamNote in lib/releaseNotes.js) never needs to ask.
+// Deliberately checks "would the recomputed note actually differ" rather
+// than hardcoding which of the 9 metric columns are formula-relevant —
+// stays correct on its own if the formula's inputs ever change, and
+// naturally excludes Facebook's 2 columns without a separate list to
+// keep in sync.
+// On confirm: saves BOTH the new number and the freshly regenerated note
+// together, so the row's note is never left stale relative to its own
+// numbers. On cancel: the metric edit itself is undone too (the input is
+// reset back to its pre-blur value, uncontrolled input, so this writes
+// straight to the DOM node) — there's no "keep the new number but leave
+// the old note" middle ground, since that's exactly the stale state this
+// exists to prevent.
+function handleMetricBlur(row, key, e, onUpdate) {
+  const newValue = e.target.value;
+  const oldValue = row.metrics[key] || "";
+  if (newValue === oldValue) return; // no real change — nothing to protect, normal no-op save isn't even needed
+  const currentNote = row.metrics.stream_note || "";
+  const freshNote = buildStreamNote({ ...row.metrics, [key]: newValue });
+  if (currentNote && currentNote !== freshNote) {
+    const ok = window.confirm("This number changed — regenerating this row's note will replace what's currently saved. Continue?");
+    if (!ok) {
+      e.target.value = oldValue;
+      return;
+    }
+    onUpdate(row, key, newValue);
+    onUpdate(row, "stream_note", freshNote);
+    return;
+  }
+  onUpdate(row, key, newValue);
+}
+
 function StreamTable({ rows, onUpdate, onRemove, onLink, manual }) {
   return (
     <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
@@ -466,7 +504,7 @@ function StreamTable({ rows, onUpdate, onRemove, onLink, manual }) {
                     className={styles.input}
                     style={{ padding: "3px 6px", fontSize: 11, width: 80 }}
                     defaultValue={row.metrics[key] || ""}
-                    onBlur={(e) => onUpdate(row, key, e.target.value)}
+                    onBlur={(e) => handleMetricBlur(row, key, e, onUpdate)}
                   />
                 </td>
               ))}
@@ -493,40 +531,70 @@ function StreamTable({ rows, onUpdate, onRemove, onLink, manual }) {
   );
 }
 
-// stream_note stays a plain free-text input (unchanged), edited on blur
-// same as every other cell here. Underneath it, a small "Auto note"
-// button reveals the live-computed buildStreamNote() text for this row —
-// click "Use this" to fill it into the field above (overwrites whatever
-// was there), or just leave it as reference and keep typing manually.
-// Never auto-fills on its own — the metrics can be edited before a real
-// note is wanted, and nothing here should silently clobber a manual note.
+// Round 244 — per explicit request, the free-text input that used to sit
+// directly in this cell is gone: the cell now only ever shows a Copy
+// button (copies whatever's currently saved to clipboard) plus the same
+// "▸ Auto note" trigger as before. Editing/fixing the note itself now
+// happens ONLY inside the popup, in an editable box — "Allow fix in the
+// popup panel" — pre-filled from the CURRENT saved note (never from the
+// auto-computed text) so opening the popup can never itself lose a
+// manual note. The popup's own "Use this" still does exactly what it did
+// before: fills the box with the live-computed buildStreamNote() text —
+// it just no longer saves directly, since there's a Save button now that
+// commits whatever's actually in the box (typed by hand, pulled in via
+// "Use this", or a mix of both edited afterward).
+// The trigger is no longer gated on `generated` being non-empty — with
+// the inline input gone, this popup is the ONLY way to write a note at
+// all, so a release with no metrics yet (nothing for buildStreamNote to
+// compute) still needs a way to open it and type one by hand.
 function StreamNoteCell({ row, onUpdate }) {
-  // Round 155 item 2 follow-up — Auto Note is now a real centered modal
-  // popup (same fixed-inset-overlay pattern as lib/ReleaseNotePopup.js),
-  // not a small box anchored under the input inside the table row/cell —
-  // per explicit request, since living in that cramped container made it
+  // Round 155 item 2 follow-up — Auto Note is a real centered modal popup
+  // (same fixed-inset-overlay pattern as lib/ReleaseNotePopup.js), not a
+  // small box anchored under the input inside the table row/cell — per
+  // explicit request, since living in that cramped container made it
   // easy to miss and easy to accidentally close.
   const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [copied, setCopied] = useState(false);
   const generated = buildStreamNote(row.metrics);
+  const note = row.metrics.stream_note || "";
+
+  function openPopup() {
+    setDraft(note); // starts from what's actually saved, not the auto text — opening the popup never discards a manual note on its own
+    setOpen(true);
+  }
+
+  function handleCopy() {
+    navigator.clipboard?.writeText(note).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
+  function handleSave() {
+    onUpdate(row, "stream_note", draft);
+    setOpen(false);
+  }
 
   return (
-    <div>
-      <input
-        className={styles.input}
-        style={{ padding: "3px 6px", fontSize: 11 }}
-        defaultValue={row.metrics.stream_note || ""}
-        onBlur={(e) => onUpdate(row, "stream_note", e.target.value)}
-      />
-      {generated && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          style={{ background: "none", border: "none", color: "var(--accent-soft)", fontSize: 10, cursor: "pointer", padding: "2px 0" }}
-        >
-          ▸ Auto note
-        </button>
-      )}
-      {open && generated && (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+      <button
+        type="button"
+        onClick={handleCopy}
+        disabled={!note}
+        title={note || "No note saved yet"}
+        style={{ background: "none", border: "1px solid var(--border)", borderRadius: 4, color: note ? "var(--text-muted)" : "var(--text-faint)", fontSize: 10, cursor: note ? "pointer" : "default", padding: "2px 6px", opacity: note ? 1 : 0.5 }}
+      >
+        {copied ? "Copied!" : "📋 Copy"}
+      </button>
+      <button
+        type="button"
+        onClick={openPopup}
+        style={{ background: "none", border: "none", color: "var(--accent-soft)", fontSize: 10, cursor: "pointer", padding: "2px 0" }}
+      >
+        ▸ Auto note
+      </button>
+      {open && (
         <div
           style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
           onClick={() => setOpen(false)}
@@ -536,17 +604,33 @@ function StreamNoteCell({ row, onUpdate }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase" }}>Auto Note</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase" }}>Note</div>
               <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer" }}>✕</button>
             </div>
-            <pre style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-wrap", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>{generated}</pre>
-            <button
-              type="button"
-              className={styles.btnPrimary}
-              style={{ marginTop: 12, width: "100%" }}
-              onClick={() => { onUpdate(row, "stream_note", generated); setOpen(false); }}
-            >
-              Use this
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={6}
+              placeholder="No note yet — type one, or use the auto-computed text below."
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 12, color: "var(--text)", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 10, fontFamily: "inherit", resize: "vertical" }}
+            />
+            {generated ? (
+              <>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginTop: 12, marginBottom: 4 }}>Auto-computed (reference)</div>
+                <pre style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-wrap", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>{generated}</pre>
+                <button
+                  type="button"
+                  onClick={() => setDraft(generated)}
+                  style={{ marginTop: 6, background: "none", border: "none", color: "var(--accent-soft)", fontSize: 11, cursor: "pointer", padding: 0 }}
+                >
+                  Use this — fills the box above with this text (not saved until you click Save)
+                </button>
+              </>
+            ) : (
+              <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 10 }}>No metrics entered yet, so there's nothing to auto-compute — type a note above directly.</div>
+            )}
+            <button type="button" className={styles.btnPrimary} style={{ marginTop: 14, width: "100%" }} onClick={handleSave}>
+              Save
             </button>
           </div>
         </div>

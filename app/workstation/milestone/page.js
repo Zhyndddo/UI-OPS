@@ -822,6 +822,27 @@ function buildHighlightText(highlight, highlightConfig) {
   return lines.join("\n");
 }
 
+// Round 244 — Log tab's own "Copy" button, same idea as the Report/
+// Highlight panels' "Copy for Telegram" above (plain deliberate text
+// instead of copying on-screen content, which would pick up stray line
+// wraps — see songLineText's own round-204 comment on why that matters)
+// applied to a Log search result instead of the daily digest. Only
+// offered once a filter's narrowed the log to `displayRows`'s collapsed
+// "best rank per chart" view (see LogTable's own round-225 comment) —
+// that's the "here's what I found, let me paste it somewhere" moment
+// this is for, not the raw unfiltered browse. Log rows don't carry
+// rankChange/dayIn the way Report's processed rows do, so this borrows
+// highlightLineText's shape (platform|chart line, then rank/title/
+// artist) and adds the date that rank was achieved, since that's the
+// one piece of context a Log search result actually needs that a same-
+// day Highlight line doesn't.
+function logLineText(r) {
+  return `${r.platform} | ${r.chart}\n#${r.rank} ${r.track_title}${r.artist ? ` - ${r.artist}` : ""} — ${fmtDate(r.entry_date)}`;
+}
+function buildLogNoteText(displayRows) {
+  return displayRows.map(logLineText).join("\n");
+}
+
 // Round 127 — the Report tab, rebuilt to match the real system's "report"
 // + "Highlight" sheets side by side, per explicit request ("showing side
 // by side for comparison is preferred"). Left = the full digest (every
@@ -1017,6 +1038,17 @@ function LogTable({ entries, hasMore, loadingMore, onSentinelChange }) {
     return [...bestByChart.values()].sort((a, b) => a.rank - b.rank || b.entry_date.localeCompare(a.entry_date));
   }, [filtered, hasFilter]);
 
+  // Round 244 — brief "Copied!" confirmation on the button itself, same
+  // pattern as the Report/Highlight panels' own copy buttons (round 204/
+  // 205) — visible feedback without an alert interrupting copy → paste.
+  const [copiedLog, setCopiedLog] = useState(false);
+  function handleCopyLog() {
+    navigator.clipboard?.writeText(buildLogNoteText(displayRows)).then(() => {
+      setCopiedLog(true);
+      setTimeout(() => setCopiedLog(false), 1500);
+    });
+  }
+
   // Round 243 — infinite-scroll sentinel for the browsing (unfiltered)
   // case only; a search bypasses this entirely (the server query above
   // already scans the whole table in one go, there's nothing to page
@@ -1035,14 +1067,19 @@ function LogTable({ entries, hasMore, loadingMore, onSentinelChange }) {
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 10, marginBottom: 16, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
         <input className={styles.input} style={{ maxWidth: 220 }} placeholder="Filter artist…" value={artistFilter} onChange={(e) => setArtistFilter(e.target.value)} />
         <input className={styles.input} style={{ maxWidth: 220 }} placeholder="Filter song…" value={songFilter} onChange={(e) => setSongFilter(e.target.value)} />
         {hasFilter && (
-          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
-            Showing best rank per chart ({displayRows.length} of {filtered.length} entries)
-            {searching && " — searching full history…"}
-          </span>
+          <>
+            <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+              Showing best rank per chart ({displayRows.length} of {filtered.length} entries)
+              {searching && " — searching full history…"}
+            </span>
+            {displayRows.length > 0 && (
+              <button type="button" className={styles.btnSmall} onClick={handleCopyLog}>{copiedLog ? "Copied!" : "Copy"}</button>
+            )}
+          </>
         )}
       </div>
       {displayRows.length === 0 ? (

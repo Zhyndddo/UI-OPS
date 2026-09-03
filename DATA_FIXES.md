@@ -12924,3 +12924,67 @@ Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 warnings — one new warning from the seed effect was caught and fixed
 the same way round 242's was, not left in scope creep), and a full
 `npm run build` — clean.
+
+## Round 244 — 2026-09-03 — Stream's note cell reworked (Copy button + editable popup, number-change confirm); Milestone Log gets a Copy button
+
+Two separate explicit requests this round.
+
+**Stream workstation's note cell.** Confirmed the specifics with a round
+of clarifying questions before touching this one, since it changes real
+save behavior around a field the code had deliberately protected from
+auto-overwriting (see the cell's own prior comment: "nothing here should
+silently clobber a manual note").
+
+The free-text `<input>` that used to sit directly in the cell is gone —
+per "only copy button, with the current small auto note line for the
+popup," the cell now shows just a Copy button (copies whatever's
+currently saved to clipboard, with the same "Copied!" confirmation
+pattern as the Report/Highlight/Log copy buttons) plus the existing
+"▸ Auto note" trigger, unchanged in place. That trigger is no longer
+gated on `buildStreamNote()` returning something — with the inline input
+gone, the popup is now the ONLY way to write a note at all, so a release
+with zero metrics entered still needs a way to open it and type one by
+hand (the popup shows "No metrics entered yet" in place of the auto-
+reference block in that case, instead of hiding the whole trigger).
+
+The popup itself gained an editable textarea — "allow fix in the popup
+panel" — pre-filled from the CURRENTLY SAVED note, never from the
+auto-computed text, so just opening the popup can never itself discard a
+manual note. "Use this" still does exactly what it always did (fills in
+the live-computed `buildStreamNote()` text), it just now fills the
+editable box instead of saving directly — a new Save button commits
+whatever's actually in the box (typed by hand, pulled in via "Use this",
+or a mix edited afterward) to `stream_note`.
+
+**The override rule.** A metric number changing now regenerates the
+row's note — but ONLY when there's an existing note that regenerating
+would actually change (an empty note has nothing to protect, stays
+exactly as manual/optional as before) and the field actually moved
+`buildStreamNote()`'s output (typing the same value back, or editing a
+Facebook column — not part of the note formula — never triggers
+anything; deliberately checked by comparing the recomputed text rather
+than hardcoding which of the 9 metric columns are formula-relevant, so
+this stays correct on its own if the formula's inputs ever change). When
+it does fire: `window.confirm("This number changed — regenerating this
+row's note will replace what's currently saved. Continue?")` — confirm
+saves BOTH the new number and the freshly regenerated note together;
+cancel reverts the metric input back to its pre-blur value (a direct DOM
+write, since these are uncontrolled inputs) and saves nothing. No
+"keep the new number but leave the stale note" middle state is offered —
+that's exactly the inconsistency this exists to prevent.
+
+**Milestone Log's Copy button.** Separate, unrelated request — same idea
+as the Report/Highlight panels' existing "Copy for Telegram" (round 204/
+205: build deliberate plain text instead of copying on-screen content,
+which picks up stray line wraps), applied to a Log search result. Shows
+up next to the "best rank per chart" count once a filter's active,
+copies `displayRows` formatted the same way Highlight's lines are
+(platform|chart, then rank/title/artist), plus the date that rank was
+achieved since that's the one thing a Log search result needs that a
+same-day Highlight line doesn't.
+
+Files: `app/workstation/stream/page.js`, `app/workstation/milestone/page.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` on both files, `npm run lint:scope` (0 errors, same 51
+pre-existing warnings), and a full `npm run build` — clean.
