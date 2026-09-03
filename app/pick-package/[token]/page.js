@@ -55,7 +55,7 @@ const PARTNER_BENEFITS = [
 const RECORDING_STUDIO_ROW = { label: "RECORDING STUDIO", detail: "Thu âm miễn phí tại VIEENT Studio" };
 const MEDIA_PARTNER_NOTE = {
   intro: "***Logo VIEENT sẽ xuất hiện trên các tài liệu truyền thông chính thức như:\n– Bài đăng Facebook\n– Thumbnail YouTube\n*** Chia sẻ các bài đăng về artist post /congrats post hoặc tag tên VIEENT trong bài đăng Congrats/Thank You Post",
-  logoLink: "https://drive.google.com/drive/folders/1Pqx0wQAssoWe2aZcilI-N9bGzZXuDjIF",
+  logoLink: "https://vieent.com/logo",
   hashtag: "Hashtag chính thức #vieentmusic sẽ được sử dụng trên các nền tảng TikTok, Facebook và các nội dung liên quan đến bài hát.",
 };
 
