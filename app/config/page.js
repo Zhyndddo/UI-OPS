@@ -16,6 +16,7 @@ import {
 } from "../../lib/pitchingDomesticServices";
 import { PITCHING_PIC_LIST_KEY, DEFAULT_PITCHING_PIC_LIST, parsePitchingPicList } from "../../lib/pitchingPicList";
 import { MILESTONE_HIGHLIGHT_SETTING_KEY, DEFAULT_MILESTONE_HIGHLIGHT_CONFIG, parseMilestoneHighlightConfig } from "../../lib/milestoneHighlight";
+import { MAGIC_LINK_THEME_LOCK_KEY, LOCKABLE_THEMES } from "../../lib/magicLinkThemeLock";
 import styles from "../shared.module.css";
 
 const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
@@ -77,7 +78,7 @@ export default function ConfigPage() {
       // Sheet system had it.
       ["milestoneSettings", "Milestone"],
     ] : []),
-    ...(isDev ? [["notifications", "Notifications"], ["designNotifications", "Design Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
+    ...(isDev ? [["notifications", "Notifications"], ["magicLinkTheme", "Magic Link Theme"], ["designNotifications", "Design Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
   ];
   const [section, setSection] = useState(null);
   useEffect(() => {
@@ -129,6 +130,7 @@ export default function ConfigPage() {
               {section === "pitchingSettings" && <PitchingSettingsSection />}
               {section === "milestoneSettings" && <MilestoneHighlightSection />}
               {section === "notifications" && isDev && <NotificationsSection />}
+              {section === "magicLinkTheme" && isDev && <MagicLinkThemeSection />}
               {section === "designNotifications" && isDev && <DesignNotificationsSection />}
               {section === "sessions" && isDev && <SessionsSection />}
               {section === "sidebarLabel" && isDev && <SidebarLabelSection />}
@@ -1429,6 +1431,71 @@ function NotificationsSection() {
             {JSON.stringify(testResult, null, 2)}
           </pre>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Magic Link Theme — dev-only, Round 233, simplified to one switch in
+// Round 234 per explicit correction ────────────────────────────────────
+// One switch for every public magic link this app sends out (currently
+// the Performance report share link and the Package/Media Report offer
+// link), not a separate choice per link — the goal is that every
+// external recipient sees a consistent look no matter which link they
+// got, regardless of whatever theme happens to be saved in their own
+// browser (see lib/magicLinkThemeLock.js's module comment for the full
+// reasoning, including why this was never really "depends on who
+// created the link," and why "zhyn"/Cosmic isn't offered here). One
+// global_settings row, one select — "Follow visitor's theme" (the
+// default, unset) is a real option, not just an absence, so a dev can
+// explicitly clear a lock they set earlier.
+function MagicLinkThemeSection() {
+  const [theme, setThemeValue] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    load();
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    const { data } = await supabase.from("global_settings").select("value").eq("key", MAGIC_LINK_THEME_LOCK_KEY).maybeSingle();
+    setThemeValue(data?.value?.theme || "");
+    setLoading(false);
+  }
+
+  async function setLock(next) {
+    setThemeValue(next);
+    const value = next ? { theme: next } : {};
+    await supabase.from("global_settings").upsert({ key: MAGIC_LINK_THEME_LOCK_KEY, value, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
+        Pin every public magic link this app sends out (Performance report share, Package/Media Report offer) to one
+        theme, so they stay uniform for external recipients instead of each one following whatever theme happens to
+        be saved in that particular visitor's own browser. "Follow visitor's theme" (the default) behaves exactly as
+        before.
+      </p>
+      <label className={styles.fieldLabel} style={{ fontSize: 10 }}>Magic link theme</label>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <select
+          className={styles.select}
+          style={{ minWidth: 200 }}
+          value={theme}
+          onChange={(e) => setLock(e.target.value)}
+        >
+          <option value="">Follow visitor's theme</option>
+          {LOCKABLE_THEMES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+        {saved && <span style={{ color: "var(--success-fg)", fontSize: 11 }}>Saved</span>}
       </div>
     </div>
   );

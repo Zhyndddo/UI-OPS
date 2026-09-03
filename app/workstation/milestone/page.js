@@ -3,11 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
-import { fmtDate } from "../../../lib/helpers";
+import { fmtDate, fetchAllRows } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { useIsMobile } from "../../../lib/useIsMobile";
+import { useAuth } from "../../../lib/AuthContext";
+import { isDev } from "../../../lib/permissions";
+import { isOpsTeam } from "../../../lib/teamTypes";
 import { MILESTONE_HIGHLIGHT_SETTING_KEY, DEFAULT_MILESTONE_HIGHLIGHT_CONFIG, parseMilestoneHighlightConfig } from "../../../lib/milestoneHighlight";
 import { MILESTONE_CHART_LINKS } from "../../../lib/milestoneChartLinks";
+import { TOOL_DIRECTORY_SETTING_KEY, mergeToolDirectory } from "../../../lib/toolDirectory";
 import styles from "../../shared.module.css";
 
 // Real platform → chart lists, straight from v1's MILESTONE_PLATFORM_TABS.
@@ -122,8 +126,23 @@ function findPriorRows(entries, platform, chart, today) {
   return sortByOrder(entries.filter((e) => e.platform === platform && e.chart === chart && e.entry_date === latestDate));
 }
 
+// Round 235 — Input/Report stay OPS-only (the real daily chart-entry work
+// and its Telegram digest); AR/Marketing get read-only Log access only
+// (see TEAM_WORKSTATION_TYPES's round-235 comment in lib/teamTypes.js).
+// dev sees everything, same as every other team-gated page in this app.
+const FULL_ACCESS_TABS = [["input", "Input"], ["report", "Report"], ["log", "Log"]];
+const LOG_ONLY_TABS = [["log", "Log"]];
+
 export default function MilestoneWorkstation() {
+  const { profile } = useAuth();
+  const hasFullAccess = isDev(profile) || isOpsTeam(profile?.segment);
   const [tab, setTab] = useState("input");
+  // Once the profile's loaded, a Log-only viewer can never land on/stay on
+  // Input or Report — covers both the initial "input" default above and
+  // anyone who had a tab other than Log picked up from a stale render.
+  useEffect(() => {
+    if (profile && !hasFullAccess && tab !== "log") setTab("log");
+  }, [profile, hasFullAccess, tab]);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [openPlatform, setOpenPlatform] = useState(null);
@@ -132,6 +151,29 @@ export default function MilestoneWorkstation() {
   // hardcoded defaults so the Report tab isn't empty/wrong before an
   // admin ever opens Config.
   const [highlightConfig, setHighlightConfig] = useState(DEFAULT_MILESTONE_HIGHLIGHT_CONFIG);
+  // Round 238 — fix for "I fixed a chart's URL in Tools but it's still wrong
+  // in the workstation." The ChartEntryPopup's inline "🔗 Tool" button (next
+  // to the chart tab name) used to read straight from the hardcoded
+  // MILESTONE_CHART_LINKS constant, completely bypassing any dev edit saved
+  // through the Tool Directory page — that edit only ever changed what
+  // app_settings.tool_directory_links held (which the Tool Directory PAGE
+  // itself reads via mergeToolDirectory), never the constant this popup was
+  // reading. Two different data sources for what should've been one. Now
+  // this page fetches+merges the same way ToolsButton.js already does for
+  // every other bucket, so both surfaces agree — starts from
+  // MILESTONE_CHART_LINKS (nothing changes before this loads) and swaps in
+  // the merged, dev-editable map once the fetch resolves.
+  const [chartLinks, setChartLinks] = useState(MILESTONE_CHART_LINKS);
+  useEffect(() => {
+    if (!supabase) return;
+    (async () => {
+      const { data } = await supabase.from("app_settings").select("value").eq("key", TOOL_DIRECTORY_SETTING_KEY).maybeSingle();
+      const merged = mergeToolDirectory(data?.value, MILESTONE_CHART_LINKS);
+      const byLabel = {};
+      (merged.milestone?.tools || []).forEach((t) => { if (t.url) byLabel[t.label] = t.url; });
+      setChartLinks(byLabel);
+    })();
+  }, []);
 
   useEffect(() => {
     if (!supabase) return;
@@ -140,7 +182,23 @@ export default function MilestoneWorkstation() {
 
   async function load() {
     setLoading(true);
-    const { data } = await supabase.from("milestone_chart_entries").select("*").order("entry_date", { ascending: false });
+    // Round 237 — this used to be a bare `.select("*")` with no pagination,
+    // same bug class already fixed elsewhere in this app (Booking, Report,
+    // Releases, Tickets — see lib/helpers.js's fetchAllRows and DATA_FIXES.md
+    // round 59/60/142/150): Supabase/PostgREST caps a plain select() at 1000
+    // rows and truncates silently, no error. The real table is already well
+    // past that (18k+ rows as of this round, and about to grow by another
+    // ~22k from the round-237 CSV reimport) — this page's Input/Report/Log
+    // tabs have been silently working off whatever partial, arbitrarily-cut
+    // slice Postgres happened to hand back, not the full history. Very
+    // likely the actual cause of "some dates (June) look missing" reported
+    // this round — the DB itself isn't missing June, the browser just never
+    // received it. `.order("entry_date", ...)` alone isn't a unique sort for
+    // stable `.range()` paging (many rows share a date) — `id` is added as
+    // the tiebreaker fetchAllRows' own doc calls for.
+    const { data } = await fetchAllRows(() =>
+      supabase.from("milestone_chart_entries").select("*").order("entry_date", { ascending: false }).order("id", { ascending: false })
+    );
     setEntries(data || []);
     const { data: cfg } = await supabase.from("app_settings").select("value").eq("key", MILESTONE_HIGHLIGHT_SETTING_KEY).maybeSingle();
     setHighlightConfig(parseMilestoneHighlightConfig(cfg?.value));
@@ -418,7 +476,7 @@ export default function MilestoneWorkstation() {
           <h1 className={styles.title} style={{ marginBottom: 16 }}>Milestone</h1>
 
           <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
-            {[["input", "Input"], ["report", "Report"], ["log", "Log"]].map(([k, label]) => (
+            {(hasFullAccess ? FULL_ACCESS_TABS : LOG_ONLY_TABS).map(([k, label]) => (
               <button key={k} onClick={() => setTab(k)} className={`${styles.tabBtn} ${tab === k ? styles.tabBtnActive : ""}`} style={{ border: tab === k ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: tab === k ? "rgba(255,107,26,0.1)" : "transparent" }}>
                 {label}
               </button>
@@ -427,6 +485,12 @@ export default function MilestoneWorkstation() {
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
+          ) : !hasFullAccess ? (
+            // Round 235 — Log-only viewer (AR/Marketing): render Log
+            // directly rather than trusting `tab` state, so there's no
+            // one-render flash of the Input grid before the effect above
+            // catches up.
+            <LogTable entries={entries} />
           ) : tab === "input" ? (
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {PLATFORMS.map((p) => (
@@ -448,7 +512,7 @@ export default function MilestoneWorkstation() {
       </div>
 
       {openPlatform && (
-        <ChartEntryPopup platform={openPlatform} onClose={() => setOpenPlatform(null)} onSave={saveRows} entries={entries} />
+        <ChartEntryPopup platform={openPlatform} onClose={() => setOpenPlatform(null)} onSave={saveRows} entries={entries} chartLinks={chartLinks} />
       )}
     </AppShell>
   );
@@ -694,16 +758,15 @@ function LogTable({ entries }) {
   // the primary sort (newest first) and only used rank to break ties on
   // the exact same date, which in practice meant this filter showed the
   // LATEST entry first, not the best one — not what "highest rank
-  // first" was actually asking for. Rank ascending is now the primary
-  // sort (the whole point of typing an artist/song filter here is
-  // usually "what's the best this has ever charted"), with date as the
-  // tiebreaker only when two rows land on the exact same rank.
-  const filtered = entries
-    .filter((e) =>
-      (!artistFilter || (e.artist || "").toLowerCase().includes(artistFilter.toLowerCase())) &&
-      (!songFilter || (e.track_title || "").toLowerCase().includes(songFilter.toLowerCase()))
-    )
-    .sort((a, b) => a.rank - b.rank || b.entry_date.localeCompare(a.entry_date));
+  // first" was actually asking for. Rank ascending is the primary sort
+  // for the FILTERED/collapsed "best ever" view below (the whole point of
+  // typing an artist/song filter here is usually "what's the best this
+  // has ever charted") — see round 236's note on the unfiltered browsing
+  // sort, which is deliberately different.
+  const filtered = entries.filter((e) =>
+    (!artistFilter || (e.artist || "").toLowerCase().includes(artistFilter.toLowerCase())) &&
+    (!songFilter || (e.track_title || "").toLowerCase().includes(songFilter.toLowerCase()))
+  );
 
   // Round 225 — per explicit request/follow-up ("the log tab still show
   // everything, just when filter does this apply"): browsing the FULL,
@@ -713,7 +776,16 @@ function LogTable({ entries }) {
   // was logged on that chart, matching the same rule now applied to the
   // Performance report's Milestones table (see lib/PerformanceReport.js).
   const displayRows = useMemo(() => {
-    if (!hasFilter) return filtered;
+    if (!hasFilter) {
+      // Round 236 — per explicit request, plain unfiltered browsing now
+      // sorts by entry date (newest first), not by rank — rank as the
+      // primary sort made sense for "what's the best ever" (the filtered
+      // view below, untouched here), but not for "browse the log", where
+      // date is what someone scanning day-to-day activity actually wants
+      // first. Rank is still the tiebreaker for two rows logged the same
+      // day.
+      return [...filtered].sort((a, b) => b.entry_date.localeCompare(a.entry_date) || a.rank - b.rank);
+    }
     const bestByChart = new Map();
     filtered.forEach((e) => {
       const key = `${e.chart}::${e.track_title}::${e.artist || ""}`;
@@ -793,7 +865,7 @@ function AutoGrowField({ value, onChange, style, ...props }) {
   );
 }
 
-function ChartEntryPopup({ platform, onClose, onSave, entries }) {
+function ChartEntryPopup({ platform, onClose, onSave, entries, chartLinks }) {
   const isMobile = useIsMobile();
   const charts = PLATFORM_CHARTS[platform];
   const [activeChart, setActiveChart] = useState(charts[0]);
@@ -1036,9 +1108,9 @@ function ChartEntryPopup({ platform, onClose, onSave, entries }) {
                   confirmed URL yet (see lib/milestoneChartLinks.js's own
                   comment for the still-open list) rather than showing a
                   dead link. */}
-              {!isMobile && MILESTONE_CHART_LINKS[activeChart] && (
+              {!isMobile && chartLinks[activeChart] && (
                 <a
-                  href={MILESTONE_CHART_LINKS[activeChart]}
+                  href={chartLinks[activeChart]}
                   target="_blank"
                   rel="noreferrer"
                   className={styles.btnSmall}

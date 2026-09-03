@@ -12331,3 +12331,464 @@ Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
 --noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
 (0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
 run build` — clean.
+
+## Round 233 — 2026-09-02 — Dev-configurable theme lock for the two magic links
+
+Per explicit request: Config → Magic Link Theme (new dev-only tab) now
+lets a dev pin the Performance report share link and/or the Package /
+Media Report offer link to one specific theme (Dark or Light) for every
+visitor who opens it — instead of each link following whatever theme
+happens to already be saved in that particular visitor's own browser
+(`lib/ThemeContext.js`'s normal per-browser `localStorage` preference).
+"Follow visitor's theme" is the default and behaves exactly as before —
+this is opt-in per link, nothing changes until a dev sets one.
+
+"zhyn" (Cosmic) is deliberately not offered as a lockable value — it's
+gated to one specific account as a personal theme (`lib/AuthContext.js`),
+not something to send out to people outside the team.
+
+Implementation: one `global_settings` row (key `magic_link_theme_lock`,
+`{ performanceReport: "light" | "dark", pickPackage: "light" | "dark" }`,
+either key absent = no lock), same idiom as every other site-wide
+setting in this app — no new table, no SQL migration needed (the row is
+created on first save, same as Tool Directory/Tro Gia Booking). Each
+public page fetches its own lock value independently of its token/link
+load (so it resolves as early as possible) and, if set, applies
+`data-theme="..."` directly on its own outermost `.page` div. That
+attribute selector already exists globally in `app/globals.css`
+(`[data-theme="light"] { ... }`, not scoped to `<html>`), so CSS custom
+properties cascade correctly to every descendant from that div without
+touching the global `<html data-theme>` ThemeContext sets — avoiding a
+real risk that was worth ruling out explicitly: forcing the lock through
+`useTheme()`'s `setTheme()` instead would race against `ThemeProvider`'s
+own mount-time restore-from-`localStorage` effect (child effects fire
+before parent effects on mount in React, so the page's forced value
+could get silently overwritten a moment later). Scoping the override to
+a local div sidesteps that risk entirely.
+
+Files: `lib/magicLinkThemeLock.js` (new),
+`app/performance-report/[token]/page.js`,
+`app/pick-package/[token]/page.js`, `app/config/page.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
+run build` — clean.
+
+## Round 234 — 2026-09-03 — Magic Link Theme: one switch, not one per link
+
+Per explicit correction to round 233: Config → Magic Link Theme is now a
+single switch covering every public magic link this app sends out
+(Performance report share, Package/Media Report offer) instead of a
+separate lock per link. The point was uniformity for external
+recipients — one look regardless of which link they got — not a choice
+per link type.
+
+Also worth correcting explicitly (was asked directly): the theme a
+recipient sees was never really "depends on who created the link" —
+`lib/ThemeContext.js` reads the theme from the VISITOR's own browser's
+`localStorage`, not the sender's. In practice that meant most outside
+recipients (who've never opened this app before) were already just
+seeing the plain default (dark), and only a rare case — like a team
+member testing their own link in a browser where they'd previously
+picked "light" — would see something else. This switch removes that
+inconsistency outright rather than pinning it per link.
+
+`global_settings` row shape simplified from `{ performanceReport, pickPackage }`
+to a flat `{ theme }`; `readMagicLinkThemeLock()` no longer takes a page
+key. No SQL migration involved either round — same as round 233, the row
+is created on first save.
+
+Files: `lib/magicLinkThemeLock.js`,
+`app/performance-report/[token]/page.js`,
+`app/pick-package/[token]/page.js`, `app/config/page.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
+run build` — clean.
+
+## Round 235 — 2026-09-03 — Milestone Log access for AR/Marketing, sticky magic-link header; 2 items already covered
+
+Four-item request. Two needed real changes, two turned out to already be
+true of the app as it stands — called out explicitly below rather than
+building something redundant.
+
+**1. Milestone workstation — AR/Marketing get the Log tab.** Milestone was
+OPS-only (`TEAM_WORKSTATION_TYPES.OPS` in `lib/teamTypes.js`) — AR and
+Marketing profiles never saw the workstation card at all. Added
+`"milestone"` to both teams' arrays there, so the card now shows for them
+too — but deliberately NOT full access: OPS keeps sole ownership of Input
+(the daily chart entry) and Report (the Telegram digest); AR/Marketing get
+the Log tab only (browse + the artist/song filter added round 225).
+Enforced inside `app/workstation/milestone/page.js` itself with a new
+`hasFullAccess = isDev(profile) || isOpsTeam(profile?.segment)` check —
+non-full-access viewers see only the Log tab button and the page renders
+Log directly regardless of `tab` state (so there's no one-render flash of
+the Input platform grid before a viewer's `tab` catches up to being forced
+to "log").
+
+**2. "Add a Send Media Report button next to the package section" — this
+already exists.** Round 188 built exactly this: `app/releases/[id]/page.js`'s
+"Send Artist" button, sitting right under the package/label summary on the
+Overview tab, visible once `media_report_status` is `"ready"`. Clicking it
+confirms, then flips the release's magic link to "sent" and marks the
+release complete — a one-time, irreversible tick, the same "reminder"
+action being asked for. It's not gated to any team (`AppShell` has no
+per-workstation team check on the release detail page, and this button
+specifically isn't behind `canSimulate`), so AR already sees it whenever a
+release reaches that state. No code change — confirmed this is already
+live and in the requested position.
+
+**3. Sticky "info" header on both magic links.** Applied to both
+`app/performance-report/[token]/page.js` and
+`app/pick-package/[token]/page.js` (same pattern already used for the
+cover-image crawl and the theme lock, both of which ended up on both
+links). Wrapped the existing header block (cover image + eyebrow/title/
+artist-date line, plus — on the package link — the partner-benefits note
+beside it) in `position: sticky; top: 0` with its own `var(--bg)`
+background and a bottom border, so it stays pinned as a visible title bar
+once the page's tables/package cards scroll underneath it, instead of
+disappearing off-screen. `top: 0` pins flush to the viewport since both
+are standalone pages with no navbar above them.
+
+**4. Reorder the Apple platform's milestone charts — no change needed.**
+Compared the requested 12-item order against the current
+`PLATFORM_CHARTS.Apple` array in `app/workstation/milestone/page.js`
+character by character: the first 12 entries already match the requested
+order exactly (the array's remaining 3 — Vietnam iTunes Top Songs, Apple
+Daily Album, New Release on Apple — weren't in the requested list, kept
+in place after the 12 as before). Nothing to reorder.
+
+Files: `lib/teamTypes.js`, `app/workstation/milestone/page.js`,
+`app/performance-report/[token]/page.js`, `app/pick-package/[token]/page.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings — one new warning from the
+Log-only redirect effect was fixed by adding `tab` to its dependency
+array), and a full `npm run build` — clean.
+
+## Round 236 — 2026-09-03 — "Send Artist" moved onto the status card; Log tab browses by date
+
+Two-item follow-up.
+
+**"Send Artist" moved again.** Round 235's note pointed out this button
+already existed; per follow-up with a screenshot, it wasn't sitting where
+it was wanted — round 188 had it under the Label/Hợp Tác column, but the
+ask was the empty space to the right of the "Trạng Thái Gói (Loại Dự Án)"
+status card itself. `PipelineControl` (that card) now takes
+`mediaReportStatus`/`onSendArtistMediaReport` props and renders the
+button (or the "✓ Sent to Artist" confirmation) absolutely positioned in
+its own top-right corner — same one-time, irreversible action as before,
+just relocated. The old spot in the right-hand column is empty now.
+
+**Milestone Log — unfiltered browsing sorts by date, not rank.** The Log
+tab's plain (no artist/song filter) view used to inherit the same
+rank-first sort built for the FILTERED "what's the best this has ever
+charted" view (round 221) — reasonable for that filtered case, but not
+for just scanning the log day to day. Split the two: browsing without a
+filter now sorts by `entry_date` descending (newest first, rank as
+tiebreaker on same-day rows); typing an artist/song filter still collapses
+to one best-ever-rank row per chart, rank-first, exactly as round 221/225
+left it — untouched.
+
+Not yet done, waiting on the user: a new Milestone log file is coming in
+a follow-up round, at which point the ask is to wipe `milestone_chart_entries`
+entirely and reimport from that file, plus feed its most recent 2 days
+into the Input tab's today/yesterday carry-forward. No file has arrived
+yet — nothing to build until it does.
+
+Files: `app/releases/[id]/page.js`, `app/workstation/milestone/page.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
+run build` — clean.
+
+## Round 237 — 2026-09-03 — Milestone log: 1000-row load cap fixed; CSV accuracy sweep; backup pulled
+
+Prep round ahead of the promised June-CSV wipe-and-reinstate — no data
+touched yet, per explicit request to back up and sweep first.
+
+**Root cause found for "some dates look missing" (most likely explanation
+for the reported June gaps).** `app/workstation/milestone/page.js`'s
+`load()` did a bare `.select("*")` with no pagination — same bug class
+already fixed elsewhere in this app (Booking round 142, Report/TypeSwitcher
+round 150, Releases/Tickets round 59/60 — see `lib/helpers.js`'s
+`fetchAllRows`): Supabase/PostgREST caps a plain `select()` at 1000 rows
+and truncates silently, no error. Pulled today's automated backup
+(`data-backups` branch, `2026-09-03_03h`, ~1.5h old) to check the real
+table size: **18,457 rows** already, nearly 18x the cap. The Input/Report/
+Log tabs have been silently working off whatever partial slice Postgres
+handed back — not the full history — which is the far more likely
+explanation than June's data being genuinely gone (confirmed below: it
+isn't). Fixed by wrapping the fetch in `fetchAllRows`, with `id` added as
+a tiebreaker to `entry_date` for stable `.range()` paging (many rows
+share a date, and `fetchAllRows` needs a unique sort). This needed fixing
+BEFORE any reimport regardless — the round-236 CSV alone adds ~22k more
+rows, which would trip the exact same cap immediately after a fresh
+import otherwise.
+
+**CSV accuracy sweep (the file just sent).** 22,069 real data rows
+(dropped ~5 stray blank/junk rows — isolated leftover cells with no date,
+harmless). Full range: **05/01/2026 to 26/08/2026** — conveniently the
+CSV's own last date already matches the requested "26/8 and before"
+cutoff exactly, so nothing needs trimming out of it.
+5 calendar dates inside that range have zero rows in the CSV at all:
+Jan 10, Jan 11, Feb 25, Feb 26, Feb 27 2026. Cross-checked against the
+live DB backup — it's missing the exact same 5 dates, so this reads as a
+genuine no-data gap from whoever was filling the sheet then, not a sweep
+artifact. June itself: full 30/30 days present in the CSV, 2,977 rows —
+no missing June calendar day in this file. Also checked per-chart gaps
+(a chart missing for a stretch, even on days other charts have data) —
+found several, but the largest ones line up with known tab renames this
+app already normalizes on import (e.g. "HOCHIMINH CITY" / "LOCAL PULSE -
+HOCHIMINH CITY" both appear as separate raw names) rather than real
+missing data; worth a quick human eyeball on the biggest ones before the
+actual reimport, but not blocking.
+
+**What the live DB backup shows that the CSV fills a real gap on:** the
+current table has NO rows at all for 13–24 August 2026 (12 days) — and
+the CSV DOES cover that stretch. So the reimport isn't just re-covering
+old ground; it's filling a real hole. (Live DB's own range is 05/01 to
+02/09/2026 — extends 1 week past the CSV's 26/08 cutoff, from whatever's
+already been logged through the app since the switch; that tail is
+untouched by anything here.)
+
+**Backup delivered, sourced from today's official automated snapshot**
+(`.github/workflows/backup.yml` already runs this every 2h to the
+`data-backups` branch — no separate one-off dump needed since one that
+fresh already existed). Extracted just the `milestone_chart_entries`
+table (18,457 rows) as both CSV and JSON, sent to the user directly —
+this is the pre-wipe safety copy.
+
+Still waiting on the user before touching any data: which reimport
+strategy for the CSV (its raw SEGMENT names need mapping onto this app's
+canonical (platform, chart) pairs the same way `lib/milestoneChartMap.js`'s
+CHART_MAP already does for the existing dataset — not yet built for this
+file's ~90 raw segment names) and explicit go-ahead to wipe
+`milestone_chart_entries` and reinstate from the CSV, plus seed
+today/yesterday's Input carry-forward from its last 2 days.
+
+Files: `app/workstation/milestone/page.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
+run build` — clean.
+
+## Round 238 — 2026-09-03 — Fix: Milestone workstation's inline chart link ignored Tool Directory edits
+
+Real bug, confirmed by explicit report ("i fix in the tools but it still
+there in the workstation" — Apple platform, 2 identical chart URLs).
+
+**Root cause: two separate readers of the same data, only one of them
+dev-editable.** `lib/milestoneChartLinks.js`'s `MILESTONE_CHART_LINKS` is a
+hardcoded chart-name → URL map, seeded once into the Tool Directory's
+"milestone" bucket via `mergeToolDirectory()` (see `lib/toolDirectory.js`).
+Editing a Milestone tool's URL through the Tool Directory page saves an
+override into `app_settings.tool_directory_links` — that part works, and
+the Tool Directory page itself reflects the edit correctly (it reads
+through `mergeToolDirectory`, same as every other bucket). But
+`app/workstation/milestone/page.js`'s own inline "🔗 Tool" button — the
+one sitting right next to the active chart's tab name inside the Input
+tab's chart popup, which is what the user actually looks at while working
+— read `MILESTONE_CHART_LINKS[activeChart]` directly, straight from the
+hardcoded constant, never touching `app_settings` or the merge step at
+all. So a Tool Directory edit changed what the Tool Directory PAGE showed,
+while the workstation's own inline link kept showing the old, hardcoded
+URL forever — exactly the symptom reported.
+
+(Aside, not the bug: `lib/milestoneChartLinks.js`'s round-206 comment does
+call out ONE intentional duplicate on Apple — "APPLE MUSIC - Top ALBUMs
+Vietnam" and "APPLE MUSIC - Top POP Albums" share a URL on purpose, since
+Apple's no-genreId Vietnam top-albums page IS its Pop default view. If
+that's the pair being pointed at, the "fix" may have been correcting that
+intentional choice rather than an accidental copy/paste — worth confirming
+which 2 charts were meant, since the actual bug above would explain the
+edit "not sticking" regardless of which pair it was.)
+
+**Fix:** `MilestoneWorkstation` now fetches and merges
+`app_settings.tool_directory_links` the same way `lib/ToolsButton.js`
+already does for every other bucket (`mergeToolDirectory(data?.value,
+MILESTONE_CHART_LINKS)`), builds a `{chartLabel: url}` map from the merged
+`milestone` bucket's tools, and passes it down to `ChartEntryPopup` as
+`chartLinks` — replacing its direct `MILESTONE_CHART_LINKS` read. Starts
+from the hardcoded defaults (nothing changes before the fetch resolves)
+and swaps in the dev-edited version once it loads, so both the Tool
+Directory page and the workstation's own inline button now agree, always.
+
+Files: `app/workstation/milestone/page.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new), and a full `npm
+run build` — clean.
+
+## Round 239 — 2026-09-03 — Milestone CSV chart-name mapping + wipe/reinstate script (not yet run)
+
+Builds the mapping needed for the promised wipe-and-reinstate — no data
+touched yet, still waiting on a go-ahead per the standing "no live DB
+credentials in this session" limit (the actual wipe+import has to run on
+the user's side).
+
+**Coverage, after this round's additions:** 22,017 of the CSV's 22,069
+real data rows (99.76%) now map cleanly onto this app's canonical
+(platform, chart) pairs via `lib/milestoneChartMap.js`'s shared
+`CHART_MAP` — the same table every prior milestone import script already
+uses. Added 6 new entries this round, all blank-DSP fallbacks: ~73 rows
+across 6 chart names (APPLE MUSIC CHART - Top POP Album, APPLE MUSIC
+CHART - Top ALBUMs Vietnam, APPLE CHARTS - Top ALBUMs Vietnam, Apple
+Playlist | Vietnam Ơi, Apple Playlist | New Music Daily, ZingCharts) had
+the DSP column simply left blank in the export — each already has an
+unambiguous mapping under its normal DSP value elsewhere in the same
+table, so these are pass-through aliases to those same targets, not new
+charts.
+
+**Still unmapped on purpose (52 rows, 28 pairs) — reported and skipped,
+not guessed at**, same convention as every prior import script: one real
+pair worth a decision ("YouTube Vietnam Daily Chart | Weekly", 17 rows —
+doesn't obviously line up with any of the app's 7 YouTube chart entries)
+plus a scattering of platforms/charts this app doesn't track at all
+(NCT, Facebook/Ins, iTunes-as-a-platform, Cambodia/Laos regional Apple
+charts, seasonal "Đón Tết" playlists, a handful of 1-row Zing playlist
+one-offs). Full list prints every dry run.
+
+**Also found while test-running the script: 146 malformed rows in the raw
+CSV (73 pairs) affecting exactly 5 artist names** — Tùng, Đình Nguyễn,
+Sinl, Lục Huy & Châu Bùi, and "TRANG feat. Ban nhạc Không Màu & CAM
+Philharmonic & Nhóm bè Sang Chấn" (long name, embedded "&"s). For these
+specific rows the sheet's own row structure comes apart on export: one
+row lands with every field shifted left by one column and the real
+date/chart/title recoverable only from a trailing helper column that
+itself doesn't include the artist name, immediately followed by a second,
+fully-blank junk row carrying only that artist's name in column A.
+Genuinely ambiguous which field is really the rank once shifted — not
+safe to guess-recover, so the script's dry run currently reports these
+mixed into "unparseable date" / skips them outright. Real but small (146
+of ~22,215 raw lines, 0.66%) — worth a quick check with whoever
+maintains the sheet (these 5 artists' rows specifically) before deciding
+whether to accept losing them or get a cleaner re-export.
+
+**New script:** `scripts/import-milestone-round239-csv.js` — same
+dry-run-first / `--confirm` idiom as the existing xlsx import scripts,
+but WIPES (not merges) — deletes every row with `entry_date <=
+2026-08-26` before writing the CSV back in, since the point is a clean
+authoritative replacement of the pre-app-adoption history rather than a
+merge that could leave stale duplicates from an earlier import sitting
+alongside the new one. Nothing with `entry_date` after that cutoff is
+ever touched (that's the app's own post-27/8 data). Needs to be run with
+real `SUPABASE_SERVICE_ROLE_KEY`/`SUPABASE_URL` — this session has
+neither, so it hasn't been run; dry-run output above came from parsing
+the CSV locally against the (fake-URL) client just to verify the
+report.
+
+Files: `lib/milestoneChartMap.js` (extended),
+`scripts/import-milestone-round239-csv.js` (new).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` (targeted files + whole-project sweep), `npm run lint:scope`
+(0 errors, same 51 pre-existing warnings, nothing new — the new script
+lives in `scripts/`, outside lint's scope, same as every other import
+script), and a full `npm run build` — clean (the CHART_MAP file is
+imported by the live Milestone workstation page).
+
+## Round 240 — 2026-09-03 — Follow-up: recovered the 146 "corrupted" rows; confirmed 1 skip
+
+Two answers to round 239's open items.
+
+**"YouTube Vietnam Daily Chart | Weekly" — confirmed retired**, per
+explicit reply. Stays unmapped/skipped in `CHART_MAP` exactly as it was —
+no code change needed, this just closes out the one real open question
+from round 239's unmapped list.
+
+**The 146 "corrupted" rows — not an `&`/special-character problem, and
+turned out to be fully recoverable.** Traced it down to the exact byte
+pattern: for these specific rows (5 artists — Tùng, Đình Nguyễn, Sinl,
+Lục Huy & Châu Bùi, "TRANG feat. Ban nhạc Không Màu & CAM Philharmonic &
+Nhóm bè Sang Chấn"), the source export split what should be ONE row
+across 3 physical CSV lines: a HEAD line carrying chart/date/title with
+everything after it genuinely blank, a MID line carrying artist/rank/
+platform/length with chart/date blank, and a TAIL line that's just the
+artist name landing a third time with nothing else on it. Confirmed
+byte-for-byte identical across every one of the 73 occurrences before
+trusting it — not a guess. (3 of the 5 affected names have no `&` or any
+other special character at all, so that wasn't it; the actual cause is a
+spreadsheet-export quirk specific to how these particular rows serialized,
+not anything about what the artist was named.)
+
+`scripts/import-milestone-round239-csv.js` now has a `repairSplitRows()`
+pass that detects this exact HEAD/MID/TAIL shape and reconstructs the
+real row (chart+date+title from HEAD, artist+rank+platform from MID)
+before anything else runs, discarding only the informationless TAIL line.
+Re-ran the dry run: 73/73 rows repaired, "unparseable date" skips dropped
+from 149 to 3, "no parseable rank" skips dropped from 148 to 75 (those
+remaining are genuine blank-rank rows in the sheet, not corruption — same
+as the app's own established "carry forward, rank blank" case). Usable
+payload grew from 20,810 to 20,862 ready rows.
+
+Files: `scripts/import-milestone-round239-csv.js`.
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` and re-ran the script's dry run directly against the CSV to
+confirm the repair count and new skip totals (shown above) — this file
+lives in `scripts/`, outside `npm run lint:scope`'s scope and outside
+`npm run build` (not part of the deployed app), same as every other
+import script.
+
+## Round 241 — 2026-09-03 — SQL-file alternative to the round 239 import script (no terminal/creds needed)
+
+Explicit ask: "I also prefer sql run from database to the script import
+by the way. if that's not interchargable, it's fine for me to run the
+script via terminal." It is interchangeable — same transform, same
+result — so this adds the SQL-file path instead of asking for the
+terminal fallback.
+
+`scripts/import-milestone-round239-csv.js` had its payload-building
+logic pulled out of `main()` into two exported functions,
+`buildImportPayload(csvText)` (parse → `repairSplitRows()` → `CHART_MAP`
+lookup → dedupe) and `printReport(result, confirm)` (the same dry-run/
+confirm console report as before), via
+`module.exports = { buildImportPayload, printReport, CUTOFF_DATE }`. The
+live-DB script itself is unchanged in behavior — `main()` still does the
+same thing, just calling the extracted functions instead of having the
+logic inline. Re-ran the dry run post-refactor directly against the
+team's CSV to confirm nothing shifted: still 73/73 rows repaired, still
+20,862 ready rows, still the same 28 unmapped (segment, dsp) pairs
+(including "YouTube Vietnam Daily Chart | Weekly", confirmed retired) —
+identical to round 240's numbers.
+
+New file `scripts/generate-milestone-round239-sql.js` requires those
+exports and emits a plain `.sql` file instead of talking to Supabase —
+no service-role key, no terminal step beyond generating the file once.
+Wrapped in `BEGIN;`/`COMMIT;` so a mid-run failure rolls back instead of
+leaving the table half-wiped, half-reinstated:
+`DELETE FROM milestone_chart_entries WHERE entry_date <= '2026-08-26';`
+then batches of 500-row `INSERT ... ON CONFLICT (chart, track_title,
+artist, entry_date) DO UPDATE SET platform = excluded.platform, rank =
+excluded.rank, did = excluded.did;` — same natural key and same upsert
+semantics as the live script, just as SQL text. Values are escaped via a
+`sqlStr()` helper (`'` → `''`); spot-checked against a title that
+actually contains a literal apostrophe and confirmed it double-escapes
+correctly.
+
+Ran the generator against the team's CSV and it's included in this
+delivery, ready to run as-is:
+`sql/pending/round240-milestone-wipe-reinstate.sql` — 20,862 rows, 42
+INSERT batches. Paste it directly into the Supabase SQL editor; nothing
+with `entry_date` after 2026-08-26 is touched (that's the app's own
+post-27/8 data, never wiped by this file).
+
+Files: `scripts/import-milestone-round239-csv.js` (refactored, behavior
+unchanged), `scripts/generate-milestone-round239-sql.js` (new),
+`sql/pending/round240-milestone-wipe-reinstate.sql` (new, generated —
+not yet run against the live database; that's on the team, no live
+credentials in this session).
+
+Verified with `tsc --jsx react --allowJs --checkJs false --skipLibCheck
+--noEmit` on both scripts, `npm run lint:scope` (0 errors, same 51
+pre-existing warnings — both scripts live in `scripts/`, outside lint's
+scope), and by re-running the dry run post-refactor to confirm identical
+output to round 240 (shown above). No `npm run build` needed — neither
+file is imported by the live app.

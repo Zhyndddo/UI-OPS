@@ -8,6 +8,7 @@ import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGia
 import { useIsMobile } from "../../../lib/useIsMobile";
 import { computeNextMaPL } from "../../../lib/phuLucCounter";
 import { findDuplicateTicketKeys } from "../../../lib/duplicateTicketGuard";
+import { readMagicLinkThemeLock } from "../../../lib/magicLinkThemeLock";
 import styles from "../../shared.module.css";
 
 function fmtVnd(n) {
@@ -360,6 +361,17 @@ export default function PickPackagePage() {
   // bleeds on top of the neighboring Chi Tiết column's text instead of
   // wrapping to a second line).
   const isMobile = useIsMobile();
+
+  // Round 233 — dev-configurable theme lock (Config → Magic Link Theme),
+  // same idiom as the Performance report share page. Independent of the
+  // token/link load below so it resolves as early as possible; null (no
+  // lock configured, or the fetch itself fails) means "behave exactly as
+  // before" — the visitor's own saved theme.
+  const [themeLock, setThemeLock] = useState(null);
+  useEffect(() => {
+    if (!supabase) return;
+    readMagicLinkThemeLock(supabase).then(setThemeLock);
+  }, []);
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -846,8 +858,8 @@ export default function PickPackagePage() {
     setFeedbackText("");
   }
 
-  if (loading) return <div className={styles.page}><div className={styles.container} style={{ maxWidth: 640 }}>Loading…</div></div>;
-  if (error) return <div className={styles.page}><div className={styles.container} style={{ maxWidth: 640 }}><div className={styles.errorBox}>{error}</div></div></div>;
+  if (loading) return <div className={styles.page} data-theme={themeLock || undefined}><div className={styles.container} style={{ maxWidth: 640 }}>Loading…</div></div>;
+  if (error) return <div className={styles.page} data-theme={themeLock || undefined}><div className={styles.container} style={{ maxWidth: 640 }}><div className={styles.errorBox}>{error}</div></div></div>;
 
   const isLocked = magicLink?.locked || release?.package_locked;
   // Round 54 — this same link is "Package Offer" until the Booking Board's
@@ -880,7 +892,7 @@ export default function PickPackagePage() {
   const compactOptions = visibleOptions.filter((c) => c.kind === "simple");
 
   return (
-    <div className={styles.page}>
+    <div className={styles.page} data-theme={themeLock || undefined}>
       <div className={styles.container} style={{ maxWidth: 1320 }}>
         {/* Per explicit request (picture 1) — "Quyền Lợi Dành Cho Đơn Vị
             Truyền Thông" moves to the very top, split side-by-side with
@@ -894,36 +906,56 @@ export default function PickPackagePage() {
             those are shared classes used across every other page. Column
             widened (320px -> 420px min) so the bigger title still has room
             to stay on one line instead of wrapping. */}
-        <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap", marginBottom: 10 }}>
-          <div style={{ flex: "1 1 420px", display: "flex", alignItems: "center", gap: ogImage ? 20 : 0 }}>
-            {/* Round 231 — cover image (when crawled) sits left of the
-                name, same idiom as the Performance magic link; header text
-                scales up alongside it so it reads as one deliberate block
-                rather than a small image jammed next to unchanged text. No
-                image → exactly the original layout, unchanged. */}
-            {ogImage && (
-              <img
-                src={ogImage}
-                alt=""
-                style={{ width: 96, height: 96, borderRadius: 14, objectFit: "cover", flexShrink: 0, border: "1px solid var(--border)" }}
-                onError={() => setOgImage(null)}
-              />
-            )}
-            <div>
-              <div className={styles.eyebrow} style={{ fontSize: ogImage ? 18 : 17 }}>// {linkName.toLowerCase()}</div>
-              <h1 className={styles.title} style={{ marginBottom: 4, fontSize: ogImage ? 42 : 39, whiteSpace: "nowrap" }}>
-                {release?.title}
-              </h1>
-              <div style={{ color: "var(--text-faint)", fontSize: ogImage ? 19 : 18 }}>
-                {/* Round 69 — item 2: feature artist added, "Main ft. Feature" */}
-                {release?.main_artist}{release?.feature_artist ? ` ft. ${release.feature_artist}` : ""} · {release?.release_date} {release?.release_time}
+        {/* Round 235 — sticky "title row" per explicit request ("make the
+            info part become sticky when they scroll out of it sight") —
+            same treatment as the Performance magic link page: the whole
+            header (identity block + the partner-benefits note beside it)
+            pins to the top of the viewport once scrolled past, with its
+            own opaque background/border so it reads as a distinct pinned
+            bar rather than floating over whatever's now underneath it. */}
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 5,
+            background: "var(--bg)",
+            paddingTop: 12,
+            paddingBottom: 10,
+            borderBottom: "1px solid var(--border)",
+          }}
+        >
+          <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 420px", display: "flex", alignItems: "center", gap: ogImage ? 20 : 0 }}>
+              {/* Round 231 — cover image (when crawled) sits left of the
+                  name, same idiom as the Performance magic link; header text
+                  scales up alongside it so it reads as one deliberate block
+                  rather than a small image jammed next to unchanged text. No
+                  image → exactly the original layout, unchanged. */}
+              {ogImage && (
+                <img
+                  src={ogImage}
+                  alt=""
+                  style={{ width: 96, height: 96, borderRadius: 14, objectFit: "cover", flexShrink: 0, border: "1px solid var(--border)" }}
+                  onError={() => setOgImage(null)}
+                />
+              )}
+              <div>
+                <div className={styles.eyebrow} style={{ fontSize: ogImage ? 18 : 17 }}>// {linkName.toLowerCase()}</div>
+                <h1 className={styles.title} style={{ marginBottom: 4, fontSize: ogImage ? 42 : 39, whiteSpace: "nowrap" }}>
+                  {release?.title}
+                </h1>
+                <div style={{ color: "var(--text-faint)", fontSize: ogImage ? 19 : 18 }}>
+                  {/* Round 69 — item 2: feature artist added, "Main ft. Feature" */}
+                  {release?.main_artist}{release?.feature_artist ? ` ft. ${release.feature_artist}` : ""} · {release?.release_date} {release?.release_time}
+                </div>
               </div>
             </div>
-          </div>
-          <div style={{ flex: "1 1 360px" }}>
-            <MediaPartnerNote defaultCollapsed={isMediaReport} />
+            <div style={{ flex: "1 1 360px" }}>
+              <MediaPartnerNote defaultCollapsed={isMediaReport} />
+            </div>
           </div>
         </div>
+        <div style={{ marginBottom: 10 }} />
 
         {isLocked && (
           <div className={styles.errorBox} style={{ background: "var(--bg-hover)", borderColor: "var(--border-strong)", color: "var(--text-muted)" }}>

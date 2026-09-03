@@ -1740,12 +1740,34 @@ function Field({ label, children, style }) {
 // MARKETING, and Marketing completing that ticket is what moves SENT TO
 // MARKETING -> DEALING. Once resolved to a real package, shows that value
 // read-only plus the derived Phụ Lục requirement.
-function PipelineControl({ form, update, setTab }) {
+// Round 236 — "Send Artist" (see onSendArtistMediaReport below) moved
+// again, per explicit follow-up with a screenshot: into the blank space
+// on the right side of THIS card, instead of sitting further down in the
+// Label/Hợp Tác column. Absolutely positioned within this card (now
+// position:relative) rather than added to the top flex row, since that
+// row's content (badge, "View package details", stage hints) is left-
+// aligned and variable-width — an absolute top-right placement lands in
+// the same empty area regardless of how much of that row is filled.
+function PipelineControl({ form, update, setTab, mediaReportStatus, onSendArtistMediaReport }) {
   const stage = form.project_type;
   const isPipelineStage = PIPELINE_STAGES.includes(stage);
 
   return (
-    <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14, marginBottom: 20 }}>
+    <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14, marginBottom: 20, position: "relative" }}>
+      {mediaReportStatus === "ready" && (
+        <button
+          className={styles.btnSmall}
+          onClick={onSendArtistMediaReport}
+          style={{ position: "absolute", top: 14, right: 14, border: "1px solid #ffca4d", color: "#ffca4d" }}
+        >
+          Send Artist
+        </button>
+      )}
+      {mediaReportStatus === "sent" && (
+        <div style={{ position: "absolute", top: 14, right: 14, fontSize: 11, color: "#7ee6a8", fontWeight: 700 }}>
+          ✓ Sent to Artist
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.15)", color: "#ff9d5c" }}>
           {stage}
@@ -1949,7 +1971,7 @@ function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requir
           ) : (
             <>
               <div className={styles.subheading} style={{ marginTop: 0 }}>Trạng Thái Gói (Loại Dự Án)</div>
-              <PipelineControl form={form} update={update} setTab={setTab} />
+              <PipelineControl form={form} update={update} setTab={setTab} mediaReportStatus={form.media_report_status} onSendArtistMediaReport={onSendArtistMediaReport} />
 
               {/* Round 72 — item 3: moved here from further down the page
                   (used to sit right before the Upload section, well below
@@ -2015,25 +2037,11 @@ function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requir
               </div>
             </div>
           )}
-          {/* Round 188 — "Send Artist" moved here from the Booking Board's
-              Media Report cell, per explicit request ("right next to the
-              package, in the between of label and package text"). Only
-              shows once the Booking Board's "Convert Media Report" step
-              has run (media_report_status "ready") — nothing to send
-              before that. Same one-time click as before: confirms, then
-              locks to "sent" and marks the release complete. */}
-          {form.media_report_status === "ready" && (
-            <div style={{ marginTop: 4 }}>
-              <button className={styles.btnSmall} onClick={onSendArtistMediaReport} style={{ border: "1px solid #ffca4d", color: "#ffca4d" }}>
-                Send Artist
-              </button>
-            </div>
-          )}
-          {form.media_report_status === "sent" && (
-            <div style={{ marginTop: 4, fontSize: 11, color: "#7ee6a8", fontWeight: 700 }}>
-              ✓ Sent to Artist
-            </div>
-          )}
+          {/* Round 188 — originally "Send Artist" lived here, right next to
+              the package/label text. Round 236 moved it into the blank
+              space on PipelineControl's own card instead (see that
+              component, above) per explicit follow-up with a screenshot —
+              nothing left to render at this spot any more. */}
         </div>
       </div>
 
