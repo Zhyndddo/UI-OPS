@@ -1396,106 +1396,117 @@ export default function ReleaseDetailPage() {
 
   return (
     <AppShell>
-    <div className={styles.page}>
-      <div className={styles.container}>
-        <Link href="/releases" className={styles.backLink}>
-          ← Back to New Release
-        </Link>
+    {/* Round 257 — the page's own 3-layer model, per explicit request:
+        Layer 1 is AppShell's frame (Sidebar + TopBar, fixed — untouched
+        here); Layer 2 is the block right below (back link, identification
+        + note panel, tab bar) — genuinely fixed in place now, not sticky-
+        following a document scroll; Layer 3 is the one thing that
+        actually scrolls, in its own overflow:auto box. This replaces
+        Round 255's position:sticky first pass, which only ever
+        half-worked — sticky is scoped to whatever ancestor happens to
+        scroll, and that ancestor was the whole document, so the header
+        visibly slid before "catching." Giving Layer 2 and Layer 3 their
+        own real boxes (this outer flex column is exactly
+        100vh - topbar height, so the page itself never scrolls — only
+        Layer 3 does) is the fix, same idea as Booking Board's CellPopup
+        working around the same scroll/clipping family of issues
+        elsewhere in this app. */}
+    <div
+      style={{
+        height: "calc(100vh - var(--topbar-height))",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        background: "var(--bg)",
+        color: "var(--text)",
+      }}
+    >
+      {/* Layer 2 — unmoving. */}
+      <div style={{ flexShrink: 0, padding: "32px 24px 0", boxShadow: "0 4px 6px -4px rgba(0, 0, 0, 0.35)", position: "relative", zIndex: 1 }}>
+        <div className={styles.container}>
+          <Link href="/releases" className={styles.backLink}>
+            ← Back to New Release
+          </Link>
 
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20, alignItems: "start", marginBottom: 20 }}>
-          {/* Round 255 — sticky header, per explicit request. Same
-              convention app/shared.module.css's sticky table headers
-              already use (top: var(--topbar-height), matching background,
-              same drop-shadow instead of a border) rather than inventing a
-              new one. Only this left identification block is sticky, not
-              the whole 2-col grid row — ReleaseNotePanel on the right stays
-              in normal flow. If ReleaseNotePanel ends up taller than this
-              block on a given release (long notes), this block will stay
-              stuck for the height of that difference and then release once
-              the row's actually done — a real quirk of sticky being scoped
-              to its containing block, not a bug. Per explicit note ("if it
-              need another container like the booking board, we'll
-              re-evaluate") this is the simple first pass; a dedicated
-              scroll container is the next step if this quirk is a problem
-              in practice. */}
-          <div
-            style={{
-              position: "sticky", top: "var(--topbar-height)", zIndex: 20,
-              background: "var(--bg)", boxShadow: "0 4px 6px -4px rgba(0, 0, 0, 0.35)",
-              paddingBottom: 10,
-            }}
-          >
-            <div className={styles.eyebrow}>{form.did || "—"}</div>
-            {firstUrl(form.link_lbm) ? (
-              <a
-                href={firstUrl(form.link_lbm)}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ display: "block", textDecoration: "none" }}
-                title={firstUrl(form.link_lbm)}
-              >
-                <h1 className={styles.title} style={{ marginBottom: 4, color: "inherit" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20, alignItems: "start", marginBottom: 20 }}>
+            <div>
+              <div className={styles.eyebrow}>{form.did || "—"}</div>
+              {firstUrl(form.link_lbm) ? (
+                <a
+                  href={firstUrl(form.link_lbm)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: "block", textDecoration: "none" }}
+                  title={firstUrl(form.link_lbm)}
+                >
+                  <h1 className={styles.title} style={{ marginBottom: 4, color: "inherit" }}>
+                    {form.title} — {form.main_artist}
+                  </h1>
+                </a>
+              ) : (
+                <h1 className={styles.title} style={{ marginBottom: 4 }}>
                   {form.title} — {form.main_artist}
                 </h1>
-              </a>
-            ) : (
-              <h1 className={styles.title} style={{ marginBottom: 4 }}>
-                {form.title} — {form.main_artist}
-              </h1>
-            )}
-            {/* Round 86 item 5 — product tag pills, right next to the Name row */}
-            <ProductTagPills styles={styles} release={form} tagSets={productTagSets} style={{ marginBottom: 8 }} />
-            <div style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: form.upc ? 4 : 14, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span>{form.release_date} {form.release_time}</span>
-              {/* Round 255 — Publishing / YouTube gate pills, per explicit
-                  request: only shown once the gate is actually "Yes" (not
-                  "No" or "TBU" — see GATE_OPTIONS in lib/GateFields.js),
-                  orange while its linked ticket is still open, green once
-                  that ticket's status is COMPLETE. gateTicketMap already
-                  holds these tickets (fetched once on load, keyed by
-                  ticket type — see the useState near the top of this
-                  component), so this is zero new queries. */}
-              <GateStatusPill label="Publishing" gateOn={form.gate_publishing === "true"} ticket={gateTicketMap?.publishing} />
-              <GateStatusPill label="YouTube" gateOn={form.gate_co_trong_net_youtube === "true"} ticket={gateTicketMap?.co_trong_net_youtube} />
-            </div>
-            {form.upc && (
-              <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 14 }}>
-                UPC: <span style={{ color: "var(--text-faint)" }}>{form.upc}</span>
+              )}
+              {/* Round 86 item 5 — product tag pills, right next to the Name row */}
+              <ProductTagPills styles={styles} release={form} tagSets={productTagSets} style={{ marginBottom: 8 }} />
+              <div style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: form.upc ? 4 : 14, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span>{form.release_date} {form.release_time}</span>
+                {/* Round 255 — Publishing / YouTube gate pills, per explicit
+                    request: only shown once the gate is actually "Yes" (not
+                    "No" or "TBU" — see GATE_OPTIONS in lib/GateFields.js),
+                    orange while its linked ticket is still open, green once
+                    that ticket's status is COMPLETE. gateTicketMap already
+                    holds these tickets (fetched once on load, keyed by
+                    ticket type — see the useState near the top of this
+                    component), so this is zero new queries. */}
+                <GateStatusPill label="Publishing" gateOn={form.gate_publishing === "true"} ticket={gateTicketMap?.publishing} />
+                <GateStatusPill label="YouTube" gateOn={form.gate_co_trong_net_youtube === "true"} ticket={gateTicketMap?.co_trong_net_youtube} />
               </div>
-            )}
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <LinkPill label="Link Drive" href={firstUrl(form.drive_link)} />
-              <span style={{ color: "#444" }}>|</span>
-              <LinkPill label="Smartlink" href={firstUrl(form.smartlink)} />
-              <span style={{ color: "#444" }}>|</span>
-              {/* Round 66 — item 1: same "Package Offer" -> "Media Report"
-                  label swap already used below for the Link Media Report
-                  field (see form.media_report_status), applied here too —
-                  UI label only, doesn't touch what the link actually is. */}
-              <LinkPill label={form.media_report_status ? "Media Report" : "Package Offer"} href={magicLinkUrl} />
-              <span style={{ color: "#444" }}>|</span>
-              <LinkPill label="Promotion Package" href={firstUrl(form.promotion_package_url)} />
+              {form.upc && (
+                <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 14 }}>
+                  UPC: <span style={{ color: "var(--text-faint)" }}>{form.upc}</span>
+                </div>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <LinkPill label="Link Drive" href={firstUrl(form.drive_link)} />
+                <span style={{ color: "#444" }}>|</span>
+                <LinkPill label="Smartlink" href={firstUrl(form.smartlink)} />
+                <span style={{ color: "#444" }}>|</span>
+                {/* Round 66 — item 1: same "Package Offer" -> "Media Report"
+                    label swap already used below for the Link Media Report
+                    field (see form.media_report_status), applied here too —
+                    UI label only, doesn't touch what the link actually is. */}
+                <LinkPill label={form.media_report_status ? "Media Report" : "Package Offer"} href={magicLinkUrl} />
+                <span style={{ color: "#444" }}>|</span>
+                <LinkPill label="Promotion Package" href={firstUrl(form.promotion_package_url)} />
+              </div>
             </div>
+
+            <ReleaseNotePanel form={form} update={update} team={topNoteTeam} setTeam={setTopNoteTeam} />
           </div>
 
-          <ReleaseNotePanel form={form} update={update} team={topNoteTeam} setTeam={setTopNoteTeam} />
+          {error && <div className={styles.errorBox}>{error}</div>}
+          {saved && <div className={styles.successBox}>Saved.</div>}
+
+          <div className={styles.tabBar}>
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                className={`${styles.tabBtn} ${tab === t.key ? styles.tabBtnActive : ""}`}
+                onClick={() => setTab(t.key)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
+      </div>
 
-        {error && <div className={styles.errorBox}>{error}</div>}
-        {saved && <div className={styles.successBox}>Saved.</div>}
-
-        <div className={styles.tabBar}>
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              className={`${styles.tabBtn} ${tab === t.key ? styles.tabBtnActive : ""}`}
-              onClick={() => setTab(t.key)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
+      {/* Layer 3 — the only part of this page that scrolls. */}
+      <div style={{ flex: 1, overflowY: "auto" }}>
+      <div style={{ padding: "20px 24px 80px" }}>
+      <div className={styles.container}>
         {tab === "overview" && (
           <OverviewTab
             form={form}
@@ -1574,6 +1585,8 @@ export default function ReleaseDetailPage() {
         {tab === "pre_release" && <PreReleaseTab form={form} update={update} onSave={saveTab} saving={saving} />}
         {tab === "streaming_milestone" && <StreamingMilestoneTab form={form} />}
         {tab === "tasklist" && <TasklistTab form={form} bookingEntries={bookingEntries} />}
+      </div>
+      </div>
       </div>
     </div>
     <DuplicateTicketWarning
