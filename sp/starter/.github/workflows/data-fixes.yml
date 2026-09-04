@@ -1,0 +1,159 @@
+name: Data Fix Scripts
+
+# Manual-only, on-demand runner for the one-time backfill/import scripts in
+# scripts/ (backfill-did-suffix.js, backfill-ar-to-ops.js,
+# backfill-linkshare-timing.js, import-brief.js, import-ops-tracking.js,
+# import-booking.js) —
+# lets you run them from the Actions tab without needing Node.js installed
+# on your own machine. Defaults to a dry run (no `confirm` input) so you
+# can read the planned changes in the job log before actually writing
+# anything — re-run with confirm checked once the dry run looks right.
+#
+# This workflow only ever touches your Supabase database directly; it
+# never commits or pushes anything, so running it has no effect on git or
+# on Vercel deploys.
+#
+# import-brief and import-ops-tracking both need an actual .xlsx file —
+# commit it to the repo first (e.g. data/brief-import.xlsx,
+# data/ops-tracking-import.xlsx) since Actions can't take a file upload
+# through this dropdown, only text. file_path below tells the script where
+# to find it; leave it as the default if that's where you put it.
+#
+# Run import-brief BEFORE import-ops-tracking — the OPS import matches
+# rows to releases by legacy_id, which import-brief is what sets.
+#
+# import-legacy-orders (v1 Firebase -> v2 migration for Phái Sinh / Manual
+# Claim, the only two v1 collections that had data) takes two JSON files —
+# commit them to the repo too (e.g. data/phai-sinh-export.json,
+# data/manual-claim-export.json) and set file_path / file_path_2. Either
+# can be left blank if you're only importing one of the two.
+#
+# import-booking-channels reads its data from a fixed path in the repo
+# (data/booking-channels-import.json, already committed — no file_path
+# input needed) and writes into booking_channels. Run
+# add-booking-channels-reference-fields.sql against the database FIRST —
+# see DATA_FIXES.md — this script writes into columns that migration adds.
+#
+# import-design-tickets reads its data from a fixed path in the repo
+# (data/design-tickets-import.json, already committed — no file_path
+# input needed) and writes into tickets (tab "design"). Idempotent via
+# legacy_id — safe to re-run. It also tries to link each ticket's
+# executor to a profiles row (pic_profile_id) on an exact, unambiguous
+# name match — if you add those profiles AFTER already running this with
+# confirm once, use backfill-design-executor-profile below to fix the
+# already-inserted rows (re-running import-design-tickets won't touch
+# them, since it skips existing legacy_ids).
+#
+# backfill-design-executor-profile takes no file_path — it reads/writes
+# the database directly. Safe to re-run.
+#
+# audit-booking-board is READ-ONLY — it never writes anything, `confirm`
+# has no effect on it. Run with file_path blank for an all-releases
+# mismatch summary, or put a release's DID in file_path to dump full
+# diagnostics for just that one release.
+#
+# audit-release-channel is also READ-ONLY, no file_path needed. Prints
+# every distinct value seen in releases.requester_segment (the New
+# Release dashboard's "Channel" column) and flags any that aren't exactly
+# "VIEENT" or "ENVI" — those imported/legacy values are really in the
+# database, they just don't match either <option> the dashboard's
+# dropdown offers, so they silently render blank there.
+#
+# audit-pre-release-fields is also READ-ONLY, no file_path needed. Same
+# check as audit-release-channel but for the Pre-release workstation's 6
+# picker columns (CANVA, MV, Artist Pick, Musixmatch Status, NCT Lyric,
+# Zing Lyric) — flags any release whose value in one of those fields
+# doesn't match that field's fixed option list.
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "Which backfill script to run"
+        required: true
+        type: choice
+        options:
+          - backfill-did-suffix
+          - backfill-ar-to-ops
+          - backfill-linkshare-timing
+          - backfill-legacy-id
+          - import-brief
+          - import-ops-tracking
+          - repair-brief-ticks
+          - repair-project-type-prefix
+          - cleanup-duplicate-media-booking
+          - import-booking
+          - import-legacy-orders
+          - backfill-send-upload
+          - import-booking-channels
+          - fix-booking-channels-direct
+          - import-design-tickets
+          - backfill-design-executor-profile
+          - audit-booking-board
+          - audit-release-channel
+          - audit-pre-release-fields
+      confirm:
+        description: "Actually write changes (unchecked = dry run only) — ignored by audit-booking-board, which never writes anything"
+        required: false
+        type: boolean
+        default: false
+      file_path:
+        description: "import-brief / import-ops-tracking / import-booking / import-legacy-orders — path (in this repo) to the .xlsx or .json. audit-booking-board — leave blank for an all-releases summary, or put one release's DID here to dump full diagnostics for just that release."
+        required: false
+        default: "data/brief-import.xlsx"
+      file_path_2:
+        description: "import-legacy-orders only — path to the second .json file (leave blank to import just one)"
+        required: false
+        default: ""
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22 # see backup.yml — @supabase/supabase-js needs native WebSocket, only present from Node 22
+
+      - name: Install dependencies
+        run: |
+          npm install @supabase/supabase-js --no-save
+          if [ "${{ inputs.script }}" = "import-brief" ] || [ "${{ inputs.script }}" = "import-ops-tracking" ] || [ "${{ inputs.script }}" = "repair-brief-ticks" ] || [ "${{ inputs.script }}" = "import-booking" ]; then
+            npm install xlsx --no-save
+          fi
+
+      - name: Run ${{ inputs.script }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ "${{ inputs.script }}" = "import-legacy-orders" ]; then
+            if [ "${{ inputs.confirm }}" = "true" ]; then
+              node scripts/${{ inputs.script }}.js "${{ inputs.file_path }}" "${{ inputs.file_path_2 }}" --confirm
+            else
+              node scripts/${{ inputs.script }}.js "${{ inputs.file_path }}" "${{ inputs.file_path_2 }}"
+            fi
+          elif [ "${{ inputs.script }}" = "import-brief" ] || [ "${{ inputs.script }}" = "import-ops-tracking" ] || [ "${{ inputs.script }}" = "repair-brief-ticks" ] || [ "${{ inputs.script }}" = "import-booking" ]; then
+            if [ "${{ inputs.confirm }}" = "true" ]; then
+              node scripts/${{ inputs.script }}.js "${{ inputs.file_path }}" --confirm
+            else
+              node scripts/${{ inputs.script }}.js "${{ inputs.file_path }}"
+            fi
+          elif [ "${{ inputs.script }}" = "audit-booking-board" ]; then
+            # Read-only — never takes --confirm. file_path is repurposed as
+            # an optional DID here (not a repo file path) — pass it through
+            # as-is (including blank, for the all-releases summary).
+            node scripts/audit-booking-board.js "${{ inputs.file_path }}"
+          elif [ "${{ inputs.script }}" = "audit-release-channel" ]; then
+            # Read-only — never takes --confirm, no file_path needed.
+            node scripts/audit-release-channel.js
+          elif [ "${{ inputs.script }}" = "audit-pre-release-fields" ]; then
+            # Read-only — never takes --confirm, no file_path needed.
+            node scripts/audit-pre-release-fields.js
+          elif [ "${{ inputs.confirm }}" = "true" ]; then
+            node scripts/${{ inputs.script }}.js --confirm
+          else
+            node scripts/${{ inputs.script }}.js
+          fi

@@ -1,0 +1,260 @@
+import { supabase } from "./supabaseClient";
+import { isExecutorSegment } from "./teamTypes";
+import { isKhoNhacType } from "./phaiSinhTypes";
+import { fetchAllRows } from "./helpers";
+
+// Terminal statuses for the shared English vocab (REQUESTED/PROCESS/
+// COMPLETE/REFUND/CANCELED). REFUND is terminal from the executor's side
+// (they've handled it, kicked it back) but NOT from the requester's side
+// (it's still their problem — needs fixing and resubmitting), so it
+// counts toward "not done" only in the requester view.
+const TERMINAL_EXECUTOR = ["COMPLETE", "CANCELED", "REFUND"];
+const TERMINAL_REQUESTER = ["COMPLETE", "CANCELED"];
+
+// Report Conflict uses its own Vietnamese vocab — "Từ chối" (Rejected) is
+// its REFUND-equivalent, same asymmetric rule applies.
+const TERMINAL_REPORT_CONFLICT_EXECUTOR = ["Hoàn thành", "Từ chối", "Hủy"];
+const TERMINAL_REPORT_CONFLICT_REQUESTER = ["Hoàn thành", "Hủy"];
+
+// Round 34 — Design's own vocabulary (REQUEST/PROCESS/PENDING/REVISE/
+// COMPLETE/CANCEL, see lib/designFlow.js) doesn't fit TERMINAL_EXECUTOR/
+// TERMINAL_REQUESTER above: "CANCEL" (no D) wouldn't match the generic
+// "CANCELED" literal, and PENDING/REVISE are active work states (not a
+// REFUND-style "kicked back, requester's problem now" state) — both count
+// as "not done" for BOTH sides, no asymmetry like the generic types have.
+const TERMINAL_DESIGN = ["COMPLETE", "CANCEL"];
+
+// Which generic ticket types have a real requester/executor split, and
+// which team is the executor — matches ticketConfigs.js. Bespoke types
+// (design, media_booking, newrelease_upload, phu_luc) have no dual view
+// of their own, always counted the executor way.
+const DUAL_VIEW_EXECUTOR_TEAM = {
+  // Round 41 — Phái Sinh (Batch) merged into "phai_sinh" (Type = Kho
+  // nhạc / Chuyển net / Takedown drives the batch flow within this one
+  // tab now, see lib/phaiSinhTypes.js). Same OPS-executes/AR-requests
+  // split as before; its "not done" COUNT is bespoke (see
+  // ticketNotDoneCount below) — per explicit request, each Kho Nhạc-
+  // family ticket's songs count as their own workload items, not the
+  // parent ticket as one, while plain Phái sinh tickets still count 1
+  // each same as any other generic type.
+  phai_sinh: "OPS",
+  manual_claim: "OPS",
+  report_conflict: "OPS",
+  artist_profile: "OPS",
+  pitching_info: "AR",
+  // Pitching now also has a dedicated ticket page (app/tickets/pitching)
+  // in addition to the OPS-only Pitching Workstation — same dual view as
+  // every other generic type: OPS executes, AR requests.
+  pitching: "OPS",
+  // New Data Request / Legal Request sub-tickets — matches
+  // executorTeam in lib/ticketConfigs.js for each.
+  co_trong_net_youtube: "OPS",
+  pre_order_itunes: "OPS",
+  priority_sync_lyric: "OPS",
+  mv_spotify: "OPS",
+  discovery_mode_spotify: "OPS",
+  sony_publish: "OPS",
+  split_share: "Legal",
+  phu_luc_mg: "Legal",
+  phu_luc_publishing: "Legal",
+  // Round 82 item 3 — 3 new blank Legal Request-style ticket types, same
+  // dual-view shape as split_share/phu_luc_mg/phu_luc_publishing above.
+  hop_dong_youtube: "Legal",
+  hop_dong_publishing: "Legal",
+  hop_dong_nhac_so: "Legal",
+  // phu_luc_truyen_thong retired (merged into "phu_luc" — see
+  // GATE_TICKET_TYPES's comment in lib/GateFields.js). "phu_luc" itself
+  // deliberately stays OUT of this map — no dual-view change requested,
+  // it keeps its existing single flat view for everyone.
+};
+
+function isExecutorView(typeKey, profile) {
+  const team = DUAL_VIEW_EXECUTOR_TEAM[typeKey];
+  if (!team) return true; // no dual view for this type — always "executor" rules
+  return profile?.role === "dev" || isExecutorSegment(profile?.segment, team);
+}
+
+async function ticketNotDoneCount(typeKey, profile) {
+  // Round 41 — Phái Sinh merged with the former Phái Sinh (Batch): plain
+  // Phái sinh tickets count 1 each (normal terminal-status rule below);
+  // Kho Nhạc-family tickets (Type = Kho nhạc / Chuyển net / Takedown)
+  // instead count their phai_sinh_batch_items children — "treat each
+  // children row a workload row aka N item rather 1 item per batch" per
+  // the original explicit request, carried over unchanged by the merge.
+  // Children have no REFUND-equivalent state, so COMPLETE/CANCELED are
+  // terminal for both sides, same as before.
+  if (typeKey === "phai_sinh") {
+    const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "phai_sinh").single();
+    if (!tab) return null;
+    const { data: tickets } = await supabase.from("tickets").select("id, status, data").eq("tab_id", tab.id).is("deleted_at", null);
+    if (!tickets) return 0;
+    const executor = isExecutorView("phai_sinh", profile);
+    const terminal = executor ? TERMINAL_EXECUTOR : TERMINAL_REQUESTER;
+    const plainCount = tickets.filter((t) => !isKhoNhacType(t.data?.typeRequest) && !terminal.includes(t.status)).length;
+    const batchTicketIds = tickets.filter((t) => isKhoNhacType(t.data?.typeRequest)).map((t) => t.id);
+    let batchCount = 0;
+    if (batchTicketIds.length > 0) {
+      const { data: items } = await supabase.from("phai_sinh_batch_items").select("status").in("batch_ticket_id", batchTicketIds).is("deleted_at", null);
+      batchCount = (items || []).filter((i) => !["COMPLETE", "CANCELED"].includes(i.status)).length;
+    }
+    return plainCount + batchCount;
+  }
+
+  const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", typeKey).single();
+  if (!tab) return null;
+  const { data: tickets } = await supabase.from("tickets").select("status").eq("tab_id", tab.id).is("deleted_at", null);
+  if (!tickets) return 0;
+
+  const executor = isExecutorView(typeKey, profile);
+  if (typeKey === "report_conflict") {
+    const terminal = executor ? TERMINAL_REPORT_CONFLICT_EXECUTOR : TERMINAL_REPORT_CONFLICT_REQUESTER;
+    return tickets.filter((t) => !terminal.includes(t.status)).length;
+  }
+  if (typeKey === "design") {
+    return tickets.filter((t) => !TERMINAL_DESIGN.includes(t.status)).length;
+  }
+  const terminal = executor ? TERMINAL_EXECUTOR : TERMINAL_REQUESTER;
+  return tickets.filter((t) => !terminal.includes(t.status)).length;
+}
+
+// Workstations have no shared status field — "done" is bespoke per page,
+// re-implemented here to match each page's own rule exactly.
+const DSP_CHECK_FIELDS = ["confirm_spotify_correct", "confirm_apple_correct", "confirm_zing_correct", "confirm_nct_correct", "confirm_fb_correct", "confirm_ytb_correct"];
+const PITCHING_DONE_VALUE = "Đã pitching";
+const PITCHING_CANCEL_VALUES = ["Không thực hiện", "Không hỗ trợ"];
+
+async function workstationNotDoneCount(typeKey) {
+  if (typeKey === "upload") {
+    const { data } = await supabase.from("releases").select("upload_status, link_lbm, link_share, smartlink, link_preorder, gate_pre_order").eq("requested", true);
+    if (!data) return 0;
+    return data.filter((r) => {
+      if (r.upload_status === "Cancel") return false; // cancelled isn't "not done" work
+      const keys = ["link_lbm", "link_share", "smartlink"];
+      if (r.gate_pre_order === "true") keys.push("link_preorder");
+      const pct = keys.filter((k) => r[k]).length / keys.length;
+      return pct < 1;
+    }).length;
+  }
+
+  if (typeKey === "pitching") {
+    const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "pitching").single();
+    if (!tab) return 0;
+    const { data: tickets } = await supabase.from("tickets").select("data").eq("tab_id", tab.id).is("deleted_at", null);
+    const dids = [...new Set((tickets || []).map((t) => t.data?.releaseId).filter(Boolean))];
+    if (dids.length === 0) return 0;
+    const { data: rels } = await supabase.from("releases").select("did, upc, priority_pitching, pitching_status_spotify, pitching_status_apple, pitching_status_nct, pitching_status_zing").in("did", dids);
+    const releaseMap = {};
+    (rels || []).forEach((r) => (releaseMap[r.did] = r));
+    const rows = (tickets || []).map((t) => ({ ticket: t, release: releaseMap[t.data?.releaseId] })).filter((row) => row.release?.upc);
+
+    function statusFor(release, key) {
+      if (key === "priority") return release?.priority_pitching;
+      if (key === "spotify") return release?.pitching_status_spotify;
+      if (key === "apple") return release?.pitching_status_apple;
+      if (key === "nct") return release?.pitching_status_nct;
+      if (key === "zing") return release?.pitching_status_zing;
+    }
+    return rows.filter((row) => {
+      const types = ["priority", "spotify", "apple", "nct", "zing"].filter((k) => row.ticket.data?.[k]); // round 79 — Apple joined as a real tracked platform
+      if (types.length === 0) return false;
+      const allCancel = types.every((k) => PITCHING_CANCEL_VALUES.includes(statusFor(row.release, k)));
+      if (allCancel) return false;
+      const allDone = types.every((k) => statusFor(row.release, k) === PITCHING_DONE_VALUE);
+      return !allDone;
+    }).length;
+  }
+
+  if (typeKey === "confirm") {
+    // "Re-Check" is one TypeSwitcher tab covering both phases internally
+    // — combine both phases' outstanding work into one figure.
+    // Round 60 — fetchAllRows instead of a plain select(): this is a
+    // whole-table read with no filter, subject to Supabase's default
+    // 1000-row cap (see DATA_FIXES.md round 59/60).
+    const { data } = await fetchAllRows(() =>
+      supabase.from("releases").select([...DSP_CHECK_FIELDS, "link_lbm", "confirm_tag", "smartlink", "confirm_insta_sound", "confirm_tiktok_sound_updated", "confirm_smartlink_updated"].join(", ")).order("id")
+    );
+    if (!data) return 0;
+    // Round 153 — confirm_tag ("Tag Confirm") added to Phase 1's rule to
+    // match app/workstation/confirm/page.js's isDonePhase1 fix — every
+    // Yes/No toggle on the tab must be Yes, not just the DSP-check bundle.
+    const phase1NotDone = data.filter((r) => !(DSP_CHECK_FIELDS.every((f) => r[f]) && !!r.link_lbm && !!r.confirm_tag)).length;
+    const phase2NotDone = data.filter((r) => !(r.smartlink && r.confirm_smartlink_updated && r.confirm_insta_sound && r.confirm_tiktok_sound_updated)).length;
+    return phase1NotDone + phase2NotDone;
+  }
+
+  if (typeKey === "pre_release") {
+    // Round 60 — same fetchAllRows fix, same reason (whole-table read, no
+    // filter, subject to the default 1000-row cap).
+    // Round 158 — artist_pick_status dropped: moved to Re-Check Phase 2
+    // (app/workstation/confirm/page.js), matching that page's own
+    // isDone's field list, which now excludes it too. Not added to
+    // confirm's phase2NotDone rule above — the field moved location, but
+    // per the "move the column" request wasn't asked to also become part
+    // of Phase 2's completion criteria, so it stays purely informational
+    // there for now.
+    const { data } = await fetchAllRows(() =>
+      supabase.from("releases").select("canva_mv_status, canva_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric").order("id")
+    );
+    if (!data) return 0;
+    return data.filter((r) => !(r.canva_mv_status && r.canva_status && r.musixmatch_link && r.musixmatch_status && r.nct_lyric && r.zing_lyric)).length;
+  }
+
+  return null; // booking, package_price, stream, milestone — no "done" concept defined, skip
+}
+
+// Round 150 — load-reduction pass. TypeSwitcher (lib/TypeSwitcher.js) sits atop
+// ~50 ticket/workstation pages and fires ONE getNotDoneCount call per sibling
+// tab type on every mount (8-15 round trips per navigation); the workstation
+// and tickets index/picker pages (app/workstation/page.js, app/tickets/page.js)
+// independently re-run the same fan-out for the same types. Two branches above
+// (confirm, pre_release) are each a full fetchAllRows over the entire releases
+// table just to produce one number. None of that per-call cost changes here —
+// this instead collapses HOW OFTEN it's paid: a short-TTL cache plus in-flight
+// de-duplication, keyed per (kind, typeKey, profile), shared by every caller.
+// Concurrent callers asking for the same count within the same tick piggyback
+// on one in-flight request instead of firing separate ones; a completed result
+// is served straight from cache for CACHE_TTL_MS after that. Transparent to
+// every call site — TypeSwitcher, app/workstation/page.js, and
+// app/tickets/page.js needed no changes. See project doc
+// "load-reduction-additional-ideas.md" item 1 for the fuller writeup and the
+// still-open follow-up (replacing the two full-table branches with a real
+// server-side count).
+const CACHE_TTL_MS = 20000;
+const notDoneCountCache = new Map(); // key -> { promise } while in flight, or { value, expiresAt } once settled
+
+function notDoneCountCacheKey(kind, typeKey, profile) {
+  return `${kind}:${typeKey}:${profile?.id || "anon"}`;
+}
+
+// Escape hatch for a future round that wants an immediate badge refresh right
+// after a mutating action, instead of waiting out the TTL. Not wired into any
+// mutation site yet — deliberately out of scope for this round (see project
+// doc); left here so that work doesn't also require touching this file again.
+export function invalidateNotDoneCount(kind, typeKey, profile) {
+  notDoneCountCache.delete(notDoneCountCacheKey(kind, typeKey, profile));
+}
+
+// Returns null (meaning "don't show a count") for anything without a
+// defined done-rule, rather than a misleading 0.
+export async function getNotDoneCount(kind, typeKey, profile) {
+  const key = notDoneCountCacheKey(kind, typeKey, profile);
+  const cached = notDoneCountCache.get(key);
+  if (cached) {
+    if (cached.promise) return cached.promise;
+    if (cached.expiresAt > Date.now()) return cached.value;
+  }
+
+  const promise = (async () => {
+    try {
+      if (kind === "ticket") return await ticketNotDoneCount(typeKey, profile);
+      return await workstationNotDoneCount(typeKey);
+    } catch {
+      return null;
+    }
+  })();
+
+  notDoneCountCache.set(key, { promise });
+  const value = await promise;
+  notDoneCountCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+  return value;
+}

@@ -1,0 +1,1403 @@
+[
+  {
+    "id": "1Z341uPCRNvW4WuKsAir",
+    "requesterSegment": "OPS",
+    "artist": "Nguyễn khánh Sang",
+    "status": "COMPLETE",
+    "updatedAt": {
+      "seconds": 1781671491,
+      "nanoseconds": 68000000
+    },
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1781594988,
+        "nanoseconds": 674000000
+      },
+      "COMPLETE": {
+        "seconds": 1781671491,
+        "nanoseconds": 68000000
+      },
+      "SUBMITTED": {
+        "seconds": 1781596784,
+        "nanoseconds": 205000000
+      },
+      "REQUESTED": {
+        "seconds": 1781594974,
+        "nanoseconds": 185000000
+      }
+    },
+    "tenBai": "Cho Tôi Rao Bán Cái Nghèo",
+    "url": "check note",
+    "requesterName": "zhyn",
+    "createdAt": {
+      "seconds": 1781594974,
+      "nanoseconds": 185000000
+    },
+    "type": "manual_claim",
+    "note": "https://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-TR%E1%BA%A0M-Blues-7648473659526466311 \n https://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-%F0%9F%8E%B6-Ph%E1%BB%91-Nh%E1%BA%A1c-%F0%9F%87%BB%F0%9F%87%B3-7648630255520434960",
+    "label": "Pin Media"
+  },
+  {
+    "id": "1naVazsSjBa9kQbbxLTH",
+    "artist": "Như Bee?",
+    "createdAt": {
+      "seconds": 1782187108,
+      "nanoseconds": 90000000
+    },
+    "status": "COMPLETE",
+    "tenBai": "hứa đi em",
+    "url": "https://vt.tiktok.com/ZS9jompLMnxL9-OGujl/",
+    "requesterSegment": "OPS",
+    "requesterName": "zhyn",
+    "note": "đã submit lại bằng bản trang anh (có thể bản đúng là út nhị)",
+    "updatedAt": {
+      "seconds": 1782382934,
+      "nanoseconds": 900000000
+    },
+    "type": "manual_claim",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1782187108,
+        "nanoseconds": 90000000
+      },
+      "PROCESS": {
+        "seconds": 1782187149,
+        "nanoseconds": 786000000
+      },
+      "COMPLETE": {
+        "seconds": 1782382934,
+        "nanoseconds": 900000000
+      },
+      "SUBMITTED": {
+        "seconds": 1782188113,
+        "nanoseconds": 646000000
+      }
+    },
+    "label": "HTM"
+  },
+  {
+    "id": "2K1eryU4rZ59dEjLLF6h",
+    "type": "manual_claim",
+    "tenBai": "Có Công Mài \"Sắc\"",
+    "label": "Ngô Lan Hương",
+    "updatedAt": {
+      "seconds": 1780548234,
+      "nanoseconds": 149000000
+    },
+    "note": "",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1778226711,
+        "nanoseconds": 549000000
+      },
+      "REQUESTED": {
+        "seconds": 1778226625,
+        "nanoseconds": 693000000
+      },
+      "COMPLETE": {
+        "seconds": 1778746371,
+        "nanoseconds": 805000000
+      }
+    },
+    "requesterName": "zhyn",
+    "url": "https://vt.tiktok.com/ZS9GH1tbs/https://vt.tiktok.com/ZS9FD2WQfng5a-Kpn4l/https://vt.tiktok.com/ZS9FD2WgptWoa-dM7XQ/https://vt.tiktok.com/ZS9FD2K8aPfxf-DTRhs/https://vt.tiktok.com/ZS9FDjBmDuTwR-la8mZ/https://vt.tiktok.com/ZS9FDjub7dmH7-51Hif/https://vt.tiktok.com/ZS9FDjX2v8oAK-MM6MF/https://vt.tiktok.com/ZS9FDj4CsjmNH-FY0OR/https://vt.tiktok.com/ZS9FDjgYGQN21-zoJ9z/https://vt.tiktok.com/ZS9FDjpSjYjAH-LLaTF/https://vt.tiktok.com/ZS9FDjGBBmEhQ-rc2bd/https://vt.tiktok.com/ZS9FDjngTHNfv-E1Vzn/https://vt.tiktok.com/ZS9FDj3gK46Pa-HhjFH/https://vt.tiktok.com/ZS9FDjwRhRchG-18Xzf/https://vt.tiktok.com/ZS9FDjKxL3BP9-tIpfx/https://vt.tiktok.com/ZS9FDjonLv7SP-ZKZ5y/https://vt.tiktok.com/ZS9FD61WAPBf7-VIioA/https://vt.tiktok.com/ZS9FD6LaEsr5E-VjwVp/https://vt.tiktok.com/ZS9FD62tf23qX-EPcp8/https://vt.tiktok.com/ZS9FDMfvUPe7X-RJ966/",
+    "status": "COMPLETE",
+    "artist": "Ngô Lan Hương",
+    "createdAt": {
+      "seconds": 1778226625,
+      "nanoseconds": 693000000
+    },
+    "requesterSegment": "OPS"
+  },
+  {
+    "id": "2iV5owTZuHIFScg58Fwq",
+    "createdAt": {
+      "seconds": 1781669552,
+      "nanoseconds": 124000000
+    },
+    "label": "WM Media",
+    "type": "manual_claim",
+    "tenBai": "Em Vá Đời Anh",
+    "requesterSegment": "OPS",
+    "url": "https://docs.google.com/spreadsheets/d/1Na5w1CiPhYp4nXfNxlP4GUnFw7HFE1uXFZv_6s32Gg8/edit?gid=855010139#gid=855010139&range=B25",
+    "status": "COMPLETE",
+    "updatedAt": {
+      "seconds": 1781770110,
+      "nanoseconds": 891000000
+    },
+    "requesterName": "zhyn",
+    "artist": "Đặng Thiên Chí",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1781770110,
+        "nanoseconds": 891000000
+      },
+      "REQUESTED": {
+        "seconds": 1781669552,
+        "nanoseconds": 124000000
+      },
+      "PROCESS": {
+        "seconds": 1781669556,
+        "nanoseconds": 469000000
+      },
+      "SUBMITTED": {
+        "seconds": 1781671436,
+        "nanoseconds": 296000000
+      }
+    }
+  },
+  {
+    "id": "49iRRR7OAOJlgN7S4zRR",
+    "type": "manual_claim",
+    "note": "Acapella cover -> denied",
+    "status": "COMPLETE",
+    "url": "https://www.tiktok.com/music/nh%E1%BA%A1c-n%E1%BB%81n-%F0%9D%99%89%F0%9D%99%96%F0%9D%99%A9%F0%9D%99%9A-%F0%9F%8C%A7-7553887496095025921?_d=secCgYIASAHKAESPgo8cYu8aeJGVQstNJbpMJJIxao%2Flx3PDglexgBHILdi1StXmnxKnou%2B7Wz8%2Bc4N%2FjyqrrpM%2BJ9juEWEQL9uGgA%3D&_r=1&_svg=1&checksum=df388e32b68a853ad04e8b1cdbf03ec8ab5380c217389b7a1349ded36791bc9e&panel_source_v2=share_panel&sec_user_id=MS4wLjABAAAATrIX-jNrF_IO0X9vJwWxLcfr3JvV4V23xw-VA3_Cm3wcsT3so2Sa126o9WfJJPXy&share_app_id=1180&share_enter_from=homepage_hot&share_link_id=6E76A83E-8C93-4E3F-90CF-95D2B1D98863&share_music_id=7553887496095025921&share_region=VN&sharer_language=en&social_share_type=7&source=h5_t&timestamp=1781399742&tt_from=copy&u_code=d14c0dj757j324&ug_btm=b2001%2Cb0&user_id=6578696770577432577&utm_campaign=client_share&utm_medium=ios&utm_source=copy",
+    "requesterName": "zhyn",
+    "createdAt": {
+      "seconds": 1781495295,
+      "nanoseconds": 610000000
+    },
+    "artist": "Denis Dang",
+    "tenBai": "Nắng Lung Linh",
+    "label": "Denis Dang",
+    "requesterSegment": "OPS",
+    "statusLog": {
+      "SUBMITTED": {
+        "seconds": 1781495529,
+        "nanoseconds": 677000000
+      },
+      "PROCESS": {
+        "seconds": 1781495299,
+        "nanoseconds": 164000000
+      },
+      "COMPLETE": {
+        "seconds": 1781596977,
+        "nanoseconds": 386000000
+      },
+      "REQUESTED": {
+        "seconds": 1781495295,
+        "nanoseconds": 610000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1781596977,
+      "nanoseconds": 386000000
+    }
+  },
+  {
+    "id": "4Lah7useYKWfsgsriE9h",
+    "url": "https://www.tiktok.com/music/nh%E1%BA%A1c-n%E1%BB%81n-Bu%E1%BB%93n199x-7594092940222270224",
+    "requesterName": "zhyn",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1780631135,
+        "nanoseconds": 201000000
+      },
+      "PROCESS": {
+        "seconds": 1780631137,
+        "nanoseconds": 556000000
+      },
+      "COMPLETE": {
+        "seconds": 1780915449,
+        "nanoseconds": 32000000
+      }
+    },
+    "label": "V2T",
+    "requesterSegment": "OPS",
+    "updatedAt": {
+      "seconds": 1780915449,
+      "nanoseconds": 32000000
+    },
+    "type": "manual_claim",
+    "note": "",
+    "tenBai": "Chuyện Người Đắp Chiếu",
+    "createdAt": {
+      "seconds": 1780631135,
+      "nanoseconds": 201000000
+    },
+    "artist": "Hoàng Y Nhung",
+    "status": "COMPLETE"
+  },
+  {
+    "id": "4w1HPbUQ9wc5rz6pQkWT",
+    "requesterName": "zhyn",
+    "createdAt": {
+      "seconds": 1781160430,
+      "nanoseconds": 954000000
+    },
+    "artist": "Ari",
+    "status": "COMPLETE",
+    "url": "https://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-ANTISTAR-7635668941469158151?_d=secCgYIASAHKAESPgo89OUIOHNE0RmpXHrMbHdc2C47t6%2FmqSndhvvp0uh7mR47cEszo39%2BALKBYf75w1m9t%2B1WWKe9lX2vdKm7GgA%3D&_r=1&_svg=1&checksum=fa8896390d2715c6fbcf8d3af6d266a8bf56c13ba5c1a0d9b5780c66412cf7c4&panel_source_v2=share_panel&sec_user_id=MS4wLjABAAAAanlnMGRW-19tTPsq6rZVSKY4wuiQROdGr4UUHjyrGrYQ4NCuImyfF1evL6YBjWaP&share_app_id=1180&share_enter_from=others_homepage&share_link_id=F7D9114C-543C-4212-AD97-2E74B76DF49D&share_music_id=7635668941469158151&share_region=VN&sharer_language=en&social_share_type=7&source=h5_t&timestamp=1781160210&tt_from=copy&u_code=f1chjck77191d1&ug_btm=b2878%2Cb5171&user_id=7594633252075226129&utm_campaign=client_share&utm_medium=ios&utm_source=copy",
+    "type": "manual_claim",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1781248402,
+        "nanoseconds": 476000000
+      },
+      "PROCESS": {
+        "seconds": 1781160436,
+        "nanoseconds": 396000000
+      },
+      "SUBMITTED": {
+        "seconds": 1781161786,
+        "nanoseconds": 829000000
+      },
+      "REQUESTED": {
+        "seconds": 1781160430,
+        "nanoseconds": 954000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1781248402,
+      "nanoseconds": 476000000
+    },
+    "tenBai": "Ăn Trông Nồi Ngồi Trông Hướng",
+    "requesterSegment": "OPS",
+    "label": "ICM"
+  },
+  {
+    "id": "5z7ELUmQEyYHvYPtEk7n",
+    "artist": "Ngô Lan Hương",
+    "createdAt": {
+      "seconds": 1782286919,
+      "nanoseconds": 914000000
+    },
+    "status": "COMPLETE",
+    "tenBai": "Có Công Mài \"Sắc\" Remix",
+    "requesterName": "zhyn",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1782286919,
+        "nanoseconds": 914000000
+      },
+      "PROCESS": {
+        "seconds": 1782287467,
+        "nanoseconds": 592000000
+      },
+      "SUBMITTED": {
+        "seconds": 1782287639,
+        "nanoseconds": 239000000
+      },
+      "COMPLETE": {
+        "seconds": 1782382944,
+        "nanoseconds": 54000000
+      }
+    },
+    "type": "manual_claim",
+    "label": "Ngô Lan Hương",
+    "requesterSegment": "OPS",
+    "url": "https://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-Con-trai-kh%C3%B3-hi%E1%BB%83u-qu%C3%A1-%F0%9F%98%AD%F0%9F%98%AD%F0%9F%98%9E%F0%9F%98%9E-7609219410435296021?_d=secCgYIASAHKAESPgo8x0LQ3n6e0x7%2BDyks2QtMn6JZILdtzLPI%2FOvtbw1dEitW5G471FlOcoYzpwvs4GORo45yOhRQmqn46kNKGgA%3D&_r=1&_svg=1&checksum=9244952f15b43491b69c5a31502195f4bb170ec205fe5c835f09de033f0da3a1&panel_source_v2=share_panel&sec_user_id=MS4wLjABAAAATrIX-jNrF_IO0X9vJwWxLcfr3JvV4V23xw-VA3_Cm3wcsT3so2Sa126o9WfJJPXy&share_app_id=1180&share_enter_from=homepage_hot&share_link_id=70A1AD2F-6BDD-4BC7-8722-E71914C0166F&share_music_id=7609219410435296021&share_region=VN&sharer_language=en&social_share_type=7&source=h5_t&timestamp=1782175350&tt_from=copy&u_code=d14c0dj757j324&ug_btm=b2001%2Cb0&user_id=6578696770577432577&utm_campaign=client_share&utm_medium=ios&utm_source=copy",
+    "note": "",
+    "updatedAt": {
+      "seconds": 1782382944,
+      "nanoseconds": 54000000
+    }
+  },
+  {
+    "id": "7ZPdn3Hehz1nw1eumqGa",
+    "requesterName": "zhyn",
+    "tenBai": "SangTrang concert",
+    "label": "Trang Music Production",
+    "status": "COMPLETE",
+    "updatedAt": {
+      "seconds": 1779970323,
+      "nanoseconds": 331000000
+    },
+    "artist": "TRANG",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1779970323,
+        "nanoseconds": 331000000
+      },
+      "REQUESTED": {
+        "seconds": 1777870018,
+        "nanoseconds": 139000000
+      },
+      "PROCESS": {
+        "seconds": 1777870023,
+        "nanoseconds": 795000000
+      }
+    },
+    "note": "",
+    "type": "manual_claim",
+    "createdAt": {
+      "seconds": 1777870018,
+      "nanoseconds": 139000000
+    },
+    "requesterSegment": "OPS",
+    "url": "https://docs.google.com/spreadsheets/d/1ZQumLbY0_uR4dEmGzsrAKbhwbV0pyfvRlryp-ZBRwPI/edit?gid=1629482117#gid=1629482117"
+  },
+  {
+    "id": "8FK1oIvrw3MHUxKnf5aW",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1782717412,
+        "nanoseconds": 873000000
+      },
+      "REQUESTED": {
+        "seconds": 1782717406,
+        "nanoseconds": 845000000
+      },
+      "SUBMITTED": {
+        "seconds": 1782717603,
+        "nanoseconds": 756000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1782717722,
+      "nanoseconds": 176000000
+    },
+    "requesterSegment": "OPS",
+    "label": "H2O MUSIC",
+    "requesterName": "zhyn",
+    "tenBai": "Em Là Nhất Miền Tây (H2O Remix)",
+    "artist": "016627817136",
+    "status": "SUBMITTED",
+    "type": "manual_claim",
+    "createdAt": {
+      "seconds": 1782717406,
+      "nanoseconds": 845000000
+    },
+    "url": "https://vt.tiktok.com/ZS96Fhh3akmrc-6SKpr/",
+    "note": ""
+  },
+  {
+    "id": "8rtVOvi0zgaDaiDWEXn9",
+    "requesterName": "zhyn",
+    "createdAt": {
+      "seconds": 1781495240,
+      "nanoseconds": 665000000
+    },
+    "type": "manual_claim",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1781596966,
+        "nanoseconds": 437000000
+      },
+      "SUBMITTED": {
+        "seconds": 1781495424,
+        "nanoseconds": 79000000
+      },
+      "PROCESS": {
+        "seconds": 1781495300,
+        "nanoseconds": 419000000
+      },
+      "REQUESTED": {
+        "seconds": 1781495240,
+        "nanoseconds": 665000000
+      }
+    },
+    "status": "COMPLETE",
+    "label": "TD Network",
+    "artist": "Út Nhị",
+    "updatedAt": {
+      "seconds": 1781596966,
+      "nanoseconds": 437000000
+    },
+    "tenBai": "Thiệp Hồng Chung Tên",
+    "requesterSegment": "OPS",
+    "url": "https://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-%C3%9At-Nh%E1%BB%8B-Mino-7648595901070134033?_d=secCgYIASAHKAESPgo8G9oC4dIcThcufjAklZXl44RJ%2FktaWFYNhniY1udBK7qwVYGkPKcdFS%2Fqc27IOB%2ByHSWCqvdzYqWt7NrTGgA%3D&_r=1&_svg=1&checksum=10fb03309f45f61ec16c6e6248a7b3aa5a29330d14df32a680db4e0237502798&panel_source_v2=share_panel&sec_user_id=MS4wLjABAAAATrIX-jNrF_IO0X9vJwWxLcfr3JvV4V23xw-VA3_Cm3wcsT3so2Sa126o9WfJJPXy&share_app_id=1180&share_enter_from=homepage_hot&share_link_id=A475BD0D-5116-4F87-AFFA-713D4D387E66&share_music_id=7648595901070134033&share_region=VN&sharer_language=en&social_share_type=7&source=h5_t&timestamp=1781361698&tt_from=copy&u_code=d14c0dj757j324&ug_btm=b2001%2Cb0&user_id=6578696770577432577&utm_campaign=client_share&utm_medium=ios&utm_source=copy"
+  },
+  {
+    "id": "BOMOodAHjPKXOn5yrVY8",
+    "requesterSegment": "AR",
+    "createdAt": {
+      "seconds": 1782823608,
+      "nanoseconds": 683000000
+    },
+    "url": "https://docs.google.com/spreadsheets/d/1JRFDroe8nE7iQ_rINJ9YApWzRMS-thOhUWYK-Vp3Eiw/edit?gid=0#gid=0",
+    "label": "H2O Music",
+    "type": "manual_claim",
+    "requesterName": "zhyn",
+    "tenBai": "theo track",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1782823608,
+        "nanoseconds": 683000000
+      }
+    },
+    "artist": "Theo track",
+    "status": "REQUESTED",
+    "updatedAt": {
+      "seconds": 1782823608,
+      "nanoseconds": 683000000
+    }
+  },
+  {
+    "id": "DsgJXwazgIPSTU1x7uy1",
+    "type": "manual_claim",
+    "tenBai": "Lữ Khách An Nhiên",
+    "updatedAt": {
+      "seconds": 1784018464,
+      "nanoseconds": 96000000
+    },
+    "label": "LQ MEDIA",
+    "note": "https://vm.tiktok.com/ZP9FAQdgW3oAV-denA6/\nhttps://vm.tiktok.com/ZP9FAQLDoPSaN-qCSsq/\nhttps://vm.tiktok.com/ZP9FAQNpgxcAv-KsVNx/\nhttps://vm.tiktok.com/ZP9FAQ2FMTxnm-PH02X/\nhttps://vm.tiktok.com/ZP9FAQMkduTps-x0FYr/ (link này là PGC)",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1781247289,
+        "nanoseconds": 239000000
+      },
+      "SUBMITTED": {
+        "seconds": 1781248507,
+        "nanoseconds": 942000000
+      },
+      "PROCESS": {
+        "seconds": 1781247307,
+        "nanoseconds": 307000000
+      },
+      "COMPLETE": {
+        "seconds": 1781596952,
+        "nanoseconds": 816000000
+      }
+    },
+    "url": "check note",
+    "requesterName": "zhyn",
+    "status": "COMPLETE",
+    "artist": "Linh Nhi & XuBa & LQ MEDIA",
+    "createdAt": {
+      "seconds": 1781247289,
+      "nanoseconds": 239000000
+    },
+    "requesterSegment": "OPS"
+  },
+  {
+    "id": "EP5C43VV9hr4QFoIdrmt",
+    "updatedAt": {
+      "seconds": 1782382954,
+      "nanoseconds": 151000000
+    },
+    "requesterSegment": "OPS",
+    "statusLog": {
+      "SUBMITTED": {
+        "seconds": 1782287544,
+        "nanoseconds": 281000000
+      },
+      "COMPLETE": {
+        "seconds": 1782382954,
+        "nanoseconds": 151000000
+      },
+      "PROCESS": {
+        "seconds": 1782188124,
+        "nanoseconds": 384000000
+      },
+      "REQUESTED": {
+        "seconds": 1782187074,
+        "nanoseconds": 293000000
+      }
+    },
+    "label": "VN MUSIC",
+    "note": "đợi bài lên lại. Đã từng bị takedown, không rõ nguyên do",
+    "type": "manual_claim",
+    "url": "https://vt.tiktok.com/ZS9jo1MRGfpfy-RBQUO/",
+    "tenBai": "nhật ký cha gửi con",
+    "status": "COMPLETE",
+    "createdAt": {
+      "seconds": 1782187074,
+      "nanoseconds": 293000000
+    },
+    "requesterName": "zhyn",
+    "artist": "Ninh Bảo Văn"
+  },
+  {
+    "id": "GyNmjfEbC1NRXOoesihj",
+    "type": "manual_claim",
+    "requesterSegment": "OPS",
+    "status": "COMPLETE",
+    "artist": "Út Nhị Mino feat. Hào JK",
+    "url": "https://vt.tiktok.com/ZSQbXBJ4h/",
+    "createdAt": {
+      "seconds": 1781669491,
+      "nanoseconds": 462000000
+    },
+    "tenBai": "Thiệp Hồng Chung Tên",
+    "label": "TD Network",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1781770112,
+        "nanoseconds": 830000000
+      },
+      "REQUESTED": {
+        "seconds": 1781669491,
+        "nanoseconds": 462000000
+      },
+      "PROCESS": {
+        "seconds": 1781669493,
+        "nanoseconds": 546000000
+      },
+      "SUBMITTED": {
+        "seconds": 1781670423,
+        "nanoseconds": 584000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1781770112,
+      "nanoseconds": 830000000
+    },
+    "requesterName": "zhyn"
+  },
+  {
+    "id": "It9ZBulvkX5karYzMeaa",
+    "createdAt": {
+      "seconds": 1782187129,
+      "nanoseconds": 459000000
+    },
+    "url": "https://vt.tiktok.com/ZS9jomn5AmsU4-mMche/",
+    "tenBai": "em nhắc anh",
+    "label": "HTM",
+    "artist": "Nana Liu",
+    "requesterName": "zhyn",
+    "status": "CANCELED",
+    "note": "không có bản remix này, dùng bản gốc để claim vocal -> denied",
+    "type": "manual_claim",
+    "requesterSegment": "OPS",
+    "updatedAt": {
+      "seconds": 1784018978,
+      "nanoseconds": 497000000
+    },
+    "statusLog": {
+      "SUBMITTED": {
+        "seconds": 1782188119,
+        "nanoseconds": 871000000
+      },
+      "CANCELED": {
+        "seconds": 1782288305,
+        "nanoseconds": 190000000
+      },
+      "REQUESTED": {
+        "seconds": 1782187129,
+        "nanoseconds": 459000000
+      },
+      "PROCESS": {
+        "seconds": 1782187153,
+        "nanoseconds": 17000000
+      }
+    }
+  },
+  {
+    "id": "KATDDpLwzxUmh3cVpSEM",
+    "status": "COMPLETE",
+    "createdAt": {
+      "seconds": 1781494344,
+      "nanoseconds": 153000000
+    },
+    "artist": "ngô lan hương",
+    "tenBai": "Có Công Mài \"Sắc\" afrobeats",
+    "type": "manual_claim",
+    "requesterName": "zhyn",
+    "label": "ngô lan hương",
+    "requesterSegment": "OPS",
+    "statusLog": {
+      "SUBMITTED": {
+        "seconds": 1781494802,
+        "nanoseconds": 701000000
+      },
+      "PROCESS": {
+        "seconds": 1781494388,
+        "nanoseconds": 279000000
+      },
+      "COMPLETE": {
+        "seconds": 1781596940,
+        "nanoseconds": 518000000
+      },
+      "REQUESTED": {
+        "seconds": 1781494344,
+        "nanoseconds": 153000000
+      }
+    },
+    "url": "https://vt.tiktok.com/ZSQuH6ove/",
+    "updatedAt": {
+      "seconds": 1781596940,
+      "nanoseconds": 518000000
+    }
+  },
+  {
+    "id": "LntU3iNh9vh3Ol727XUf",
+    "label": "Ngọc Xuyên",
+    "requesterSegment": "OPS",
+    "type": "manual_claim",
+    "updatedAt": {
+      "seconds": 1781161876,
+      "nanoseconds": 799000000
+    },
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1780990437,
+        "nanoseconds": 903000000
+      },
+      "SUBMITTED": {
+        "seconds": 1781065019,
+        "nanoseconds": 0
+      },
+      "PROCESS": {
+        "seconds": 1781063792,
+        "nanoseconds": 667000000
+      },
+      "COMPLETE": {
+        "seconds": 1781161876,
+        "nanoseconds": 799000000
+      }
+    },
+    "url": "https://www.tiktok.com/music/Cạm-Bẫy-Đồng-Tiền-Ngọc-Xuyên-remix-7621174172441398024?is_from_webapp=1&sender_device=pc",
+    "createdAt": {
+      "seconds": 1780990437,
+      "nanoseconds": 903000000
+    },
+    "tenBai": "Cạm Bẫy Đồng Tiền",
+    "requesterName": "zhyn",
+    "status": "COMPLETE",
+    "artist": "Ngọc Xuyên"
+  },
+  {
+    "id": "OZdjbISk7hMZOgXV8brd",
+    "createdAt": {
+      "seconds": 1782718006,
+      "nanoseconds": 283000000
+    },
+    "type": "manual_claim",
+    "note": "https://vt.tiktok.com/ZS96aXXJcrHWN-WK1fU/\nhttps://vt.tiktok.com/ZS96aXb45NU77-NiW07/\nhttps://vt.tiktok.com/ZS96aXg7RWygj-7Nv0x/\nhttps://vt.tiktok.com/ZS96aXWqtRAvA-e7ubw/\nhttps://vt.tiktok.com/ZS96mJvSJyseB-rLR8u/",
+    "requesterSegment": "OPS",
+    "status": "SUBMITTED",
+    "url": "check note",
+    "artist": "016627817136",
+    "label": "H2O Music",
+    "tenBai": "Em Là Nhất Miền Tây (H2O Remix)",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1782718014,
+        "nanoseconds": 164000000
+      },
+      "SUBMITTED": {
+        "seconds": 1782720500,
+        "nanoseconds": 566000000
+      },
+      "REQUESTED": {
+        "seconds": 1782718006,
+        "nanoseconds": 283000000
+      }
+    },
+    "requesterName": "zhyn",
+    "updatedAt": {
+      "seconds": 1782720500,
+      "nanoseconds": 566000000
+    }
+  },
+  {
+    "id": "RX1haFfm9RqHBjyMunxI",
+    "type": "manual_claim",
+    "url": "https://vt.tiktok.com/ZS9jrag5kHAEX-DztHN/",
+    "createdAt": {
+      "seconds": 1781494310,
+      "nanoseconds": 22000000
+    },
+    "label": "1988s",
+    "statusLog": {
+      "SUBMITTED": {
+        "seconds": 1781494675,
+        "nanoseconds": 442000000
+      },
+      "PROCESS": {
+        "seconds": 1781494389,
+        "nanoseconds": 551000000
+      },
+      "COMPLETE": {
+        "seconds": 1781596926,
+        "nanoseconds": 334000000
+      },
+      "REQUESTED": {
+        "seconds": 1781494310,
+        "nanoseconds": 22000000
+      }
+    },
+    "status": "COMPLETE",
+    "updatedAt": {
+      "seconds": 1781596926,
+      "nanoseconds": 334000000
+    },
+    "requesterName": "zhyn",
+    "artist": "Pinky Vanh & Hoa vũ",
+    "requesterSegment": "OPS",
+    "tenBai": "Anh này là của tui"
+  },
+  {
+    "id": "S8fgpg2TGdpOOQ2YhiHV",
+    "label": "1988s",
+    "note": "https://vt.tiktok.com/ZS9jkqByoG9wQ-oQcdK/\nhttps://vt.tiktok.com/ZS9jkqyV4MCHL-8Kk9q/\nhttps://vt.tiktok.com/ZS9jkqA9P8t8P-eCICQ/\nhttps://vt.tiktok.com/ZS9jkq5jf55vK-48boO/\nhttps://vt.tiktok.com/ZS9jkqtu1GkE9-H5hPU/",
+    "createdAt": {
+      "seconds": 1781592525,
+      "nanoseconds": 190000000
+    },
+    "type": "manual_claim",
+    "requesterSegment": "OPS",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1781592525,
+        "nanoseconds": 190000000
+      },
+      "COMPLETE": {
+        "seconds": 1781596636,
+        "nanoseconds": 395000000
+      },
+      "PROCESS": {
+        "seconds": 1781592588,
+        "nanoseconds": 632000000
+      }
+    },
+    "tenBai": "Anh Này Là Của Tui",
+    "updatedAt": {
+      "seconds": 1781596636,
+      "nanoseconds": 395000000
+    },
+    "requesterName": "zhyn",
+    "status": "COMPLETE",
+    "url": "check note",
+    "artist": "út nhị"
+  },
+  {
+    "id": "SurIpmpZkpurJooGf1WG",
+    "createdAt": {
+      "seconds": 1781004381,
+      "nanoseconds": 378000000
+    },
+    "tenBai": "Album Night to myself",
+    "label": "Kiey",
+    "artist": "Kiey",
+    "url": "https://www.tiktok.com/@kieymusic94/video/7637373521030696210?is_from_webapp=1&sender_device=pchttps://www.tiktok.com/music/original-sound-Kiey-7647447538663967506?is_from_webapp=1&sender_device=pchttps://www.tiktok.com/music/original-sound-Kiey-7646030756816603905?is_from_webapp=1&sender_device=pchttps://www.tiktok.com/music/original-sound-Kiey-7644108716354980629?is_from_webapp=1&sender_device=pchttps://www.tiktok.com/music/original-sound-Kiey-7642173332644809493?is_from_webapp=1&sender_device=pchttps://www.tiktok.com/music/original-sound-Kiey-7636694752250858247?is_from_webapp=1&sender_device=pchttps://www.tiktok.com/@kieymusic94/video/7631230427918912786?is_from_webapp=1&sender_device=pchttps://www.tiktok.com/music/original-sound-Kiey-7564728283486194452?is_from_webapp=1&sender_device=pc",
+    "status": "PROCESS",
+    "type": "manual_claim",
+    "note": "check note\nhttps://www.tiktok.com/@kieymusic94/video/7637373521030696210?is_from_webapp=1&sender_device=pc\n\nhttps://www.tiktok.com/music/original-sound-Kiey-7647447538663967506?is_from_webapp=1&sender_device=pc\n\nhttps://www.tiktok.com/music/original-sound-Kiey-7646030756816603905?is_from_webapp=1&sender_device=pc\n\nhttps://www.tiktok.com/music/original-sound-Kiey-7644108716354980629?is_from_webapp=1&sender_device=pc\n\nhttps://www.tiktok.com/music/original-sound-Kiey-7642173332644809493?is_from_webapp=1&sender_device=pc\n\nhttps://www.tiktok.com/music/original-sound-Kiey-7636694752250858247?is_from_webapp=1&sender_device=pc\n\nhttps://www.tiktok.com/@kieymusic94/video/7631230427918912786?is_from_webapp=1&sender_device=pc\n\nhttps://www.tiktok.com/music/original-sound-Kiey-7564728283486194452?is_from_webapp=1&sender_device=pc",
+    "updatedAt": {
+      "seconds": 1781592577,
+      "nanoseconds": 655000000
+    },
+    "requesterSegment": "OPS",
+    "requesterName": "zhyn",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1781004381,
+        "nanoseconds": 378000000
+      },
+      "PROCESS": {
+        "seconds": 1781065031,
+        "nanoseconds": 187000000
+      }
+    }
+  },
+  {
+    "id": "Uq0rfsvN2W5Ht2SMgg7i",
+    "tenBai": "Khâu lại vết thương Remix",
+    "url": "https://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-chu-v%C4%83n-khi%C3%AAm-7645712167106759432?_d=secCgYIASAHKAESPgo8%2FO8A4%2BSyanEN%2B7qeFoGDm4%2BjzFjGATYD%2B7gfzImUSmNsVyI0wkGT%2Br1Cn7qzn1Wp2jgcCwvhZO9ZCwVpGgA%3D&_r=1&_svg=1&checksum=4080cdcc5ea633fa9b350959ad64bdec6d3bfabbe375a3cee6ba95907f36dfa5&sec_user_id=MS4wLjABAAAAJHkrFtgTFJNoJj838sMeTbix-MWLVRg7GawLH-curubtLZHImwgJSyQJqko79ElE&share_app_id=1180&share_link_id=BDBB7850-CE7C-443E-9008-9DB54C59EA6D&share_music_id=7645712167106759432&share_region=VN&sharer_language=vi&social_share_type=7&source=h5_t&timestamp=1780720174&tt_from=copy&u_code=f1gilhl4cjjm1i&ug_btm=b2878%2Cb5171&user_id=7598489914476413970&utm_campaign=client_share&utm_medium=ios&utm_source=copy",
+    "label": "WM Media",
+    "type": "manual_claim",
+    "requesterSegment": "OPS",
+    "status": "COMPLETE",
+    "updatedAt": {
+      "seconds": 1781065066,
+      "nanoseconds": 566000000
+    },
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1780915805,
+        "nanoseconds": 583000000
+      },
+      "SUBMITTED": {
+        "seconds": 1781065020,
+        "nanoseconds": 627000000
+      },
+      "PROCESS": {
+        "seconds": 1780915809,
+        "nanoseconds": 297000000
+      },
+      "COMPLETE": {
+        "seconds": 1781065066,
+        "nanoseconds": 566000000
+      }
+    },
+    "artist": "Đặng Thiên Chí",
+    "createdAt": {
+      "seconds": 1780915805,
+      "nanoseconds": 583000000
+    },
+    "requesterName": "zhyn"
+  },
+  {
+    "id": "cEY5bNCXMB0HxHTWmmoc",
+    "tenBai": "Có Công Mài Sắc",
+    "requesterSegment": "OPS",
+    "label": "Ngô Lan Hương",
+    "type": "manual_claim",
+    "status": "COMPLETE",
+    "note": "đã submit\n",
+    "updatedAt": {
+      "seconds": 1780466108,
+      "nanoseconds": 597000000
+    },
+    "artist": "Ngô Lan Hương",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1776938130,
+        "nanoseconds": 205000000
+      },
+      "COMPLETE": {
+        "seconds": 1777870031,
+        "nanoseconds": 709000000
+      },
+      "PROCESS": {
+        "seconds": 1776938448,
+        "nanoseconds": 178000000
+      }
+    },
+    "createdAt": {
+      "seconds": 1776938130,
+      "nanoseconds": 205000000
+    },
+    "url": "https://www.tiktok.com/music/-7631069382650759956?",
+    "requesterName": "zhyn"
+  },
+  {
+    "id": "cHwyBVqxY9JEqfnTov2N",
+    "tenBai": "theo track",
+    "requesterSegment": "OPS",
+    "label": "WM Media",
+    "status": "COMPLETE",
+    "type": "manual_claim",
+    "updatedAt": {
+      "seconds": 1782717781,
+      "nanoseconds": 370000000
+    },
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1782287469,
+        "nanoseconds": 1000000
+      },
+      "COMPLETE": {
+        "seconds": 1782717781,
+        "nanoseconds": 370000000
+      },
+      "SUBMITTED": {
+        "seconds": 1782288049,
+        "nanoseconds": 644000000
+      },
+      "REQUESTED": {
+        "seconds": 1782286954,
+        "nanoseconds": 833000000
+      }
+    },
+    "artist": "theo track",
+    "createdAt": {
+      "seconds": 1782286954,
+      "nanoseconds": 833000000
+    },
+    "url": "https://docs.google.com/spreadsheets/d/1Na5w1CiPhYp4nXfNxlP4GUnFw7HFE1uXFZv_6s32Gg8/edit?gid=855010139#gid=855010139&range=A29",
+    "requesterName": "zhyn"
+  },
+  {
+    "id": "eJ6q36LQMxEZmpGfYlsc",
+    "tenBai": "Khâu lại vết thương Remix",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1780574770,
+        "nanoseconds": 809000000
+      },
+      "COMPLETE": {
+        "seconds": 1780631407,
+        "nanoseconds": 125000000
+      },
+      "REQUESTED": {
+        "seconds": 1780574768,
+        "nanoseconds": 171000000
+      }
+    },
+    "artist": "Đặng Thiên Chí",
+    "requesterSegment": "OPS",
+    "status": "COMPLETE",
+    "label": "WM Media",
+    "updatedAt": {
+      "seconds": 1780631407,
+      "nanoseconds": 125000000
+    },
+    "createdAt": {
+      "seconds": 1780574768,
+      "nanoseconds": 171000000
+    },
+    "url": "https://www.tiktok.com/music/âm-thanh-gốc-𝐏𝐞𝐫𝐟𝐞𝐜𝐭-𝐌𝐮𝐬𝐢𝐜-7642718391828056852?is_from_webapp=1&sender_device=pc",
+    "requesterName": "zhyn",
+    "type": "manual_claim",
+    "note": "02:01 - 02:29"
+  },
+  {
+    "id": "eOEO97TXo706QJcrubko",
+    "createdAt": {
+      "seconds": 1780653519,
+      "nanoseconds": 751000000
+    },
+    "status": "COMPLETE",
+    "artist": "Pinky Vanh & Hoa vũ",
+    "tenBai": "anh này là của tui",
+    "type": "manual_claim",
+    "requesterName": "zhyn",
+    "url": "https://vt.tiktok.com/ZS92x46chtKRQ-x1wHJ/",
+    "label": "1988s Entertainment",
+    "updatedAt": {
+      "seconds": 1780915457,
+      "nanoseconds": 139000000
+    },
+    "requesterSegment": "OPS",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1780915457,
+        "nanoseconds": 139000000
+      },
+      "REQUESTED": {
+        "seconds": 1780653519,
+        "nanoseconds": 751000000
+      },
+      "PROCESS": {
+        "seconds": 1780653611,
+        "nanoseconds": 603000000
+      }
+    }
+  },
+  {
+    "id": "eac1GZny5bo8BzX1F6Ls",
+    "requesterSegment": "OPS",
+    "tenBai": "Anh Này Là Của Tui",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1782717460,
+        "nanoseconds": 684000000
+      },
+      "REQUESTED": {
+        "seconds": 1782717456,
+        "nanoseconds": 39000000
+      },
+      "SUBMITTED": {
+        "seconds": 1782717600,
+        "nanoseconds": 787000000
+      }
+    },
+    "artist": "Pinky Vanh & Hoa vũ",
+    "status": "SUBMITTED",
+    "updatedAt": {
+      "seconds": 1784019043,
+      "nanoseconds": 208000000
+    },
+    "label": "1988s Entertainment",
+    "url": "https://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-Ph%E1%BA%A1m-Ng%E1%BB%8Dc-%C4%90%E1%BA%BFn-Makeup-Artist-7646395799953984277?_d=secCgYIASAHKAESPgo8NYGSkNf4UBm3lZ%2BiTPDGMU3elvMWAsixis%2F6qCJqbprimc2n1lLMHl3lq2pOJmCfRVLffRXBCWGE06T5GgA%3D&_r=1&_svg=1&checksum=0b03d4e9575d89b13f3c93a434717968f4e6089636901df21a7e0d2d19dffe9c&panel_source_v2=share_panel&sec_user_id=MS4wLjABAAAAdX823G2Ww1l31uWrbWcDRnEPN7hnUai0kJqtgG1_cLy7FEmCZ6zBDWGjjTAcyRwQ&share_app_id=1180&share_enter_from=homepage_hot&share_link_id=074D2069-CD4A-4AB0-A320-8E69C031AA32&share_music_id=7646395799953984277&share_region=VN&sharer_language=en&social_share_type=7&source=h5_t&timestamp=1782710812&tt_from=copy&u_code=f12b652h12fkc5&ug_btm=b2001%2Cb0&user_id=7584832572422554640&utm_campaign=client_share&utm_medium=ios&utm_source=copy",
+    "createdAt": {
+      "seconds": 1782717456,
+      "nanoseconds": 39000000
+    },
+    "note": "hơi không giống",
+    "type": "manual_claim",
+    "requesterName": "zhyn"
+  },
+  {
+    "id": "h3aebwd8SFUAaQSgcziv",
+    "requesterSegment": "OPS",
+    "updatedAt": {
+      "seconds": 1781671480,
+      "nanoseconds": 742000000
+    },
+    "type": "manual_claim",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1781671480,
+        "nanoseconds": 742000000
+      },
+      "REQUESTED": {
+        "seconds": 1781594871,
+        "nanoseconds": 21000000
+      },
+      "PROCESS": {
+        "seconds": 1781594989,
+        "nanoseconds": 869000000
+      },
+      "SUBMITTED": {
+        "seconds": 1781596044,
+        "nanoseconds": 791000000
+      }
+    },
+    "note": "https://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-TR%E1%BA%A0M-Blues-7645927025651419922? \nhttps://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-TR%E1%BA%A0M-Blues-7645874080759565064? \nhttps://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-TR%E1%BA%A0M-AI-COVER-7645993752625302280 \nhttps://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-%F0%9F%8E%B6-Ph%E1%BB%91-Nh%E1%BA%A1c-%F0%9F%87%BB%F0%9F%87%B3-7646389286330026773 \nhttps://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-Bu%E1%BB%93n199x-7646422454167997202",
+    "url": "check note",
+    "label": "Pin Media",
+    "requesterName": "zhyn",
+    "status": "COMPLETE",
+    "artist": "Nguyễn Khánh Sang & Pin Media",
+    "createdAt": {
+      "seconds": 1781594871,
+      "nanoseconds": 21000000
+    },
+    "tenBai": "Cứ Sống Tử Tế Đi"
+  },
+  {
+    "id": "hM4WGckUp8j1AMPwaLeL",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1781596904,
+        "nanoseconds": 225000000
+      },
+      "PROCESS": {
+        "seconds": 1781178826,
+        "nanoseconds": 679000000
+      },
+      "REQUESTED": {
+        "seconds": 1781178822,
+        "nanoseconds": 765000000
+      },
+      "SUBMITTED": {
+        "seconds": 1781250357,
+        "nanoseconds": 464000000
+      }
+    },
+    "label": "WM",
+    "updatedAt": {
+      "seconds": 1781596904,
+      "nanoseconds": 225000000
+    },
+    "type": "manual_claim",
+    "requesterSegment": "OPS",
+    "tenBai": "theo track",
+    "requesterName": "zhyn",
+    "url": "https://docs.google.com/spreadsheets/d/1Na5w1CiPhYp4nXfNxlP4GUnFw7HFE1uXFZv_6s32Gg8/edit?gid=855010139#gid=855010139&range=E1",
+    "status": "COMPLETE",
+    "createdAt": {
+      "seconds": 1781178822,
+      "nanoseconds": 765000000
+    },
+    "artist": "theo track"
+  },
+  {
+    "id": "hwxD1ASsvJadavj9Ogf8",
+    "artist": "Ngô Lan Hương",
+    "status": "COMPLETE",
+    "requesterName": "zhyn",
+    "createdAt": {
+      "seconds": 1781769963,
+      "nanoseconds": 7000000
+    },
+    "tenBai": "Có Công Mài \"Sắc\"",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1782188103,
+        "nanoseconds": 77000000
+      },
+      "SUBMITTED": {
+        "seconds": 1781770107,
+        "nanoseconds": 706000000
+      },
+      "PROCESS": {
+        "seconds": 1781769966,
+        "nanoseconds": 838000000
+      },
+      "REQUESTED": {
+        "seconds": 1781769963,
+        "nanoseconds": 7000000
+      }
+    },
+    "requesterSegment": "OPS",
+    "url": "https://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-%C4%90%C3%B4ng-%C4%90%C3%A2y-7648107875231763220?_d=secCgYIASAHKAESPgo8vOrXKisHKmsP9pX7OtRHz%2BwIs6jMYSaFUqJsDnxl7xKq0TTeE0kfxdumwZrbR4rChLtLxHgVLd8FU6bxGgA%3D&_r=1&_svg=1&checksum=220de47cd427d0154b4c8f93cb32cb577f66c55b40c2bed45aa0fd568a1abe93&panel_source_v2=share_panel&sec_user_id=MS4wLjABAAAATrIX-jNrF_IO0X9vJwWxLcfr3JvV4V23xw-VA3_Cm3wcsT3so2Sa126o9WfJJPXy&share_app_id=1180&share_enter_from=homepage_hot&share_link_id=6B75E35F-8BC5-4373-9858-C424F4C62955&share_music_id=7648107875231763220&share_region=VN&sharer_language=en&social_share_type=7&source=h5_t&timestamp=1781699505&tt_from=copy&u_code=d14c0dj757j324&ug_btm=b2001%2Cb0&user_id=6578696770577432577&utm_campaign=client_share&utm_medium=ios&utm_source=copy",
+    "updatedAt": {
+      "seconds": 1782188103,
+      "nanoseconds": 77000000
+    },
+    "type": "manual_claim",
+    "label": "Ngô Lan Hương"
+  },
+  {
+    "id": "iK5fZIlXqLHAbL4w6gn6",
+    "url": "https://vm.tiktok.com/ZP96FpvCnaNKx-6xIeE/",
+    "note": "đang claim bằng bản hàn việt phong, và chu bin",
+    "status": "SUBMITTED",
+    "type": "manual_claim",
+    "artist": "???",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1782382781,
+        "nanoseconds": 145000000
+      },
+      "REQUESTED": {
+        "seconds": 1782382384,
+        "nanoseconds": 353000000
+      },
+      "SUBMITTED": {
+        "seconds": 1782382912,
+        "nanoseconds": 839000000
+      }
+    },
+    "tenBai": "Cười Trên Vết Nứt",
+    "requesterName": "zhyn",
+    "updatedAt": {
+      "seconds": 1782717918,
+      "nanoseconds": 660000000
+    },
+    "label": "??",
+    "createdAt": {
+      "seconds": 1782382384,
+      "nanoseconds": 353000000
+    },
+    "requesterSegment": "OPS"
+  },
+  {
+    "id": "jVRPcwcuZL6hVWvvqlNy",
+    "createdAt": {
+      "seconds": 1782382421,
+      "nanoseconds": 349000000
+    },
+    "tenBai": "Chồng Gần Chồng Xa",
+    "artist": "Hoàng Oanh",
+    "status": "COMPLETE",
+    "label": "Hoàng Oanh",
+    "requesterSegment": "OPS",
+    "url": "https://www.tiktok.com/music/CHỒNG-GẦN-CHỒNG-XA-REMIXHOÀNG-OANH-7652755859657181972?is_from_webapp=1&sender_device=pc",
+    "type": "manual_claim",
+    "requesterName": "zhyn",
+    "updatedAt": {
+      "seconds": 1784018453,
+      "nanoseconds": 771000000
+    },
+    "note": "đang lên bản remix, claim đỡ bằng bản gốc",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1782717933,
+        "nanoseconds": 840000000
+      },
+      "SUBMITTED": {
+        "seconds": 1782382914,
+        "nanoseconds": 606000000
+      },
+      "REQUESTED": {
+        "seconds": 1782382421,
+        "nanoseconds": 349000000
+      },
+      "PROCESS": {
+        "seconds": 1782382906,
+        "nanoseconds": 46000000
+      }
+    }
+  },
+  {
+    "id": "jucJ2UI2t5LmBWCc6Hke",
+    "label": "Khỉ Con Music",
+    "updatedAt": {
+      "seconds": 1781596872,
+      "nanoseconds": 663000000
+    },
+    "note": "",
+    "statusLog": {
+      "SUBMITTED": {
+        "seconds": 1781247380,
+        "nanoseconds": 144000000
+      },
+      "PROCESS": {
+        "seconds": 1781065032,
+        "nanoseconds": 512000000
+      },
+      "REQUESTED": {
+        "seconds": 1780990675,
+        "nanoseconds": 352000000
+      },
+      "COMPLETE": {
+        "seconds": 1781596872,
+        "nanoseconds": 663000000
+      }
+    },
+    "type": "manual_claim",
+    "createdAt": {
+      "seconds": 1780990675,
+      "nanoseconds": 352000000
+    },
+    "tenBai": "Một Người Như Ý",
+    "url": "https://www.tiktok.com/music/âm-thanh-gốc-Buồn-Hơn-Chữ-Buồn-7648889763751070472?is_from_webapp=1&sender_device=pc",
+    "status": "COMPLETE",
+    "artist": "Một Người Như Ý",
+    "requesterName": "zhyn",
+    "requesterSegment": "OPS"
+  },
+  {
+    "id": "lRhkVVzdRz4AIkZWXD1w",
+    "type": "manual_claim",
+    "label": "HTM",
+    "note": "bài này Vieent không có bản remix đúng",
+    "url": "https://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-I-love-7635998998037547783",
+    "createdAt": {
+      "seconds": 1781074108,
+      "nanoseconds": 787000000
+    },
+    "requesterName": "zhyn",
+    "requesterSegment": "OPS",
+    "tenBai": "Em nhắc anh",
+    "status": "COMPLETE",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1781074108,
+        "nanoseconds": 787000000
+      },
+      "PROCESS": {
+        "seconds": 1781074429,
+        "nanoseconds": 240000000
+      },
+      "SUBMITTED": {
+        "seconds": 1781074611,
+        "nanoseconds": 535000000
+      },
+      "COMPLETE": {
+        "seconds": 1781161856,
+        "nanoseconds": 643000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1781161856,
+      "nanoseconds": 643000000
+    },
+    "artist": "Nana Liu & HTM"
+  },
+  {
+    "id": "mZ1kOn5NvkVhqdd20GbF",
+    "requesterName": "zhyn",
+    "tenBai": "Có Công Mài Sắc",
+    "artist": "Ngô Lan Hương",
+    "statusLog": {
+      "CANCELED": {
+        "seconds": 1780915465,
+        "nanoseconds": 617000000
+      },
+      "PROCESS": {
+        "seconds": 1780653444,
+        "nanoseconds": 683000000
+      },
+      "REQUESTED": {
+        "seconds": 1780653303,
+        "nanoseconds": 335000000
+      }
+    },
+    "requesterSegment": "OPS",
+    "status": "CANCELED",
+    "updatedAt": {
+      "seconds": 1780915465,
+      "nanoseconds": 617000000
+    },
+    "label": "Ngô Lan Hương",
+    "url": "https://vt.tiktok.com/ZS92XXrGLnMx1-hZLkv/",
+    "createdAt": {
+      "seconds": 1780653303,
+      "nanoseconds": 335000000
+    },
+    "note": "bản cover vocal AI, remix",
+    "type": "manual_claim"
+  },
+  {
+    "id": "rCUOmIA4Pyq6HJS1eUho",
+    "label": "BMT Music",
+    "tenBai": "Người Đã Yêu Ai Remix Version 2",
+    "type": "manual_claim",
+    "note": "Bảo Long đã claim\n1. https://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-ti%E1%BA%BFn-d%C5%A9ngg-7645398932494895889\n2. https://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-Ph%C3%A1t-Lee-7646022966668561172\n3. https://www.tiktok.com/music/âm-thanh-gốc-Xiaolinn-7648667730974935829?is_from_webapp=1&sender_device=pc\n4. https://www.tiktok.com/music/âm-thanh-gốc-Nghiep-Aanh02❤️-7648595643367279367?is_from_webapp=1&sender_device=pc\n5.https://www.tiktok.com/music/âm-thanh-gốc-Hiếu-Remix-7645243063380232981?is_from_webapp=1&sender_device=pc\n6. https://www.tiktok.com/music/%C3%A2m-thanh-g%E1%BB%91c-A-G-U-S-T-D-7642392361843018517",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1781770116,
+        "nanoseconds": 597000000
+      },
+      "SUBMITTED": {
+        "seconds": 1781671516,
+        "nanoseconds": 718000000
+      },
+      "REQUESTED": {
+        "seconds": 1781463145,
+        "nanoseconds": 243000000
+      },
+      "PROCESS": {
+        "seconds": 1781494390,
+        "nanoseconds": 921000000
+      }
+    },
+    "requesterName": "",
+    "status": "COMPLETE",
+    "requesterSegment": "GUEST_REQUESTER",
+    "url": "check note",
+    "updatedAt": {
+      "seconds": 1784018453,
+      "nanoseconds": 806000000
+    },
+    "artist": "Lương Gia Hùng & Châu Khải Phong",
+    "createdAt": {
+      "seconds": 1781463145,
+      "nanoseconds": 243000000
+    }
+  },
+  {
+    "id": "vg8jBxzPEYTmiHoQCkpc",
+    "label": "Khỉ Con Music",
+    "tenBai": "Một Người Như Ý",
+    "type": "manual_claim",
+    "note": "https://vt.tiktok.com/ZS9jfGyqyj82U-HJcjW/\n- https://vt.tiktok.com/ZS92w5a7R39sL-n3Y3O/\n- https://vt.tiktok.com/ZS92w5xHg4Fab-pbBWp/",
+    "updatedAt": {
+      "seconds": 1781671477,
+      "nanoseconds": 88000000
+    },
+    "status": "COMPLETE",
+    "statusLog": {
+      "SUBMITTED": {
+        "seconds": 1781595411,
+        "nanoseconds": 600000000
+      },
+      "COMPLETE": {
+        "seconds": 1781671477,
+        "nanoseconds": 88000000
+      },
+      "PROCESS": {
+        "seconds": 1781592591,
+        "nanoseconds": 315000000
+      },
+      "REQUESTED": {
+        "seconds": 1781592488,
+        "nanoseconds": 962000000
+      }
+    },
+    "url": "Check note",
+    "artist": "Gold MK",
+    "createdAt": {
+      "seconds": 1781592488,
+      "nanoseconds": 962000000
+    },
+    "requesterSegment": "OPS",
+    "requesterName": "zhyn"
+  },
+  {
+    "id": "vr30b7mF67G9fZCqUwvt",
+    "createdAt": {
+      "seconds": 1780914988,
+      "nanoseconds": 845000000
+    },
+    "requesterName": "zhyn",
+    "label": "H2O",
+    "tenBai": "Qua Cồn Rước Dâu (Hải DN Remix)",
+    "requesterSegment": "OPS",
+    "updatedAt": {
+      "seconds": 1781463221,
+      "nanoseconds": 22000000
+    },
+    "artist": "Bảo Trân Đặng & Keyri Phan & Hải DN",
+    "url": "https://vt.tiktok.com/ZS9Yor3wvGn4N-T4Nrw/",
+    "note": "",
+    "status": "COMPLETE",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1780915427,
+        "nanoseconds": 838000000
+      },
+      "SUBMITTED": {
+        "seconds": 1781065022,
+        "nanoseconds": 510000000
+      },
+      "COMPLETE": {
+        "seconds": 1781161881,
+        "nanoseconds": 618000000
+      },
+      "REQUESTED": {
+        "seconds": 1780914988,
+        "nanoseconds": 845000000
+      }
+    },
+    "type": "manual_claim"
+  }
+]

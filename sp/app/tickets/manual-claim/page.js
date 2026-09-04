@@ -1,0 +1,322 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import AppShell from "../../../lib/AppShell";
+import { supabase } from "../../../lib/supabaseClient";
+import { fmtDate, statusColor } from "../../../lib/helpers";
+import { useAuth } from "../../../lib/AuthContext";
+import { isOpsTeam } from "../../../lib/teamTypes";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
+import TypeSwitcher from "../../../lib/TypeSwitcher";
+import MultiLinkCell from "../../../lib/MultiLinkCell";
+import { usePagination } from "../../../lib/usePagination";
+import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import NoteCell from "../../../lib/NoteCell";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
+import { parseManualClaimBatchPaste, MANUAL_CLAIM_BATCH_COLUMNS } from "../../../lib/manualClaimBatchParse";
+import styles from "../../shared.module.css";
+
+// Rebuilt bespoke to match v1's real Manual Claim table — simpler than
+// Phái Sinh (no computed group columns), but same link-or-edit URL
+// pattern and full continuous column set rather than a 4-field preview.
+const REFUND_LIKE = ["REFUND"];
+
+export default function ManualClaimList() {
+  const { profile } = useAuth();
+  const [tab, setTab] = useState(null);
+  const [tickets, setTickets] = useState([]);
+  const [profiles, setProfiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState(null);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
+  // Round 81 item 4 — mass import via paste, mirroring Phái Sinh's "+ Add
+  // Via Paste" pattern (lib/phaiSinhBatchParse.js) but creating standalone
+  // tickets instead of batch child rows.
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [pasteError, setPasteError] = useState(null);
+  const [pasteSubmitting, setPasteSubmitting] = useState(false);
+
+  const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
+
+  useEffect(() => {
+    if (!supabase) return;
+    load();
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    const { data: tabRow } = await supabase.from("ticket_tabs").select("*").eq("key", "manual_claim").single();
+    if (!tabRow) { setLoading(false); return; }
+    setTab(tabRow);
+    if (!statusFilter) setStatusFilter(tabRow.status_options[0]);
+    const { data } = await supabase.from("tickets").select("*, profiles(name)").eq("tab_id", tabRow.id).is("deleted_at", null).order("created_at", { ascending: false });
+    setTickets(data || []);
+    setLoading(false);
+  }
+
+  // label/tenBai/artist used to be locked read-only text on the requester
+  // side — now editable there too, flagged + pinged to OPS instead of
+  // blocked outright (url/note were already both-editable and stay that
+  // way, untouched by the flag).
+  async function updateField(t, key, value, editedByRequester) {
+    const newData = { ...t.data, [key]: value };
+    if (editedByRequester) {
+      newData.__requesterEdited = true;
+      newData.__requesterEditedAt = new Date().toISOString();
+      newData.__requesterEditedField = key;
+      newData.__requesterEditedBy = profile?.name || null;
+    }
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, data: newData } : x)));
+    await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
+    if (editedByRequester) {
+      const fieldLabel = { label: "Label", tenBai: "Tên Bài", artist: "Artist", claimTimestamp: "Claim Timestamp", url: "URL", note: "Note" }[key] || key;
+      await supabase.rpc("fanout_notification", {
+        p_team: "OPS",
+        p_type: "ticket_edited",
+        p_title: "Manual Claim ticket edited by requester",
+        p_body: `${profile?.name || "The requester"} changed "${fieldLabel}".`,
+        p_link: "/tickets/manual-claim",
+        p_ticket_id: t.id,
+      });
+    }
+  }
+
+  async function acknowledgeEdit(t) {
+    const newData = { ...t.data, __requesterEdited: false };
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, data: newData } : x)));
+    await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
+  }
+
+  async function updatePic(t, profileId) {
+    const patch = { pic_profile_id: profileId || null };
+    if (profileId && t.status === tab.default_status) {
+      const nextStatus = tab.status_options[1];
+      if (nextStatus) { patch.status = nextStatus; patch.status_log = { ...t.status_log, [nextStatus]: new Date().toISOString() }; }
+    }
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
+    await supabase.from("tickets").update(patch).eq("id", t.id);
+  }
+
+  async function updateStatus(t, newStatus) {
+    const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
+    const patch = { status: newStatus, status_log: newLog };
+    if (REFUND_LIKE.includes(newStatus)) patch.pic_profile_id = null;
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js) — already visible
+    // here via the existing Note column's NoteCell.
+    if (statusNeedsNote(newStatus)) {
+      const newData = withStatusNote(t.data, newStatus);
+      if (!newData) return;
+      patch.data = newData;
+    }
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
+    await supabase.from("tickets").update(patch).eq("id", t.id);
+  }
+
+  // Round 81 item 4 — same insert shape lib/NewTicketPage.js uses for a
+  // single Manual Claim ticket (tab_id/data/status/status_log/requester_*),
+  // just fired once per pasted row instead of once per form submit.
+  async function handleAddPaste(e) {
+    e.preventDefault();
+    setPasteError(null);
+    if (!tab) return;
+    const { rows, skipped } = parseManualClaimBatchPaste(pasteText);
+    if (rows.length === 0) {
+      setPasteError("Nothing parsed from the box — check the column order and try again.");
+      return;
+    }
+    setPasteSubmitting(true);
+    const { error } = await supabase.from("tickets").insert(
+      rows.map((r) => ({
+        tab_id: tab.id,
+        data: r,
+        status: tab.default_status,
+        status_log: { [tab.default_status]: new Date().toISOString() },
+        requester_segment: profile?.segment || null,
+        requester_name: profile?.name || null,
+      }))
+    );
+    setPasteSubmitting(false);
+    if (error) {
+      setPasteError(error.message);
+      return;
+    }
+    setPasteText("");
+    setPasteOpen(false);
+    await load();
+    if (skipped > 0) window.alert(`${rows.length} ticket(s) created — ${skipped} row(s) skipped (missing Label/Tên Bài/Artist/URL).`);
+  }
+
+  const visibleTickets = (isExecutorView
+    ? tickets.filter((t) => t.status === statusFilter)
+    : [...tickets].sort((a, b) => (REFUND_LIKE.includes(a.status) ? 0 : 1) - (REFUND_LIKE.includes(b.status) ? 0 : 1))
+  ).filter((t) => matchesQuery(t, query));
+
+  const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
+
+  return (
+    <AppShell>
+      <div className={styles.page}>
+        <div className={styles.container} style={{ maxWidth: 1300 }}>
+          <TypeSwitcher kind="ticket" current="manual_claim" />
+          <div className={styles.topRow}>
+            <div>
+              <div className={styles.eyebrow}>// Ticket</div>
+              <h1 className={styles.title} style={{ marginBottom: 0 }}>Manual Claim</h1>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className={styles.btnSmall} onClick={() => setPasteOpen((o) => !o)}>+ Mass Import</button>
+              <Link href="/tickets/manual-claim/new" className={styles.btnPrimary}>+ New Ticket</Link>
+            </div>
+          </div>
+
+          {pasteOpen && (
+            <form onSubmit={handleAddPaste} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14, marginBottom: 20 }}>
+              {pasteError && <div className={styles.errorBox}>{pasteError}</div>}
+              <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 0, marginBottom: 6 }}>
+                One ticket per line, tab-separated, in this column order: {MANUAL_CLAIM_BATCH_COLUMNS.join(" · ")}. Label, Tên Bài, Artist, and URL are required — rows missing any of those are skipped.
+              </p>
+              <textarea
+                className={styles.textarea}
+                style={{ minHeight: 140, fontFamily: "monospace", fontSize: 11 }}
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder="Paste tab-separated rows here…"
+              />
+              <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                <button className={styles.btnPrimary} type="submit" disabled={pasteSubmitting}>
+                  {pasteSubmitting ? "Adding…" : "Add Tickets"}
+                </button>
+                <button type="button" className={styles.btnSmall} onClick={() => { setPasteOpen(false); setPasteText(""); setPasteError(null); }}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+
+          <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
+
+          {isExecutorView && tab && (
+            <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
+              {tab.status_options.map((s) => (
+                <button key={s} onClick={() => setStatusFilter(s)} className={`${styles.tabBtn} ${statusFilter === s ? styles.tabBtnActive : ""}`} style={{ border: statusFilter === s ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: statusFilter === s ? "rgba(255,107,26,0.1)" : "transparent" }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {loading ? (
+            <div className={styles.emptyState}>Loading…</div>
+          ) : visibleTickets.length === 0 ? (
+            <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
+          ) : (
+            <>
+            <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
+            <table className={styles.table} style={{ minWidth: 1100 }}>
+              <thead>
+                <tr>
+                  <th>Request Date</th><th>Label</th><th>Tên Bài</th><th>Artist</th><th>Claim Timestamp</th><th>URL</th><th>Note</th>
+                  <th>PIC</th><th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedTickets.map((t) => (
+                  <ManualClaimRow
+                    key={t.id}
+                    ticket={t}
+                    tab={tab}
+                    profiles={profiles}
+                    isExecutorView={isExecutorView}
+                    onUpdateField={updateField}
+                    onUpdateStatus={updateStatus}
+                    onUpdatePic={updatePic}
+                    onAcknowledgeEdit={acknowledgeEdit}
+                  />
+                ))}
+              </tbody>
+            </table>
+            </div>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+            </>
+          )}
+        </div>
+      </div>
+    </AppShell>
+  );
+}
+
+function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePic, onAcknowledgeEdit }) {
+  const d = ticket.data || {};
+  const color = statusColor(ticket.status);
+  const isRefundLike = REFUND_LIKE.includes(ticket.status);
+  const statusEditable = isExecutorView || isRefundLike;
+  const statusOptions = isExecutorView
+    ? tab?.status_options || []
+    : [ticket.status, tab?.default_status, "REFUND", "CANCELED"].filter((v, i, a) => v && a.indexOf(v) === i);
+  const showEditedHighlight = isExecutorView && !!d.__requesterEdited;
+
+  function textCell(key, value) {
+    return (
+      <td>
+        <input
+          className={styles.input}
+          style={{ padding: "4px 8px", fontSize: 12, minWidth: 180 }}
+          defaultValue={value || ""}
+          onBlur={(e) => onUpdateField(ticket, key, e.target.value, !isExecutorView)}
+        />
+      </td>
+    );
+  }
+
+  return (
+    <tr style={showEditedHighlight ? { boxShadow: "inset 3px 0 0 var(--accent)", background: "rgba(255,107,26,0.06)" } : undefined}>
+      <td style={{ fontSize: 12 }}>
+        {fmtDate(ticket.created_at)}
+        {showEditedHighlight && (
+          <div
+            title={`Edited by ${d.__requesterEditedBy || "requester"} — click to clear`}
+            onClick={() => onAcknowledgeEdit(ticket)}
+            style={{ cursor: "pointer", fontSize: 9, fontWeight: 700, color: "var(--accent)", marginTop: 2, whiteSpace: "nowrap" }}
+          >
+            ✎ edited
+          </div>
+        )}
+      </td>
+      {textCell("label", d.label)}
+      {textCell("tenBai", d.tenBai)}
+      {textCell("artist", d.artist)}
+      {/* Round 80 — Claim Timestamp: plain text (not a real timestamp
+          picker — per request it's just a free-typed text field), editable
+          after creation same as every other field here. */}
+      {textCell("claimTimestamp", d.claimTimestamp)}
+      <td style={{ minWidth: 220 }}><MultiLinkCell styles={styles} value={d.url} onSave={(v) => onUpdateField(ticket, "url", v, !isExecutorView)} /></td>
+      <td style={{ minWidth: 160 }}>
+        <NoteCell value={d.note} onSave={(v) => onUpdateField(ticket, "note", v, !isExecutorView)} />
+      </td>
+      <td>
+        {isExecutorView ? (
+          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
+            <option value="">— Unassigned —</option>
+            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        ) : (
+          <span style={{ fontSize: 12 }}>{ticket.profiles?.name || "—"}</span>
+        )}
+      </td>
+      <td>
+        {statusEditable ? (
+          <select value={ticket.status} onChange={(e) => onUpdateStatus(ticket, e.target.value)} style={{ background: color.bg, color: color.fg, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>
+            {statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        ) : (
+          <span className={styles.statusBadge} style={{ background: color.bg, color: color.fg }}>{ticket.status}</span>
+        )}
+      </td>
+    </tr>
+  );
+}

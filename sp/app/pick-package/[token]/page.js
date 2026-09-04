@@ -1,0 +1,1727 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import { supabase } from "../../../lib/supabaseClient";
+import { formatDetailText } from "../../../lib/helpers";
+import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../../lib/troGiaBooking";
+import { useIsMobile } from "../../../lib/useIsMobile";
+import { computeNextMaPL } from "../../../lib/phuLucCounter";
+import { findDuplicateTicketKeys } from "../../../lib/duplicateTicketGuard";
+import { readMagicLinkThemeLock } from "../../../lib/magicLinkThemeLock";
+import styles from "../../shared.module.css";
+
+function fmtVnd(n) {
+  if (n === null || n === undefined) return "—";
+  return new Intl.NumberFormat("vi-VN").format(n) + " đ";
+}
+
+// Only "Chỉ Phát Hành" remains as an always-offered plain pick (no
+// itemized breakdown) — "Không Độc Quyền" was removed entirely per
+// request. "Int Media" used to be a 3rd entry here as a fake quick-pick;
+// it's now a real buildable package type (see BuildPackagePopup) AND, as
+// of the INT MEDIA follow-up flow, a special add-on that overrides the
+// Chỉ Phát Hành card below once built — see the intMediaOverride logic
+// further down.
+const SIMPLE_OPTIONS = ["Chỉ Phát Hành"];
+const BOOKING_ROUNDS = ["INT", "Đợt 1", "Đợt 2"];
+
+// Hardcoded, identical for every package (not per-package terms_text, not
+// DB-driven like the Shared Terms blocks above) — this is VIEENT's fixed
+// partner-benefits sheet, shown once regardless of which package is
+// selected. Transcribed from the reference sheet; ping if any wording here
+// needs correcting and it'll get fixed in this same constant.
+const PARTNER_BENEFITS = [
+  // Round 65 — RECORDING STUDIO removed from here (was an always-shown
+  // fixed row). Round 68 — moved again: for a while it lived as an
+  // opt-in per-PACKAGE line item, but that was wrong per explicit
+  // correction — it's picked per PRODUCT (this release), not per package,
+  // so it now conditionally prepends to this same list from
+  // PartnerBenefits() below (see recordingStudioIncluded), driven by
+  // releases.recording_studio_included instead of living in this array at
+  // all.
+  { label: "19 CREATIVE SPACE", detail: "Không gian miễn phí để thực hiện quay phỏng vấn, live session, MV ..." },
+  { label: "PITCHING PLAYLIST/BANNER", detail: "Nền Tảng : Zingmp3, NCT, Spotify, Apple Music\nKết quả Pitching sẽ được cập nhật sau khi nền tảng trả kết quả về" },
+  // Round 68 — item 2a: TRỢ GIÁ BOOKING and TRỢ GIÁ BOOKING ADS YOUTUBE
+  // NGOÀI GÓI HTTT rows removed per explicit request.
+  { label: "HỆ THỐNG QUẢN LÝ PHÁT HÀNH VÀ DOANH THU", detail: "Cung cấp tài khoản truy cập để kiểm tra\n- Catalog : VIEENT Music Dashboard\n- Xem Báo cáo Doanh thu : Royalties Analytics" },
+  { label: "BẢO VỆ BẢN QUYỀN & ĐỊNH DANH NGHỆ SĨ:", detail: "- Tối ưu hóa Hồ sơ nghệ sĩ (Mapping/Verification) trên mọi nền tảng.\n- Giám sát, xử lý vi phạm bản quyền (Claim/Report) trên các nền tảng.\n- Tư vấn pháp lý các vấn đề liên quan đến quyền tác giả, quyền bản ghi." },
+  { label: "THEO DÕI & BÁO CÁO ĐỊNH KỲ", detail: "- Báo cáo định kỳ về chỉ số lượt nghe của dự án và profile của nghệ sĩ.\n- Đánh giá dữ liệu để tư vấn điều chỉnh kế hoạch truyền thông kịp thời, đảm bảo hiệu quả tối đa." },
+];
+// Round 68 — the row PartnerBenefits() prepends when
+// release.recording_studio_included is true, regardless of which package
+// was picked (it's a per-product flag, not tied to any one package's
+// terms).
+const RECORDING_STUDIO_ROW = { label: "RECORDING STUDIO", detail: "Thu âm miễn phí tại VIEENT Studio" };
+const MEDIA_PARTNER_NOTE = {
+  intro: "***Logo VIEENT sẽ xuất hiện trên các tài liệu truyền thông chính thức như:\n– Bài đăng Facebook\n– Thumbnail YouTube\n*** Chia sẻ các bài đăng về artist post /congrats post hoặc tag tên VIEENT trong bài đăng Congrats/Thank You Post",
+  logoLink: "https://vieent.com/logo",
+  hashtag: "Hashtag chính thức #vieentmusic sẽ được sử dụng trên các nền tảng TikTok, Facebook và các nội dung liên quan đến bài hát.",
+};
+
+// Shared Terms Block B ("Chỉ áp dụng cho gói 5 năm và 2 năm…") is only
+// ever relevant to these 2 tiers — Vĩnh Viễn (or anything else) never
+// shows it, even though Block A still shows for every real package.
+const SHARED_B_TIERS = ["độc quyền 5 năm", "độc quyền 2 năm"];
+
+// Any terms line containing one of these phrases gets highlighted in the
+// accent color instead of the default muted grey — Marketing wants "HỖ TRỢ
+// 100% CHI PHÍ" / "KHÔNG CẦN TRỪ DOANH THU" (wherever it appears across the
+// Intro / Conditions / per-package terms text, all admin-edited in Config →
+// Shared Terms) to stand out. var(--accent-soft) is already bright orange
+// in dark mode and a darker, still-readable-on-white orange in light mode —
+// no separate light/dark branching needed here. Round 68 — item 4a added
+// the second line ("KHÔNG CẦN TRỪ DOANH THU" sits on its own line, right
+// after "HỖ TRỢ 100% CHI PHÍ", and wasn't matching the old single phrase).
+const HIGHLIGHT_PHRASES = ["hỗ trợ 100%", "không cần trừ doanh thu"];
+
+// Round 68 — item 4b: bold, no color change. Round 72 — item 4b: the two
+// "Điều kiện N: ..." lines moved here too (used to be BOLD_NUMBERS_PHRASES
+// below, with their numbers colored orange — per explicit correction,
+// that's gone now, they're just bold like this line, normal color
+// everywhere including the numbers).
+const BOLD_ONLY_PHRASES = ["điều kiện cam kết", "điều kiện 1", "điều kiện 2"];
+
+// Round 72 — item 4c: any "NN năm" duration (05 năm, 02 năm, 01 năm, …)
+// gets its number+"năm" colored orange, wherever it shows up — replaces
+// the old digit-only BOLD_NUMBERS_PHRASES/withColoredNumbers pair (that
+// colored ANY number on the điều kiện lines above; those are now plain
+// bold instead, see BOLD_ONLY_PHRASES). Applied to every line by default
+// (not gated by a phrase list) since duration text appears in different
+// packages' own terms_text with different wording around it.
+function withColoredYears(line) {
+  const parts = line.split(/(\d+\s*năm)/gi);
+  return parts.map((part, i) => (/^\d+\s*năm$/i.test(part) ? <span key={i} style={{ color: "var(--accent-soft)" }}>{part}</span> : part));
+}
+
+// Streaming & Milestone section, below Booking Progress — read-only
+// display of release_stream_metrics (the real, actively-maintained
+// numbers table behind the Streaming workstation's Today/Monthly/Bổ Sung
+// tabs; NOT dsp_metrics_snapshots, which the release detail page's own
+// "Stream Numbers" section reads from but is still an unused/future
+// automated-fetch path per schema.sql — always empty in practice today).
+// Field label list mirrors STREAM workstation's METRIC_GROUPS values, just
+// flattened and only rendering whichever fields actually have something in
+// them rather than a fixed grid, since most releases only ever fill in a
+// handful of these.
+const STREAM_FIELD_LABELS = {
+  current_spotify: "Spotify — Current", playlist_spotify: "Spotify — Playlist",
+  views_tiktok: "TikTok — Views", creations_tiktok: "TikTok — Creations",
+  current_zing: "Zing — Current", homepage_banner_zing: "Zing — Homepage Banner", bxh_nhac_moi: "Zing — BXH Nhạc Mới", album_hot_zing: "Zing — Album Hot", cover_playlist_zing: "Zing — Cover Playlist", playlist_zing: "Zing — Playlist",
+  current_nct: "NCT — Current", banner_homepage_nct: "NCT — Homepage Banner", cover_playlist_nct: "NCT — Cover Playlist", playlist_nct: "NCT — Playlist",
+  current_ytb: "YouTube — Current", youtube_trending: "YouTube — Trending",
+  current_ytb_music: "YTB Music — Current",
+  views_fb: "Facebook — Views", creations_fb: "Facebook — Creations",
+};
+
+// Round 72 — item 4: "make the package term also HTML format" — any text
+// admin-pastes into Config → Shared Terms / Per-Package Terms / Trợ Giá
+// Booking that itself contains real HTML tags (<br/>, <a href>, <b>,
+// <span>, …) now renders as actual HTML instead of literal text, so admin
+// can hand-format a block (e.g. embed a real clickable link) without
+// needing a new phrase rule added here every time. Detected by a simple
+// tag-shaped regex — plain text with no "<...>" in it is completely
+// unaffected and keeps going through the line-by-line phrase logic below,
+// so nothing already in Config needs to change.
+const HTML_TAG_RE = /<\/?[a-z][\s\S]*>/i;
+
+// Renders a terms blob line-by-line so specific lines can carry their own
+// formatting — everything else renders exactly as before (same font
+// size/color/line-height), just broken into per-line divs instead of one
+// whiteSpace:"pre-line" block. Round 68 — item 4 added bold-only/
+// bold-with-colored-numbers line rules on top of the original
+// HIGHLIGHT_PHRASES one; round 72 — item 4 replaced the colored-numbers
+// rule with a colored-years rule (see withColoredYears above) and added
+// the raw-HTML passthrough above.
+function TermsText({ text, baseStyle }) {
+  if (!text) return null;
+  if (HTML_TAG_RE.test(text)) {
+    return <div style={baseStyle} dangerouslySetInnerHTML={{ __html: text }} />;
+  }
+  return text.split("\n").map((line, i) => {
+    const lower = line.toLowerCase();
+    if (HIGHLIGHT_PHRASES.some((p) => lower.includes(p))) {
+      return <div key={i} style={{ ...baseStyle, color: "var(--accent-soft)", fontWeight: 700 }}>{line || " "}</div>;
+    }
+    if (BOLD_ONLY_PHRASES.some((p) => lower.includes(p))) {
+      return <div key={i} style={{ ...baseStyle, fontWeight: 700 }}>{line || " "}</div>;
+    }
+    // Round 75 — item 3: any line with a "NN năm" duration in it (e.g.
+    // "Bản ghi gốc...: 02 năm") now goes bold too, not just the number
+    // colored — per explicit request.
+    const hasYear = /\d+\s*năm/i.test(line);
+    return <div key={i} style={{ ...baseStyle, fontWeight: hasYear ? 700 : baseStyle?.fontWeight }}>{withColoredYears(line || " ")}</div>;
+  });
+}
+
+// Round 125 — item 3b/3c: on mobile, each Hạng Mục becomes one
+// concatenated block instead of a table row — one line per column (Số
+// Lượng/Chi Tiết/Thành Tiền), line-break separated, any column whose
+// VALUE is blank is simply omitted (the title itself never gets dropped,
+// only a genuinely-empty value). Desktop keeps the real <table> (see the
+// inline table still in the main render below) — this is a mobile-only
+// replacement, not a change to the underlying `items` data.
+//
+// Round 146 — item 4: reverted the Round 125 SL/CT abbreviations back to
+// the full "Số Lượng"/"Chi Tiết" titles (there's enough vertical room on
+// mobile now), and switched each row from inline "title: value" to
+// "title:" on its own line followed by the value on the next line — more
+// legible on a narrow phone width, especially for the multi-line Chi Tiết
+// value. Thành Tiền (price) additionally goes ~2.2x its previous font
+// size and from the muted grey text color to plain white, so the price is
+// the one thing that visually pops on the card.
+function MobilePackageItems({ items }) {
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      {items.map((item, i) => {
+        const qtyText = item.isNonYoutubeAdsLine ? "1 Gói" : item.quantity != null ? `${item.quantity} ${item.unit || ""}`.trim() : null;
+        const detailText = formatDetailText(item.detail) || null;
+        const amountText = item.amount != null ? fmtVnd(item.amount) : null;
+        return (
+          <div key={i} style={{ borderBottom: i === items.length - 1 ? "none" : "1px solid var(--border)", paddingBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text)", marginBottom: 4, wordBreak: "break-word" }}>{item.category}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
+              {qtyText && (
+                <div>
+                  <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>Số Lượng:</span><br />
+                  {qtyText}
+                </div>
+              )}
+              {detailText && (
+                <div style={{ whiteSpace: "pre-line" }}>
+                  <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>Chi Tiết:</span><br />
+                  {detailText}
+                </div>
+              )}
+              {amountText && (
+                <div>
+                  <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>TT:</span><br />
+                  <span style={{ fontSize: 24, fontWeight: 800, color: "#fff" }}>{amountText}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Round 125 — item 3a: mobile-only package picker. Desktop keeps the
+// side-by-side card grid (unchanged, further down in the main render);
+// below the breakpoint that layout doesn't fit, so this renders a tab
+// strip instead — one tab per available package (rich AND simple options
+// both, so "each tab is a package available for that product" covers
+// everything the desktop grid shows) — with the "Choose" button sitting
+// right under the active tab's title (per explicit request), same
+// warning-confirm flow untouched (selectPackage/confirmChoice are the
+// exact same page-level functions the desktop cards call).
+function MobileTabbedPackages({ options, selectedValue, confirmed, isLocked, picking, selectPackage, sharedTerms }) {
+  const [activeTab, setActiveTab] = useState(options[0]?.value || null);
+  useEffect(() => {
+    if (!options.find((o) => o.value === activeTab)) setActiveTab(options[0]?.value || null);
+  }, [options]); // eslint-disable-line react-hooks/exhaustive-deps
+  const active = options.find((o) => o.value === activeTab) || options[0];
+  if (!active) return null;
+  const selected = selectedValue === active.value;
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 4 }}>
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => setActiveTab(o.value)}
+            style={{
+              flexShrink: 0, padding: "8px 12px", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", whiteSpace: "nowrap",
+              border: activeTab === o.value ? "2px solid #ff6b1a" : "1px solid var(--border-strong)",
+              background: activeTab === o.value ? "rgba(255,107,26,0.1)" : "var(--bg-card)",
+              color: activeTab === o.value ? "#ff9d5c" : "var(--text-muted)",
+            }}
+          >
+            {o.label || o.value}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ background: selected ? "rgba(255,107,26,0.1)" : "var(--bg-card)", border: selected ? "2px solid #ff6b1a" : "1px solid rgba(255,107,26,0.5)", borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ padding: 16, opacity: isLocked && !selected ? 0.5 : 1 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 16, fontWeight: 800, color: selected ? "#ff9d5c" : "var(--text)", wordBreak: "break-word" }}>
+              {active.label || active.value}
+            </span>
+            {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
+            {active.totalValue != null && <span style={{ fontSize: 13, color: "var(--text-faint)" }}>{fmtVnd(active.totalValue)}</span>}
+            {/* Round 125 — item 3a: "Choose button still stay right under
+                the tab title" — stacked directly below the title/price
+                instead of the desktop layout's side-by-side placement. */}
+            {!isLocked && (
+              <button
+                onClick={() => selectPackage(active.value)}
+                disabled={picking}
+                style={{
+                  marginTop: 4, padding: "10px 14px", fontSize: 13, fontWeight: 800, borderRadius: 6, cursor: "pointer", width: "100%",
+                  border: selected ? "1px solid #ff6b1a" : "1px solid var(--border-strong)",
+                  background: selected ? "#ff6b1a" : "var(--bg-hover)",
+                  color: selected ? "#0a0a0a" : "var(--text-muted)",
+                }}
+              >
+                {selected ? "✓ Đã Chọn" : "Chọn Gói Này"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {(active.termsText || sharedTerms.a || sharedTerms.conditions) && (
+          <div style={{ borderTop: "1px solid var(--border)", padding: "10px 16px", background: "rgba(255,107,26,0.04)", display: "grid", gap: 8 }}>
+            {sharedTerms.a && <TermsText text={sharedTerms.a} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
+            {sharedTerms.conditions && <TermsText text={sharedTerms.conditions} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
+            {active.termsText && <TermsText text={active.termsText} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
+          </div>
+        )}
+
+        {active.items?.length > 0 && (
+          <div style={{ borderTop: "1px solid var(--border)", padding: "8px 16px" }}>
+            <MobilePackageItems items={active.items} />
+          </div>
+        )}
+
+        {active.showSharedB && sharedTerms.b && (
+          <div style={{ borderTop: "1px dashed var(--border-strong)", padding: "8px 16px" }}>
+            <TermsText text={sharedTerms.b} baseStyle={{ fontSize: 10, color: "var(--text-faint)", lineHeight: 1.5 }} />
+          </div>
+        )}
+
+        {active.troGiaBookingText && (
+          <div style={{ borderTop: "1px solid var(--border)" }}>
+            <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "6px 16px", textTransform: "uppercase" }}>
+              Trợ Giá Booking
+            </div>
+            <div style={{ padding: "10px 16px" }}>
+              <TermsText text={active.troGiaBookingText} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }} />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function PickPackagePage() {
+  const { token } = useParams();
+  const [magicLink, setMagicLink] = useState(null);
+  const [release, setRelease] = useState(null);
+  const [pickOptions, setPickOptions] = useState([]); // real built packages + the 3 simple ones
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [picking, setPicking] = useState(false);
+  const [selectedValue, setSelectedValue] = useState(null); // local pick, not yet committed
+  const [confirmed, setConfirmed] = useState(false);
+  const [categories, setCategories] = useState([]); // package_categories — for the booking-progress summary
+  // Round 168 — was release_package_items (a one-time snapshot, frozen at
+  // confirmChoice() time, and missing metric_quantities entirely — see
+  // bookedFor() below for why that broke Ads specifically). Now the
+  // confirmed package's LIVE media_booking_package_lines rows, same
+  // source of truth the internal Booking Board's own bookedFor() reads,
+  // so this stays correct even if Marketing edits the built package's
+  // numbers after the artist already confirmed, and Ads' real per-metric
+  // targets (metric_quantities) are actually available to sum.
+  const [packageLines, setPackageLines] = useState([]);
+  const [bookingEntries, setBookingEntries] = useState([]);
+  const [round, setRound] = useState("INT");
+  const [sharedTerms, setSharedTerms] = useState({ a: "", conditions: "", b: "" }); // global_settings' canned blocks, shown alongside any real package's own terms_text
+  // Round 84 — global Trợ Giá Booking list (Config → Trợ Giá Booking),
+  // distinct from the per-package tro_gia_booking_text above — see
+  // lib/troGiaBooking.js and the TroGiaBookingSection component below.
+  const [troGiaBookingItems, setTroGiaBookingItems] = useState(DEFAULT_TRO_GIA_BOOKING_ITEMS);
+  // The Media Booking ticket behind this link — its status_log gates
+  // whether any real (built) package shows here at all (see load(): a
+  // package only ever appears once the ticket has reached COMPLETE at
+  // least once), and its id is where Feed Back submissions get written.
+  const [mediaBookingTicket, setMediaBookingTicket] = useState(null);
+  const [showFeedbackBox, setShowFeedbackBox] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [streamMetrics, setStreamMetrics] = useState(null); // release_stream_metrics row, or null
+  const [milestones, setMilestones] = useState([]); // milestone_chart_entries, matched by DID
+  // Round 106 item 4a — youtube_ads tickets matched to this release by
+  // relatedDid, shown as their own card next to the package display.
+  const [youtubeAdsTickets, setYoutubeAdsTickets] = useState([]);
+  // Confirm button now opens a warning popup instead of committing
+  // directly — per explicit request, to prevent a misclick locking in the
+  // wrong package (Cancel here just closes the popup, the earlier
+  // selection is untouched; Confirm inside it is what actually calls
+  // confirmChoice()).
+  const [showConfirmWarning, setShowConfirmWarning] = useState(false);
+  // Round 88 follow-up 4 — mobile fix for the itemized package table below
+  // (Số Lượng/Thành Tiền are white-space:nowrap so their own short numbers
+  // never wrap — on a narrow phone width their column just isn't wide
+  // enough for that nowrap text, so it visibly overflows the cell and
+  // bleeds on top of the neighboring Chi Tiết column's text instead of
+  // wrapping to a second line).
+  const isMobile = useIsMobile();
+
+  // Round 233 — dev-configurable theme lock (Config → Magic Link Theme),
+  // same idiom as the Performance report share page. Independent of the
+  // token/link load below so it resolves as early as possible; null (no
+  // lock configured, or the fetch itself fails) means "behave exactly as
+  // before" — the visitor's own saved theme.
+  const [themeLock, setThemeLock] = useState(null);
+  useEffect(() => {
+    if (!supabase) return;
+    readMagicLinkThemeLock(supabase).then(setThemeLock);
+  }, []);
+
+  useEffect(() => {
+    if (!supabase || !token) return;
+    load();
+  }, [token]);
+
+  // Round 175 — `round` defaults to "INT", but a release can have real
+  // booking entries ONLY under Đợt 1/Đợt 2 and none under INT at all.
+  // Once bookingEntries loads, if the currently-selected round has no
+  // data but some other round does, jump to the first round that
+  // actually has entries (BOOKING_ROUNDS order) instead of sitting on an
+  // empty INT view.
+  useEffect(() => {
+    if (bookingEntries.length === 0) return;
+    const withData = BOOKING_ROUNDS.filter((r) => bookingEntries.some((e) => e.booking_round === r));
+    if (withData.length > 0 && !withData.includes(round)) {
+      setRound(withData[0]);
+    }
+  }, [bookingEntries]);
+
+  // Round 54 — browser tab title follows the same "Package Offer" →
+  // "Media Report" rename as everywhere else this link's name shows up.
+  useEffect(() => {
+    if (!release) return;
+    document.title = `${release.media_report_status ? "Media Report" : "Package Offer"} — ${release.title}`;
+  }, [release?.title, release?.media_report_status]);
+
+  // Round 231 — same cover-image crawl as the Performance magic link
+  // (round 230): fetch this release's link_share page (a Labelmaster
+  // share URL) for its og:image via /api/crawl-og-image, shown beside the
+  // title below. Same reasoning applies here — no new column, crawled
+  // fresh per view rather than on save, and the route itself only ever
+  // fetches a url matching a real releases.link_share so it can't be used
+  // as an open fetch proxy despite this page also having no login.
+  const [ogImage, setOgImage] = useState(null);
+  useEffect(() => {
+    setOgImage(null);
+    if (!release?.link_share) return;
+    let cancelled = false;
+    fetch(`/api/crawl-og-image?url=${encodeURIComponent(release.link_share)}`)
+      .then((res) => res.json())
+      .then((body) => { if (!cancelled && body?.image) setOgImage(body.image); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [release?.link_share]);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+
+    const { data: link, error: linkErr } = await supabase
+      .from("magic_links")
+      .select("*")
+      .eq("token", token)
+      .maybeSingle();
+
+    if (linkErr || !link) {
+      setError("This link doesn't look valid. Double-check the URL you were sent.");
+      setLoading(false);
+      return;
+    }
+    setMagicLink(link);
+
+    const { data: rel } = await supabase.from("releases").select("*").eq("id", link.release_id).single();
+    setRelease(rel);
+
+    // Media Booking ticket for this release — its status_log is the real
+    // gate for whether a built package should show here at all ("magic
+    // link goes live + notification fires simultaneously" only once
+    // Marketing sets it COMPLETE). Once it has EVER reached COMPLETE, keep
+    // showing whatever's in media_booking_packages even while a rebook is
+    // in progress (ticket back to REQUESTED) — a rebook is a purely
+    // internal do-over, this page only needs to update once the new build
+    // reaches COMPLETE again, not the moment a reopen starts.
+    const { data: mbTab } = await supabase.from("ticket_tabs").select("id").eq("key", "media_booking").single();
+    let ticketRow = null;
+    if (mbTab) {
+      const { data: mbTix } = await supabase
+        .from("tickets")
+        .select("id, status, status_log, data")
+        .eq("tab_id", mbTab.id)
+        .eq("data->>releaseId", rel?.did)
+        .is("deleted_at", null)
+        .limit(1);
+      ticketRow = mbTix?.[0] || null;
+      setMediaBookingTicket(ticketRow);
+    }
+    const packagesEverCompleted = !!ticketRow?.status_log?.COMPLETE;
+
+    // Round 65 — item 4: the nested media_booking_package_lines(*) embed
+    // had no explicit order, so PostgREST returned each package's lines in
+    // whatever order the DB felt like (not necessarily insertion order),
+    // which is why this page's Hạng Mục row order didn't match the
+    // drag-to-reorder order set in the Package Builder ticket. The outer
+    // .order("sort_order") only orders the packages themselves, not their
+    // nested lines — needs its own foreignTable-scoped .order() too.
+    const { data: realPackagesRaw } = await supabase
+      .from("media_booking_packages")
+      .select("*, media_booking_package_lines(*)")
+      .eq("release_id", link.release_id)
+      .order("sort_order")
+      .order("sort_order", { foreignTable: "media_booking_package_lines" });
+    const realPackages = packagesEverCompleted ? realPackagesRaw : [];
+    const { data: pkgCategories } = await supabase.from("package_categories").select("id, name");
+    const categoryNameById = {};
+    (pkgCategories || []).forEach((c) => (categoryNameById[c.id] = c.name));
+
+    // terms_text per contract type — matched against the package's own
+    // (free-typed) name. Only the 3 real Độc Quyền tiers carry one; a
+    // custom-named package just shows nothing extra here.
+    // Round 72 — item 4d: tro_gia_booking_text added alongside terms_text,
+    // same per-package/admin-edited pattern (Config → Package Terms) — a
+    // separate block so Marketing can add/edit these rows without wading
+    // through the main terms_text blob, and per package like they asked.
+    const { data: termsRows } = await supabase.from("contract_type_packages").select("contract_type, terms_text, tro_gia_booking_text");
+    const termsByName = {};
+    const troGiaByName = {};
+    (termsRows || []).forEach((t) => {
+      const key = t.contract_type.trim().toLowerCase();
+      if (t.terms_text) termsByName[key] = t.terms_text;
+      if (t.tro_gia_booking_text) troGiaByName[key] = t.tro_gia_booking_text;
+    });
+
+    // Round 84 — added TRO_GIA_BOOKING_SETTING_KEY to this same
+    // already-batched global_settings read rather than a separate query.
+    const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_conditions", "package_terms_shared_b", TRO_GIA_BOOKING_SETTING_KEY]);
+    const settingsByKey = {};
+    (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
+    setSharedTerms({
+      a: settingsByKey.package_terms_shared_a || "",
+      conditions: settingsByKey.package_terms_conditions || "",
+      b: settingsByKey.package_terms_shared_b || "",
+    });
+    setTroGiaBookingItems(parseTroGiaBookingItems(settingsByKey[TRO_GIA_BOOKING_SETTING_KEY]));
+
+    const realOptions = (realPackages || []).map((p) => {
+      // Round 86 follow-up — INT MEDIA used to be a mushed package (Hạng
+      // Mục names only, never a price or calculation) both on the build
+      // side and here. Per explicit request, it now looks exactly like
+      // Vĩnh Viễn/other real packages on this magic-link page too — full
+      // itemized table with quantities and Thành Tiền, same as the
+      // internal Package Builder already shows it. `kind` stays
+      // "intMedia" (still distinct from "real") since other logic below
+      // keys off it, but rendering no longer branches on it.
+      // Round 176 — "Internal Package" (the shortcut follow-up, see
+      // app/releases/[id]/page.js's sendInternalPackageTicket) gets the
+      // exact same treatment as INT MEDIA here, per explicit request —
+      // same itemized rendering, same "REPLACES the plain pick-package
+      // cards below" override (see followUpBuilt further down).
+      const isFollowUpType = p.name === "INT MEDIA" || p.name === "Internal Package";
+      const matchedTier = (p.name || "").trim().toLowerCase();
+      return {
+        value: p.name,
+        label: p.name,
+        kind: isFollowUpType ? "intMedia" : "real",
+        termsText: termsByName[matchedTier] || null,
+        troGiaBookingText: troGiaByName[matchedTier] || null,
+        showSharedB: SHARED_B_TIERS.includes(matchedTier),
+        totalValue: !(p.media_booking_package_lines || []).some((l) => l.amount != null)
+          ? null
+          : p.media_booking_package_lines.reduce((sum, l) => sum + (l.amount || 0), 0),
+        items: (p.media_booking_package_lines || []).map((l) => {
+          const categoryName = categoryNameById[l.category_id] || null;
+          // Round 78 (3) — every Ads brand except YouTube Ads has never
+          // carried a real `quantity` at the package-line level (it's
+          // priced per-entry, then mushed into one lump amount — see
+          // media-booking/page.js's syncPackageLine comment), so this was
+          // rendering as a bare "—" here even though the internal package
+          // builder shows "1 Gói" for the exact same line. Not a
+          // regression from the recent YouTube Ads fixes — this table has
+          // always read the raw DB quantity — but it should match what
+          // the builder already shows instead of looking like missing
+          // data. YouTube Ads keeps showing its real quantity as before.
+          const isNonYoutubeAdsLine = categoryName === "Ads" && l.brand !== "YouTube Ads";
+          return {
+            category: (categoryName || l.platform || "—") + (l.brand ? ` — ${l.brand}` : ""),
+            unit: l.unit, quantity: l.quantity, detail: l.detail, amount: l.amount,
+            isNonYoutubeAdsLine,
+          };
+        }),
+      };
+    });
+    const simpleOptions = SIMPLE_OPTIONS.map((name) => ({ value: name, label: name, kind: "simple", totalValue: null, items: [] }));
+
+    // INT MEDIA follow-up override: once Marketing has built an "INT
+    // MEDIA" package for a release that was locked in as "Chỉ Phát Hành",
+    // INT MEDIA REPLACES the plain Chỉ Phát Hành card here — same
+    // underlying lock, richer display. This never touches
+    // releases.project_type (the historical "AR locked Chỉ Phát Hành"
+    // fact stays true) — purely what's shown on this page.
+    const intMediaBuilt = rel?.project_type === "Chỉ Phát Hành" && realOptions.find((o) => o.value === "INT MEDIA");
+    // Round 176 — Internal Package shortcut override: same idea, but
+    // deliberately WITHOUT the "project_type must already be Chỉ Phát
+    // Hành" precondition — the shortcut's whole point is to skip that
+    // resolution step, so a built "Internal Package" tier (one-per-
+    // release, same as every other named tier) is enough on its own to
+    // replace the normal pick-package cards. Guarded on !intMediaBuilt so
+    // the (unlikely) case of both existing for one release stays
+    // deterministic — INT MEDIA wins since it was the original flow.
+    const internalPackageBuilt = !intMediaBuilt && realOptions.find((o) => o.value === "Internal Package");
+    const followUpBuilt = intMediaBuilt || internalPackageBuilt;
+    const followUpName = intMediaBuilt ? "INT MEDIA" : "Internal Package";
+    const options = followUpBuilt
+      ? [...realOptions, ...simpleOptions.filter((o) => o.value !== "Chỉ Phát Hành")]
+      : [...realOptions, ...simpleOptions];
+    setPickOptions(options);
+
+    if (followUpBuilt) {
+      setSelectedValue(followUpName);
+      setConfirmed(true);
+    } else if (rel && !["BRIEF & DATA", "SENT TO MARKETING", "DEALING"].includes(rel.project_type)) {
+      setSelectedValue(rel.project_type);
+      setConfirmed(true);
+    }
+
+    // Round 168 — feeds bookedFor() below. Pull the LIVE package_lines off
+    // whichever built package is actually confirmed (INT MEDIA's and
+    // Internal Package's overrides follow the same name followUpBuilt
+    // already resolved above), not the frozen release_package_items
+    // snapshot — see the packageLines state comment for why.
+    const confirmedPackageName = followUpBuilt ? followUpName : rel?.project_type;
+    const confirmedPkgRaw = (realPackages || []).find((p) => p.name === confirmedPackageName);
+    setPackageLines(confirmedPkgRaw?.media_booking_package_lines || []);
+
+    const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
+    setCategories(cats || []);
+    const { data: entries } = await supabase.from("media_booking_entries").select("*").eq("release_id", link.release_id);
+    setBookingEntries(entries || []);
+
+    const { data: streamRow } = await supabase.from("release_stream_metrics").select("*").eq("release_id", link.release_id).maybeSingle();
+    setStreamMetrics(streamRow || null);
+    if (rel?.did) {
+      const { data: chart } = await supabase.from("milestone_chart_entries").select("*").eq("did", rel.did).order("entry_date", { ascending: false });
+      setMilestones(chart || []);
+    }
+
+    // Round 106 item 4a — YouTube Ads tickets (lib/ticketConfigs.js's
+    // "youtube_ads" type — ads run OUTSIDE the Booking Board/Package flow
+    // entirely, no shared data with media_booking) whose relatedDid
+    // matches this release, shown as their own card right next to the
+    // normal package display — per explicit request: "add a column right
+    // next to the normal package in the magic links so that the booking
+    // number show how many has been booked and what is the result."
+    if (rel?.did) {
+      const { data: yaTab } = await supabase.from("ticket_tabs").select("id").eq("key", "youtube_ads").maybeSingle();
+      if (yaTab) {
+        const { data: yaTix } = await supabase
+          .from("tickets")
+          .select("id, status, data")
+          .eq("tab_id", yaTab.id)
+          .eq("data->>relatedDid", rel.did)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false });
+        setYoutubeAdsTickets(yaTix || []);
+      }
+    }
+
+    supabase.from("magic_links").update({ last_used_at: new Date().toISOString() }).eq("id", link.id);
+    setLoading(false);
+  }
+
+  // Same aggregate "All" filter the Booking Board and the release detail
+  // page's Media Booking tab both use — one ratio per Hạng Mục, no brand/
+  // platform breakdown, read-only. Lets whoever's on the other end of this
+  // magic link (the artist/label) see booking progress alongside the
+  // package they picked, without exposing the internal Booking Board.
+  //
+  // Round 168 fix — this used to sum release_package_items.quantity,
+  // which is null for every Ads brand except YouTube Ads (Ads is priced
+  // per-metric via metric_quantities, not one lump quantity on the
+  // package line — see media-booking/page.js's Summarize flow), AND that
+  // snapshot table never even carried metric_quantities in the first
+  // place (see confirmChoice()'s insert further down — only category/
+  // unit/quantity/detail/amount get copied). So Ads always summed to 0
+  // here regardless of what was actually booked internally, and a fully-
+  // booked Ads release could never show DONE on this page. Now reads the
+  // live packageLines (media_booking_package_lines, same source the
+  // internal Booking Board itself reads) and falls back to summing
+  // metric_quantities when a line's own quantity is null — identical
+  // logic to app/booking/page.js's own bookedFor "All" branch.
+  function bookedFor(category) {
+    const matching = packageLines.filter((l) => l.category_id === category.id);
+    if (matching.length === 0) return null;
+    return matching.reduce((sum, l) => {
+      if (l.quantity != null) return sum + l.quantity;
+      if (l.metric_quantities) return sum + Object.values(l.metric_quantities).reduce((s, v) => s + (v || 0), 0);
+      return sum;
+    }, 0);
+  }
+
+  // Round 168 fix — Ads entries store a result COUNT in `quantity` (no
+  // posted link — see the Ads-takes-a-quantity-not-a-link note in
+  // app/booking/page.js), so counting ROWS here undercounted Ads the same
+  // way bookedFor's old version did; a release with e.g. one Ads entry
+  // whose quantity was 40 read as "added: 1" instead of "added: 40",
+  // never able to catch up to a real booked target. Sum quantity for Ads,
+  // same as the internal board's own addedFor.
+  function addedFor(category) {
+    const matching = bookingEntries.filter((e) => e.booking_round === round && e.category_id === category.id);
+    if (category.name === "Ads") return matching.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
+    return matching.length;
+  }
+
+  // Round 168 — the actual posted links for a DONE category, shown as a
+  // cluster of 🔗 icons instead of a bare "DONE" label (per explicit
+  // request) so the artist/label can click straight through to what was
+  // booked. Ads entries never carry a link (see addedFor above — they're
+  // a result count instead), so this is naturally empty for Ads and that
+  // category keeps showing the plain DONE badge below.
+  function linksFor(category) {
+    return bookingEntries.filter((e) => e.booking_round === round && e.category_id === category.id && e.link);
+  }
+
+  // Round 181 — per explicit correction: round 180 read `channel_name`
+  // as "the real channel name", but that's not actually the field the
+  // Booking Board's own "Channel name" input writes to — see
+  // app/booking/page.js's BrandCell/saveEdit, whose Channel-name field
+  // patches `platform` (`channel_name` on media_booking_entries is set
+  // once at insert time from the cell's own `brand`/column grouping —
+  // effectively a Hạng Mục-level label, not a per-entry one, which is
+  // exactly why round 180's fallback data looked identical across every
+  // link in a category). `entries.platform` is what actually varies
+  // per-entry and is what Marketing types in — same field the internal
+  // Booking Board's own read-only row (renderEntryRow) displays as the
+  // label. This page now follows that same source of truth.
+  //
+  // Fallback, per explicit report: Marketing is supposed to type a real
+  // channel/page name into each entry, but some entries end up with that
+  // field blank (missed the memo). Rather than showing nothing for
+  // those, fall back to the category's own Hạng Mục line item text
+  // (media_booking_package_lines.detail — the same "Chi Tiết" text shown
+  // on this page's own itemized package table, e.g. "Lời Ca Tiếng Hát",
+  // "Nhạc Thường Thức") so there's still SOME readable label instead of
+  // a bare link. Matches on category only (not brand/subchannel), since
+  // a category can carry more than one Hạng Mục line — good enough for a
+  // safety net, not meant to be a precise per-entry match.
+  function hangMucFor(category) {
+    const line = packageLines.find((l) => l.category_id === category.id);
+    return line ? formatDetailText(line.detail) || line.brand || null : null;
+  }
+
+  // Clicking a card only selects it locally now — nothing commits until
+  // Confirm is pressed. This also removes the old race condition where a
+  // click could land while isLocked was flipping true (e.g. admin hitting
+  // "Lock editing" around the same moment), leaving project_type stuck.
+  function selectPackage(value) {
+    if (isLocked) return;
+    setSelectedValue(value);
+    setConfirmed(false);
+  }
+
+  // The actual commit — resolves project_type out of the pipeline, locks
+  // in the package, and auto-creates the Phụ Lục ticket (once). A real
+  // package's lines get copied into release_package_items (matching how
+  // the old template flow worked); a simple option just sets project_type
+  // with no itemized breakdown at all.
+  async function confirmChoice() {
+    if (isLocked || !selectedValue) return;
+    setPicking(true);
+    const wasPipelineStage = ["BRIEF & DATA", "SENT TO MARKETING", "DEALING"].includes(release?.project_type);
+    const option = pickOptions.find((o) => o.value === selectedValue);
+    const { error: err } = await supabase
+      .from("releases")
+      .update({
+        project_type: selectedValue,
+        package_total_value: option?.totalValue ?? null,
+        // The artist confirming their own pick now locks it in directly —
+        // no more separate manual "Lock editing" step for AR on this path
+        // (AR's toggle still exists for everything else, e.g. correcting
+        // a pick made on the artist's behalf).
+        package_locked: true,
+      })
+      .eq("id", release.id);
+    setPicking(false);
+    if (err) { setError(err.message); return; }
+    setRelease((r) => ({ ...r, project_type: selectedValue, package_total_value: option?.totalValue ?? null, package_locked: true }));
+    setConfirmed(true);
+
+    // Round 160 — per explicit report: an artist picking "Chỉ Phát Hành"
+    // (or any other simple, no-package option — see SIMPLE_OPTIONS) here
+    // used to leave the release's Media Booking ticket exactly as-is. That
+    // ticket is created up front, at Send Upload time (see sendPackageTicket
+    // in app/releases/[id]/page.js), before anyone knows what the artist
+    // will end up picking — Marketing can (and does, via handleGenerateLink
+    // in app/tickets/media-booking/page.js, which has no status gate) send
+    // this very magic link out while the ticket is still sitting in
+    // REQUESTED, planning to mark it COMPLETE later. If that "later" never
+    // happens — easy to forget once the link's already out — the ticket
+    // just sits open forever with data.proposedPackage still null, showing
+    // "—" in the Media Booking ticket list exactly as if nobody had ever
+    // looked at it, even though the release is fully resolved. (Real/INT
+    // MEDIA package picks don't have this gap the same way — Marketing
+    // normally completes those tickets themselves as part of building the
+    // package, before generating the link at all.)
+    // Auto-completes the SAME way updateStatus()'s COMPLETE branch does in
+    // the ticket list (status + status_log timestamp) — mirrors, not
+    // replaces, that path, so it fires the exact same completion behavior
+    // (including whatever AR-facing "ready" notification a real Marketing
+    // completion already sends) rather than a new, different one.
+    if (option?.kind === "simple" && mediaBookingTicket && mediaBookingTicket.status !== "COMPLETE") {
+      const newLog = { ...(mediaBookingTicket.status_log || {}), COMPLETE: new Date().toISOString() };
+      const { error: completeErr } = await supabase.from("tickets").update({ status: "COMPLETE", status_log: newLog }).eq("id", mediaBookingTicket.id);
+      if (!completeErr) setMediaBookingTicket((t) => ({ ...t, status: "COMPLETE", status_log: newLog }));
+    }
+
+    if (wasPipelineStage) {
+      const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "phu_luc").single();
+      if (tab) {
+        // Round 167 — baseline existence check, per
+        // claude/one-ticket-per-key-rule.md: this was the one "code gate"
+        // tier type with no actual re-check before insert — it only ever
+        // fired once in practice because it's tied to a one-time
+        // pipeline-stage transition (wasPipelineStage), not because
+        // anything here confirmed a ticket didn't already exist. Baseline
+        // only this round (no warning popup — this page runs from the
+        // artist-facing magic link, nobody from AR/OPS is present to
+        // dismiss one; silently skipping is the correct equivalent of
+        // "warn, no bypass" when there's no one to show the warning to).
+        // Same releaseId=release.id (UUID) key this ticket type has
+        // always used.
+        const dupes = await findDuplicateTicketKeys(supabase, tab.id, [{ label: release.id, filters: { releaseId: release.id } }]);
+        if (dupes.length === 0) {
+          // Round 161 — Mã PL now auto-assigned at creation, per-label
+          // counter (see lib/phuLucCounter.js). Giá Trị Phụ Lục is no
+          // longer carried in ticket.data at all — it's a plain release
+          // field now (releases.phu_luc_gia_tri, filled in by AR on the
+          // release detail page — see app/releases/[id]/page.js), same
+          // "ticket reads/writes the release directly" pattern
+          // link_phu_luc/phu_luc_ngay_gui/phu_luc_ngay_ky already use on
+          // this exact ticket type — so there's nothing else to seed here.
+          const maPL = await computeNextMaPL(release.label);
+          await supabase.from("tickets").insert({
+            tab_id: tab.id,
+            data: { releaseId: release.id, maPL },
+          });
+        }
+      }
+    }
+
+    // Real packages (including INT MEDIA, which still carries the full
+    // underlying quantity/detail data even though it's hidden from this
+    // client-facing view) have items to seed release_package_items with —
+    // simple options (Chỉ Phát Hành etc.) genuinely have none.
+    if ((option?.kind === "real" || option?.kind === "intMedia") && option.items.length > 0) {
+      const { data: existingItems } = await supabase.from("release_package_items").select("id").eq("release_id", release.id).limit(1);
+      if (!existingItems || existingItems.length === 0) {
+        const rows = option.items.map((it, i) => ({
+          release_id: release.id, category: it.category, unit: it.unit,
+          quantity: it.quantity, detail: it.detail, amount: it.amount, sort_order: i,
+        }));
+        await supabase.from("release_package_items").insert(rows);
+      }
+    }
+  }
+
+  // Feed Back — the artist's alternative to confirming: leaves a note for
+  // AR instead of picking a package outright. Writes straight onto the
+  // Media Booking ticket (data.feedback) so AR sees it on the release page
+  // and can re-send to Marketing with that text carried along, and fires
+  // a notification to the AR team with the literal phrase the workflow
+  // asked for so it's easy to search/recognize in the notification list.
+  async function submitFeedback() {
+    if (!mediaBookingTicket || !feedbackText.trim() || submittingFeedback) return;
+    setSubmittingFeedback(true);
+    const newData = { ...(mediaBookingTicket.data || {}), feedback: { text: feedbackText.trim(), submittedAt: new Date().toISOString() } };
+    const { error: err } = await supabase.from("tickets").update({ data: newData }).eq("id", mediaBookingTicket.id);
+    if (err) {
+      setSubmittingFeedback(false);
+      setError(err.message);
+      return;
+    }
+    setMediaBookingTicket((t) => ({ ...t, data: newData }));
+    await supabase.rpc("fanout_notification", {
+      p_team: "AR",
+      p_type: "media_booking_feedback",
+      p_title: "Artist request package changed",
+      p_body: `${release?.main_artist || "An artist"} left feedback on ${release?.title || "their release"}'s media booking package.`,
+      p_link: `/releases/${release.id}?focus=media_booking`,
+      p_ticket_id: mediaBookingTicket.id,
+    });
+    setSubmittingFeedback(false);
+    setFeedbackSent(true);
+    setShowFeedbackBox(false);
+    setFeedbackText("");
+  }
+
+  if (loading) return <div className={styles.page} data-theme={themeLock || undefined}><div className={styles.container} style={{ maxWidth: 640 }}>Loading…</div></div>;
+  if (error) return <div className={styles.page} data-theme={themeLock || undefined}><div className={styles.container} style={{ maxWidth: 640 }}><div className={styles.errorBox}>{error}</div></div></div>;
+
+  const isLocked = magicLink?.locked || release?.package_locked;
+  // Round 54 — this same link is "Package Offer" until the Booking Board's
+  // "Convert Media Report" button is clicked for this release, then
+  // "Media Report" from then on (see release.media_report_status). Also
+  // gates item B.3's default-collapsed sections below.
+  const isMediaReport = !!release?.media_report_status;
+  const linkName = isMediaReport ? "Media Report" : "Package Offer";
+  const isPipelineStage = ["BRIEF & DATA", "SENT TO MARKETING", "DEALING"].includes(release?.project_type);
+  // Round 175 — per explicit report: INT and Đợt 2 tabs were showing up
+  // (and rendering the exact same category cards as Đợt 1) even for a
+  // release that never had a single booking entry logged under those
+  // rounds. The category "targets" (bookedFor) are intentionally
+  // round-agnostic — same as the internal Booking Board — but which
+  // ROUNDS get a tab at all should reflect where real booking activity
+  // actually happened. roundsWithData is the source of truth for both
+  // the switcher's buttons and which round is selected by default.
+  const roundsWithData = BOOKING_ROUNDS.filter((r) => bookingEntries.some((e) => e.booking_round === r));
+  const hasOtherRounds = roundsWithData.length > 1;
+
+  // "Rich" cards (real built packages, incl. INT MEDIA) get the wide
+  // itemized-table treatment; "compact" ones (the always-offered simple
+  // pick, Chỉ Phát Hành — no breakdown) are just small stacked pills off
+  // to the side instead of eating a full card's worth of width for a
+  // single line of text. Once locked, every OTHER option is hidden
+  // entirely (not just disabled) — there's nothing left to compare once
+  // the choice is final.
+  const visibleOptions = isLocked ? pickOptions.filter((c) => c.value === selectedValue) : pickOptions;
+  const richOptions = visibleOptions.filter((c) => c.kind !== "simple");
+  const compactOptions = visibleOptions.filter((c) => c.kind === "simple");
+
+  return (
+    <div className={styles.page} data-theme={themeLock || undefined}>
+      <div className={styles.container} style={{ maxWidth: 1320 }}>
+        {/* Per explicit request (picture 1) — "Quyền Lợi Dành Cho Đơn Vị
+            Truyền Thông" moves to the very top, split side-by-side with
+            the product info instead of living further down the page.
+            "Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT" (the big
+            partner-benefits table) is untouched, still further down via
+            PartnerBenefits(). */}
+        {/* Round 69 — item 1: header text enlarged ~1.4x (eyebrow 12->17,
+            title 28->39, artist/date line 13->18) — overridden inline
+            rather than touching styles.eyebrow/.title globally, since
+            those are shared classes used across every other page. Column
+            widened (320px -> 420px min) so the bigger title still has room
+            to stay on one line instead of wrapping. */}
+        {/* Round 235 — sticky "title row" per explicit request ("make the
+            info part become sticky when they scroll out of it sight") —
+            same treatment as the Performance magic link page: the whole
+            header (identity block + the partner-benefits note beside it)
+            pins to the top of the viewport once scrolled past, with its
+            own opaque background/border so it reads as a distinct pinned
+            bar rather than floating over whatever's now underneath it. */}
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 5,
+            background: "var(--bg)",
+            paddingTop: 12,
+            paddingBottom: 10,
+            borderBottom: "1px solid var(--border)",
+          }}
+        >
+          <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 420px", display: "flex", alignItems: "center", gap: ogImage ? 20 : 0 }}>
+              {/* Round 231 — cover image (when crawled) sits left of the
+                  name, same idiom as the Performance magic link; header text
+                  scales up alongside it so it reads as one deliberate block
+                  rather than a small image jammed next to unchanged text. No
+                  image → exactly the original layout, unchanged. */}
+              {ogImage && (
+                <img
+                  src={ogImage}
+                  alt=""
+                  style={{ width: 96, height: 96, borderRadius: 14, objectFit: "cover", flexShrink: 0, border: "1px solid var(--border)" }}
+                  onError={() => setOgImage(null)}
+                />
+              )}
+              <div>
+                <div className={styles.eyebrow} style={{ fontSize: ogImage ? 18 : 17 }}>// {linkName.toLowerCase()}</div>
+                <h1 className={styles.title} style={{ marginBottom: 4, fontSize: ogImage ? 42 : 39, whiteSpace: "nowrap" }}>
+                  {release?.title}
+                </h1>
+                <div style={{ color: "var(--text-faint)", fontSize: ogImage ? 19 : 18 }}>
+                  {/* Round 69 — item 2: feature artist added, "Main ft. Feature" */}
+                  {release?.main_artist}{release?.feature_artist ? ` ft. ${release.feature_artist}` : ""} · {release?.release_date} {release?.release_time}
+                </div>
+              </div>
+            </div>
+            <div style={{ flex: "1 1 360px" }}>
+              <MediaPartnerNote defaultCollapsed={isMediaReport} />
+            </div>
+          </div>
+        </div>
+        <div style={{ marginBottom: 10 }} />
+
+        {isLocked && (
+          <div className={styles.errorBox} style={{ background: "var(--bg-hover)", borderColor: "var(--border-strong)", color: "var(--text-muted)" }}>
+            Selection is locked for this release — contact your OPS/AR contact if you need to change it.
+          </div>
+        )}
+
+        {!isLocked && isPipelineStage && (
+          <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16, marginTop: 0 }}>
+            Current stage: <span style={{ color: "#ff9d5c" }}>{release?.project_type}</span>
+          </p>
+        )}
+
+        {/* Round 54 — item B.3: once this link has been converted to a
+            Media Report (release.media_report_status set from the Booking
+            Board), the package-picking UI below is no longer actionable
+            (selection's already locked) — collapse it by default so the
+            report content is what's in front of whoever opens the link,
+            while still leaving it one click away if anyone wants to check
+            back on what was picked. */}
+        <CollapsibleSection title="Package" defaultCollapsed={isMediaReport}>
+        <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
+          Each contract type comes with its own package — compare them side by side below, then confirm
+          your choice.
+        </p>
+
+        {/* Round 125 — item 3a: below the mobile breakpoint, the desktop
+            side-by-side card grid doesn't fit — swap to a tabbed picker
+            (one tab per package) instead, per explicit request. Desktop
+            (isMobile false) renders the exact same grid as before,
+            completely untouched below. */}
+        {isMobile ? (
+          <MobileTabbedPackages
+            options={visibleOptions}
+            selectedValue={selectedValue}
+            confirmed={confirmed}
+            isLocked={isLocked}
+            picking={picking}
+            selectPackage={selectPackage}
+            sharedTerms={sharedTerms}
+          />
+        ) : (
+        <>
+        {/* All options shown at once, full breakdown always expanded — a
+            side-by-side comparison, not a stack of collapsible cards. Rich
+            (itemized) packages get a wide grid on the left; the always-
+            offered simple picks stack narrowly on the right so they don't
+            burn a whole card's width on one line of text. */}
+        <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+        {richOptions.length > 0 && (
+        <div style={{ flex: "3 1 640px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 12, alignItems: "start" }}>
+          {richOptions.map((c) => {
+            const selected = selectedValue === c.value;
+            return (
+              <div
+                key={c.value}
+                style={{
+                  // Round 68 — item 3 hardcoded this to a fixed cream
+                  // (#f7f3ee) regardless of site theme, because back then
+                  // var(--bg-card) + the hardcoded near-white title text
+                  // combined to go invisible in light mode. Round 78 — per
+                  // explicit request, reverted to theme-aware var(--bg-card)
+                  // now that the title text below is also theme-aware
+                  // (var(--text)) instead of a second hardcoded color — the
+                  // two vars are always a correctly-contrasted pair in both
+                  // themes today, so this card is a real black plate again
+                  // in dark mode instead of always-light.
+                  background: selected ? "rgba(255,107,26,0.1)" : "var(--bg-card)",
+                  // Every package card gets an orange stroke now (not just
+                  // the selected one) so they read as a set of options to
+                  // compare, not a plain grey list — selected still stands
+                  // out via a thicker/brighter border plus the tinted
+                  // background above.
+                  border: selected ? "2px solid #ff6b1a" : "1px solid rgba(255,107,26,0.5)",
+                  borderRadius: 10,
+                  overflow: "hidden",
+                }}
+              >
+                {/* Round 69 — item: the whole header used to be one big
+                    clickable button (click-anywhere-to-select). Per
+                    explicit request, that's removed for clarity — this is
+                    now a plain, non-clickable info block, and the only way
+                    to pick this package is the explicit button on the
+                    right (was previously duplicated at the bottom of the
+                    card too; consolidated to just this one). */}
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: 16, opacity: isLocked && !selected ? 0.5 : 1 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: selected ? "#ff9d5c" : "var(--text)" }}>
+                      {c.label || c.value}
+                    </span>
+                    {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
+                    {c.totalValue != null && (
+                      <span style={{ fontSize: 13, color: "var(--text-faint)" }}>{fmtVnd(c.totalValue)}</span>
+                    )}
+                  </div>
+                  {!isLocked && (
+                    <button
+                      onClick={() => selectPackage(c.value)}
+                      disabled={picking}
+                      style={{
+                        flexShrink: 0, padding: "8px 14px", fontSize: 12, fontWeight: 800, borderRadius: 6, cursor: "pointer", whiteSpace: "nowrap",
+                        border: selected ? "1px solid #ff6b1a" : "1px solid var(--border-strong)",
+                        background: selected ? "#ff6b1a" : "var(--bg-hover)",
+                        color: selected ? "#0a0a0a" : "var(--text-muted)",
+                      }}
+                    >
+                      {selected ? "✓ Đã Chọn" : "Chọn Gói Này"}
+                    </button>
+                  )}
+                </div>
+                {(c.termsText || sharedTerms.a || sharedTerms.conditions) && (
+                  // Fixed order: intro (a) -> conditions -> this package's
+                  // own terms (c, e.g. VĨNH VIỄN/03 năm). The 5/2-năm note
+                  // (Shared B) used to render here too, but that broke the
+                  // Hạng Mục rows lining up horizontally across cards when
+                  // one package had the note and its neighbor didn't (or
+                  // had a different-length one) — it now renders AFTER the
+                  // items table below instead, still inside this same card.
+                  <div style={{ borderTop: "1px solid var(--border)", padding: "10px 16px", background: "rgba(255,107,26,0.04)", display: "grid", gap: 8 }}>
+                    {sharedTerms.a && <TermsText text={sharedTerms.a} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
+                    {sharedTerms.conditions && <TermsText text={sharedTerms.conditions} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
+                    {c.termsText && <TermsText text={c.termsText} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
+                  </div>
+                )}
+                {c.items?.length > 0 ? (
+                  <div style={{ borderTop: "1px solid var(--border)", padding: "8px 16px" }}>
+                    <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+                    <table className={styles.table} style={{ marginTop: 8, tableLayout: "fixed", width: "100%" }}>
+                      {/* Round 68 — item 3: Số Lượng (14% -> 16%, ~1.15x)
+                          and Thành Tiền (18% -> 21%, ~1.15x) were clipping/
+                          wrapping their own numbers ("32 Bài Đăng" and
+                          "22.400.000 đ" breaking onto 2 lines). Chi Tiết
+                          gives up the difference (46% -> 41%) — it already
+                          has the most room to spare and wraps fine. */}
+                      <colgroup>
+                        <col style={{ width: "22%" }} />
+                        <col style={{ width: "16%" }} />
+                        <col style={{ width: "41%" }} />
+                        <col style={{ width: "21%" }} />
+                      </colgroup>
+                      <thead>
+                        <tr style={isMobile ? { fontSize: 10 } : undefined}><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr>
+                      </thead>
+                      <tbody>
+                        {c.items.map((item, i) => (
+                          <tr key={i} style={isMobile ? { fontSize: 11 } : undefined}>
+                            <td style={{ wordBreak: "break-word" }}>{item.category}</td>
+                            {/* Round 88 follow-up 4 — nowrap dropped on mobile so a
+                                narrow column wraps this onto a 2nd line instead of
+                                overflowing sideways on top of Chi Tiết's text. */}
+                            <td style={isMobile ? { wordBreak: "break-word" } : { whiteSpace: "nowrap" }}>{item.isNonYoutubeAdsLine ? "1 Gói" : item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
+                            <td style={{ fontSize: isMobile ? 10 : 11, color: "var(--text-faint)", whiteSpace: "pre-line", lineHeight: 1.4 }}>{formatDetailText(item.detail) || "—"}</td>
+                            <td style={isMobile ? { wordBreak: "break-word" } : { whiteSpace: "nowrap" }}>{fmtVnd(item.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    </div>
+                  </div>
+                ) : null}
+                {c.showSharedB && sharedTerms.b && (
+                  <div style={{ borderTop: "1px dashed var(--border-strong)", padding: "8px 16px" }}>
+                    <TermsText text={sharedTerms.b} baseStyle={{ fontSize: 10, color: "var(--text-faint)", lineHeight: 1.5 }} />
+                  </div>
+                )}
+                {/* Round 72 — item 4d: "TRỢ GIÁ BOOKING" as its own block,
+                    per package, admin-edited in Config → Package Terms
+                    (Marketing can add/edit rows there, HTML-formatted —
+                    see TermsText's HTML passthrough above). Replaces the
+                    old always-shown TRỢ GIÁ BOOKING / TRỢ GIÁ BOOKING ADS
+                    YOUTUBE rows that were removed from PARTNER_BENEFITS in
+                    round 68 — this is the "move it here" destination. */}
+                {c.troGiaBookingText && (
+                  <div style={{ borderTop: "1px solid var(--border)" }}>
+                    <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "6px 16px", textTransform: "uppercase" }}>
+                      Trợ Giá Booking
+                    </div>
+                    <div style={{ padding: "10px 16px" }}>
+                      <TermsText text={c.troGiaBookingText} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        )}
+
+        {compactOptions.length > 0 && (
+          // No rich (built) packages at all — the only pickable option
+          // shouldn't be stranded off in the narrow right-hand rail with
+          // nothing else on the page; give it the wide left-aligned
+          // treatment instead so it just reads as "the option", not an
+          // afterthought next to empty space.
+          <div style={richOptions.length === 0 ? { flex: "1 1 320px", display: "grid", gap: 10, maxWidth: 360 } : { flex: "0 0 200px", display: "grid", gap: 10 }}>
+            {compactOptions.map((c) => {
+              const selected = selectedValue === c.value;
+              return (
+                <button
+                  key={c.value}
+                  onClick={() => selectPackage(c.value)}
+                  disabled={isLocked || picking}
+                  style={{
+                    textAlign: "left",
+                    // Round 78 — same revert as the rich options cards
+                    // above: theme-aware var(--bg-card) instead of the
+                    // fixed cream round 68 introduced.
+                    background: selected ? "rgba(255,107,26,0.1)" : "var(--bg-card)",
+                    border: selected ? "1px solid #ff6b1a" : "1px solid var(--border)",
+                    borderRadius: 10,
+                    padding: "14px 16px",
+                    cursor: isLocked ? "not-allowed" : "pointer",
+                    opacity: isLocked && !selected ? 0.5 : 1,
+                  }}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: selected ? "#ff9d5c" : "var(--text)" }}>
+                      {c.label || c.value}
+                    </span>
+                    {selected && <span style={{ fontSize: 10, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        </div>{/* end options flex row */}
+        </>
+        )}
+
+        {!isLocked && selectedValue && (
+          <button
+            onClick={() => setShowConfirmWarning(true)}
+            disabled={picking || confirmed}
+            style={{
+              marginTop: 20,
+              width: "100%",
+              background: confirmed ? "var(--bg-hover)" : "#ff6b1a",
+              color: confirmed ? "#7ee6a8" : "#0a0a0a",
+              border: confirmed ? "1px solid #2e7d32" : "none",
+              borderRadius: 8,
+              padding: "14px 0",
+              fontSize: 14,
+              fontWeight: 800,
+              cursor: confirmed ? "default" : "pointer",
+              letterSpacing: 0.4,
+            }}
+          >
+            {picking ? "Confirming…" : confirmed ? "✓ Package Confirmed" : "Xác Nhận Gói Đã Chọn"}
+          </button>
+        )}
+
+        {/* Confirm warning popup — per explicit request, to prevent a
+            misclick locking in the wrong package. Cancel just closes this
+            (selection is untouched, nothing committed); Confirm is the
+            only path that actually calls confirmChoice(). */}
+        {showConfirmWarning && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 24, maxWidth: 440, width: "100%" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#ff9d5c", marginBottom: 12 }}>⚠ Xác nhận lựa chọn</div>
+              <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 20, lineHeight: 1.5 }}>
+                Bấm nút confirm bên dưới sẽ khóa tính năng chọn gói hỗ trợ truyền thông, vui lòng kiểm tra lại lựa chọn của bạn.
+              </p>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button type="button" className={styles.btnSecondary} onClick={() => setShowConfirmWarning(false)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  disabled={picking}
+                  onClick={async () => {
+                    setShowConfirmWarning(false);
+                    await confirmChoice();
+                  }}
+                >
+                  {picking ? "Confirming…" : "Confirm"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Feed Back — the alternative to confirming a pick. Sends a note
+            to AR instead of/alongside picking, rather than committing to
+            a choice right now. Round 68 — item 1: also gated on !confirmed
+            now, not just !isLocked. A release confirmed via the Package
+            Runner import (Chỉ Phát Hành) sets project_type directly, which
+            flips `confirmed` true on load — but isLocked depends on
+            magicLink.locked / release.package_locked, which weren't
+            reliably true in the same moment for an imported pick, so Feed
+            Back was staying visible next to an already-"✓ Package
+            Confirmed" card. Checking !confirmed directly closes that gap
+            regardless of the isLocked timing. */}
+        {!isLocked && !confirmed && mediaBookingTicket && (
+          <div style={{ marginTop: 12 }}>
+            {feedbackSent ? (
+              <div className={styles.successBox}>Feedback sent — your OPS/AR contact has been notified.</div>
+            ) : showFeedbackBox ? (
+              <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8, fontWeight: 700 }}>Gửi phản hồi về gói</div>
+                <textarea
+                  className={styles.input}
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  placeholder="Nhập phản hồi của bạn về gói…"
+                  rows={4}
+                  style={{ width: "100%", resize: "vertical", fontSize: 13, marginBottom: 8 }}
+                />
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className={styles.btnPrimary}
+                    onClick={submitFeedback}
+                    disabled={!feedbackText.trim() || submittingFeedback}
+                  >
+                    {submittingFeedback ? "Đang gửi…" : "Confirm"}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.btnSmall}
+                    onClick={() => { setShowFeedbackBox(false); setFeedbackText(""); }}
+                  >
+                    Hủy
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className={styles.btnSmall} onClick={() => setShowFeedbackBox(true)}>
+                Feed Back
+              </button>
+            )}
+          </div>
+        )}
+
+        </CollapsibleSection>
+
+        {/* Round 84 — global Trợ Giá Booking list, admin-edited in
+            Config → Trợ Giá Booking (lib/troGiaBooking.js), seated right
+            above Partner Benefits per explicit request. */}
+        <TroGiaBookingSection items={troGiaBookingItems} defaultCollapsed={isMediaReport} />
+
+        {/* Fixed partner-benefits block — same for every package, shown
+            once (not duplicated per card) right under the package
+            cards/confirm button, above the Booking Progress numbers when
+            that section is showing. Round 54 — collapsed by default once
+            this is a Media Report, same reasoning as the Package section
+            above. */}
+        <PartnerBenefits defaultCollapsed={isMediaReport} recordingStudioIncluded={!!release?.recording_studio_included} />
+
+        {/* Round 106 item 4a — YouTube Ads (ads run outside the Booking
+            Board/Package flow, lib/ticketConfigs.js's "youtube_ads" type)
+            whose relatedDid matches this release. Independent of the
+            normal package/confirmed state — shows whenever such a ticket
+            exists. Per explicit request: shows how many has been booked
+            and what the result is, right next to the normal package. */}
+        {youtubeAdsTickets.length > 0 && (
+          <div style={{ marginTop: 32 }}>
+            <div className={styles.subheading} style={{ marginTop: 0 }}>YouTube Ads</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+              {youtubeAdsTickets.map((t) => (
+                <div key={t.id} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
+                    Đã Đặt (booked)
+                  </div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 8 }}>{t.data?.soLuong || "—"}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
+                    Kết Quả (result)
+                  </div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 13, whiteSpace: "pre-wrap" }}>{t.data?.result || "—"}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Round 110 — "compile unto the magiclink as the stage of media
+            report" — NCT and Zing each declare their own independent "Có
+            Gói" services checklist now (Pitching Workstation's Domestic
+            tab, releases.pitching_domestic_services_nct/_zing), so this
+            surfaces that same declaration here, one row per platform, once
+            either has something ticked. Independent of confirmed/package
+            state, same as the YouTube Ads card above. */}
+        {((release?.pitching_domestic_services_nct || []).length > 0 || (release?.pitching_domestic_services_zing || []).length > 0) && (
+          <div style={{ marginTop: 32 }}>
+            <div className={styles.subheading} style={{ marginTop: 0 }}>Domestic Pitching</div>
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, display: "grid", gap: 8 }}>
+              <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                <strong>NCT:</strong>{" "}
+                {(release?.pitching_domestic_services_nct || []).length > 0 ? `has ${release.pitching_domestic_services_nct.join(", ")}` : "—"}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                <strong>ZING:</strong>{" "}
+                {(release?.pitching_domestic_services_zing || []).length > 0 ? `has ${release.pitching_domestic_services_zing.join(", ")}` : "—"}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {confirmed && (
+          <div style={{ marginTop: 32 }}>
+            <div className={styles.subheading} style={{ marginTop: 0 }}>Booking Progress</div>
+            {/* Only show the round switcher when there's actually
+                something to switch to — a release that never got a Đợt 1
+                or Đợt 2 booking entry has nothing behind those tabs, so
+                showing them just invites clicking into an empty view. */}
+            {hasOtherRounds && (
+              <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+                {roundsWithData.map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setRound(r)}
+                    className={`${styles.tabBtn} ${round === r ? styles.tabBtnActive : ""}`}
+                    style={{ border: round === r ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: round === r ? "rgba(255,107,26,0.1)" : "transparent" }}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* Round 125 — item 3d: utilize the mobile screen's vertical
+                length — a single column of full-width cards instead of
+                the desktop's auto-fit grid, with the number itself sized
+                up since there's now a whole row to spend on it. */}
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+              {categories.map((c) => {
+                const booked = bookedFor(c);
+                const added = addedFor(c);
+                const isDone = booked != null && booked > 0 && added >= booked;
+                // Round 183 — per explicit report: a category that's
+                // only PARTIALLY booked (added < booked) showed nothing
+                // but a bare "X / Y" count, even when some of those
+                // already-booked entries genuinely have posted links —
+                // linksFor was previously gated behind isDone, so a
+                // partially-done category's real, already-posted links
+                // were invisible here even though the Booking Board
+                // clearly had them. Links now show whenever they exist,
+                // regardless of whether the category has hit its full
+                // target yet.
+                const doneLinks = linksFor(c);
+                return (
+                  <div key={c.id} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
+                      {c.name}
+                    </div>
+                    {doneLinks.length > 0 ? (
+                      // Round 168 — a bunch of clickable links instead of
+                      // a bare "DONE" label, per explicit request, so the
+                      // artist/label can open what was actually posted.
+                      // Round 177 — per explicit request, each link shows
+                      // readable text instead of a bare 🔗 icon.
+                      // Round 179 — per explicit report ("kinda hard" to
+                      // read as one run-on line): channel name and url
+                      // are visually separate rather than one string,
+                      // colored orange (matching this page's accent, e.g.
+                      // the category headers just above) instead of blue.
+                      // Round 180 — the label falls back to the
+                      // category's Hạng Mục detail text (hangMucFor) when
+                      // an entry has no real channel, instead of just
+                      // disappearing — see hangMucFor's comment.
+                      // Round 181 — per explicit request, a REAL per-entry
+                      // channel (`platform` — see hangMucFor's comment on
+                      // why that's the correct field, not channel_name)
+                      // now renders the same compact single-line "channel:
+                      // url" layout the internal Booking Board's own entry
+                      // rows use (app/booking/page.js's renderEntryRow) —
+                      // bold label immediately followed by the link, both
+                      // on one line. Round 179's stacked two-line layout
+                      // (label above, link below) is kept as the fallback
+                      // presentation — only used when there's no real
+                      // channel and this is showing the Hạng Mục text
+                      // instead, where the extra room reads better for a
+                      // longer, more sentence-like label.
+                      // Round 182 — the channel label is now `var(--text)`
+                      // (white on this page's dark theme, black on
+                      // light) instead of a fixed orange, per explicit
+                      // request — better contrast in light mode than a
+                      // peachy orange on a near-white background.
+                      // Round 183 — the status line above the links now
+                      // reflects reality instead of always saying "DONE"
+                      // (which used to be safe only because this branch
+                      // was unreachable unless isDone): "DONE" in green
+                      // when the category has actually hit its target,
+                      // otherwise the same muted "added / booked" count
+                      // shown everywhere else on this page.
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
+                        {isDone ? (
+                          <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: isMobile ? 16 : 12 }}>DONE</span>
+                        ) : (
+                          <span style={{ color: "var(--text-muted)", fontSize: isMobile ? 16 : 12, fontWeight: 700 }}>{added} / {booked ?? "—"}</span>
+                        )}
+                        {doneLinks.map((e) => {
+                          const realChannel = e.platform || null;
+                          const label = realChannel || hangMucFor(c);
+                          if (realChannel) {
+                            return (
+                              <div key={e.id} style={{ fontSize: isMobile ? 13 : 12, wordBreak: "break-all" }}>
+                                <span style={{ color: "var(--text)", fontWeight: 700 }}>{realChannel}: </span>
+                                <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a" }}>{e.link}</a>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div key={e.id} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              {label && (
+                                <span style={{ fontSize: isMobile ? 12 : 11, fontWeight: 700, color: "var(--text-muted)" }}>{label}</span>
+                              )}
+                              <a
+                                href={e.link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ fontSize: isMobile ? 13 : 12, color: "#ff6b1a", wordBreak: "break-all" }}
+                              >
+                                {e.link}
+                              </a>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : isDone ? (
+                      // Ads (and anything else whose entries carry no
+                      // link — see linksFor) has nothing to list, so it
+                      // stays the plain DONE badge.
+                      <span style={{ color: "#7ee6a8", fontWeight: 800, fontSize: isMobile ? 22 : 13 }}>DONE</span>
+                    ) : booked != null ? (
+                      <span style={{ color: "var(--text-muted)", fontSize: isMobile ? 22 : 13, fontWeight: isMobile ? 800 : 400 }}>{added} / {booked}</span>
+                    ) : (
+                      <span style={{ color: "var(--text-faint)", fontSize: isMobile ? 22 : 13, fontWeight: isMobile ? 800 : 400 }}>{added} / —</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Promotion Package link — right under the booking numbers,
+                same field/link shown on the release detail page's
+                Streaming & Milestone tab, surfaced here too so the
+                artist/label doesn't need internal access to reach it. */}
+            {release?.promotion_package_url && (
+              <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", textTransform: "uppercase" }}>Promotion Package</span>
+                <a
+                  href={release.promotion_package_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open Promotion Package link"
+                  style={{ fontSize: 18 }}
+                >
+                  🔗
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Streaming & Milestone — read-only, same data the internal
+            Streaming workstation and the release detail page's Milestone
+            section track, just surfaced here too so the artist/label can
+            see it without a separate report being sent. */}
+        {confirmed && (streamMetrics || milestones.length > 0) && (
+          <div style={{ marginTop: 32 }}>
+            <div className={styles.subheading} style={{ marginTop: 0 }}>Streaming & Milestone</div>
+
+            {streamMetrics && Object.keys(STREAM_FIELD_LABELS).some((k) => streamMetrics[k]) ? (
+              // Round 125 — item 3d: same horizontal->vertical treatment
+              // as Booking Progress above — a single column of big-number
+              // tiles on mobile instead of the desktop's auto-fit grid.
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginBottom: milestones.length > 0 ? 20 : 0 }}>
+                {Object.entries(STREAM_FIELD_LABELS)
+                  .filter(([key]) => streamMetrics[key])
+                  .map(([key, label]) => (
+                    <div key={key} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
+                      <div style={{ fontSize: 10, color: "var(--text-faint)", marginBottom: 4, textTransform: "uppercase" }}>{label}</div>
+                      <div style={{ fontSize: isMobile ? 24 : 15, fontWeight: 700, color: "#f4f4f4" }}>{streamMetrics[key]}</div>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              milestones.length === 0 && <p style={{ color: "var(--text-faint)", fontSize: 12 }}>No streaming or milestone data yet.</p>
+            )}
+
+            {milestones.length > 0 && (
+              <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+              <table className={styles.table}>
+                {/* Round 125 — item 3e: any table's overly-long column
+                    title wraps to 2 lines, centered, on mobile instead of
+                    overflowing/forcing the table wider than the screen —
+                    this is the one real <table> left on the mobile
+                    layout (the package items table above becomes
+                    MobilePackageItems' concatenated blocks instead). */}
+                <thead>
+                  <tr style={isMobile ? { fontSize: 10 } : undefined}>
+                    {["Chart", "Date", "Rank", "Platform"].map((h) => (
+                      <th key={h} style={isMobile ? { whiteSpace: "normal", wordBreak: "break-word", textAlign: "center" } : undefined}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {milestones.map((m) => (
+                    <tr key={m.id}>
+                      <td>{m.chart}</td>
+                      <td>{m.entry_date}</td>
+                      <td>{m.rank}</td>
+                      <td>{m.platform || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Round 54 — item B.3: generic collapsible wrapper for the "Package"
+// section (used inline, wrapping the whole options grid). PartnerBenefits
+// and MediaPartnerNote below have the same orange-header look already, so
+// they grow their own inline toggle instead of using this — kept separate
+// so their existing headers don't have to change shape.
+function CollapsibleSection({ title, defaultCollapsed, children }) {
+  const [open, setOpen] = useState(!defaultCollapsed);
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: open ? 10 : 0, color: "var(--text-faint)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}
+      >
+        <span style={{ display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▸</span>
+        {title}
+        <span style={{ fontWeight: 400, textTransform: "none", color: "var(--text-dim)" }}>{open ? "(click to collapse)" : "(click to expand)"}</span>
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
+// Round 84 — same collapsible orange-header treatment as PartnerBenefits/
+// MediaPartnerNote below, for visual consistency, but its rows come live
+// from Config → Trợ Giá Booking (global_settings, see lib/troGiaBooking.js)
+// instead of a hardcoded array — items[] can be empty if an admin removes
+// every row, in which case the whole section just doesn't render.
+function TroGiaBookingSection({ items, defaultCollapsed }) {
+  const [open, setOpen] = useState(!defaultCollapsed);
+  if (!items || items.length === 0) return null;
+  return (
+    <div style={{ marginTop: 28 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{ width: "100%", textAlign: "left", background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase", border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
+        Trợ Giá Booking
+        <span>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div style={{ border: "1px solid var(--border)", borderTop: "none" }}>
+          {items.map((it, i) => (
+            <div
+              key={i}
+              style={{
+                padding: "10px 14px",
+                background: i % 2 === 0 ? "rgba(255,107,26,0.05)" : "transparent",
+                borderTop: i === 0 ? "none" : "1px solid #1c1c1c",
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 800, color: "#ff9d5c", marginBottom: 4 }}>{it.title}</div>
+              {it.desc && <div style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-line", lineHeight: 1.5, marginBottom: it.href ? 4 : 0 }}>{it.desc}</div>}
+              {it.href && (
+                <a href={it.href} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#5b9dff", wordBreak: "break-all" }}>
+                  {it.href}
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PartnerBenefits({ defaultCollapsed, recordingStudioIncluded }) {
+  const [open, setOpen] = useState(!defaultCollapsed);
+  // Round 88 follow-up 4 — desktop keeps the 2-column label|detail grid;
+  // mobile stacks label above detail instead (same one-column-concat
+  // layout TroGiaBookingSection already uses above), so the fixed 220px
+  // label column doesn't crush the detail column on a phone. Desktop is
+  // completely untouched — this only swaps the grid's own template.
+  const isMobile = useIsMobile();
+  // Round 68 — prepended, not part of PARTNER_BENEFITS itself, since
+  // whether it shows depends on this release's own flag rather than being
+  // fixed for every release.
+  const rows = recordingStudioIncluded ? [RECORDING_STUDIO_ROW, ...PARTNER_BENEFITS] : PARTNER_BENEFITS;
+  return (
+    <div style={{ marginTop: 28 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{ width: "100%", textAlign: "left", background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase", border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
+        Quyền Lợi Dành Riêng Cho Đối Tác Phát Hành VIEENT
+        <span>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+      <div style={{ border: "1px solid var(--border)", borderTop: "none" }}>
+        {rows.map((row, i) => (
+          <div
+            key={row.label}
+            style={{
+              display: "grid",
+              gridTemplateColumns: isMobile ? "1fr" : "220px 1fr",
+              gap: isMobile ? 4 : 16,
+              padding: "10px 14px",
+              background: i % 2 === 0 ? "rgba(255,107,26,0.05)" : "transparent",
+              borderTop: i === 0 ? "none" : "1px solid #1c1c1c",
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#ff9d5c" }}>{row.label}</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "pre-line", lineHeight: 1.5 }}>
+              {row.detail}
+              {row.link && (
+                <div style={{ marginTop: 4 }}>
+                  <span style={{ fontWeight: 700 }}>{row.link.text}</span>
+                  {" : "}
+                  <a href={row.link.href} target="_blank" rel="noopener noreferrer" style={{ color: "#5b9dff", wordBreak: "break-all" }}>{row.link.href}</a>
+                </div>
+              )}
+              {row.detailAfterLink && <div style={{ marginTop: 8 }}>{row.detailAfterLink}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+      )}
+    </div>
+  );
+}
+
+// "Quyền Lợi Dành Cho Đơn Vị Truyền Thông" — split out from PartnerBenefits
+// so it can render at the top of the page (next to the product info)
+// instead of down with the rest of the partner-benefits content. Same
+// content/styling as before, just its own component now.
+function MediaPartnerNote({ defaultCollapsed }) {
+  const [open, setOpen] = useState(!defaultCollapsed);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{ width: "100%", textAlign: "left", background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "8px 14px", textTransform: "uppercase", border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
+        Quyền Lợi Dành Cho Đơn Vị Truyền Thông
+        <span>{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+      <div style={{ border: "1px solid var(--border)", borderTop: "none", padding: "12px 14px", fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
+        <div style={{ whiteSpace: "pre-line" }}>{MEDIA_PARTNER_NOTE.intro}</div>
+        <div style={{ marginTop: 8 }}>
+          🔗 Logo: <a href={MEDIA_PARTNER_NOTE.logoLink} target="_blank" rel="noopener noreferrer" style={{ color: "#5b9dff", wordBreak: "break-all" }}>{MEDIA_PARTNER_NOTE.logoLink}</a>
+        </div>
+        <div style={{ marginTop: 8 }}>{MEDIA_PARTNER_NOTE.hashtag}</div>
+      </div>
+      )}
+    </div>
+  );
+}
+

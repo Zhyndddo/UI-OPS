@@ -1,0 +1,187 @@
+/* Theme variables — dark is the default. [data-theme="light"] on <html>
+   overrides them. Every color used across shared.module.css (and ideally
+   page-level inline styles) should reference one of these instead of a
+   hardcoded hex, so the whole app actually responds to the toggle rather
+   than just isolated pieces of it. */
+
+:root {
+  /* Height of the sticky TopBar — table header rows (see .table th in
+     shared.module.css) pin themselves at this offset once they scroll to
+     the top of the viewport, so they float directly under the topbar
+     instead of under it or with a gap above it. Keep in sync with
+     TopBar.js's own minHeight if that bar's padding/font ever changes. */
+  --topbar-height: 44px;
+  --bg: #0a0a0a;
+  --bg-body: #0b0b0b;
+  --bg-card: #121212;
+  --bg-input: #141414;
+  --bg-hover: #111111;
+  --border: #262626;
+  --border-strong: #333333;
+  --text: #f4f4f4;
+  --text-muted: #999999;
+  --text-faint: #666666;
+  --text-dim: #555555;
+  --accent: #ff6b1a;
+  --accent-soft: #ff9d5c;
+  --accent-on: #0a0a0a; /* text color used ON TOP of the accent background */
+  --success-bg: rgba(76, 175, 80, 0.15);
+  --success-fg: #7ee6a8;
+  --warn-bg: rgba(255, 193, 7, 0.15);
+  --warn-fg: #ffca4d;
+  --error-bg: #2a1212;
+  --error-border: #5a2323;
+  --error-fg: #ff9d9d;
+
+  /* Round 77 — shared "this row needs attention" highlight (This/Next
+     Week in Upload, Releasing Today in Booking, and anywhere else that
+     wants the same treatment). Deliberately the SAME fixed dark
+     orange-black box in both themes, not theme-driven — it's meant to
+     read as a distinct accent card regardless of page theme, the same
+     way it already worked on dark. --highlight-text/-text-faint are
+     forced (not var(--text)/var(--text-faint)) because those flip to
+     near-black on the light theme, which went unreadable against this
+     always-dark box — that's the bug this round fixes. Use these 3
+     together (bg for the sticky/lead cell, row-tint for the row's own
+     background, text/text-faint for anything drawn on top of bg) instead
+     of hardcoding the hex values inline, so every future user of this
+     pattern gets the light-theme fix for free. */
+  --highlight-bg: #2a1c0f;
+  --highlight-row-tint: rgba(255, 107, 26, 0.08);
+  --highlight-text: #ffffff;
+  --highlight-text-faint: #ffcb9a;
+
+  /* Round 83 item 2 — "unfilled field" highlight for New Release Setup
+     (app/workstation/upload/page.js). Fixed purple in both themes per
+     explicit request (#9D00FF), same "deliberately not theme-driven"
+     reasoning as --highlight-* above — it needs to read as a distinct
+     alert color regardless of page theme. */
+  --missing-highlight: #9d00ff;
+  --missing-highlight-bg: rgba(157, 0, 255, 0.12);
+}
+
+[data-theme="light"] {
+  /* Round 69 correction — the earlier "grey to almost-black, white to
+     eggshell" pass (see git history) made the page body/cards a yellowish
+     tan (#f2ead4/#faf3e2) instead of white. Per explicit correction, the
+     eggshell tone goes back to (near-)white — using the same #f7f3ee the
+     magic link's package title bars were already set to, so the page body
+     now matches those cards instead of clashing with them. Cards/inputs
+     are plain white so they still sit a shade lighter than the body, same
+     relationship as before. Greys/text stay near-black (kept from the
+     earlier pass — that part was not what this correction targeted).
+     --bg-hover is nudged to a light neutral grey to keep hover states
+     visible against the now much lighter surfaces. */
+  --bg: #f7f3ee;
+  --bg-body: #f7f3ee;
+  --bg-card: #ffffff;
+  --bg-input: #ffffff;
+  --bg-hover: #ece7de;
+  --border: #ddd6c8;
+  --border-strong: #3a3527;
+  --text: #14120c;
+  --text-muted: #211f16;
+  --text-faint: #3a3527;
+  --text-dim: #56503b;
+  --accent: #ff6b1a;
+  --accent-soft: #d9531a;
+  --accent-on: #ffffff;
+  --success-bg: rgba(46, 125, 50, 0.12);
+  --success-fg: #2e7d32;
+  --warn-bg: rgba(230, 145, 0, 0.12);
+  --warn-fg: #e69100;
+  --error-bg: #fdeaea;
+  --error-border: #f0b8b8;
+  --error-fg: #b23b3b;
+
+  /* Round 77 — same fixed values as :root, intentionally NOT overridden
+     here — see the comment on these 3 vars in :root above. This is the
+     actual fix: before, code drawing text on top of the hardcoded dark
+     highlight box relied on var(--text)/.rowLink's inherited color, which
+     on this light theme is near-black (#14120c) — dark text on a
+     near-black box was the "hard to read" bug. Forcing these fixed light
+     values instead makes it readable in both themes. */
+  --highlight-bg: #2a1c0f;
+  --highlight-row-tint: rgba(255, 107, 26, 0.08);
+  --highlight-text: #ffffff;
+  --highlight-text-faint: #ffcb9a;
+
+  /* Round 83 item 2 — same fixed values as :root, intentionally not
+     overridden — see that comment. */
+  --missing-highlight: #9d00ff;
+  --missing-highlight-bg: rgba(157, 0, 255, 0.12);
+}
+
+/* Round 186 — "Cosmic" (renamed from "Zhyn's Special" in round 216,
+   still internally the "zhyn" value/selector — see the round-216 note in
+   lib/TopBar.js), a real third theme value alongside dark and light, not
+   an override layered on top of either one. Rounds 184/185 tried this as
+   a dark-theme replacement, then as a
+   `[data-zhyn-theme]:not([data-theme="light"])` scoped override — per
+   explicit correction ("it's not a change of theme, it's a dark, light,
+   and zhyn's special... normal account only have dark, light,
+   an.thien@vieent.vn have the third") it's now its own selector exactly
+   like [data-theme="light"] below it, selected the same way (<html
+   data-theme="zhyn">, set by ThemeContext.js). Every other account only
+   ever sees "dark" and "light" as options — TopBar.js only renders the
+   "Cosmic" choice for the one allowed account (AuthContext.js's
+   `canUseZhynTheme`), and AuthContext.js also clamps back to "dark" if
+   this value is ever active for anyone else (round 216 fixed a real bug
+   in that clamp — see the comment on it in lib/AuthContext.js).
+
+   Round 216 — full recolor per explicit request ("check the cosmic theme
+   with black, purple, blue, orange and re-color"), replacing rounds
+   184/185's flat purple-on-near-black palette. Reads as an actual "deep
+   space" scene rather than one hue: black void backgrounds, purple
+   nebula surfaces/borders/text tint (kept from before, just re-balanced),
+   a cool blue for the primary accent/interactive color (buttons, active
+   tab, links — was purple before, now the odd one out against the purple
+   surfaces so interactive elements actually stand out instead of
+   blending into the card/border purple), and warm orange carried into
+   --warn-* (was a muted amber before) so the fourth requested color has
+   a real, visible home instead of just living in a comment. --success-*
+   kept as the same teal/cyan family as before — a genuine 5th hue wasn't
+   asked for, and teal already reads as "cool, not blue, not purple" next
+   to the new blue accent instead of competing with it. --error-*,
+   --highlight-*, and --missing-highlight* are still deliberately left
+   undefined here, same as they're only partially redefined in
+   [data-theme="light"] — falls through to :root's values, same
+   fixed/out-of-scope colors as every other theme. */
+[data-theme="zhyn"] {
+  --bg: #0a0714;
+  --bg-body: #0a0714;
+  --bg-card: #170f28;
+  --bg-input: #1b1330;
+  --bg-hover: #241a3f;
+  --border: #4a3574;
+  --border-strong: #7355ad;
+  --text: #ede7fb;
+  --text-muted: #b6a7d8;
+  --text-faint: #8577a8;
+  --text-dim: #5c4f7e;
+  --accent: #5b8cff;
+  --accent-soft: #93b4ff;
+  --accent-on: #0a0714;
+  --success-bg: rgba(94, 234, 212, 0.15);
+  --success-fg: #5eead4;
+  --warn-bg: rgba(255, 145, 42, 0.16);
+  --warn-fg: #ffab5c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-body);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+}

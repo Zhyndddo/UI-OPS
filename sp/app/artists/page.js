@@ -1,0 +1,237 @@
+"use client";
+
+import AppShell from "../../lib/AppShell";
+import { useEffect, useState } from "react";
+import { supabase } from "../../lib/supabaseClient";
+import QuickCreate from "../../lib/QuickCreate";
+import UrlField from "../../lib/UrlField";
+import { fetchAllRows } from "../../lib/helpers";
+import { usePagination } from "../../lib/usePagination";
+import Pagination from "../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../lib/SearchBox";
+import styles from "../shared.module.css";
+
+const DSP_FIELDS = [
+  ["spotify_url", "Spotify"],
+  ["apple_url", "Apple"],
+  ["tiktok_url", "TikTok"],
+  ["facebook_url", "Facebook"],
+  ["zing_url", "Zing"],
+  ["nct_url", "NCT"],
+];
+
+const EMPTY = { stage_name: "", real_name: "", email: "", label_id: "" };
+
+// Round 113 — this page only ever reads/renders the columns below (plus
+// the labels(label_name) join) — same "only select what's rendered"
+// optimization already applied to the Dashboard (see RELEASE_COLUMNS in
+// app/releases/page.js). Artists also carries phan_loai/fanpage_url/
+// youtube_url/instagram_url/company_name/type/created_at/updated_at,
+// none of which this page uses — select("*") was pulling all of those
+// across the wire on every load for nothing.
+const ARTIST_COLUMNS = [
+  "id", "stage_name", "real_name", "email", "note", "label_id",
+  "spotify_url", "apple_url", "tiktok_url", "facebook_url", "zing_url", "nct_url",
+].join(", ");
+
+export default function ArtistsPage() {
+  const [artists, setArtists] = useState([]);
+  const [labels, setLabels] = useState([]);
+  const [form, setForm] = useState(EMPTY);
+  const [error, setError] = useState(null);
+  // Round 113 — quick index / search box, same shared pattern as the
+  // Labels reference table (lib/SearchBox.js's matchesQuery — pure
+  // client-side substring match against the row). Filtering happens
+  // before pagination so "page 1 of 3" reflects the filtered set, not
+  // the full table.
+  const [searchQuery, setSearchQuery] = useState("");
+  const filteredArtists = artists.filter((a) => matchesQuery(a, searchQuery));
+  const { pageRows: pagedArtists, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(filteredArtists);
+
+  async function load() {
+    // Round 112 — was a plain select() with no pagination anywhere: past
+    // Supabase/PostgREST's 1000-row default cap this silently truncated
+    // the list (same bug class as Round 59/60's Dashboard fix — see
+    // fetchAllRows' comment in lib/helpers.js), and even under 1000 rows,
+    // mounting every row into the DOM at once (each with 6 stateful
+    // UrlField DSP-link inputs) is what was making the page laggy to load.
+    // fetchAllRows fixes the truncation; usePagination below (same
+    // pattern as app/booking/page.js and app/releases/page.js) fixes the
+    // render-time lag by only mounting one page of rows at a time.
+    // Round 113 — select(ARTIST_COLUMNS) instead of select("*") cuts the
+    // payload down to what's actually rendered (see ARTIST_COLUMNS above).
+    const { data: a } = await fetchAllRows(() =>
+      supabase.from("artists").select(`${ARTIST_COLUMNS}, labels(label_name)`).order("stage_name").order("id")
+    );
+    const { data: l } = await supabase.from("labels").select("id, label_name").order("label_name");
+    setArtists(a || []);
+    setLabels(l || []);
+  }
+
+  useEffect(() => {
+    if (supabase) load();
+  }, []);
+
+  async function addArtist(e) {
+    e.preventDefault();
+    setError(null);
+    if (!form.stage_name.trim()) {
+      setError("Nghệ Danh is required.");
+      return;
+    }
+    const payload = { ...form, label_id: form.label_id || null };
+    const { error: err } = await supabase.from("artists").insert(payload);
+    if (err) setError(err.message);
+    else {
+      setForm(EMPTY);
+      load();
+    }
+  }
+
+  async function updateField(artist, field, value) {
+    setArtists((prev) => prev.map((a) => (a.id === artist.id ? { ...a, [field]: value } : a)));
+    await supabase.from("artists").update({ [field]: value }).eq("id", artist.id);
+  }
+
+  async function updateLabel(artist, labelId) {
+    const label = labels.find((l) => l.id === labelId);
+    setArtists((prev) => prev.map((a) => (a.id === artist.id ? { ...a, label_id: labelId || null, labels: label ? { label_name: label.label_name } : null } : a)));
+    await supabase.from("artists").update({ label_id: labelId || null }).eq("id", artist.id);
+  }
+
+  async function deleteArtist(artist) {
+    if (!window.confirm(`Delete "${artist.stage_name}"? This can't be undone.`)) return;
+    const { error: err } = await supabase.from("artists").delete().eq("id", artist.id);
+    if (err) {
+      window.alert(`Couldn't delete: ${err.message}`);
+      return;
+    }
+    setArtists((prev) => prev.filter((a) => a.id !== artist.id));
+  }
+
+  return (
+    <AppShell>
+    <div className={styles.page}>
+      <div className={styles.container} style={{ maxWidth: 1300 }}>
+        <div className={styles.eyebrow}>// Reference Table</div>
+        <h1 className={styles.title}>Artist List</h1>
+
+        {error && <div className={styles.errorBox}>{error}</div>}
+
+        <form onSubmit={addArtist} style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 28, alignItems: "flex-end" }}>
+          <div className={styles.field} style={{ marginBottom: 0, minWidth: 160 }}>
+            <label className={styles.fieldLabel}>Nghệ Danh *</label>
+            <input className={styles.input} value={form.stage_name} onChange={(e) => setForm((f) => ({ ...f, stage_name: e.target.value }))} />
+          </div>
+          <div className={styles.field} style={{ marginBottom: 0, minWidth: 160 }}>
+            <label className={styles.fieldLabel}>Họ Và Tên</label>
+            <input className={styles.input} value={form.real_name} onChange={(e) => setForm((f) => ({ ...f, real_name: e.target.value }))} />
+          </div>
+          <div className={styles.field} style={{ marginBottom: 0, minWidth: 180 }}>
+            <label className={styles.fieldLabel}>Email</label>
+            <input className={styles.input} value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+          </div>
+          <div className={styles.field} style={{ marginBottom: 0, minWidth: 160 }}>
+            <label className={styles.fieldLabel}>Label</label>
+            <div style={{ display: "flex", gap: 6 }}>
+              <select className={styles.select} value={form.label_id} onChange={(e) => setForm((f) => ({ ...f, label_id: e.target.value }))}>
+                <option value="">—</option>
+                {labels.map((l) => (
+                  <option key={l.id} value={l.id}>{l.label_name}</option>
+                ))}
+              </select>
+              <QuickCreate
+                kind="label"
+                onCreated={(newLabel) => {
+                  setLabels((prev) => [...prev, newLabel]);
+                  setForm((f) => ({ ...f, label_id: newLabel.id }));
+                }}
+              />
+            </div>
+          </div>
+          <button className={styles.btnPrimary} type="submit">+ Add Artist</button>
+        </form>
+        <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: -20, marginBottom: 20 }}>
+          DSP links and Note are editable directly in the table below, after creating.
+        </p>
+
+        {artists.length > 0 && (
+          <SearchBox value={searchQuery} onChange={(v) => { setSearchQuery(v); setPage(1); }} placeholder="Search artists…" />
+        )}
+
+        {artists.length === 0 ? (
+          <div className={styles.emptyState}>No artists yet.</div>
+        ) : filteredArtists.length === 0 ? (
+          <div className={styles.emptyState}>No artists match this search.</div>
+        ) : (
+          <>
+          <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
+          <table className={styles.table} style={{ minWidth: 1200 }}>
+            <thead>
+              <tr>
+                <th>Nghệ Danh</th><th>Họ Và Tên</th><th>Email</th><th>Label</th>
+                {DSP_FIELDS.map(([, label]) => <th key={label}>{label}</th>)}
+                <th>Note</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedArtists.map((a) => (
+                <ArtistRow key={a.id} artist={a} labels={labels} onUpdateField={updateField} onUpdateLabel={updateLabel} onDelete={deleteArtist} />
+              ))}
+            </tbody>
+          </table>
+          </div>
+          <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+          </>
+        )}
+      </div>
+    </div>
+    </AppShell>
+  );
+}
+
+function ArtistRow({ artist, labels, onUpdateField, onUpdateLabel, onDelete }) {
+  const [dspDrafts, setDspDrafts] = useState(() => {
+    const initial = {};
+    DSP_FIELDS.forEach(([key]) => (initial[key] = artist[key] || ""));
+    return initial;
+  });
+
+  return (
+    <tr>
+      <td>
+        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 120 }} defaultValue={artist.stage_name} onBlur={(e) => onUpdateField(artist, "stage_name", e.target.value)} />
+      </td>
+      <td>
+        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 120 }} defaultValue={artist.real_name || ""} onBlur={(e) => onUpdateField(artist, "real_name", e.target.value)} />
+      </td>
+      <td>
+        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 140 }} defaultValue={artist.email || ""} onBlur={(e) => onUpdateField(artist, "email", e.target.value)} />
+      </td>
+      <td>
+        <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: 120 }} value={artist.label_id || ""} onChange={(e) => onUpdateLabel(artist, e.target.value)}>
+          <option value="">—</option>
+          {labels.map((l) => <option key={l.id} value={l.id}>{l.label_name}</option>)}
+        </select>
+      </td>
+      {DSP_FIELDS.map(([key]) => (
+        <td key={key} style={{ minWidth: 140 }}>
+          <UrlField
+            styles={styles}
+            value={dspDrafts[key]}
+            onChange={(v) => setDspDrafts((d) => ({ ...d, [key]: v }))}
+            onBlur={() => onUpdateField(artist, key, dspDrafts[key])}
+            rows={1}
+            placeholder="url…"
+          />
+        </td>
+      ))}
+      <td>
+        <input className={styles.input} style={{ padding: "4px 8px", fontSize: 12, minWidth: 140 }} defaultValue={artist.note || ""} onBlur={(e) => onUpdateField(artist, "note", e.target.value)} />
+      </td>
+      <td>
+        <button onClick={() => onDelete(artist)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button>
+      </td>
+    </tr>
+  );
+}

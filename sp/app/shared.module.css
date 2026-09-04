@@ -1,0 +1,463 @@
+.page {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  padding: 32px 24px 80px;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.title {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 0 0 24px;
+}
+
+.topRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.statRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.statCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.statLabel {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.statValue {
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.table {
+  width: 100%;
+  /* Was border-collapse: collapse. Switched to separate (+ border-spacing:
+     0, so cell borders still look continuous — no visible gap opens up)
+     because collapse + a sticky <th> + a box-shadow is a known browser
+     rendering trap: it can draw the shadow as a solid banded gap instead
+     of a soft shadow. That combination is almost certainly what caused
+     the earlier "blank first row" glitch on Booking Board when a
+     box-shadow was briefly tried directly on .table th under collapse.
+     This table-wide switch is what lets every workstation table below
+     carry that box-shadow safely instead of scattering the same override
+     across each page individually. */
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+
+.table th {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* Floats the header row under the sticky TopBar once scrolling carries
+     it to the top of the viewport — long workstation tables no longer
+     lose their column labels partway down a scroll. z-index sits below
+     the TopBar's (300) and the notification/dropdown panels, but above
+     ordinary row content. Background is opaque so scrolled-under rows
+     don't show through the floating header. Rows taller than one line
+     (checkbox lists, multi-line cells) can still visibly peek out from
+     behind this header mid-scroll — that's inherent to sticky headers
+     generally, not something border-bottom alone fixes — but the
+     box-shadow below at least gives a clean visual edge instead of a
+     hard, confusing cutoff (and, on short/single-row tables, was
+     reported as making the row look entirely blank until this table was
+     switched off border-collapse: collapse above).
+
+     THIRD ATTEMPT — the first two both shipped and both turned out to be
+     wrong, kept here (with the reasoning) so the same mistake doesn't get
+     made a third time.
+
+     Attempt 1: every page wraps its table in a horizontally-scrolling
+     <div style={{ overflowX: "auto" }}> (needed so wide tables don't
+     break the layout on narrow screens). The theory was that setting
+     overflow-x alone forces the browser to compute overflow-y as "auto"
+     too (a real CSS spec quirk — one axis can't stay "visible" while the
+     other scrolls), and THAT accidentally-auto overflow-y is what makes
+     the div a scroll container. Fix attempted: explicitly set overflowY:
+     "visible" on the div to opt back out.
+
+     Attempt 2 (the "correction" that used to be documented here): attempt
+     1 didn't work, because the spec rule applies regardless of whether
+     "visible" was the initial value or explicitly written — overflowY:
+     "visible" next to overflowX: "auto" still computes to overflow-y:
+     auto. So attempt 2 set overflowY: "hidden" instead, on the theory
+     that since neither axis is "visible" anymore, the div wouldn't
+     become a scroll container at all.
+
+     That was ALSO wrong, and this is the part worth actually
+     understanding: per the CSS Positioned Layout spec (and MDN's own
+     wording), position:sticky sticks to the nearest ancestor with ANY
+     "scrolling mechanism" — and a scrolling mechanism is created by
+     overflow being hidden, scroll, auto, OR overlay. "hidden" 100%
+     qualifies. So setting overflowX: "auto" (needed for the horizontal
+     scroll) makes this div a scroll container no matter what overflow-y
+     is set to — auto, hidden, scroll, all equally qualify; only "visible"
+     doesn't. Since the div's own content is always sized to fit it
+     (nothing ever asks IT to scroll — the page was meant to scroll
+     around it), its internal scroll offset never moves, so sticky
+     computes its position relative to a container that's permanently at
+     scroll-offset zero. The header doesn't overlap wrong, doesn't have a
+     z-index problem — it just never has anywhere to "stick" to, so it
+     stays in normal document flow and scrolls away with everything else.
+     This is true of EVERY value pairing here — there is no overflowY
+     value that both (a) coexists with overflowX: "auto" and (b) keeps
+     this div from being sticky's scroll container. The two axes can't be
+     split apart that way.
+
+     THE ACTUAL FIX: stop trying to make the page be the scroll context
+     and instead make this div's OWN scrolling the real thing sticky
+     sticks to. The div now gets a bounded height (maxHeight, see the
+     page-level inline style) and a genuine overflowY: "auto" — so when a
+     long table's rows push past that height, THIS div scrolls internally
+     (a real, visible scrollbar), and its <th> sticks to `top: 0` — the
+     top of ITS OWN scrollport, not an offset borrowed from the page-level
+     TopBar. That's also why `top` changed from `var(--topbar-height)` to
+     `0` below: the TopBar sits above this div in the outer page, not
+     inside its scrollport, so there's nothing to offset by anymore —
+     "0" already means "the top edge of the region that's actually
+     scrolling," which is exactly where the header should land.
+     Trade-off worth knowing about: each table is now its own scrollable
+     panel (like a spreadsheet) instead of the whole page scrolling one
+     continuous document — Pagination controls were moved outside this
+     div in every page so they stay visible below the table instead of
+     scrolling out of view with it.
+
+     IMPORTANT — this `top` value (var(--topbar-height)) is the DEFAULT,
+     correct for every page that renders <table className={styles.table}>
+     with NO wrapper div at all (Summary, Releases dashboard, release
+     detail, Design/Media Booking/Phụ Lục/Newrelease Upload tickets,
+     Labels, Milestone, Pitching Info, the public pick-package page —
+     there are more of these than you'd think). Those tables stick to the
+     real page scroll, so their header needs to land just below the real
+     TopBar, hence the topbar-height offset. The 9 tables that DO have the
+     bounded-height/overflowY:auto scroll-box wrapper (see their page
+     files) are the exception — their `<div>` wrapper also carries the
+     .scrollBox class below, whose `.scrollBox .table th { top: 0 }`
+     override wins for just those tables, since their header sticks to
+     the top of their OWN internal scrollport, not the page. Don't flip
+     this rule's own `top` back to 0 "to match" — that breaks every table
+     in the first group instead. */
+  position: sticky;
+  top: var(--topbar-height);
+  z-index: 20;
+  background: var(--bg);
+  box-shadow: 0 4px 6px -4px rgba(0, 0, 0, 0.35);
+}
+
+/* Scopes the `top: 0` override to just the tables that sit inside a
+   bounded-height, internally-scrolling wrapper (see the long comment on
+   .table th above) — every one of those wrapper <div>s carries this
+   class alongside its inline overflow/maxHeight style. Needs `.table` in
+   the selector too so its specificity (2 classes + element) beats the
+   plain `.table th` rule above (1 class + element) — without that, which
+   one wins would depend on source order instead of being deliberate. */
+.scrollBox .table th {
+  top: 0;
+}
+
+.table td {
+  padding: 10px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.table tr:hover td {
+  background: var(--bg-hover);
+}
+
+/* Round 80 — reusable cap for any table cell holding a raw URL/link that
+   isn't already going through UrlField/MultiLinkCell (which cap
+   themselves internally) — apply directly to a <td> to keep a long
+   pasted link from stretching its column ("over-extend"). */
+.urlCell {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowLink {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.rowLink:hover {
+  color: var(--accent);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.pillOrange {
+  background: var(--warn-bg);
+  color: var(--accent-soft);
+}
+
+.pillGray {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+/* Round 86 item 5 — "product tag" pills (Publishing / Splitshare / Phụ
+   Lục MG), one color per type so they stay visually distinct sitting next
+   to each other under the Name column / next to the Name row. */
+.pillPublishing {
+  background: rgba(33, 150, 243, 0.15);
+  color: #5cb3ff;
+}
+
+.pillSplitshare {
+  background: rgba(156, 39, 176, 0.15);
+  color: #ce93d8;
+}
+
+.pillPhuLucMg {
+  background: var(--success-bg);
+  color: var(--success-fg);
+}
+
+.statusBadge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.fieldLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.required {
+  color: var(--accent);
+}
+
+.input,
+.select,
+.textarea {
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  border-color: var(--accent);
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 70px;
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.checkboxRow input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.btnPrimary {
+  background: var(--accent);
+  color: var(--accent-on);
+  border: none;
+  border-radius: 6px;
+  padding: 10px 22px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.btnPrimary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btnSecondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 10px 22px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.btnSmall {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.errorBox {
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  color: var(--error-fg);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+
+.successBox {
+  background: var(--success-bg);
+  border: 1px solid var(--success-fg);
+  color: var(--success-fg);
+  border-radius: 6px;
+  padding: 14px 16px;
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+
+.tabBar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+  overflow-x: auto;
+}
+
+.tabBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+
+.tabBtnActive {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 20px;
+}
+
+.subheading {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin: 20px 0 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.emptyState {
+  padding: 48px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+
+.backLink {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 12px;
+  display: inline-block;
+  margin-bottom: 16px;
+}
+
+.backLink:hover {
+  color: var(--accent);
+}

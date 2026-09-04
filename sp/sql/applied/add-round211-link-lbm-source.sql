@@ -1,0 +1,21 @@
+-- Round 211 — "Label upload" vs "OPS upload" tag for the Link LBM
+-- field, per explicit report: sometimes OPS doesn't actually create the
+-- Link LBM upload themselves (the label does, and OPS just pastes the
+-- resulting URL in later) — there was no way to tell which was true for
+-- a given release just by looking at the field.
+--
+-- Deliberately a separate column, not a note stuffed into link_lbm
+-- itself — link_lbm is a UrlField (every non-empty line treated as a
+-- real clickable URL), and every "is this done yet" check in the app
+-- treats a non-empty link_lbm as "already filled in." A text note in
+-- there would both render as a broken link and falsely mark it done.
+--
+-- Nullable, no backfill needed: every existing release reads as "not
+-- set yet" (NULL), same as any release created before this round. Only
+-- 2 real values are ever written by the app ("label" / "ops",
+-- LinkLbmSourceBadge's only two <option>s) — left as plain text with no
+-- CHECK constraint, matching how every other short-enum text column in
+-- this schema (upload_status, project_type, etc.) is already handled:
+-- validated in the app, not the database.
+
+alter table releases add column if not exists link_lbm_source text;

@@ -1,0 +1,4606 @@
+[
+  {
+    "id": "06qZFZHRl183ufjvMZVH",
+    "requesterSegment": "GUEST_REQUESTER",
+    "note": "",
+    "requesterName": "",
+    "releaseDate": "2026-07-08",
+    "releaseTime": "19:00",
+    "status": "COMPLETE",
+    "artist": "Bạch Dương",
+    "description": "Full CID tiktok cùng ngày, fb +4 ngày",
+    "producer": "NVC",
+    "mixer": "NVC",
+    "type": "phai_sinh",
+    "tenBai": "Hai Người Hai Hướng ft Em Đâu Thua Một Ai (Trí Thức Remix)",
+    "label": "NVC Media",
+    "url": "https://drive.google.com/drive/folders/1eiPV-9uXAMrxB0dgddHoXG5UnwejV6gm",
+    "updatedAt": {
+      "seconds": 1784551440,
+      "nanoseconds": 185000000
+    },
+    "statusLog": {
+      "REFUND": {
+        "seconds": 1783595472,
+        "nanoseconds": 945000000
+      },
+      "REQUESTED": {
+        "seconds": 1783485514,
+        "nanoseconds": 922000000
+      },
+      "COMPLETE": {
+        "seconds": 1783653681,
+        "nanoseconds": 631000000
+      },
+      "PROCESS": {
+        "seconds": 1783595461,
+        "nanoseconds": 375000000
+      }
+    },
+    "tacQuyen": "NVC Media sở hữu",
+    "createdAt": {
+      "seconds": 1783485514,
+      "nanoseconds": 922000000
+    },
+    "typeRequest": "Phái sinh",
+    "refLink": "https://vieent.labelmaster.app/products/24593",
+    "composer": "Huỳnh Tấn Danh"
+  },
+  {
+    "id": "0yw5VeykkjdEMAos5Zfn",
+    "updatedAt": {
+      "seconds": 1784024173,
+      "nanoseconds": 776000000
+    },
+    "mixer": "1988s",
+    "requesterName": "",
+    "description": "FULL CID Tiktok cùng ngày / FB + 04 ngày",
+    "tacQuyen": "1988s sở hữu",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1783946493,
+        "nanoseconds": 330000000
+      },
+      "REQUESTED": {
+        "seconds": 1783571937,
+        "nanoseconds": 333000000
+      },
+      "COMPLETE": {
+        "seconds": 1784024173,
+        "nanoseconds": 776000000
+      }
+    },
+    "composer": "Triệu Quốc Cường",
+    "createdAt": {
+      "seconds": 1783571937,
+      "nanoseconds": 333000000
+    },
+    "type": "phai_sinh",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-07-09",
+    "tenBai": "Bạc Phận Má Hồng",
+    "producer": "1988s",
+    "typeRequest": "Phái sinh",
+    "artist": "Ý Thơ",
+    "status": "COMPLETE",
+    "refLink": "https://vieent.labelmaster.app/products/24625",
+    "requesterSegment": "GUEST_REQUESTER",
+    "url": "https://drive.google.com/drive/folders/1YsUHnFDQgPKcZ2F8d1lDCl-B9SgDP1YC",
+    "label": "1988s",
+    "note": ""
+  },
+  {
+    "id": "1mvITR5qPNwLKEnBrUVo",
+    "requesterSegment": "AR",
+    "label": "1988s",
+    "note": "",
+    "tenBai": "Thương Nhau Câu Lý Vá Quàng (Remix)",
+    "typeRequest": "Phái sinh",
+    "tacQuyen": "Triệu Quốc Cường",
+    "composer": "Triệu Quốc Cường",
+    "requesterName": "Bảo Pooh",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-06-12",
+    "type": "phai_sinh",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1781515322,
+        "nanoseconds": 950000000
+      },
+      "PROCESS": {
+        "seconds": 1781176785,
+        "nanoseconds": 66000000
+      },
+      "REQUESTED": {
+        "seconds": 1781170163,
+        "nanoseconds": 808000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1784551440,
+      "nanoseconds": 237000000
+    },
+    "producer": "1988s",
+    "refLink": "https://vieent.labelmaster.app/products/24222",
+    "url": "https://drive.google.com/drive/folders/1bDRv2lXrVb7zctA_Ov6LGy89ei9oi0cW?usp=drive_link",
+    "createdAt": {
+      "seconds": 1781170163,
+      "nanoseconds": 808000000
+    },
+    "status": "COMPLETE",
+    "artist": "Ngọc Huyền",
+    "description": "Làm hình Typo cơ bản giúp em \nFull CID, FB +4 ngày, TikTok cùng ngày",
+    "mixer": "1988s"
+  },
+  {
+    "id": "31BlqQuqGX2vREddvyjr",
+    "refLink": "https://vieent.labelmaster.app/products/24627",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-07-14",
+    "note": "",
+    "producer": "Nhã Key",
+    "url": "https://drive.google.com/drive/folders/1oI_wzCYmfdcQpKhlrI463Myz67eumiWI",
+    "tenBai": "Bạc Phận Má Hồng",
+    "requesterSegment": "GUEST_REQUESTER",
+    "mixer": "Tố Đen",
+    "requesterName": "",
+    "description": "Full CID tiktok cùng ngày, fb +4 ngày",
+    "composer": "Triệu Quốc Cường",
+    "label": "1988s",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1783946507,
+        "nanoseconds": 546000000
+      },
+      "COMPLETE": {
+        "seconds": 1784024342,
+        "nanoseconds": 4000000
+      },
+      "REQUESTED": {
+        "seconds": 1783861081,
+        "nanoseconds": 230000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1784024342,
+      "nanoseconds": 4000000
+    },
+    "type": "phai_sinh",
+    "tacQuyen": "1988s sở hữu",
+    "typeRequest": "Phái sinh",
+    "status": "COMPLETE",
+    "createdAt": {
+      "seconds": 1783861081,
+      "nanoseconds": 230000000
+    },
+    "artist": "Bùi Phi Long"
+  },
+  {
+    "id": "3xvvNI1GXt3SpzzDcZq1",
+    "tacQuyen": "sở hữu của Vieent Music",
+    "updatedAt": {
+      "seconds": 1783677892,
+      "nanoseconds": 898000000
+    },
+    "composer": "Nguyen Ho Hai Long",
+    "type": "phai_sinh",
+    "mixer": "Nguyen Ho Hai Long",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1781176870,
+        "nanoseconds": 455000000
+      },
+      "REFUND": {
+        "seconds": 1780483280,
+        "nanoseconds": 826000000
+      },
+      "REQUESTED": {
+        "seconds": 1780567290,
+        "nanoseconds": 593000000
+      },
+      "PROCESS": {
+        "seconds": 1780567320,
+        "nanoseconds": 748000000
+      }
+    },
+    "typeRequest": "Phái sinh",
+    "createdAt": {
+      "seconds": 1780379608,
+      "nanoseconds": 542000000
+    },
+    "refLink": "",
+    "tenBai": "Ngạo Nghễ Giữa Đời (Remix)",
+    "releaseDate": "2026-06-02",
+    "producer": "Nguyen Ho Hai Long",
+    "releaseTime": "19:00",
+    "note": "làm ảnh typo",
+    "status": "COMPLETE",
+    "label": "VIEENT MUSIC",
+    "artist": "Idin & ENVI Music",
+    "description": "Full CID, FB TikTok cùng ngày",
+    "requesterSegment": "AR",
+    "requesterName": "Bảo Pooh",
+    "url": "https://drive.google.com/drive/folders/1MQTc_T7G9IhCvyky9AnC5HCr4ychuGou?usp=drive_link"
+  },
+  {
+    "id": "40jwTJElF3LoTgHCcLD5",
+    "requesterSegment": "GUEST_REQUESTER",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1782982294,
+        "nanoseconds": 948000000
+      },
+      "REQUESTED": {
+        "seconds": 1782962229,
+        "nanoseconds": 910000000
+      }
+    },
+    "refLink": "https://vieent.labelmaster.app/products/24472",
+    "updatedAt": {
+      "seconds": 1784551440,
+      "nanoseconds": 402000000
+    },
+    "type": "phai_sinh",
+    "typeRequest": "Phái sinh",
+    "producer": "HuyD",
+    "tenBai": "Thiệp Hồng Chung Tên Remix (AiAi Remix)",
+    "mixer": "3T Tống Thành Toàn",
+    "createdAt": {
+      "seconds": 1782962229,
+      "nanoseconds": 910000000
+    },
+    "label": "TD Network",
+    "requesterName": "",
+    "composer": "Hào JK",
+    "note": "",
+    "url": "https://drive.google.com/drive/folders/1szgQJk9-pN5GcStJnKqM8gOpppgsmhDO?usp=drive_link",
+    "tacQuyen": "TD network sở hữu",
+    "description": "FULL Cid Tiktok FB Cùng ngày",
+    "releaseDate": "2026-07-02",
+    "releaseTime": "19:00",
+    "status": "COMPLETE",
+    "artist": "Út Nhị Mino ft Hào JK"
+  },
+  {
+    "id": "43fUaARkp4zl4fG9mZuS",
+    "artist": "Như Ngọc",
+    "status": "COMPLETE",
+    "mixer": "QZ",
+    "refLink": "https://vieent.labelmaster.app/products/24604",
+    "typeRequest": "Phái sinh",
+    "composer": "Như Ngọc",
+    "type": "phai_sinh",
+    "tacQuyen": "Như Ngọc sở hữu",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1783655345,
+        "nanoseconds": 398000000
+      },
+      "COMPLETE": {
+        "seconds": 1783657721,
+        "nanoseconds": 75000000
+      },
+      "PROCESS": {
+        "seconds": 1783656288,
+        "nanoseconds": 787000000
+      }
+    },
+    "releaseTime": "12:00",
+    "releaseDate": "2026-07-10",
+    "requesterSegment": "GUEST_REQUESTER",
+    "updatedAt": {
+      "seconds": 1784203032,
+      "nanoseconds": 105000000
+    },
+    "tenBai": "Duyên Tình Cô Ba (Lofi)",
+    "url": "https://drive.google.com/drive/folders/1I3Svtp1AhOvqDg8HmyPLMZfDy9uGpA_c?usp=drive_link",
+    "description": "Full CID, tiktok cùng ngày, fb +4 ngày",
+    "requesterName": "",
+    "note": "",
+    "createdAt": {
+      "seconds": 1783655345,
+      "nanoseconds": 398000000
+    },
+    "producer": "Như Ngọc",
+    "label": "Như Ngọc"
+  },
+  {
+    "id": "4UcbUCiNmgiP5BcgfIFr",
+    "type": "phai_sinh",
+    "mixer": "GOLD MK",
+    "typeRequest": "Kho nhạc",
+    "requesterSegment": "GUEST_REQUESTER",
+    "status": "COMPLETE",
+    "producer": "GOLD MK",
+    "artist": "GOLD MK",
+    "requesterName": "",
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "note": "làm ảnh typo\n",
+    "createdAt": {
+      "seconds": 1782230899,
+      "nanoseconds": 717000000
+    },
+    "url": "https://drive.google.com/drive/folders/1YbSiBPaAhZrJeHZ_DDMWcR6cV4s8EFz-?usp=drive_link",
+    "label": "Khỉ Con Music",
+    "updatedAt": {
+      "seconds": 1784551442,
+      "nanoseconds": 18000000
+    },
+    "refLink": "https://vieent.labelmaster.app/products/24400",
+    "tacQuyen": "Khỉ Con Music tác quyền",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1782295921,
+        "nanoseconds": 596000000
+      },
+      "COMPLETE": {
+        "seconds": 1782386122,
+        "nanoseconds": 101000000
+      },
+      "REQUESTED": {
+        "seconds": 1782230899,
+        "nanoseconds": 717000000
+      }
+    },
+    "tenBai": "Một Người Như Ý - GOLD MK (Gmk Remix Ver Nữ)",
+    "composer": "Văn Thiên Hạnh",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-06-24"
+  },
+  {
+    "id": "5TTYoNA5SWonEZDO7FsK",
+    "updatedAt": {
+      "seconds": 1783947176,
+      "nanoseconds": 324000000
+    },
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "producer": "KC Prod",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1783081484,
+        "nanoseconds": 606000000
+      },
+      "REQUESTED": {
+        "seconds": 1782236974,
+        "nanoseconds": 27000000
+      }
+    },
+    "requesterName": "",
+    "label": "KC Media",
+    "url": "https://drive.google.com/drive/folders/1K7X0mr26Lywr4axG_GzYxj4-nz_x-g7L?usp=drive_link",
+    "tenBai": "03 Năm Yêu 06 Năm Mới Quên (Remix Khmer Version)",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-06-25",
+    "createdAt": {
+      "seconds": 1782236974,
+      "nanoseconds": 27000000
+    },
+    "type": "phai_sinh",
+    "tacQuyen": "KC Media sở hữu",
+    "composer": "Sơn TRung",
+    "typeRequest": "Phái sinh",
+    "refLink": "https://vieent.labelmaster.app/products/24492",
+    "mixer": "KC Studio",
+    "artist": "Đinh Công Anh Đức & KC Media Music",
+    "note": "",
+    "status": "COMPLETE",
+    "requesterSegment": "GUEST_REQUESTER"
+  },
+  {
+    "id": "5U0suubwQgrl3hnhj2wf",
+    "refLink": "https://drive.google.com/drive/folders/1YXlCS1Ijm31KAqZefnVgWiOXXnrJWOES?usp=drive_link https://vieent.labelmaster.app/products/24268/delivery",
+    "artist": "Dimz",
+    "composer": "Trần Thị Kiều Diễm",
+    "typeRequest": "Phái sinh",
+    "status": "COMPLETE",
+    "note": "đã fixx ",
+    "tacQuyen": "Dimz sở hữu",
+    "label": "Dimz",
+    "updatedAt": {
+      "seconds": 1783947082,
+      "nanoseconds": 459000000
+    },
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1782449255,
+        "nanoseconds": 822000000
+      },
+      "COMPLETE": {
+        "seconds": 1782449277,
+        "nanoseconds": 681000000
+      },
+      "REFUND": {
+        "seconds": 1781604326,
+        "nanoseconds": 375000000
+      },
+      "REQUESTED": {
+        "seconds": 1782148454,
+        "nanoseconds": 81000000
+      }
+    },
+    "requesterSegment": "AR",
+    "releaseTime": "19:00",
+    "mixer": "Trung I.U",
+    "releaseDate": "2026-06-21",
+    "requesterName": "Bảo Pooh",
+    "url": "https://drive.google.com/drive/u/1/folders/1YXlCS1Ijm31KAqZefnVgWiOXXnrJWOES",
+    "createdAt": {
+      "seconds": 1781171470,
+      "nanoseconds": 162000000
+    },
+    "type": "phai_sinh",
+    "producer": "Lê Quốc Kiện",
+    "description": "Full CID Fb, Tik tok cùng ngày",
+    "tenBai": "say nắng chiều tà (Remix)"
+  },
+  {
+    "id": "5i4hD5yy3uCmUA6aZMk4",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1781182135,
+        "nanoseconds": 327000000
+      },
+      "REQUESTED": {
+        "seconds": 1780941775,
+        "nanoseconds": 578000000
+      },
+      "PROCESS": {
+        "seconds": 1780994082,
+        "nanoseconds": 422000000
+      }
+    },
+    "requesterName": "Bảo Pooh",
+    "updatedAt": {
+      "seconds": 1783677246,
+      "nanoseconds": 200000000
+    },
+    "refLink": "",
+    "artist": "GOLD MK",
+    "label": "Khỉ Con Music",
+    "releaseTime": "20:00",
+    "status": "COMPLETE",
+    "releaseDate": "2026-05-07",
+    "description": "Full - trừ CID, FB +4 ngày, TikTok cùng ngày",
+    "createdAt": {
+      "seconds": 1780941775,
+      "nanoseconds": 578000000
+    },
+    "producer": "GOLD MK",
+    "note": "",
+    "tenBai": "Kho nhạc Khỉ Con Music",
+    "composer": "Văn Thiên Hạnh",
+    "mixer": "GOLD MK",
+    "tacQuyen": "Khỉ Con Music sở hữu",
+    "url": "https://docs.google.com/spreadsheets/d/1R7iroak_Qkd3UNKcir1SRou2uM3HRLyMDUpvf_C77GY/edit?gid=0#gid=0",
+    "type": "phai_sinh",
+    "requesterSegment": "AR",
+    "typeRequest": "Kho nhạc"
+  },
+  {
+    "id": "75gqIZyOYawl0f8NChU4",
+    "refLink": "https://vieent.labelmaster.app/products/24648",
+    "createdAt": {
+      "seconds": 1784026173,
+      "nanoseconds": 32000000
+    },
+    "label": "Nguyễn Văn Chung",
+    "composer": "Nguyễn Văn Chung",
+    "typeRequest": "Phái sinh",
+    "type": "phai_sinh",
+    "tenBai": "Chúc Em Ngủ Ngon",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1784026173,
+        "nanoseconds": 32000000
+      },
+      "PROCESS": {
+        "seconds": 1784085599,
+        "nanoseconds": 43000000
+      },
+      "COMPLETE": {
+        "seconds": 1784200304,
+        "nanoseconds": 538000000
+      }
+    },
+    "tacQuyen": "Nguyễn Văn Chung sở hữu",
+    "updatedAt": {
+      "seconds": 1784200304,
+      "nanoseconds": 538000000
+    },
+    "releaseTime": "19:00",
+    "url": "https://drive.google.com/drive/folders/1oLUYqWl6uwFeEF3H0A_tBOD27Mq5TKnE?usp=drive_link",
+    "requesterName": "",
+    "releaseDate": "2026-07-18",
+    "requesterSegment": "GUEST_REQUESTER",
+    "note": "aw tạm - update sau",
+    "mixer": "Dewar",
+    "producer": "Dewar",
+    "description": "Full CID, TikTok, FB cùng ngày",
+    "artist": "Dewar",
+    "status": "COMPLETE"
+  },
+  {
+    "id": "78reLIGoUX3GfoLbyAEi",
+    "composer": "Trần Xuân Bảng",
+    "refLink": "",
+    "note": "chưa có url data",
+    "mixer": "LQ MEDIA",
+    "tacQuyen": "Sở hữu LQ Media",
+    "status": "COMPLETE",
+    "artist": "Đại Thành, XuBa",
+    "typeRequest": "Phái sinh",
+    "requesterName": "Bảo Pooh",
+    "releaseDate": "2026-06-03",
+    "producer": "LQ MEDIA",
+    "releaseTime": "19:00",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1780994084,
+        "nanoseconds": 752000000
+      },
+      "REQUESTED": {
+        "seconds": 1780630673,
+        "nanoseconds": 631000000
+      },
+      "COMPLETE": {
+        "seconds": 1780999740,
+        "nanoseconds": 845000000
+      },
+      "REFUND": {
+        "seconds": 1780482639,
+        "nanoseconds": 924000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783947481,
+      "nanoseconds": 227000000
+    },
+    "type": "phai_sinh",
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày\nDone gửi Link Pre-save dự án",
+    "label": "LQ Media",
+    "createdAt": {
+      "seconds": 1780469545,
+      "nanoseconds": 645000000
+    },
+    "requesterSegment": "AR",
+    "url": "",
+    "tenBai": "Vết Sẹo Đẹp Nhất"
+  },
+  {
+    "id": "78yERBOIDIV3cO3mFBwa",
+    "composer": "Lê Gia Quân",
+    "refLink": "https://vieent.labelmaster.app/products/24669",
+    "note": "",
+    "mixer": "93 NewG",
+    "tacQuyen": "93 NEWG sở hữu",
+    "status": "COMPLETE",
+    "artist": "Lê Huỳnh Bảo Ngọc & TVk & 93NewG",
+    "typeRequest": "Phái sinh",
+    "requesterName": "",
+    "releaseDate": "2026-07-16",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1784122410,
+        "nanoseconds": 363000000
+      },
+      "REQUESTED": {
+        "seconds": 1784120166,
+        "nanoseconds": 6000000
+      },
+      "COMPLETE": {
+        "seconds": 1784198777,
+        "nanoseconds": 236000000
+      }
+    },
+    "producer": "93 NewG",
+    "releaseTime": "19:00",
+    "updatedAt": {
+      "seconds": 1784198777,
+      "nanoseconds": 236000000
+    },
+    "type": "phai_sinh",
+    "description": "Full CID, Tiktok cùng ngày, Fb +4 ngày",
+    "label": "93 NewG",
+    "createdAt": {
+      "seconds": 1784120166,
+      "nanoseconds": 6000000
+    },
+    "requesterSegment": "GUEST_REQUESTER",
+    "url": "https://drive.google.com/drive/folders/1rCPq8Gja8EU7cSCMxwKEoO88CMWJyIcw",
+    "tenBai": "Bên Ấy Em Có Ai Rồi (Remix)"
+  },
+  {
+    "id": "7Ftw3Xz9BnEw41PpRPgs",
+    "createdAt": {
+      "seconds": 1780632833,
+      "nanoseconds": 783000000
+    },
+    "producer": "Phong Lê",
+    "note": "",
+    "description": "Full CID, FB và Tiktok cùng ngày",
+    "url": "https://drive.google.com/drive/folders/1hITGucSFEAbNQMoOQ730y30BHb5OEdKw",
+    "releaseDate": "2026-06-06",
+    "releaseTime": "19:00",
+    "label": "WM Media",
+    "refLink": "",
+    "updatedAt": {
+      "seconds": 1784026190,
+      "nanoseconds": 458000000
+    },
+    "tenBai": "Em Vá Đời Anh (Remix)",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1780994086,
+        "nanoseconds": 628000000
+      },
+      "REQUESTED": {
+        "seconds": 1780632833,
+        "nanoseconds": 783000000
+      },
+      "COMPLETE": {
+        "seconds": 1781176801,
+        "nanoseconds": 333000000
+      }
+    },
+    "requesterName": "Bảo Pooh",
+    "typeRequest": "Phái sinh",
+    "tacQuyen": "WM Media sở hữu",
+    "type": "phai_sinh",
+    "composer": "Đặng Thiên Chí",
+    "mixer": "Nam Anh",
+    "status": "COMPLETE",
+    "artist": "Đặng Thiên Chí",
+    "requesterSegment": "AR"
+  },
+  {
+    "id": "87M2yYavCaiCep83r7UL",
+    "requesterSegment": "GUEST_REQUESTER",
+    "typeRequest": "Phái sinh",
+    "type": "phai_sinh",
+    "url": "https://drive.google.com/drive/folders/1K7X0mr26Lywr4axG_GzYxj4-nz_x-g7L?usp=drive_link",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1783005206,
+        "nanoseconds": 536000000
+      },
+      "REQUESTED": {
+        "seconds": 1782237071,
+        "nanoseconds": 371000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783947131,
+      "nanoseconds": 430000000
+    },
+    "tenBai": "3 Năm Yêu 6 Năm Mới Quên Remix",
+    "createdAt": {
+      "seconds": 1782237071,
+      "nanoseconds": 371000000
+    },
+    "mixer": "KC Studio",
+    "producer": "KC Prod",
+    "label": "KC Media",
+    "refLink": "https://vieent.labelmaster.app/products/24491",
+    "note": "",
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "composer": "Sơn TRung",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-06-25",
+    "requesterName": "",
+    "status": "COMPLETE",
+    "tacQuyen": "KC Media sở hữu",
+    "artist": "Đinh Công Anh Đức & KC MEDIA MUSIC"
+  },
+  {
+    "id": "8A0dG0p6karSGa6JLZai",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-06-02",
+    "type": "phai_sinh",
+    "mixer": "https://drive.google.com/drive/folders/1Z80SF1E_dnK72A2014PSa_tPLxi-qWaw?usp=drive_link",
+    "requesterName": "Bảo Pooh",
+    "status": "PROCESS",
+    "composer": "Triệu Quốc Cường",
+    "artist": "Long MĐN, Triệu Quốc Cường, Nguyễn Hoàng Vinh",
+    "description": "Full trừ CID, FB +4 ngày, TikTok cùng ngày / Lyrics cập nhật sau",
+    "requesterSegment": "AR",
+    "url": "https://drive.google.com/drive/folders/1Z80SF1E_dnK72A2014PSa_tPLxi-qWaw?usp=drive_link",
+    "tacQuyen": "Thuộc sở hữu 1988s Entertainment",
+    "refLink": "https://docs.google.com/spreadsheets/d/1mZGKqlpx7XCrymInEF4x_B3tvjKAO8ZPfojcJcr_7LI/edit?gid=0#gid=0",
+    "createdAt": {
+      "seconds": 1780292694,
+      "nanoseconds": 783000000
+    },
+    "note": "Check link bên dưới https://docs.google.com/spreadsheets/d/1mZGKqlpx7XCrymInEF4x_B3tvjKAO8ZPfojcJcr_7LI/edit?gid=0#gid=0",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1781511378,
+        "nanoseconds": 497000000
+      },
+      "REQUESTED": {
+        "seconds": 1780292694,
+        "nanoseconds": 783000000
+      },
+      "REFUND": {
+        "seconds": 1781261002,
+        "nanoseconds": 164000000
+      }
+    },
+    "typeRequest": "Kho nhạc",
+    "label": "1988s Entertainment",
+    "updatedAt": {
+      "seconds": 1784197506,
+      "nanoseconds": 793000000
+    },
+    "tenBai": "Kho Nhạc Triệu Quốc Cường",
+    "producer": "1988s"
+  },
+  {
+    "id": "8nMqSe0YC34xny9rJF4p",
+    "releaseDate": "2026-06-01",
+    "releaseTime": "19:00",
+    "tenBai": "Kho Nhạc VT Media",
+    "createdAt": {
+      "seconds": 1780292831,
+      "nanoseconds": 528000000
+    },
+    "refLink": "",
+    "label": "VT Media",
+    "composer": "Huỳnh Tấn Danh",
+    "note": "",
+    "tacQuyen": "Cập nhật trong Tracking List",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1780292831,
+        "nanoseconds": 528000000
+      },
+      "PROCESS": {
+        "seconds": 1780386862,
+        "nanoseconds": 879000000
+      },
+      "COMPLETE": {
+        "seconds": 1781260776,
+        "nanoseconds": 215000000
+      }
+    },
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "requesterSegment": "AR",
+    "updatedAt": {
+      "seconds": 1783677246,
+      "nanoseconds": 296000000
+    },
+    "artist": "Inso, Bạch Dương, Văn Thoại, VT Media",
+    "url": "https://docs.google.com/spreadsheets/d/112AL9Xa843v92UpLYp6nMk-Y7smqDOAFV2NQRaUO8Og/edit?gid=0#gid=0",
+    "requesterName": "Bảo Pooh",
+    "status": "COMPLETE",
+    "mixer": "Văn Thoại",
+    "typeRequest": "Kho nhạc",
+    "type": "phai_sinh",
+    "producer": "Fuka x Dk Remix"
+  },
+  {
+    "id": "A6f5nZd4oGnFzy3QhlDQ",
+    "url": "https://drive.google.com/drive/folders/1hjvrtLTJE1OS620OMH_indJH3pDPJuG-?usp=drive_link",
+    "tenBai": "Kết Tình Duyên Quê (Remix)",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1780482564,
+        "nanoseconds": 361000000
+      },
+      "COMPLETE": {
+        "seconds": 1781527906,
+        "nanoseconds": 216000000
+      },
+      "REQUESTED": {
+        "seconds": 1780474885,
+        "nanoseconds": 45000000
+      }
+    },
+    "producer": "1988s",
+    "updatedAt": {
+      "seconds": 1783947157,
+      "nanoseconds": 565000000
+    },
+    "mixer": "1988s",
+    "type": "phai_sinh",
+    "createdAt": {
+      "seconds": 1780474885,
+      "nanoseconds": 45000000
+    },
+    "requesterName": "Bảo Pooh",
+    "typeRequest": "Phái sinh",
+    "composer": "Triệu Quốc Cường",
+    "releaseDate": null,
+    "requesterSegment": "AR",
+    "refLink": "https://vieent.labelmaster.app/products/24025/delivery",
+    "tacQuyen": "1988s sở hữu",
+    "releaseTime": "19:00",
+    "label": "1988s",
+    "artist": "Ngọc Huyền",
+    "status": "COMPLETE",
+    "note": "",
+    "description": "FULL CID, FB +4 ngày, TikTok cùng ngày Làm hình typo cơ bản"
+  },
+  {
+    "id": "Am0mFBJrL0D61EQF4Uqm",
+    "tacQuyen": "NVC Media sở hữu",
+    "tenBai": "Đúng Thời Điểm Sai Người (VuNhan Remix)",
+    "createdAt": {
+      "seconds": 1784109612,
+      "nanoseconds": 909000000
+    },
+    "note": "Đúng Thời Điểm Sai Người (VuNhan Remix) hiện audio bản vocal cả nam và nữ ko phải giọng của inso",
+    "description": "FULL trừ CID Vocal + trừ Zing Mp3/ Only CID Beat",
+    "composer": "Huỳnh Tấn Danh",
+    "releaseDate": "2026-07-16",
+    "releaseTime": "19:00",
+    "requesterSegment": "GUEST_REQUESTER",
+    "statusLog": {
+      "REFUND": {
+        "seconds": 1784199304,
+        "nanoseconds": 393000000
+      },
+      "REQUESTED": {
+        "seconds": 1784109612,
+        "nanoseconds": 909000000
+      },
+      "COMPLETE": {
+        "seconds": 1784282631,
+        "nanoseconds": 825000000
+      },
+      "PROCESS": {
+        "seconds": 1784204903,
+        "nanoseconds": 664000000
+      }
+    },
+    "refLink": "https://vieent.labelmaster.app/products/24665?search=%C4%90%C3%BAng+Th%E1%BB%9Di+%C4%90i%E1%BB%83m+Sai+Ng%C6%B0%E1%BB%9Di+",
+    "updatedAt": {
+      "seconds": 1784540490,
+      "nanoseconds": 676000000
+    },
+    "mixer": "NVC Media",
+    "typeRequest": "Phái sinh",
+    "producer": "NVC Media",
+    "label": "NVC Media",
+    "status": "COMPLETE",
+    "type": "phai_sinh",
+    "artist": "Inso",
+    "url": "https://drive.google.com/drive/folders/1I4X7lo5TsGg-LNibmyUMJIshOSEhiVZf",
+    "requesterName": ""
+  },
+  {
+    "id": "B2cryyQqLmyopUlYXJ9r",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-07-09",
+    "label": "1988s",
+    "createdAt": {
+      "seconds": 1783517896,
+      "nanoseconds": 789000000
+    },
+    "artist": "Ý Thơ",
+    "status": "COMPLETE",
+    "requesterSegment": "GUEST_REQUESTER",
+    "updatedAt": {
+      "seconds": 1784116000,
+      "nanoseconds": 612000000
+    },
+    "producer": "1988s",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1783517896,
+        "nanoseconds": 789000000
+      },
+      "COMPLETE": {
+        "seconds": 1784024621,
+        "nanoseconds": 805000000
+      },
+      "PROCESS": {
+        "seconds": 1783940702,
+        "nanoseconds": 44000000
+      }
+    },
+    "note": "",
+    "refLink": "https://vieent.labelmaster.app/products/24632",
+    "description": "FULL CID Tiktok cùng ngày / FB + 04 ngày",
+    "tenBai": "Quạ Kêu Tu Hú",
+    "url": "https://drive.google.com/drive/folders/1pqRKNdY9TPOOUjljh_C3cJu_XIGR-Jd0",
+    "mixer": "1988s",
+    "typeRequest": "Phái sinh",
+    "tacQuyen": "1988s sở hữu",
+    "type": "phai_sinh",
+    "requesterName": "",
+    "composer": "Triệu Quốc Cường"
+  },
+  {
+    "id": "CKOrd7c2rSyuzEJla7ce",
+    "tacQuyen": "1988s sở hữu",
+    "composer": "Triệu Quốc Cường",
+    "mixer": "ThahTrung",
+    "note": "Làm ảnh typo cơ bản - có aw sẽ update sau ạ ",
+    "refLink": "https://vieent.labelmaster.app/products/24670",
+    "url": "https://drive.google.com/drive/folders/193ED7wtaTS-GSfL7M3Bg3YKIU3mDr5G9",
+    "tenBai": "Anh Này Là Của Tui (ThahTrung Remix)",
+    "typeRequest": "Phái sinh",
+    "producer": "ThahTrung",
+    "releaseTime": "19:00",
+    "createdAt": {
+      "seconds": 1784115987,
+      "nanoseconds": 891000000
+    },
+    "type": "phai_sinh",
+    "releaseDate": "2026-07-19",
+    "status": "COMPLETE",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1784115987,
+        "nanoseconds": 891000000
+      },
+      "COMPLETE": {
+        "seconds": 1784290079,
+        "nanoseconds": 768000000
+      }
+    },
+    "label": "1988s",
+    "updatedAt": {
+      "seconds": 1784290079,
+      "nanoseconds": 768000000
+    },
+    "artist": "Pinky Vanh & Hoa Vũ",
+    "requesterName": "",
+    "description": "Full CID, tiktok cùng ngày, fb +4 ngày",
+    "requesterSegment": "GUEST_REQUESTER"
+  },
+  {
+    "id": "GBUfqNxafPGZXMafR6nn",
+    "note": "Dewar những bài phát hành trước giọng nữ\n=> audio này giọng nam",
+    "tenBai": "Bay Giữa Ngân Hà",
+    "updatedAt": {
+      "seconds": 1784282961,
+      "nanoseconds": 427000000
+    },
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1784025022,
+        "nanoseconds": 65000000
+      },
+      "COMPLETE": {
+        "seconds": 1784282961,
+        "nanoseconds": 427000000
+      },
+      "PROCESS": {
+        "seconds": 1784086363,
+        "nanoseconds": 884000000
+      }
+    },
+    "mixer": "Dewar",
+    "description": "Full CID, TikTok, FB cùng ngày",
+    "createdAt": {
+      "seconds": 1784025022,
+      "nanoseconds": 65000000
+    },
+    "url": "https://drive.google.com/drive/folders/15oEw8gdu0Vapzu9NZi_gFhy-3tzbyk91",
+    "tacQuyen": "Nguyễn Văn Chung sở hữu",
+    "releaseDate": "2026-07-18",
+    "releaseTime": "19:00",
+    "composer": "Nguyễn Văn Chung",
+    "requesterSegment": "GUEST_REQUESTER",
+    "status": "COMPLETE",
+    "artist": "Dewar",
+    "typeRequest": "Phái sinh",
+    "type": "phai_sinh",
+    "requesterName": "",
+    "label": "Nguyễn Văn Chung",
+    "producer": "Dewar",
+    "refLink": "https://vieent.labelmaster.app/products/24649"
+  },
+  {
+    "id": "GmR8Knr9Jr8rOvgOK0qv",
+    "label": "LQ Media",
+    "note": "",
+    "status": "COMPLETE",
+    "url": "https://drive.google.com/drive/folders/1f5dfsKNw3IgvTdvNWpJvi07YP6TbfY1k?usp=drive_link",
+    "description": "EP Cười Trên Vết Nứt :\nCười Trên Vết Nứt (Cover) \nCười Trên Vết Nứt (LQ Remix)\nFull CID, FB +4 ngày, TikTok +7 ngày\nhttps://vieent.labelmaster.app/products/23895",
+    "artist": "Lê Gia Bảo, LQ REMIX",
+    "tacQuyen": "Dự án Độc Quyền Lq Media",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-05-19",
+    "composer": "Nguyễn Xuân Tú",
+    "requesterName": "Bảo Pooh",
+    "tenBai": "Cười Trên Vết Nứt (Cover)",
+    "typeRequest": "Phái sinh",
+    "type": "phai_sinh",
+    "requesterSegment": "AR",
+    "createdAt": {
+      "seconds": 1779104396,
+      "nanoseconds": 437000000
+    },
+    "artistDisplay": "Lê Gia Bảo, LQ REMIX\nComposer: Nguyễn Xuân Tú",
+    "updatedAt": {
+      "seconds": 1783677246,
+      "nanoseconds": 365000000
+    },
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1779104457,
+        "nanoseconds": 666000000
+      },
+      "REQUESTED": {
+        "seconds": 1779104396,
+        "nanoseconds": 437000000
+      },
+      "COMPLETE": {
+        "seconds": 1779251205,
+        "nanoseconds": 887000000
+      }
+    },
+    "producer": "LQ REMIX",
+    "mixer": "LQ REMIX",
+    "refLink": "",
+    "releaseDisplay": "2026-05-19 19:00",
+    "contributorDisplay": "Producer: LQ REMIX\nMixer: LQ REMIX"
+  },
+  {
+    "id": "HR0eiMAfmRXIaUrL9TzJ",
+    "tenBai": "Đừng Nói Xa Nhau Remix",
+    "note": "",
+    "requesterSegment": "GUEST_REQUESTER",
+    "composer": "Châu Kỳ - Hồ Đình Phương",
+    "typeRequest": "Phái sinh",
+    "tacQuyen": "đã mua tác - VCPMC",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1782892104,
+        "nanoseconds": 279000000
+      },
+      "COMPLETE": {
+        "seconds": 1783004510,
+        "nanoseconds": 211000000
+      }
+    },
+    "refLink": "https://vieent.labelmaster.app/products/24455",
+    "updatedAt": {
+      "seconds": 1783947194,
+      "nanoseconds": 32000000
+    },
+    "requesterName": "",
+    "createdAt": {
+      "seconds": 1782892104,
+      "nanoseconds": 279000000
+    },
+    "mixer": "TD Network",
+    "type": "phai_sinh",
+    "label": "TD Network",
+    "url": "",
+    "status": "COMPLETE",
+    "producer": "TD Network",
+    "description": "Now Full CID Tiktok FB Cùng ngày \nhttps",
+    "artist": "Khả Hiệp",
+    "releaseDate": "2026-07-01",
+    "releaseTime": "15:00"
+  },
+  {
+    "id": "J15F4JnbdlYNN6NtyvF3",
+    "tacQuyen": "Nguyễn Văn Chung sở hữu",
+    "mixer": "Dewar",
+    "releaseDate": "2026-07-18",
+    "updatedAt": {
+      "seconds": 1784286292,
+      "nanoseconds": 164000000
+    },
+    "releaseTime": "19:00",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1784086734,
+        "nanoseconds": 860000000
+      },
+      "REQUESTED": {
+        "seconds": 1784027607,
+        "nanoseconds": 706000000
+      },
+      "COMPLETE": {
+        "seconds": 1784286292,
+        "nanoseconds": 164000000
+      }
+    },
+    "tenBai": "Tình Yêu Mang Theo",
+    "composer": "Nguyễn Văn Chung",
+    "createdAt": {
+      "seconds": 1784027607,
+      "nanoseconds": 706000000
+    },
+    "description": "Full CID, TikTok, FB cùng ngày",
+    "note": "update aw final\naudio giọng nam",
+    "requesterSegment": "GUEST_REQUESTER",
+    "artist": "Dewar",
+    "status": "COMPLETE",
+    "producer": "Dewar",
+    "url": "https://drive.google.com/drive/folders/1rrOcxFa-VpW50K4u9IdtsMdTDPo2HEVY?usp=drive_link",
+    "requesterName": "",
+    "typeRequest": "Phái sinh",
+    "type": "phai_sinh",
+    "refLink": "https://vieent.labelmaster.app/products/24650",
+    "label": "Nguyễn Văn Chung"
+  },
+  {
+    "id": "JMj3Ptejv5ij9w1U0rlc",
+    "requesterName": "",
+    "tacQuyen": "quyền sở hữu STG Music - Kim Tuyến",
+    "tenBai": "Trao 10 Nhận 1",
+    "requesterSegment": "GUEST_REQUESTER",
+    "createdAt": {
+      "seconds": 1781465570,
+      "nanoseconds": 490000000
+    },
+    "label": "STG Music",
+    "composer": "Kim Tuyến",
+    "typeRequest": "Phái sinh",
+    "updatedAt": {
+      "seconds": 1784553275,
+      "nanoseconds": 684000000
+    },
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1781751134,
+        "nanoseconds": 547000000
+      },
+      "PROCESS": {
+        "seconds": 1781755834,
+        "nanoseconds": 814000000
+      },
+      "REFUND": {
+        "seconds": 1783595475,
+        "nanoseconds": 826000000
+      },
+      "COMPLETE": {
+        "seconds": 1784553275,
+        "nanoseconds": 684000000
+      }
+    },
+    "url": "https://drive.google.com/drive/folders/1I8xfJED7PGtuvHAY8No-kEkpXbrG7tM1?usp=drive_link",
+    "type": "phai_sinh",
+    "producer": "Lê Quốc Kiệm",
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "artist": "Trung Hiếu",
+    "status": "COMPLETE",
+    "mixer": "Lê Trường Khang",
+    "refLink": "https://vieent.labelmaster.app/products/24266?search=trao+10+nh%E1%BA%ADn+1",
+    "releaseDate": "2026-06-15",
+    "note": "",
+    "releaseTime": "19:00"
+  },
+  {
+    "id": "JRGUOFIJ8rjv7qmNgdsy",
+    "createdAt": {
+      "seconds": 1782385587,
+      "nanoseconds": 634000000
+    },
+    "typeRequest": "Phái sinh",
+    "note": "",
+    "composer": "Hồ Tiến Đạt, Đức Huy",
+    "status": "COMPLETE",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1782385587,
+        "nanoseconds": 634000000
+      },
+      "PROCESS": {
+        "seconds": 1782386192,
+        "nanoseconds": 478000000
+      },
+      "COMPLETE": {
+        "seconds": 1782979683,
+        "nanoseconds": 816000000
+      }
+    },
+    "artist": "Thiên Minh",
+    "mixer": "Thống",
+    "url": "https://drive.google.com/drive/folders/1DqGesM4D-qKUMfOtvR4ERbxrhw_1biEY",
+    "updatedAt": {
+      "seconds": 1783947208,
+      "nanoseconds": 741000000
+    },
+    "tacQuyen": "Thiên Minh sở hữu",
+    "refLink": "https://vieent.labelmaster.app/products/24414",
+    "description": "Full CID, Tiktok cùng ngày, FB cùng ngày",
+    "label": "Thiên Minh",
+    "type": "phai_sinh",
+    "requesterName": "",
+    "tenBai": "Nhắm Mắt Thấy Mùa Hè Đẹp Nhất - Gai Home Version",
+    "producer": "TanNin Band",
+    "releaseDate": "2026-06-27",
+    "releaseTime": "20:00",
+    "requesterSegment": "GUEST_REQUESTER"
+  },
+  {
+    "id": "JZ89Vnh34pEJcgsx4EP2",
+    "updatedAt": {
+      "seconds": 1783947225,
+      "nanoseconds": 615000000
+    },
+    "url": "https://drive.google.com/drive/u/1/folders/122RCAjU7QcnIfZWenrqqxXKp0jT-pxUw",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1781602833,
+        "nanoseconds": 873000000
+      },
+      "REQUESTED": {
+        "seconds": 1781526185,
+        "nanoseconds": 709000000
+      },
+      "PROCESS": {
+        "seconds": 1781527278,
+        "nanoseconds": 78000000
+      }
+    },
+    "typeRequest": "Phái sinh",
+    "label": "Jannc",
+    "refLink": "https://vieent.labelmaster.app/products/24265",
+    "producer": "W1Bi",
+    "type": "phai_sinh",
+    "artist": "Jannc & W1Bi",
+    "createdAt": {
+      "seconds": 1781526185,
+      "nanoseconds": 709000000
+    },
+    "requesterName": "Bảo Pooh",
+    "status": "COMPLETE",
+    "description": "Full CID, FB +4 ngày, Tiktok cùng ngày",
+    "note": "",
+    "mixer": "W1Bi",
+    "tacQuyen": "Jannc sở hữu",
+    "tenBai": "Chuyến Bay Xa (Remix)",
+    "releaseTime": "19:00",
+    "composer": "Nguyễn Sỹ Hiếu & Đỗ Minh Quân",
+    "requesterSegment": "AR",
+    "releaseDate": "2026-06-17"
+  },
+  {
+    "id": "Kbi4XM4PHMlXmWz1ZPqB",
+    "releaseDate": "2026-07-20",
+    "artist": "Tracy Thảo My",
+    "releaseTime": "19:00",
+    "status": "REFUND",
+    "refLink": "https://vieent.labelmaster.app/products/24683",
+    "requesterSegment": "GUEST_REQUESTER",
+    "description": "Full trừ CID beat + CID vocal (tiktok cùng ngày + Fb +4ngày)",
+    "label": "NVC Media",
+    "note": "70s-100s có vocal nước ngoài\n2p20s - 2p47s có vocal nước ngoài\nhttps://vieent.labelmaster.app/products/24684",
+    "producer": "NVC",
+    "mixer": "NVC",
+    "requesterName": "",
+    "updatedAt": {
+      "seconds": 1784625773,
+      "nanoseconds": 260000000
+    },
+    "statusLog": {
+      "REFUND": {
+        "seconds": 1784625744,
+        "nanoseconds": 657000000
+      },
+      "REQUESTED": {
+        "seconds": 1784275872,
+        "nanoseconds": 974000000
+      }
+    },
+    "tenBai": "Hết Sẩy Miền Tây (Pony Remix)",
+    "createdAt": {
+      "seconds": 1784275872,
+      "nanoseconds": 974000000
+    },
+    "typeRequest": "Phái sinh",
+    "composer": "Tracy Thảo My",
+    "url": "https://drive.google.com/drive/folders/1G95zavvnZjKoEChRB1oK5bUCCILqCkYs",
+    "tacQuyen": "NVC Media sở hữu",
+    "type": "phai_sinh"
+  },
+  {
+    "id": "LjqPq5Ig5i6JNK18h9vn",
+    "label": "Nguyễn Văn Chung",
+    "description": "Full CID, TikTok, FB cùng ngày",
+    "note": "update aw final\naudio giọng nam",
+    "releaseDate": "2026-07-18",
+    "releaseTime": "19:00",
+    "tenBai": "Ngồi Bên Em",
+    "requesterName": "",
+    "tacQuyen": "Nguyễn Văn Chung sở hữu",
+    "composer": "Nguyễn Văn Chung",
+    "typeRequest": "Phái sinh",
+    "createdAt": {
+      "seconds": 1784027093,
+      "nanoseconds": 570000000
+    },
+    "type": "phai_sinh",
+    "producer": "Dewar",
+    "requesterSegment": "GUEST_REQUESTER",
+    "refLink": "https://vieent.labelmaster.app/products/24651",
+    "url": "https://drive.google.com/drive/folders/1X5ujEi1b98S74zgtVgVBzaoM2bpISJ-Y?usp=drive_link",
+    "status": "COMPLETE",
+    "updatedAt": {
+      "seconds": 1784293166,
+      "nanoseconds": 13000000
+    },
+    "artist": "Dewar",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1784027093,
+        "nanoseconds": 570000000
+      },
+      "COMPLETE": {
+        "seconds": 1784293166,
+        "nanoseconds": 13000000
+      },
+      "PROCESS": {
+        "seconds": 1784086990,
+        "nanoseconds": 191000000
+      }
+    },
+    "mixer": "Dewar"
+  },
+  {
+    "id": "Me676bwA1L1fHi8GvZHo",
+    "refLink": "https://vieent.labelmaster.app/products/24490",
+    "mixer": "NVC",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1782361898,
+        "nanoseconds": 272000000
+      },
+      "COMPLETE": {
+        "seconds": 1783004467,
+        "nanoseconds": 416000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783947239,
+      "nanoseconds": 648000000
+    },
+    "releaseDate": "2026-06-25",
+    "releaseTime": "19:00",
+    "artist": "Hoàng Lan",
+    "composer": "Huỳnh Tấn Danh",
+    "status": "COMPLETE",
+    "description": "Full CID TIKTOK cùng ngày, FB +04 ngày",
+    "createdAt": {
+      "seconds": 1782361898,
+      "nanoseconds": 272000000
+    },
+    "url": "https://drive.google.com/drive/folders/1ciiaT7kbMTJeAH0nJeRf0FUyYnhCcmK7",
+    "note": "",
+    "tacQuyen": "NVC Media tác quyền",
+    "requesterSegment": "GUEST_REQUESTER",
+    "requesterName": "",
+    "producer": "NVC",
+    "label": "NVC Media",
+    "typeRequest": "Phái sinh",
+    "tenBai": "Ngoảnh Lại Nhìn Em (Pony Remix)",
+    "type": "phai_sinh"
+  },
+  {
+    "id": "NhWP8BsPsoNBZYQMzhNN",
+    "refLink": "https://vieent.labelmaster.app/products/24603",
+    "typeRequest": "Phái sinh",
+    "label": "Như Ngọc",
+    "composer": "Như Ngọc",
+    "requesterName": "",
+    "artist": "Như Ngọc",
+    "note": "",
+    "tacQuyen": "Như Ngọc sở hữu",
+    "status": "COMPLETE",
+    "description": "Full CID Tiktok cùng ngày, FB +4 ngày",
+    "updatedAt": {
+      "seconds": 1783947256,
+      "nanoseconds": 790000000
+    },
+    "requesterSegment": "GUEST_REQUESTER",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1783657187,
+        "nanoseconds": 276000000
+      },
+      "REQUESTED": {
+        "seconds": 1783655199,
+        "nanoseconds": 587000000
+      },
+      "PROCESS": {
+        "seconds": 1783656284,
+        "nanoseconds": 886000000
+      }
+    },
+    "createdAt": {
+      "seconds": 1783655199,
+      "nanoseconds": 587000000
+    },
+    "url": "https://drive.google.com/drive/folders/1d98LcI9k89bcj2Hcpo_yQ5AQ76wc-nvv",
+    "tenBai": "Thương Hoài Cô Út (Lofi)",
+    "mixer": "QZ",
+    "releaseDate": "2026-07-10",
+    "type": "phai_sinh",
+    "producer": "Như Ngọc",
+    "releaseTime": "12:00"
+  },
+  {
+    "id": "NmQDBSOh57PBUCljVa9i",
+    "releaseDate": "2026-06-10",
+    "url": "https://docs.google.com/spreadsheets/d/1xBRmt8jbHWlmc2LH9uxWxZ_2LU_o73qEHrwC8Bgm2GE/edit?gid=1893237403#gid=1893237403&range=F1:K1",
+    "label": "Thịnh Suy",
+    "type": "phai_sinh",
+    "releaseTime": "19:00",
+    "producer": "theo track",
+    "description": "Chuyển net",
+    "status": "COMPLETE",
+    "requesterSegment": "OPS",
+    "artist": "Thịnh Suy",
+    "updatedAt": {
+      "seconds": 1783947248,
+      "nanoseconds": 742000000
+    },
+    "note": "",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1781085589,
+        "nanoseconds": 794000000
+      },
+      "PROCESS": {
+        "seconds": 1781085594,
+        "nanoseconds": 452000000
+      },
+      "COMPLETE": {
+        "seconds": 1782983945,
+        "nanoseconds": 659000000
+      }
+    },
+    "tenBai": "Kho nhạc Thịnh Suy",
+    "typeRequest": "Kho nhạc",
+    "refLink": "",
+    "tacQuyen": "Tác Quyền thuộc nghệ sĩ",
+    "composer": "Thịnh Suy",
+    "createdAt": {
+      "seconds": 1781085589,
+      "nanoseconds": 794000000
+    },
+    "mixer": "theo track",
+    "requesterName": "zhyn"
+  },
+  {
+    "id": "OJOK72j4wuBPbKfjpgfk",
+    "label": "NVC Media",
+    "createdAt": {
+      "seconds": 1781244293,
+      "nanoseconds": 5000000
+    },
+    "requesterSegment": "GUEST_REQUESTER",
+    "type": "phai_sinh",
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "status": "COMPLETE",
+    "requesterName": "",
+    "artist": "Inso",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-06-15",
+    "producer": "Pony",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1781606567,
+        "nanoseconds": 689000000
+      },
+      "PROCESS": {
+        "seconds": 1781524034,
+        "nanoseconds": 528000000
+      },
+      "REQUESTED": {
+        "seconds": 1781244293,
+        "nanoseconds": 5000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783947286,
+      "nanoseconds": 584000000
+    },
+    "typeRequest": "Phái sinh",
+    "tenBai": "Ngoảnh Lại Nhìn Em (Pony Remix)",
+    "note": "",
+    "url": "https://drive.google.com/drive/folders/1gQFiA16jb3ld2VWgiNo-ag9neTfw-Fgw?usp=drive_link",
+    "tacQuyen": "NVC Media  sỡ hữu",
+    "mixer": "Pony",
+    "refLink": "https://vieent.labelmaster.app/products/24267/tracks/112429",
+    "composer": "Huỳnh Tấn Danh"
+  },
+  {
+    "id": "OOyzF1khkv6IdduL3tPg",
+    "tenBai": "Anh Này Là Của Tui (Pony Remix)",
+    "note": "",
+    "tacQuyen": "1988s sở hữu",
+    "label": "1988s",
+    "requesterSegment": "GUEST_REQUESTER",
+    "url": "https://drive.google.com/drive/folders/1-MLpC4uEBgLluVN_55fBWoy1M1-y8rqT",
+    "requesterName": "",
+    "composer": "Triệu Quốc Cường",
+    "typeRequest": "Phái sinh",
+    "status": "COMPLETE",
+    "artist": "Pinky Vanh & Hoa Vũ",
+    "updatedAt": {
+      "seconds": 1784287589,
+      "nanoseconds": 463000000
+    },
+    "mixer": "Pony Remix",
+    "releaseDate": "2026-07-19",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1784115815,
+        "nanoseconds": 233000000
+      },
+      "COMPLETE": {
+        "seconds": 1784287589,
+        "nanoseconds": 463000000
+      }
+    },
+    "type": "phai_sinh",
+    "releaseTime": "19:00",
+    "createdAt": {
+      "seconds": 1784115815,
+      "nanoseconds": 233000000
+    },
+    "producer": "Pony Remix",
+    "description": "Full CID, Tiktok cùng ngày, fb +4 ngày",
+    "refLink": "https://vieent.labelmaster.app/products/24671"
+  },
+  {
+    "id": "PmcPYykd4ocT1qwcy4PW",
+    "tacQuyen": "TD Network sở hữu",
+    "composer": "Hào JK",
+    "requesterName": "",
+    "url": "https://drive.google.com/drive/folders/1kw9WKHAOEBKr9xInPfmFLxc9uTMoo3R-",
+    "mixer": "3T Tống Thành Toàn",
+    "note": "",
+    "typeRequest": "Phái sinh",
+    "artist": "Út Nhị Mini ft Hào JK",
+    "requesterSegment": "GUEST_REQUESTER",
+    "status": "COMPLETE",
+    "producer": "Cao Thắng",
+    "label": "TD Network",
+    "releaseDate": "2026-07-02",
+    "createdAt": {
+      "seconds": 1782962069,
+      "nanoseconds": 755000000
+    },
+    "releaseTime": "19:00",
+    "refLink": "https://vieent.labelmaster.app/products/24473",
+    "updatedAt": {
+      "seconds": 1783947306,
+      "nanoseconds": 282000000
+    },
+    "description": "Full CID,  Tiktok Fb cùng ngày",
+    "tenBai": "Thiệp Hồng Chung Tên (Cao Thức Remix)",
+    "type": "phai_sinh",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1782962069,
+        "nanoseconds": 755000000
+      },
+      "COMPLETE": {
+        "seconds": 1782985880,
+        "nanoseconds": 467000000
+      }
+    }
+  },
+  {
+    "id": "PzQd3LDuat5HLs3fypXb",
+    "mixer": "",
+    "composer": "Khánh Cường",
+    "typeRequest": "Phái sinh",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1783657739,
+        "nanoseconds": 73000000
+      },
+      "PROCESS": {
+        "seconds": 1783941662,
+        "nanoseconds": 739000000
+      },
+      "COMPLETE": {
+        "seconds": 1783946457,
+        "nanoseconds": 501000000
+      }
+    },
+    "requesterSegment": "GUEST_REQUESTER",
+    "updatedAt": {
+      "seconds": 1783946457,
+      "nanoseconds": 501000000
+    },
+    "url": "https://drive.google.com/drive/folders/1kkCtbjLJ5yqLjXZiU-stX-e-6lnElGb_",
+    "tacQuyen": "https://drive.google.com/drive/folders/1r5oVxdQ2nNdR3p9Ee2HsPB1lqTfER026",
+    "requesterName": "",
+    "type": "phai_sinh",
+    "createdAt": {
+      "seconds": 1783657739,
+      "nanoseconds": 73000000
+    },
+    "tenBai": "Em Vội Quên",
+    "refLink": "https://vieent.labelmaster.app/products/24605",
+    "producer": "Lê Quốc Kiệm",
+    "description": "Full CID tiktok cùng ngày, fb +4 ngày",
+    "artist": "Danh Tuấn Trung",
+    "releaseDate": "2026-07-14",
+    "note": "",
+    "status": "COMPLETE",
+    "releaseTime": "08:00",
+    "label": "Danh Tuấn Trung"
+  },
+  {
+    "id": "QMR2VOKT3b9v1O4dnUlY",
+    "createdAt": {
+      "seconds": 1780981192,
+      "nanoseconds": 257000000
+    },
+    "producer": "Phong Lê",
+    "tenBai": "Medley: Cảm Ơn Em/ Em Vá Đời Anh (WM Remix)",
+    "type": "phai_sinh",
+    "typeRequest": "Phái sinh",
+    "label": "WM Media",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1780994088,
+        "nanoseconds": 285000000
+      },
+      "REQUESTED": {
+        "seconds": 1780981192,
+        "nanoseconds": 257000000
+      },
+      "COMPLETE": {
+        "seconds": 1781177002,
+        "nanoseconds": 726000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783947346,
+      "nanoseconds": 639000000
+    },
+    "refLink": "https://vieent.labelmaster.app/products/24204",
+    "status": "COMPLETE",
+    "releaseDate": "2026-06-06",
+    "releaseTime": "19:00",
+    "tacQuyen": "WM Sở Hữu",
+    "artist": "Đặng Thiên Chí",
+    "requesterSegment": "AR",
+    "requesterName": "Bảo Pooh",
+    "mixer": "Nam Anh",
+    "composer": "Đặng Thiên Chí",
+    "note": "",
+    "description": "Full CID Tiktok cùng ngày, Fb +4 ngày",
+    "url": "https://drive.google.com/drive/folders/1gJYkRkgV5zdq11c_77j999PETxvs6uNl"
+  },
+  {
+    "id": "Qq1C0wTqThMndc3l5q4H",
+    "composer": "Triệu Quốc Cường",
+    "status": "COMPLETE",
+    "tacQuyen": "1988s Entertainment sở hữu",
+    "type": "phai_sinh",
+    "refLink": "https://vieent.labelmaster.app/products/24261",
+    "artist": "Soon Phạm",
+    "typeRequest": "Phái sinh",
+    "mixer": "Đen Productions",
+    "requesterSegment": "GUEST_REQUESTER",
+    "tenBai": "Phụ Bạc Tình Tôi (remake version)",
+    "releaseDate": "2026-06-17",
+    "releaseTime": "19:00",
+    "label": "1988s Entertainment",
+    "requesterName": "",
+    "note": "",
+    "createdAt": {
+      "seconds": 1781681284,
+      "nanoseconds": 201000000
+    },
+    "producer": "Đen Productions",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1781685985,
+        "nanoseconds": 967000000
+      },
+      "COMPLETE": {
+        "seconds": 1781695394,
+        "nanoseconds": 284000000
+      },
+      "REQUESTED": {
+        "seconds": 1781681284,
+        "nanoseconds": 201000000
+      }
+    },
+    "url": "https://drive.google.com/drive/folders/14Gp34_D0_PehiAcBcVL4FmhjoLWQnj-R?usp=drive_link",
+    "updatedAt": {
+      "seconds": 1783947351,
+      "nanoseconds": 230000000
+    },
+    "description": "Full CID, FB +4 ngày, Tiktok cùng ngày"
+  },
+  {
+    "id": "R4Z2p2WdMa6IXjPTbOYx",
+    "producer": "DJ Kim Chol",
+    "createdAt": {
+      "seconds": 1783412446,
+      "nanoseconds": 717000000
+    },
+    "tenBai": "Đừng Lo Anh Đợi Mà",
+    "type": "phai_sinh",
+    "typeRequest": "Phái sinh",
+    "label": "DJ Kim Chol",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1783412446,
+        "nanoseconds": 717000000
+      },
+      "COMPLETE": {
+        "seconds": 1783418334,
+        "nanoseconds": 897000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783947407,
+      "nanoseconds": 855000000
+    },
+    "refLink": "https://vieent.labelmaster.app/products/24587",
+    "status": "COMPLETE",
+    "releaseDate": "2026-07-07",
+    "tacQuyen": "DJ Kim Chol tác quyền\nhttps://drive.google.com/drive/folders/1xmSCjRrrpY6kArdvmRxLm4trswsUHYvt\n",
+    "releaseTime": "19:00",
+    "artist": "DJ Kim Chol",
+    "requesterSegment": "GUEST_REQUESTER",
+    "requesterName": "",
+    "mixer": "DJ Kim Chol",
+    "composer": "Mr. Siro",
+    "note": "",
+    "description": "Full CID, FB Tiktok cùng ngày",
+    "url": "https://drive.google.com/drive/u/0/folders/1o7WBoTakYZAeSmMfdwryjF4-_CXTDdVA"
+  },
+  {
+    "id": "SHAyUHwopf1EBS9yYwo9",
+    "status": "COMPLETE",
+    "note": "",
+    "artist": "Soon Phạm",
+    "url": "https://drive.google.com/drive/folders/1dzI9XZlkfqeKT7G1gVTAO8mxcHeHcW7P",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-07-09",
+    "label": "1988s",
+    "description": "FULL CID Tiktok cùng ngày / FB + 04 ngày",
+    "requesterSegment": "GUEST_REQUESTER",
+    "tacQuyen": "1988s sở hữu",
+    "composer": "Triệu Quốc Cường",
+    "createdAt": {
+      "seconds": 1783579323,
+      "nanoseconds": 231000000
+    },
+    "type": "phai_sinh",
+    "mixer": "1988s",
+    "requesterName": "",
+    "tenBai": "Trách Ai Xót Ai",
+    "producer": "1988s",
+    "typeRequest": "Phái sinh",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1783579323,
+        "nanoseconds": 231000000
+      },
+      "COMPLETE": {
+        "seconds": 1784024906,
+        "nanoseconds": 311000000
+      },
+      "PROCESS": {
+        "seconds": 1783946734,
+        "nanoseconds": 829000000
+      }
+    },
+    "refLink": "https://vieent.labelmaster.app/products/24628",
+    "updatedAt": {
+      "seconds": 1784024906,
+      "nanoseconds": 311000000
+    }
+  },
+  {
+    "id": "SOu6lNbbOp7ULYR4LCRV",
+    "mixer": "Trí Thức",
+    "refLink": "https://vieent.labelmaster.app/products/24615 https://vieent.labelmaster.app/products/24616",
+    "requesterName": "",
+    "artist": "Bạch Dương x Huỳnh Tấn Danh",
+    "composer": "Huỳnh Tấn Danh",
+    "status": "COMPLETE",
+    "typeRequest": "Phái sinh",
+    "requesterSegment": "GUEST_REQUESTER",
+    "type": "phai_sinh",
+    "url": "https://drive.google.com/drive/folders/1d84mvUDB_eVJ4-UltroOxdNkngXgjw0Z",
+    "tacQuyen": "NVC Media sở hữu",
+    "releaseDate": "2026-07-10",
+    "releaseTime": "19:00",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1783684021,
+        "nanoseconds": 646000000
+      },
+      "PROCESS": {
+        "seconds": 1783676538,
+        "nanoseconds": 69000000
+      },
+      "REQUESTED": {
+        "seconds": 1783661762,
+        "nanoseconds": 402000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1784287743,
+      "nanoseconds": 313000000
+    },
+    "createdAt": {
+      "seconds": 1783661762,
+      "nanoseconds": 402000000
+    },
+    "producer": "Trí Thức",
+    "label": "NVC Media",
+    "note": "Preview Time: Điệp Khúc\n",
+    "description": "Full Trừ CID Vocal / Only CID Beat / FB + 04 Tiktok Cùng ngày",
+    "tenBai": "Em Đau Thua Một Ai (Trí Thức Remix)"
+  },
+  {
+    "id": "SqKfyPMwXnaInqaDmRrq",
+    "url": "https://drive.google.com/drive/folders/18zKlnYu_SFgNEXQoL6bRJSe4R8RRSIGy",
+    "composer": "Trường Lê",
+    "label": "Tiến Tới Music",
+    "type": "phai_sinh",
+    "refLink": "https://vieent.labelmaster.app/products/24489",
+    "createdAt": {
+      "seconds": 1782287819,
+      "nanoseconds": 109000000
+    },
+    "tacQuyen": "Tiến Tới Music sở hữu",
+    "typeRequest": "Phái sinh",
+    "tenBai": "Cầu Cho Remix",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1782287819,
+        "nanoseconds": 109000000
+      },
+      "COMPLETE": {
+        "seconds": 1782997899,
+        "nanoseconds": 768000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783951041,
+      "nanoseconds": 919000000
+    },
+    "note": "",
+    "description": "full cid tiktok cùng ngày fb +04",
+    "producer": "Phong Lê",
+    "requesterName": "",
+    "requesterSegment": "GUEST_REQUESTER",
+    "status": "COMPLETE",
+    "mixer": "Lê Trường Khang",
+    "releaseDate": "2026-06-26",
+    "releaseTime": "19:00",
+    "artist": "Tiến Tới"
+  },
+  {
+    "id": "TIEuLf5fDkLt2rMyV4kT",
+    "refLink": "",
+    "createdAt": {
+      "seconds": 1781760186,
+      "nanoseconds": 119000000
+    },
+    "composer": "Hoàng Oanh",
+    "mixer": "STG Music",
+    "artist": "Hoàng Oanh",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1782389038,
+        "nanoseconds": 753000000
+      },
+      "PROCESS": {
+        "seconds": 1781768862,
+        "nanoseconds": 940000000
+      },
+      "REQUESTED": {
+        "seconds": 1781760186,
+        "nanoseconds": 119000000
+      }
+    },
+    "status": "COMPLETE",
+    "updatedAt": {
+      "seconds": 1783677246,
+      "nanoseconds": 788000000
+    },
+    "tacQuyen": "Hoàng Oanh sở hữu",
+    "requesterName": "",
+    "typeRequest": "Phái sinh",
+    "note": "Update lại ngày 24/06/2026 \nhttps://vieent.labelmaster.app/products/24416\n\nUpdate Full CID, FB cùng ngày, TikTok cùng ngày",
+    "url": "https://drive.google.com/drive/folders/1Vo0AqGyfV2PSxXyy4wmbjj18ikfFDIqQ?usp=drive_link",
+    "label": "Hoàng Oanh",
+    "releaseDate": "2026-06-19",
+    "releaseTime": "19:00",
+    "requesterSegment": "GUEST_REQUESTER",
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "tenBai": "Chồng Gần Chồng Xa (STG Remix)",
+    "producer": "STG Music",
+    "type": "phai_sinh"
+  },
+  {
+    "id": "TlnzZKND6y4Ri175HMIx",
+    "tacQuyen": "NVC Media sở hữu",
+    "url": "https://drive.google.com/drive/folders/1dhDMVoQQZBy9KTrsG9PwBxgpqRWFjhf3",
+    "composer": "Huỳnh Tiến Danh",
+    "releaseDate": "2026-07-21",
+    "label": "NVC Media",
+    "releaseTime": "19:00",
+    "requesterName": "",
+    "description": "FULL CID Tiktok cùng ngày FB +04 ngày",
+    "note": "Audio vocal nam => đã báo ar => confirm để Huỳnh Tấn Danh",
+    "artist": "Lan Anh",
+    "status": "COMPLETE",
+    "producer": "NVC Media",
+    "createdAt": {
+      "seconds": 1784549610,
+      "nanoseconds": 125000000
+    },
+    "requesterSegment": "GUEST_REQUESTER",
+    "type": "phai_sinh",
+    "refLink": "https://vieent.labelmaster.app/products/24702",
+    "updatedAt": {
+      "seconds": 1784797557,
+      "nanoseconds": 213000000
+    },
+    "mixer": "NVC Media",
+    "tenBai": "Ngày Hai Ta Sát Vai (Acoustic Version)",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1784606003,
+        "nanoseconds": 577000000
+      },
+      "REFUND": {
+        "seconds": 1784631199,
+        "nanoseconds": 866000000
+      },
+      "COMPLETE": {
+        "seconds": 1784797557,
+        "nanoseconds": 213000000
+      },
+      "REQUESTED": {
+        "seconds": 1784549610,
+        "nanoseconds": 125000000
+      }
+    },
+    "typeRequest": "Phái sinh"
+  },
+  {
+    "id": "U6c3ycDFfaiTRL7W60rS",
+    "url": "https://drive.google.com/drive/folders/1lxpVuR5QVPahV9F-uWyRwELtiyCtf-Tr",
+    "description": "Full CID, tiktok fb cùng ngày",
+    "note": "",
+    "releaseDate": "2026-07-06",
+    "requesterName": "",
+    "releaseTime": "19:00",
+    "artist": "DJ Kim Chol",
+    "refLink": "https://vieent.labelmaster.app/products/24570",
+    "tacQuyen": "DJ Kim Chol tác quyền",
+    "status": "COMPLETE",
+    "composer": "Phạm Thanh Hà",
+    "label": "DJ Kim Chol",
+    "typeRequest": "Phái sinh",
+    "mixer": "DJ Kim Chol",
+    "updatedAt": {
+      "seconds": 1783951049,
+      "nanoseconds": 714000000
+    },
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1783332878,
+        "nanoseconds": 31000000
+      },
+      "COMPLETE": {
+        "seconds": 1783336291,
+        "nanoseconds": 169000000
+      },
+      "REQUESTED": {
+        "seconds": 1783330056,
+        "nanoseconds": 222000000
+      }
+    },
+    "createdAt": {
+      "seconds": 1783330056,
+      "nanoseconds": 222000000
+    },
+    "producer": "DJ Kim Chol",
+    "type": "phai_sinh",
+    "requesterSegment": "GUEST_REQUESTER",
+    "tenBai": "Rằng Em Mãi Ở Bên"
+  },
+  {
+    "id": "USf5xsDGmkpSQbHyuCVd",
+    "tacQuyen": "Thuộc sở hữu của 1988s\n",
+    "composer": "Triệu Quốc Cường",
+    "type": "phai_sinh",
+    "typeRequest": "Phái sinh",
+    "tenBai": "Số 1 Là Em (HChun Remix)",
+    "refLink": "",
+    "requesterName": "",
+    "mixer": "HChun",
+    "requesterSegment": "GUEST_REQUESTER",
+    "producer": "Truzg",
+    "createdAt": {
+      "seconds": 1783484509,
+      "nanoseconds": 769000000
+    },
+    "label": "1988s",
+    "description": "Full CID, tiktok cùng ngày, FB +3 ngày (chị Sam confirm nha)",
+    "note": "Update Main Artist: Pinky Vanh Ft. Huy Diệc & Hchun\nProducer/ Mixer:  Hchun\n--------------\nhttps://vieent.labelmaster.app/products/1",
+    "status": "COMPLETE",
+    "updatedAt": {
+      "seconds": 1783677246,
+      "nanoseconds": 820000000
+    },
+    "url": "https://drive.google.com/drive/folders/1qHWmMoCDoCdAyCA5HH1RuH8kmqp6k7hf?usp=drive_link",
+    "releaseDate": "2026-07-08",
+    "artist": "Pinky Vanh ft Huy Diệc",
+    "releaseTime": "19:00",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1783502092,
+        "nanoseconds": 6000000
+      },
+      "REQUESTED": {
+        "seconds": 1783484509,
+        "nanoseconds": 769000000
+      }
+    }
+  },
+  {
+    "id": "UjAcKaB8tMMirDpWA7Ly",
+    "refLink": "https://vieent.labelmaster.app/products/24184",
+    "typeRequest": "Phái sinh",
+    "producer": "Ngọc Xuyên",
+    "note": "",
+    "requesterSegment": "AR",
+    "status": "COMPLETE",
+    "artist": "Ngọc Xuyên",
+    "mixer": "Ngọc Xuyên",
+    "composer": "Ngoc Xuyên",
+    "label": "Ngọc Xuyên",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1781084418,
+        "nanoseconds": 377000000
+      },
+      "REQUESTED": {
+        "seconds": 1781064765,
+        "nanoseconds": 882000000
+      },
+      "COMPLETE": {
+        "seconds": 1781096474,
+        "nanoseconds": 588000000
+      }
+    },
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "tacQuyen": "Ngọc Xuyên",
+    "updatedAt": {
+      "seconds": 1783951138,
+      "nanoseconds": 780000000
+    },
+    "type": "phai_sinh",
+    "requesterName": "Bảo Pooh",
+    "releaseDate": "2026-06-10",
+    "tenBai": "Sợ Đời Remix",
+    "releaseTime": "12:00",
+    "createdAt": {
+      "seconds": 1781064765,
+      "nanoseconds": 882000000
+    },
+    "url": "https://drive.google.com/drive/folders/1O4GklSsCMF_QwvEHfscP2LMo038aFHN1?usp=drive_link"
+  },
+  {
+    "id": "V6nXhqNvAZY1X1emnIsl",
+    "url": "https://drive.google.com/drive/folders/1ZeHU34m1tZaudI5Ky6rkGLSCpn_F9Oks",
+    "description": "Full CID tiktok cùng \n, fb +4 ngày",
+    "note": "\nLàm hình typo đơn giản giúp em \nlogo BMT gắn vào cho label:  https://drive.google.com/drive/folders/1WqaAFRHinm1rdkiZbxYSg-lYis-xtwB8\n\nPreview Time (thời gian bắt đầu đoạn nhạc tiktok 60s):  Điệp khúc",
+    "releaseDate": "2026-07-10",
+    "requesterName": "",
+    "artist": "Sên",
+    "releaseTime": "19:00",
+    "refLink": "https://vieent.labelmaster.app/products/24612",
+    "tacQuyen": "BMT Music sở hữu",
+    "status": "COMPLETE",
+    "composer": "Hoàng Oanh",
+    "label": "Label BMT Music",
+    "typeRequest": "Phái sinh",
+    "mixer": "BMT Music",
+    "updatedAt": {
+      "seconds": 1784030519,
+      "nanoseconds": 17000000
+    },
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1783682926,
+        "nanoseconds": 858000000
+      },
+      "REQUESTED": {
+        "seconds": 1783660904,
+        "nanoseconds": 267000000
+      },
+      "PROCESS": {
+        "seconds": 1783676529,
+        "nanoseconds": 41000000
+      }
+    },
+    "createdAt": {
+      "seconds": 1783660904,
+      "nanoseconds": 267000000
+    },
+    "producer": "BMT Music",
+    "type": "phai_sinh",
+    "requesterSegment": "GUEST_REQUESTER",
+    "tenBai": "Khất Duyên"
+  },
+  {
+    "id": "VTtRmUIPBANt2l7MTS4e",
+    "refLink": "",
+    "mixer": "STG Remix",
+    "requesterName": "",
+    "artist": "Hoàng Oanh",
+    "composer": "STG Remix",
+    "status": "COMPLETE",
+    "typeRequest": "Phái sinh",
+    "requesterSegment": "GUEST_REQUESTER",
+    "type": "phai_sinh",
+    "url": "https://drive.google.com/drive/u/1/folders/1EAm2X8GigwzFBOEfSt_t3gGiulSLrrbu",
+    "tacQuyen": "Hoàng Oanh sở hữu",
+    "releaseDate": "2026-06-18",
+    "releaseTime": "11:50",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1781768865,
+        "nanoseconds": 988000000
+      },
+      "COMPLETE": {
+        "seconds": 1782300732,
+        "nanoseconds": 208000000
+      },
+      "REQUESTED": {
+        "seconds": 1781758239,
+        "nanoseconds": 149000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783677246,
+      "nanoseconds": 884000000
+    },
+    "createdAt": {
+      "seconds": 1781758239,
+      "nanoseconds": 149000000
+    },
+    "producer": "Hoàng Oanh",
+    "label": "Hoàng Oanh",
+    "tenBai": "Diên Vĩ Xanh (STG Remix) [Version 2]",
+    "note": "Update AW sau. Đã update\n",
+    "description": "Full CID, FB cùng ngày, Fb cùng ngày"
+  },
+  {
+    "id": "VUd9WViaqI0eTqzxBydz",
+    "producer": "Chazg Remix & Kim Trọng & Ngọc Biền",
+    "createdAt": {
+      "seconds": 1785474088,
+      "nanoseconds": 261000000
+    },
+    "tenBai": "Một Vết Thương Lòng (Remix)",
+    "type": "phai_sinh",
+    "typeRequest": "Phái sinh",
+    "label": "Kim Trọng",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1785503707,
+        "nanoseconds": 763000000
+      },
+      "REQUESTED": {
+        "seconds": 1785474088,
+        "nanoseconds": 261000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1785503707,
+      "nanoseconds": 763000000
+    },
+    "refLink": "https://vieent.labelmaster.app/products/25139",
+    "status": "COMPLETE",
+    "releaseDate": "2026-07-31",
+    "releaseTime": "19:00",
+    "tacQuyen": "Kim Trọng sở hữu",
+    "artist": "Ngọc Biền & Kim Trọng",
+    "requesterSegment": "GUEST_REQUESTER",
+    "requesterName": "",
+    "mixer": "Chazg Remix & Kim Trọng & Ngọc Biền",
+    "composer": "Kim Trọng",
+    "description": "Full CID,Tiktok cùng ngày, FB +4 ngày",
+    "url": "https://drive.google.com/drive/folders/1Z7EG2mEG8Mc2FBUuW95MRzpBjIcWTan5"
+  },
+  {
+    "id": "VmqEibwghRoxk1uKOYZS",
+    "updatedAt": {
+      "seconds": 1783677246,
+      "nanoseconds": 900000000
+    },
+    "composer": "Cộng Em",
+    "tenBai": "Kho Nhạc Cộng Em",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1781768841,
+        "nanoseconds": 169000000
+      },
+      "REQUESTED": {
+        "seconds": 1781095840,
+        "nanoseconds": 899000000
+      },
+      "PROCESS": {
+        "seconds": 1781176789,
+        "nanoseconds": 258000000
+      }
+    },
+    "url": "https://docs.google.com/spreadsheets/d/1pl0xpjqN5og7s2_7IXelrHrQm7mtCFhTgXG-XhXQl0g/edit?usp=sharing",
+    "typeRequest": "Kho nhạc",
+    "tacQuyen": "Nghệ sĩ chuyển net",
+    "note": "",
+    "mixer": "",
+    "createdAt": {
+      "seconds": 1781095840,
+      "nanoseconds": 899000000
+    },
+    "requesterName": "Diệp Lữ",
+    "requesterSegment": "AR",
+    "refLink": "",
+    "label": "Cộng Em",
+    "artist": "Cộng Em",
+    "producer": "Theo track",
+    "description": "Full CID",
+    "status": "COMPLETE",
+    "type": "phai_sinh",
+    "releaseDate": "2026-06-10",
+    "releaseTime": "19:00"
+  },
+  {
+    "id": "VxmmmFjQIIxuBJjXvXjx",
+    "description": "Full CID tiktok cùng ngày, Fb cùng ngày",
+    "requesterSegment": "GUEST_REQUESTER",
+    "status": "COMPLETE",
+    "note": "\n",
+    "requesterName": "",
+    "artist": "Soon Phạm",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-06-22",
+    "producer": "Đen Production",
+    "mixer": "Đen Production",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1782996560,
+        "nanoseconds": 863000000
+      },
+      "REQUESTED": {
+        "seconds": 1782059370,
+        "nanoseconds": 582000000
+      }
+    },
+    "tenBai": "Không Phải Em Bạc Tình (Version 1)",
+    "label": "1988s",
+    "updatedAt": {
+      "seconds": 1783995403,
+      "nanoseconds": 15000000
+    },
+    "typeRequest": "Phái sinh",
+    "type": "phai_sinh",
+    "refLink": "https://vieent.labelmaster.app/products/24488",
+    "composer": "Triệu Quốc Cường",
+    "url": "https://drive.google.com/drive/folders/1xiVj0SMr1xR4SMHfPRNp47pSY4Mcsnkj",
+    "tacQuyen": "1988s sở hữu",
+    "createdAt": {
+      "seconds": 1782059370,
+      "nanoseconds": 582000000
+    }
+  },
+  {
+    "id": "WBieiVTEE88xuGQtsQy8",
+    "note": "\nupdate release: 04/06/2026 20:00",
+    "releaseDate": "2026-06-03",
+    "tacQuyen": "thuộc sở hữu của Khỉ Con Music",
+    "releaseTime": "19:00",
+    "updatedAt": {
+      "seconds": 1783995402,
+      "nanoseconds": 973000000
+    },
+    "composer": "Văn Thiên Hạnh",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1780485987,
+        "nanoseconds": 975000000
+      },
+      "PROCESS": {
+        "seconds": 1780466118,
+        "nanoseconds": 305000000
+      },
+      "REQUESTED": {
+        "seconds": 1780461454,
+        "nanoseconds": 213000000
+      }
+    },
+    "requesterName": "Bảo Pooh",
+    "createdAt": {
+      "seconds": 1780461454,
+      "nanoseconds": 213000000
+    },
+    "status": "COMPLETE",
+    "label": "Khỉ Con Music",
+    "artist": "GOLD MK",
+    "refLink": "https://vieent.labelmaster.app/products/24024",
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "url": "https://drive.google.com/drive/folders/1_jkZs_r1UNkAISr1RVu-q8Uk0PMKfuOa?usp=drive_link",
+    "type": "phai_sinh",
+    "producer": "GOLD MK",
+    "mixer": "GOLD MK",
+    "requesterSegment": "AR",
+    "typeRequest": "Phái sinh",
+    "tenBai": "Vì Yêu Mà Ta Dại Khờ"
+  },
+  {
+    "id": "WPSIiJpEFKOCUaBvK1I4",
+    "note": "https://vieent.labelmaster.app/products/24320",
+    "description": "Full CID, tiktok FB cùng ngày",
+    "mixer": "Lê Trường Khang",
+    "url": "https://drive.google.com/drive/folders/1EAm2X8GigwzFBOEfSt_t3gGiulSLrrbu?usp=drive_link",
+    "updatedAt": {
+      "seconds": 1783677246,
+      "nanoseconds": 972000000
+    },
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1781755921,
+        "nanoseconds": 836000000
+      },
+      "COMPLETE": {
+        "seconds": 1781758124,
+        "nanoseconds": 325000000
+      },
+      "REQUESTED": {
+        "seconds": 1781755913,
+        "nanoseconds": 287000000
+      }
+    },
+    "requesterName": "zhyn",
+    "status": "COMPLETE",
+    "createdAt": {
+      "seconds": 1781755913,
+      "nanoseconds": 287000000
+    },
+    "requesterSegment": "OPS",
+    "artist": "Hoàng Oanh",
+    "tacQuyen": "của label",
+    "composer": "Hoàng Oanh",
+    "releaseDate": "2026-06-04",
+    "releaseTime": "19:00",
+    "type": "phai_sinh",
+    "typeRequest": "Phái sinh",
+    "label": "Hoàng Oanh",
+    "producer": "Phong Lê",
+    "refLink": "",
+    "tenBai": "Diên Vĩ Xanh STG Remix Ver 2"
+  },
+  {
+    "id": "Wav6nzJ9xomNodMx414T",
+    "refLink": "",
+    "producer": "1988s",
+    "description": "Full CID, FB +4 ngày, TikTok cùng  ngày",
+    "note": "https://vieent.labelmaster.app/products/24486\n",
+    "releaseDate": "2026-06-25",
+    "releaseTime": "19:00",
+    "status": "COMPLETE",
+    "mixer": "1988s",
+    "artist": "Ngọc Huyền",
+    "requesterName": "",
+    "composer": "Triệu Quốc Cường",
+    "requesterSegment": "GUEST_REQUESTER",
+    "typeRequest": "Phái sinh",
+    "createdAt": {
+      "seconds": 1782238626,
+      "nanoseconds": 844000000
+    },
+    "label": "1988s",
+    "tacQuyen": "1988s sở hữu",
+    "type": "phai_sinh",
+    "tenBai": "Người Từng Thương",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1782995767,
+        "nanoseconds": 124000000
+      },
+      "REQUESTED": {
+        "seconds": 1782238626,
+        "nanoseconds": 844000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783677246,
+      "nanoseconds": 988000000
+    },
+    "url": "https://drive.google.com/drive/folders/14TUb0H2ZDztSPxPSunWJ2E4UQDzdeAk2?usp=drive_link"
+  },
+  {
+    "id": "Wesw1wxI2GEhyjDRI8sv",
+    "requesterSegment": "GUEST_REQUESTER",
+    "note": "update aw final\n",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-07-18",
+    "composer": "Dewar",
+    "description": "Full CID, TikTok, FB cùng ngày",
+    "tenBai": "Tấm Ảnh Cũ",
+    "mixer": "Dewar",
+    "tacQuyen": "Nguyễn Văn Chung sở hữu",
+    "label": "Nguyễn Văn Chung",
+    "refLink": "https://vieent.labelmaster.app/products/24652",
+    "type": "phai_sinh",
+    "createdAt": {
+      "seconds": 1784027496,
+      "nanoseconds": 595000000
+    },
+    "requesterName": "",
+    "url": "https://drive.google.com/drive/folders/11zl5GbjaBtckCDdScLjuDK1XJBvj267O?usp=drive_link",
+    "typeRequest": "Phái sinh",
+    "producer": "Nguyễn Văn Chung",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1784027496,
+        "nanoseconds": 595000000
+      },
+      "PROCESS": {
+        "seconds": 1784204918,
+        "nanoseconds": 688000000
+      },
+      "COMPLETE": {
+        "seconds": 1784293194,
+        "nanoseconds": 609000000
+      }
+    },
+    "status": "COMPLETE",
+    "updatedAt": {
+      "seconds": 1784293194,
+      "nanoseconds": 609000000
+    },
+    "artist": "Dewar"
+  },
+  {
+    "id": "WgcLWqxYFXjM8FHnpkLC",
+    "tenBai": "Đóa Hoa Xinh (Trí Thức Remix)",
+    "label": "NVC Media",
+    "typeRequest": "Phái sinh",
+    "type": "phai_sinh",
+    "createdAt": {
+      "seconds": 1784633849,
+      "nanoseconds": 878000000
+    },
+    "producer": "NVC Media",
+    "requesterName": "",
+    "updatedAt": {
+      "seconds": 1784636721,
+      "nanoseconds": 63000000
+    },
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1784633849,
+        "nanoseconds": 878000000
+      },
+      "CANCELED": {
+        "seconds": 1784636721,
+        "nanoseconds": 63000000
+      }
+    },
+    "composer": "Huỳnh Tấn Danh",
+    "tacQuyen": "NVC Media sở hữu",
+    "status": "CANCELED",
+    "url": "https://drive.google.com/drive/folders/1sQ3ZvSTH0dXLjNIu1DXrRIFeKxvuzxkB",
+    "description": "Full CID, Tiktok cùng ngày, Fb +4 ngày",
+    "artist": "Bạch Dương ft Trí Thức",
+    "requesterSegment": "GUEST_REQUESTER",
+    "releaseDate": "2026-07-21",
+    "releaseTime": "20:00",
+    "mixer": "NVC Media"
+  },
+  {
+    "id": "XTAiHLX7XBG1g6GOjEYP",
+    "requesterSegment": "AR",
+    "refLink": "",
+    "typeRequest": "Phái sinh",
+    "label": "Khỉ Con Music",
+    "producer": "GOLD MK",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1779791760,
+        "nanoseconds": 741000000
+      },
+      "COMPLETE": {
+        "seconds": 1780485267,
+        "nanoseconds": 875000000
+      },
+      "PROCESS": {
+        "seconds": 1779868347,
+        "nanoseconds": 547000000
+      }
+    },
+    "type": "phai_sinh",
+    "updatedAt": {
+      "seconds": 1783677247,
+      "nanoseconds": 2000000
+    },
+    "url": "https://drive.google.com/drive/folders/1elqAETeqq5zlq0V1rfSNpf9DHuRX9NJw?usp=drive_link",
+    "createdAt": {
+      "seconds": 1779791760,
+      "nanoseconds": 741000000
+    },
+    "status": "COMPLETE",
+    "artist": "GOLD MK",
+    "composer": "Văn Thiên Hạnh",
+    "requesterName": "Bảo Pooh",
+    "note": "https://vieent.labelmaster.app/products/23959",
+    "description": "Làm Hình Typo Đơn giản giúp em ạ \nFull CID, FB +4 ngày, TikTokcùng ngày",
+    "tacQuyen": "Tác giả sở hữu tác quyền",
+    "releaseDate": "2026-05-28",
+    "releaseTime": "12:00",
+    "tenBai": "Điều Gì Đó Rất Nhiệm Màu",
+    "mixer": "GOLD MK"
+  },
+  {
+    "id": "XxWtAevFCk1rbdA838nR",
+    "description": "FULL CID tiktok cùng ngày, fb cùng ngày",
+    "producer": "Khánh Jay",
+    "tenBai": "Mối Tình Bất Hạnh (Remix)",
+    "updatedAt": {
+      "seconds": 1783677247,
+      "nanoseconds": 19000000
+    },
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1781520826,
+        "nanoseconds": 150000000
+      },
+      "COMPLETE": {
+        "seconds": 1781528026,
+        "nanoseconds": 632000000
+      },
+      "REFUND": {
+        "seconds": 1781494825,
+        "nanoseconds": 987000000
+      },
+      "REQUESTED": {
+        "seconds": 1781239926,
+        "nanoseconds": 887000000
+      }
+    },
+    "createdAt": {
+      "seconds": 1781186844,
+      "nanoseconds": 184000000
+    },
+    "requesterName": "Bảo Pooh",
+    "mixer": "Khánh Jay",
+    "url": "https://drive.google.com/drive/u/1/folders/197JJl66reUhiUJIoDsOU9SrFRoz_hKnv",
+    "releaseDate": "2026-06-12",
+    "releaseTime": "19:00",
+    "note": "1:15-1:44 có vocal nước ngoài\n3:21-3:28 không có âm thanh\nđã update audio\nhttps://vieent.labelmaster.app/products/24215",
+    "tacQuyen": "Đặng Khánh sở hữu",
+    "requesterSegment": "AR",
+    "artist": "Đặng Khánh",
+    "typeRequest": "Phái sinh",
+    "status": "COMPLETE",
+    "composer": "Đặng Khánh",
+    "label": "Đặng Khánh",
+    "refLink": "",
+    "type": "phai_sinh"
+  },
+  {
+    "id": "Y3fKN6UCKHTKfhaJ7Hwh",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1784087441,
+        "nanoseconds": 870000000
+      },
+      "COMPLETE": {
+        "seconds": 1784293548,
+        "nanoseconds": 496000000
+      },
+      "REQUESTED": {
+        "seconds": 1784026296,
+        "nanoseconds": 168000000
+      }
+    },
+    "releaseTime": "19:00",
+    "releaseDate": "2026-07-18",
+    "updatedAt": {
+      "seconds": 1784293548,
+      "nanoseconds": 496000000
+    },
+    "artist": "Dewar",
+    "producer": "Dewar",
+    "status": "COMPLETE",
+    "url": "https://drive.google.com/drive/folders/18Km1BI7J24-cu6JdAQQSUVNkhC3iS_HA?usp=drive_link",
+    "mixer": "Dewar",
+    "description": "Full CID, TikTok, FB cùng ngày",
+    "type": "phai_sinh",
+    "createdAt": {
+      "seconds": 1784026296,
+      "nanoseconds": 168000000
+    },
+    "composer": "Nguyễn Văn Chung",
+    "tenBai": "Đồi Hoa Mặt Trời",
+    "refLink": "https://vieent.labelmaster.app/products/24653",
+    "tacQuyen": "Nguyễn Văn Chung sở hữu",
+    "requesterSegment": "GUEST_REQUESTER",
+    "label": "Nguyễn Văn Chung",
+    "typeRequest": "Phái sinh",
+    "requesterName": ""
+  },
+  {
+    "id": "ZJEuhJsqALKkfSrcaEgO",
+    "tenBai": "Niềm Tin Phai Màu",
+    "type": "phai_sinh",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-07-20",
+    "requesterName": "",
+    "composer": "Tran Duy Binh",
+    "tacQuyen": "BÌN sở hữu",
+    "mixer": "Nam Anh",
+    "description": "Full CID, Tiktok FB cùng ngày",
+    "url": "https://drive.google.com/drive/folders/18KGiO-D5HgN8mdkJ9VH31Jj8Onm94ew5",
+    "label": "BÌN",
+    "status": "COMPLETE",
+    "refLink": "https://vieent.labelmaster.app/products/24638",
+    "createdAt": {
+      "seconds": 1784000672,
+      "nanoseconds": 346000000
+    },
+    "artist": "Đình Tiến",
+    "requesterSegment": "GUEST_REQUESTER",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1784091151,
+        "nanoseconds": 247000000
+      },
+      "COMPLETE": {
+        "seconds": 1784091628,
+        "nanoseconds": 152000000
+      },
+      "REQUESTED": {
+        "seconds": 1784000672,
+        "nanoseconds": 346000000
+      }
+    },
+    "typeRequest": "Phái sinh",
+    "updatedAt": {
+      "seconds": 1784708012,
+      "nanoseconds": 135000000
+    },
+    "producer": "BINBON"
+  },
+  {
+    "id": "ZSddfCXalEltWKlbAQw2",
+    "label": "NVC Media",
+    "createdAt": {
+      "seconds": 1783517199,
+      "nanoseconds": 166000000
+    },
+    "note": "",
+    "status": "COMPLETE",
+    "artist": "Inso",
+    "tacQuyen": "NVC Media sở hữu",
+    "typeRequest": "Phái sinh",
+    "requesterSegment": "GUEST_REQUESTER",
+    "updatedAt": {
+      "seconds": 1784025455,
+      "nanoseconds": 551000000
+    },
+    "composer": "Huỳnh Tấn Danh",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1783946897,
+        "nanoseconds": 371000000
+      },
+      "REQUESTED": {
+        "seconds": 1783517199,
+        "nanoseconds": 166000000
+      },
+      "COMPLETE": {
+        "seconds": 1784025455,
+        "nanoseconds": 551000000
+      }
+    },
+    "tenBai": "Ngoảnh Lại Nhìn Em (Vũ Nhân Remix)",
+    "releaseDate": "2026-07-09",
+    "type": "phai_sinh",
+    "releaseTime": "19:00",
+    "url": "https://drive.google.com/drive/folders/1S5flvYypJkOqGGu48K0YIfBkBx7sP0FP",
+    "producer": "Vũ Nhân Remix",
+    "mixer": "Vũ Nhân Remix",
+    "refLink": "https://vieent.labelmaster.app/products/24634",
+    "description": "Full - CID (tiktok cùng ngày, fb +4ngày)",
+    "requesterName": ""
+  },
+  {
+    "id": "aHAMfhP0S1kAKSDDzAok",
+    "typeRequest": "Phái sinh",
+    "refLink": "https://vieent.labelmaster.app/products/24630",
+    "producer": "Nhã Key",
+    "mixer": "Tố Đen",
+    "tenBai": "Sáo Phụ Tình Quyên",
+    "type": "phai_sinh",
+    "requesterSegment": "GUEST_REQUESTER",
+    "updatedAt": {
+      "seconds": 1784025774,
+      "nanoseconds": 143000000
+    },
+    "description": "Full CID Tiktok cùng ngày, Fb +4 ngày",
+    "label": "1988s",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1783946817,
+        "nanoseconds": 591000000
+      },
+      "COMPLETE": {
+        "seconds": 1784025774,
+        "nanoseconds": 143000000
+      },
+      "REQUESTED": {
+        "seconds": 1783860933,
+        "nanoseconds": 155000000
+      }
+    },
+    "releaseDate": "2026-07-14",
+    "releaseTime": "19:00",
+    "createdAt": {
+      "seconds": 1783860933,
+      "nanoseconds": 155000000
+    },
+    "tacQuyen": "1988s sở hữu",
+    "url": "https://drive.google.com/drive/folders/1dUw2iMq-OrWnCgvF9OOaifky31rH4lPj",
+    "artist": "Bùi Phi Long",
+    "composer": "Triệu Quốc Cường",
+    "requesterName": "",
+    "status": "COMPLETE",
+    "note": ""
+  },
+  {
+    "id": "aNby7B1wgpsxsAL98TFj",
+    "url": "https://drive.google.com/drive/u/0/folders/1uBBY8lGGcNx_WWP0fFI4cDtbI4Efbzjm",
+    "releaseDate": "2026-07-22",
+    "releaseTime": "19:00",
+    "artist": "Yến Vy",
+    "status": "COMPLETE",
+    "requesterName": "",
+    "mixer": "Huỳnh Tấn Danh",
+    "type": "phai_sinh",
+    "producer": "Truzg",
+    "refLink": "https://vieent.labelmaster.app/products/24731",
+    "requesterSegment": "GUEST_REQUESTER",
+    "description": "Full trừ CID Vocal only CID Beat (tiktok cùng ngày, fb +4 ngày)",
+    "tenBai": "Se Tơ Kết Tình Duyên (Trí Thức Remix)",
+    "label": "NVC Media",
+    "updatedAt": {
+      "seconds": 1784712369,
+      "nanoseconds": 580000000
+    },
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1784709485,
+        "nanoseconds": 791000000
+      },
+      "COMPLETE": {
+        "seconds": 1784712369,
+        "nanoseconds": 580000000
+      }
+    },
+    "createdAt": {
+      "seconds": 1784709485,
+      "nanoseconds": 791000000
+    },
+    "tacQuyen": "NVC Media sở hữu",
+    "typeRequest": "Phái sinh",
+    "composer": "Huỳnh Tấn Danh"
+  },
+  {
+    "id": "b0G9GnbQET5woEdo9aBP",
+    "status": "COMPLETE",
+    "requesterSegment": "GUEST_REQUESTER",
+    "artist": "Hồ Quang Hiếu, Duy Khiêm",
+    "note": "https://vieent.labelmaster.app/products/24585",
+    "mixer": "Tano Studio",
+    "typeRequest": "Phái sinh",
+    "requesterName": "",
+    "producer": "LeNham",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-07-07",
+    "createdAt": {
+      "seconds": 1783397546,
+      "nanoseconds": 360000000
+    },
+    "type": "phai_sinh",
+    "tenBai": "Những Điều Anh Thấy",
+    "refLink": "",
+    "url": "https://drive.google.com/drive/folders/1ea-MXhi-muqke49ciUDfyVrtqAJLyMTg",
+    "label": "Nguyễn Duy Khiêm",
+    "composer": "Duy Khiêm",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1783415850,
+        "nanoseconds": 151000000
+      },
+      "REQUESTED": {
+        "seconds": 1783397546,
+        "nanoseconds": 360000000
+      }
+    },
+    "description": "Full CID, Tiktok Fb cùng ngày",
+    "tacQuyen": "Nguyễn Duy Khiêm tác quyền",
+    "updatedAt": {
+      "seconds": 1783677247,
+      "nanoseconds": 105000000
+    }
+  },
+  {
+    "id": "bbhXOsntjiKU5n4jN1vJ",
+    "tacQuyen": "1988s sở hữu",
+    "createdAt": {
+      "seconds": 1784916399,
+      "nanoseconds": 971000000
+    },
+    "requesterName": "",
+    "status": "COMPLETE",
+    "composer": "Triệu Quốc Cường",
+    "typeRequest": "Phái sinh",
+    "artist": "Ý Thơ",
+    "refLink": "https://vieent.labelmaster.app/products/24807?search=S%C3%A1o+Ph%E1%BB%A5+T%C3%ACnh+Quy%C3%AAn",
+    "mixer": "1988s",
+    "updatedAt": {
+      "seconds": 1785227096,
+      "nanoseconds": 147000000
+    },
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1784916399,
+        "nanoseconds": 971000000
+      },
+      "COMPLETE": {
+        "seconds": 1785227096,
+        "nanoseconds": 147000000
+      }
+    },
+    "tenBai": "Sáo Phụ Tình Quyên",
+    "type": "phai_sinh",
+    "label": "1988s",
+    "producer": "1988s",
+    "url": "https://drive.google.com/drive/folders/1Ng-l0bnxT51-VsAIYlB3iWYSLfC3Crx3",
+    "description": "Full CID (tiktok cùng ngày, fb cùng ngày)",
+    "requesterSegment": "GUEST_REQUESTER",
+    "releaseDate": "2026-07-27",
+    "releaseTime": "19:00"
+  },
+  {
+    "id": "c34WEFKazy3gf0oC0sNw",
+    "createdAt": {
+      "seconds": 1783573862,
+      "nanoseconds": 142000000
+    },
+    "mixer": "1988s",
+    "typeRequest": "Phái sinh",
+    "producer": "1988s",
+    "refLink": "https://vieent.labelmaster.app/products/24633",
+    "updatedAt": {
+      "seconds": 1784026180,
+      "nanoseconds": 936000000
+    },
+    "type": "phai_sinh",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1783573862,
+        "nanoseconds": 142000000
+      },
+      "PROCESS": {
+        "seconds": 1783946653,
+        "nanoseconds": 732000000
+      },
+      "COMPLETE": {
+        "seconds": 1784026180,
+        "nanoseconds": 936000000
+      }
+    },
+    "url": "https://drive.google.com/drive/folders/1cvsIG0v5d0ZlkieFJczKiU23W2U6jFtP",
+    "tenBai": "Sáo Phụ Tình Quyên",
+    "requesterSegment": "GUEST_REQUESTER",
+    "description": "FULL CID Tiktok cùng ngày / FB + 04 ngày",
+    "requesterName": "",
+    "artist": "Soon Phạm",
+    "status": "COMPLETE",
+    "tacQuyen": "1988s sở hữu",
+    "releaseDate": "2026-07-09",
+    "composer": "Triệu Quốc Cường",
+    "releaseTime": "19:00",
+    "label": "1988s",
+    "note": ""
+  },
+  {
+    "id": "cOk9A32wuRPlnyFtr1Ud",
+    "url": "https://docs.google.com/spreadsheets/d/112AL9Xa843v92UpLYp6nMk-Y7smqDOAFV2NQRaUO8Og/edit?gid=0#gid=0",
+    "composer": "VT Media",
+    "label": "VT Media",
+    "type": "phai_sinh",
+    "refLink": "",
+    "createdAt": {
+      "seconds": 1782148852,
+      "nanoseconds": 443000000
+    },
+    "tacQuyen": "Huỳnh Tấn Danh Sở hữu",
+    "typeRequest": "Kho nhạc",
+    "tenBai": "VT Media",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1782148852,
+        "nanoseconds": 443000000
+      },
+      "COMPLETE": {
+        "seconds": 1782998370,
+        "nanoseconds": 742000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783677247,
+      "nanoseconds": 137000000
+    },
+    "note": "KHO NHẠC\n",
+    "description": "Full CID, FB, TikTok cùng ngày",
+    "producer": "VT Media",
+    "requesterName": "",
+    "requesterSegment": "GUEST_REQUESTER",
+    "status": "COMPLETE",
+    "mixer": "",
+    "releaseDate": "2026-06-22",
+    "artist": "VT Media",
+    "releaseTime": "10:00"
+  },
+  {
+    "id": "cRiknDt42WuaNCXzb37e",
+    "typeRequest": "Phái sinh",
+    "producer": "Trí Thức",
+    "refLink": "https://vieent.labelmaster.app/products/24737",
+    "mixer": "Thức",
+    "tenBai": "Đoá Hoa Xinh (Trí Thức Remix)",
+    "type": "phai_sinh",
+    "requesterSegment": "GUEST_REQUESTER",
+    "updatedAt": {
+      "seconds": 1784800479,
+      "nanoseconds": 325000000
+    },
+    "description": "FULL trừ CID Vocal (tiktok cùng ngày, fb +4 ngày)",
+    "label": "NVC Media",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1784800479,
+        "nanoseconds": 325000000
+      },
+      "REQUESTED": {
+        "seconds": 1784790426,
+        "nanoseconds": 255000000
+      }
+    },
+    "releaseDate": "2026-07-23",
+    "createdAt": {
+      "seconds": 1784790426,
+      "nanoseconds": 255000000
+    },
+    "releaseTime": "19:00",
+    "tacQuyen": "NVC Media sở hữu",
+    "artist": "Lan Anh feat. Huỳnh Tấn Danh",
+    "url": "https://drive.google.com/drive/folders/1jhsi3rGCviOKPGtlX-R0tDv6aYMNcLcl",
+    "composer": "Huỳnh Tấn Danh",
+    "requesterName": "",
+    "status": "COMPLETE",
+    "note": "Mixer: Trí Thức \nStarttime: Chorus"
+  },
+  {
+    "id": "dMt1BshgHHt6vgKlhz6e",
+    "url": "https://drive.google.com/drive/folders/1sQ3ZvSTH0dXLjNIu1DXrRIFeKxvuzxkB",
+    "label": "NVC Media",
+    "type": "phai_sinh",
+    "tacQuyen": "NVC Media sở hữu",
+    "composer": "Huỳnh Tấn Danh",
+    "typeRequest": "Phái sinh",
+    "status": "CANCELED",
+    "artist": "Bạch Dương ft Trí Thức",
+    "producer": "NVC Media",
+    "requesterName": "",
+    "createdAt": {
+      "seconds": 1784633849,
+      "nanoseconds": 956000000
+    },
+    "description": "Full CID, Tiktok cùng ngày, Fb +4 ngày",
+    "tenBai": "Đóa Hoa Xinh (Trí Thức Remix)",
+    "requesterSegment": "GUEST_REQUESTER",
+    "updatedAt": {
+      "seconds": 1784636722,
+      "nanoseconds": 585000000
+    },
+    "mixer": "NVC Media",
+    "releaseDate": "2026-07-21",
+    "statusLog": {
+      "CANCELED": {
+        "seconds": 1784636722,
+        "nanoseconds": 585000000
+      },
+      "REQUESTED": {
+        "seconds": 1784633849,
+        "nanoseconds": 956000000
+      }
+    },
+    "releaseTime": "20:00"
+  },
+  {
+    "id": "dUjquqK7rMJbP5wyCrq0",
+    "createdAt": {
+      "seconds": 1781683693,
+      "nanoseconds": 975000000
+    },
+    "type": "phai_sinh",
+    "mixer": "1988s",
+    "url": "https://drive.google.com/drive/folders/1Ran2hXScanY51OMgiVv2MiLGvDalpaeA",
+    "requesterName": "",
+    "producer": "1988s",
+    "status": "COMPLETE",
+    "artist": "Trúc Vi",
+    "updatedAt": {
+      "seconds": 1783677247,
+      "nanoseconds": 156000000
+    },
+    "typeRequest": "Phái sinh",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1781683693,
+        "nanoseconds": 975000000
+      },
+      "PROCESS": {
+        "seconds": 1781685987,
+        "nanoseconds": 924000000
+      },
+      "COMPLETE": {
+        "seconds": 1781694432,
+        "nanoseconds": 140000000
+      }
+    },
+    "note": "Làm hình Typo cơ bản\nhttps://vieent.labelmaster.app/products/24291",
+    "releaseDate": "2026-06-17",
+    "releaseTime": "19:00",
+    "label": "1988s",
+    "refLink": "",
+    "description": "Full CID, FB +4 ngày , TikTok cùng ngày",
+    "tacQuyen": "1988s sở hữu",
+    "tenBai": "Ba Đồng Một Duyên",
+    "requesterSegment": "GUEST_REQUESTER",
+    "composer": "Triệu Quốc Cường"
+  },
+  {
+    "id": "dkEPgQCylMoONHvDSAo7",
+    "mixer": "Pony",
+    "refLink": "",
+    "requesterName": "",
+    "releaseDate": "2026-06-25",
+    "url": "https://drive.google.com/drive/folders/1Pi9XVQZaOFed8vT8LnUY-zBu3PeFyM0J?usp=drive_link",
+    "releaseTime": "19:00",
+    "type": "phai_sinh",
+    "description": "Full CID TIKTOK cùng ngày, FB +04 ngày",
+    "producer": "Pony",
+    "tenBai": "Ngoảnh Lại Nhìn Em",
+    "updatedAt": {
+      "seconds": 1783677247,
+      "nanoseconds": 201000000
+    },
+    "requesterSegment": "GUEST_REQUESTER",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1782993947,
+        "nanoseconds": 122000000
+      },
+      "REQUESTED": {
+        "seconds": 1782361652,
+        "nanoseconds": 731000000
+      }
+    },
+    "createdAt": {
+      "seconds": 1782361652,
+      "nanoseconds": 731000000
+    },
+    "composer": "Huỳnh Tấn Danh",
+    "artist": "Hoàng Lan",
+    "note": "https://vieent.labelmaster.app/products/24485\n",
+    "status": "COMPLETE",
+    "label": "NVC Media",
+    "typeRequest": "Phái sinh",
+    "tacQuyen": "NVC Media sở hữu"
+  },
+  {
+    "id": "e4KDSL0GyqEpTqg8op8G",
+    "updatedAt": {
+      "seconds": 1783677247,
+      "nanoseconds": 217000000
+    },
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1781524035,
+        "nanoseconds": 831000000
+      },
+      "COMPLETE": {
+        "seconds": 1781601980,
+        "nanoseconds": 256000000
+      },
+      "REQUESTED": {
+        "seconds": 1781243746,
+        "nanoseconds": 820000000
+      }
+    },
+    "label": "NVC Media",
+    "typeRequest": "Phái sinh",
+    "artist": "Bạch Dương Ft. Huỳnh Tấn Danh",
+    "status": "COMPLETE",
+    "producer": "Huỳnh Tấn Danh",
+    "type": "phai_sinh",
+    "refLink": "",
+    "createdAt": {
+      "seconds": 1781243746,
+      "nanoseconds": 820000000
+    },
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "tenBai": "Xa Ngút Chân Trời",
+    "url": "https://drive.google.com/drive/folders/1HJplAx4RTiCmz2unjgzkSc9DhBf_YHDq?usp=drive_link",
+    "requesterSegment": "GUEST_REQUESTER",
+    "tacQuyen": "Huỳnh Tấn Danh",
+    "mixer": "Huỳnh Tấn Danh",
+    "requesterName": "",
+    "note": "https://vieent.labelmaster.app/products/24264",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-06-15",
+    "composer": "Huỳnh Tấn Danh"
+  },
+  {
+    "id": "f76SuS2vmVcrhBd5xAtw",
+    "requesterSegment": "AR",
+    "createdAt": {
+      "seconds": 1780030900,
+      "nanoseconds": 713000000
+    },
+    "refLink": "",
+    "requesterName": "Bảo Pooh",
+    "producer": "1988s",
+    "mixer": "1988s",
+    "type": "phai_sinh",
+    "status": "PROCESS",
+    "artist": "LYVU TRAN & Ngọc Nữ & Hoàng Trọng",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1781511376,
+        "nanoseconds": 478000000
+      },
+      "REQUESTED": {
+        "seconds": 1780030900,
+        "nanoseconds": 713000000
+      },
+      "REFUND": {
+        "seconds": 1781495039,
+        "nanoseconds": 766000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1784186037,
+      "nanoseconds": 167000000
+    },
+    "url": "https://docs.google.com/spreadsheets/d/1mZGKqlpx7XCrymInEF4x_B3tvjKAO8ZPfojcJcr_7LI/edit?gid=0#gid=0",
+    "typeRequest": "Kho nhạc",
+    "composer": "Triệu Quốc Cường",
+    "releaseDate": "2026-05-29",
+    "note": "Kiểm tra note theo từng bài",
+    "releaseTime": "19:00",
+    "tacQuyen": "https://docs.google.com/spreadsheets/d/1mZGKqlpx7XCrymInEF4x_B3tvjKAO8ZPfojcJcr_7LI/edit?gid=0#gid=0",
+    "label": "1988s Entertainment",
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "tenBai": "Kho Nhạc Triệu Quốc Cường"
+  },
+  {
+    "id": "fIHVrnUc4U22V39qVhKu",
+    "label": "DJ Kim Chol",
+    "createdAt": {
+      "seconds": 1784092195,
+      "nanoseconds": 657000000
+    },
+    "composer": "Masew, Tuấn Cry",
+    "status": "COMPLETE",
+    "tacQuyen": "DJ Kim Chol tác quyền",
+    "refLink": "https://vieent.labelmaster.app/products/24661",
+    "artist": "DJ Kim Chol",
+    "note": "",
+    "typeRequest": "Phái sinh",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1784120710,
+        "nanoseconds": 925000000
+      },
+      "PROCESS": {
+        "seconds": 1784104622,
+        "nanoseconds": 687000000
+      },
+      "REQUESTED": {
+        "seconds": 1784092195,
+        "nanoseconds": 657000000
+      }
+    },
+    "url": "https://drive.google.com/drive/folders/1ysjihlKhQY3942sr0FZL1pinV8q8SNBV",
+    "updatedAt": {
+      "seconds": 1784120710,
+      "nanoseconds": 925000000
+    },
+    "tenBai": "Kén Cá Chọn Canh",
+    "requesterSegment": "GUEST_REQUESTER",
+    "description": "Full CID, Tiktok cùng ngày, Fb cùng ngày (anh Pooh Confirm)",
+    "requesterName": "",
+    "producer": "DJ Kim Chol",
+    "type": "phai_sinh",
+    "releaseDate": "2026-07-15",
+    "mixer": "DJ Kim Chol",
+    "releaseTime": "19:00"
+  },
+  {
+    "id": "fQb5uxf0WnDLlwxz7kdd",
+    "updatedAt": {
+      "seconds": 1783677247,
+      "nanoseconds": 248000000
+    },
+    "producer": "Huỳnh Tấn Danh",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1782230494,
+        "nanoseconds": 105000000
+      },
+      "COMPLETE": {
+        "seconds": 1782993270,
+        "nanoseconds": 377000000
+      }
+    },
+    "label": "NVC Media",
+    "type": "phai_sinh",
+    "typeRequest": "Phái sinh",
+    "url": "https://drive.google.com/drive/u/1/folders/1602DtU1OBytIVxnkMaAExVlr4Pzknzyh",
+    "tenBai": "Tự Anh Che Giấu",
+    "refLink": "",
+    "requesterSegment": "GUEST_REQUESTER",
+    "createdAt": {
+      "seconds": 1782230494,
+      "nanoseconds": 105000000
+    },
+    "tacQuyen": "NVC Media tác quyền",
+    "description": "Full CID, Tiktok cùng ngày, Fb +4 ngày",
+    "composer": "Huỳnh Tấn Danh",
+    "note": "Update Tên bài hát\nTự Anh Che Giấu (Remix) https://vieent.labelmaster.app/products/24336",
+    "requesterName": "",
+    "status": "COMPLETE",
+    "artist": "Hoàng Lan",
+    "releaseTime": "19:00",
+    "mixer": "Huỳnh Tấn Danh",
+    "releaseDate": "2026-06-24"
+  },
+  {
+    "id": "fbE4jODdUSzSRbL8aEuq",
+    "releaseTime": "19:00",
+    "updatedAt": {
+      "seconds": 1783677247,
+      "nanoseconds": 267000000
+    },
+    "releaseDate": "2026-06-25",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1782238406,
+        "nanoseconds": 8000000
+      },
+      "COMPLETE": {
+        "seconds": 1782993043,
+        "nanoseconds": 249000000
+      }
+    },
+    "label": "1988s",
+    "refLink": "",
+    "producer": "1988s",
+    "note": "https://vieent.labelmaster.app/products/24484",
+    "description": "Full CID, FB + 04 Ngày , TikTok cùng  ngày",
+    "artist": "Long MĐN",
+    "createdAt": {
+      "seconds": 1782238406,
+      "nanoseconds": 8000000
+    },
+    "status": "COMPLETE",
+    "url": "https://drive.google.com/drive/folders/1VFdRaJIsnMbdxu1jJXuI5nKsFNVNkYOK?usp=drive_link",
+    "requesterName": "",
+    "typeRequest": "Phái sinh",
+    "requesterSegment": "GUEST_REQUESTER",
+    "type": "phai_sinh",
+    "mixer": "1988s",
+    "tenBai": "Khi Ta Hết Tiền (Version 2)",
+    "tacQuyen": "1988s sở hữu",
+    "composer": "Triệu Quốc Cường"
+  },
+  {
+    "id": "fdx0Ap5XVihntdMQOQDh",
+    "updatedAt": {
+      "seconds": 1783677247,
+      "nanoseconds": 303000000
+    },
+    "type": "phai_sinh",
+    "requesterSegment": "GUEST_REQUESTER",
+    "description": "Full - CID Vocal / Only CID Beat, FB +4 ngày, TikTok cùng ngày",
+    "url": "https://drive.google.com/drive/folders/1Jo8s_-kITIPshGkzQoNpEU98f9S5MeE0?usp=drive_link",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1781597782,
+        "nanoseconds": 80000000
+      },
+      "REQUESTED": {
+        "seconds": 1781597552,
+        "nanoseconds": 767000000
+      },
+      "COMPLETE": {
+        "seconds": 1781598551,
+        "nanoseconds": 505000000
+      },
+      "REFUND": {
+        "seconds": 1781512747,
+        "nanoseconds": 97000000
+      }
+    },
+    "tacQuyen": "BMT Music sỡ hữu độc quyền",
+    "requesterName": "",
+    "composer": "Lê Minh Thuận",
+    "label": "BMT Music",
+    "status": "COMPLETE",
+    "refLink": "",
+    "artist": "Lương Gia Hùng & Châu Khải Phong",
+    "createdAt": {
+      "seconds": 1781240409,
+      "nanoseconds": 255000000
+    },
+    "releaseTime": "19:00",
+    "releaseDate": "2026-06-12",
+    "producer": "BMT Music",
+    "note": "https://vieent.labelmaster.app/products/24255\nhttps://vieent.labelmaster.app/products/24256/tracks",
+    "mixer": "BMT Music",
+    "typeRequest": "Phái sinh",
+    "tenBai": "Người Đã Yêu Ai (Remix Ver 2)"
+  },
+  {
+    "id": "gMB1idYpC5q39lmrglVZ",
+    "note": "aw tạm - update sau",
+    "tenBai": "Hạc Giấy",
+    "mixer": "Dewar",
+    "composer": "Nguyễn Văn Chung",
+    "tacQuyen": "Nguyễn Văn Chung sở hữu",
+    "typeRequest": "Phái sinh",
+    "type": "phai_sinh",
+    "url": "https://drive.google.com/drive/folders/105wloWSNZdWnjeQwUSIG5BuZju4QjDO0?usp=drive_link",
+    "requesterSegment": "GUEST_REQUESTER",
+    "status": "COMPLETE",
+    "createdAt": {
+      "seconds": 1784026407,
+      "nanoseconds": 703000000
+    },
+    "artist": "Dewar",
+    "releaseDate": "2026-07-18",
+    "releaseTime": "19:00",
+    "refLink": "https://vieent.labelmaster.app/products/24647?pageSize=200&search=h%E1%BA%A1c+gi%E1%BA%A5y",
+    "description": "Full CID, TikTok, FB cùng ngày",
+    "label": "Nguyễn Văn Chung",
+    "requesterName": "",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1784034774,
+        "nanoseconds": 235000000
+      },
+      "COMPLETE": {
+        "seconds": 1784293738,
+        "nanoseconds": 525000000
+      },
+      "REQUESTED": {
+        "seconds": 1784026407,
+        "nanoseconds": 703000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1784293738,
+      "nanoseconds": 525000000
+    },
+    "producer": "Dewar"
+  },
+  {
+    "id": "gzyZ3doSJNQaWoBtufuP",
+    "requesterName": "Bảo Pooh",
+    "type": "phai_sinh",
+    "tenBai": "Yêu Rồi Mới Hiểu",
+    "updatedAt": {
+      "seconds": 1783677247,
+      "nanoseconds": 319000000
+    },
+    "typeRequest": "Phái sinh",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1780994089,
+        "nanoseconds": 990000000
+      },
+      "REQUESTED": {
+        "seconds": 1780630686,
+        "nanoseconds": 177000000
+      },
+      "REFUND": {
+        "seconds": 1780486364,
+        "nanoseconds": 238000000
+      },
+      "COMPLETE": {
+        "seconds": 1781525226,
+        "nanoseconds": 398000000
+      }
+    },
+    "mixer": "GOLD MK",
+    "createdAt": {
+      "seconds": 1780461507,
+      "nanoseconds": 75000000
+    },
+    "tacQuyen": "sở hữu Khỉ Con Music",
+    "composer": "Văn Thiên Hạnh",
+    "status": "COMPLETE",
+    "artist": "GOLD MK",
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "requesterSegment": "AR",
+    "note": "làm ảnh typo\nhttps://vieent.labelmaster.app/products/24258",
+    "producer": "GOLD MK",
+    "url": "https://drive.google.com/drive/folders/1fXPU6xypHyQCIDvzXq_8alR9C4kKY84x?usp=drive_link",
+    "label": "Khỉ Con Music",
+    "releaseTime": "19:00",
+    "refLink": "",
+    "releaseDate": "2026-06-03"
+  },
+  {
+    "id": "iqqgHWrlLJUdHNLS6eYB",
+    "artist": "Thành Đẩu & BMT Music",
+    "status": "COMPLETE",
+    "typeRequest": "Phái sinh",
+    "mixer": "BMT Music",
+    "producer": "BMT Music",
+    "requesterSegment": "AR",
+    "type": "phai_sinh",
+    "requesterName": "Bảo Pooh",
+    "composer": "Thành Đẩu",
+    "tacQuyen": "Đã có Tác quyền",
+    "description": "Làm hình typo cơ bản\nFull - CID VOCAL , ONLY CID BEAT, FB +4 ngày, TikTok cùng ngày",
+    "createdAt": {
+      "seconds": 1780030120,
+      "nanoseconds": 727000000
+    },
+    "refLink": "",
+    "tenBai": "Con Không Sao Mà (Remix)",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1780386865,
+        "nanoseconds": 716000000
+      },
+      "COMPLETE": {
+        "seconds": 1781522541,
+        "nanoseconds": 890000000
+      },
+      "REQUESTED": {
+        "seconds": 1780030120,
+        "nanoseconds": 727000000
+      }
+    },
+    "releaseTime": "19:00",
+    "url": "https://drive.google.com/drive/folders/1Dr1BJ8JEQfayxtnUeSML9tydXHocdkLS?usp=drive_link",
+    "releaseDate": "2026-05-29",
+    "updatedAt": {
+      "seconds": 1784709157,
+      "nanoseconds": 172000000
+    },
+    "note": "https://vieent.labelmaster.app/products/24026\nhttps://vieent.labelmaster.app/products/24027",
+    "label": "BMT Music"
+  },
+  {
+    "id": "k93qRWfUwobHOODxcB9O",
+    "releaseDate": "2026-06-19",
+    "type": "phai_sinh",
+    "releaseTime": "19:00",
+    "refLink": "",
+    "mixer": "BMT Music",
+    "producer": "BMT Music",
+    "url": "https://drive.google.com/drive/folders/1cwIItZCV8-aosWM6XreeKxsvipJAOUeF?usp=drive_link",
+    "tenBai": "Chồng Gần Chồng Xa (BMT Remix)",
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "composer": "Hoàng Oanh",
+    "createdAt": {
+      "seconds": 1781760127,
+      "nanoseconds": 606000000
+    },
+    "note": "Update lại ngày 24/06/2026\nhttps://vieent.labelmaster.app/products/24415\n\nUpdate\nFull CID, FB cùng ngày, TikTok cùng ngày",
+    "requesterName": "",
+    "tacQuyen": "Hoàng Oanh Sở hữu",
+    "label": "Hoàng Oanh",
+    "requesterSegment": "GUEST_REQUESTER",
+    "status": "COMPLETE",
+    "typeRequest": "Phái sinh",
+    "artist": "Hoàng Oanh",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1782389193,
+        "nanoseconds": 548000000
+      },
+      "PROCESS": {
+        "seconds": 1781768867,
+        "nanoseconds": 393000000
+      },
+      "REQUESTED": {
+        "seconds": 1781760127,
+        "nanoseconds": 606000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783677247,
+      "nanoseconds": 351000000
+    }
+  },
+  {
+    "id": "kFC6x0CmrIHXN3onwA8m",
+    "producer": "Dewar",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-07-18",
+    "createdAt": {
+      "seconds": 1784027732,
+      "nanoseconds": 165000000
+    },
+    "note": "Chờ update artwork final ",
+    "mixer": "Dewar",
+    "updatedAt": {
+      "seconds": 1784293920,
+      "nanoseconds": 654000000
+    },
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1784293920,
+        "nanoseconds": 654000000
+      },
+      "REQUESTED": {
+        "seconds": 1784027732,
+        "nanoseconds": 165000000
+      },
+      "PROCESS": {
+        "seconds": 1784029790,
+        "nanoseconds": 97000000
+      }
+    },
+    "refLink": "https://vieent.labelmaster.app/products/24644",
+    "url": "https://drive.google.com/drive/folders/1xYw4uEP_kl5RrdKOfdNklZReyjAHWbBi?usp=drive_link",
+    "tenBai": "Vâng Em Yêu Anh",
+    "requesterName": "",
+    "description": "Full CID, TikTok, FB cùng ngày",
+    "tacQuyen": "Nguyễn Văn Chung sở hữu",
+    "composer": "Nguyễn Văn Chung",
+    "type": "phai_sinh",
+    "status": "COMPLETE",
+    "label": "Nguyễn Văn Chung",
+    "artist": "Dewar",
+    "typeRequest": "Phái sinh",
+    "requesterSegment": "GUEST_REQUESTER"
+  },
+  {
+    "id": "kG9lRF59jh4qNjFZgmGC",
+    "producer": "MiLo",
+    "createdAt": {
+      "seconds": 1782301063,
+      "nanoseconds": 799000000
+    },
+    "artist": "Tú GG",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1783082079,
+        "nanoseconds": 583000000
+      },
+      "REQUESTED": {
+        "seconds": 1782301063,
+        "nanoseconds": 799000000
+      },
+      "REFUND": {
+        "seconds": 1783595490,
+        "nanoseconds": 198000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1784551029,
+      "nanoseconds": 623000000
+    },
+    "typeRequest": "Phái sinh",
+    "status": "REFUND",
+    "note": "Làm hình typo cơ bản\n- Tác quyền nghệ sĩ đang xin upload chưa deliver - khi nào có tác quyền deliver sau",
+    "label": "Tú GG",
+    "composer": "Tống Gia Vỹ",
+    "releaseTime": "19:00",
+    "refLink": "",
+    "releaseDate": "2026-06-26",
+    "mixer": "MiLo",
+    "tacQuyen": "Cập nhật sau",
+    "requesterName": "",
+    "url": "https://drive.google.com/drive/folders/1OMPSjkJZB5zDg16HfHmHO_jvlkQcbFUB",
+    "requesterSegment": "GUEST_REQUESTER",
+    "type": "phai_sinh",
+    "description": "Full Cid tiktok cùng ngày FB +4 ngày",
+    "tenBai": "Nặng Tình Hay Nhẹ Lòng (Remix)"
+  },
+  {
+    "id": "kVQXC6kixcmtOL01yFqS",
+    "note": "https://vieent.labelmaster.app/products/24028",
+    "status": "COMPLETE",
+    "requesterSegment": "AR",
+    "artist": "Soon Phạm",
+    "releaseTime": "19:00",
+    "mixer": "1988s",
+    "releaseDate": "2026-06-01",
+    "description": "Làm Hình Typo cơ bản / Full CID, FB +4 ngày, TikTok cùng ngày",
+    "producer": "1988s",
+    "type": "phai_sinh",
+    "url": "https://drive.google.com/drive/folders/1aERisx0CbatQUDIih4YReRy5SecKAq3A?usp=drive_link",
+    "tenBai": "Thương Nhau Câu Lý Vá Quàng (R&B Version)",
+    "createdAt": {
+      "seconds": 1780299020,
+      "nanoseconds": 451000000
+    },
+    "tacQuyen": "Thuộc Sở Hữu của 1988s",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1781516340,
+        "nanoseconds": 786000000
+      },
+      "REQUESTED": {
+        "seconds": 1780299020,
+        "nanoseconds": 451000000
+      },
+      "PROCESS": {
+        "seconds": 1780386867,
+        "nanoseconds": 379000000
+      }
+    },
+    "label": "1988s",
+    "updatedAt": {
+      "seconds": 1783946987,
+      "nanoseconds": 429000000
+    },
+    "typeRequest": "Phái sinh",
+    "requesterName": "Bảo Pooh",
+    "composer": "Triệu Quốc Cường",
+    "refLink": ""
+  },
+  {
+    "id": "l4oAO7E6yXcn7SeBEjjV",
+    "releaseDate": "2026-07-28",
+    "type": "phai_sinh",
+    "releaseTime": "19:00",
+    "url": "https://drive.google.com/drive/folders/1dC4GPbqMT-1GwSTsbzswrOKs5oTC4zvP",
+    "label": "NVC Media",
+    "status": "COMPLETE",
+    "tacQuyen": "NVC Media sở hữu",
+    "artist": "Yến Vy",
+    "composer": "Huỳnh Tấn Danh",
+    "description": "FULL - CID Vocal / Only Cid Beat (Tiktok cùng ngày / FB + 04 ngày)",
+    "requesterSegment": "GUEST_REQUESTER",
+    "updatedAt": {
+      "seconds": 1785229551,
+      "nanoseconds": 701000000
+    },
+    "mixer": "Pony Remix",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1785137620,
+        "nanoseconds": 89000000
+      },
+      "COMPLETE": {
+        "seconds": 1785229551,
+        "nanoseconds": 701000000
+      }
+    },
+    "createdAt": {
+      "seconds": 1785137620,
+      "nanoseconds": 89000000
+    },
+    "producer": "Pony Remix",
+    "typeRequest": "Phái sinh",
+    "refLink": "https://vieent.labelmaster.app/products/24839",
+    "requesterName": "",
+    "tenBai": "Se Tơ Kết Tình Duyên (Pony Remix)"
+  },
+  {
+    "id": "nEKgLpK9IRjoXQolPHVJ",
+    "requesterSegment": "OPS",
+    "label": "VT Media",
+    "note": "2 Bản (Full Vocal + Instrumental) \nsai thông tin trên hình - Nhờ Team làm hình typo cơ bản giúp em ạ \n",
+    "description": "Full trừ CID Vocal, CID beat, FB +4 ngày, TikTok +7 ngày",
+    "createdAt": {
+      "seconds": 1781695242,
+      "nanoseconds": 650000000
+    },
+    "composer": "Huỳnh Tấn Danh",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1781695242,
+        "nanoseconds": 650000000
+      },
+      "PROCESS": {
+        "seconds": 1781695277,
+        "nanoseconds": 444000000
+      },
+      "COMPLETE": {
+        "seconds": 1782979876,
+        "nanoseconds": 841000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783677247,
+      "nanoseconds": 395000000
+    },
+    "releaseTime": "19:00",
+    "releaseDate": "2026-06-17",
+    "status": "COMPLETE",
+    "artist": "Inso , Hyrox , VT Media, Văn Thoại",
+    "tacQuyen": "https://docs.google.com/document/d/1hZPwHLWYuo9aQzzH1vCUleU9QB-i3t8E/edit",
+    "refLink": "",
+    "typeRequest": "Phái sinh",
+    "type": "phai_sinh",
+    "tenBai": "Em Quá Chân Thành (Remix)",
+    "url": "https://docs.google.com/spreadsheets/d/112AL9Xa843v92UpLYp6nMk-Y7smqDOAFV2NQRaUO8Og/edit?gid=0#gid=0&range=B10",
+    "producer": "Hyrox",
+    "requesterName": "zhyn",
+    "mixer": "Văn Thoại"
+  },
+  {
+    "id": "o2I23tXMDF9bDu9MXabi",
+    "type": "phai_sinh",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1784294476,
+        "nanoseconds": 763000000
+      },
+      "PROCESS": {
+        "seconds": 1784030359,
+        "nanoseconds": 476000000
+      },
+      "REQUESTED": {
+        "seconds": 1784026537,
+        "nanoseconds": 940000000
+      }
+    },
+    "url": "https://drive.google.com/drive/folders/1sx5sLq_U0kyDLtORJ2wioWjk7vm1CG7q?usp=drive_link",
+    "updatedAt": {
+      "seconds": 1784294476,
+      "nanoseconds": 763000000
+    },
+    "label": "Nguyễn Văn Chung",
+    "composer": "Nguyễn Văn Chung",
+    "typeRequest": "Phái sinh",
+    "tenBai": "Món Quà Vô Giá",
+    "createdAt": {
+      "seconds": 1784026537,
+      "nanoseconds": 940000000
+    },
+    "tacQuyen": "Nguyễn Văn Chung sở hữu",
+    "note": "aw tạm - update sau\n",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-07-18",
+    "refLink": "https://vieent.labelmaster.app/products/24645",
+    "mixer": "Dewar",
+    "requesterSegment": "GUEST_REQUESTER",
+    "status": "COMPLETE",
+    "artist": "Dewar",
+    "producer": "Dewar",
+    "description": "Full CID, TikTok, FB cùng ngày",
+    "requesterName": ""
+  },
+  {
+    "id": "oJygoUEli51DwmAK31g0",
+    "composer": "Triệu Quốc Cường",
+    "createdAt": {
+      "seconds": 1780382604,
+      "nanoseconds": 497000000
+    },
+    "tacQuyen": "1988s",
+    "type": "phai_sinh",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1780630694,
+        "nanoseconds": 701000000
+      },
+      "REFUND": {
+        "seconds": 1780486398,
+        "nanoseconds": 892000000
+      },
+      "COMPLETE": {
+        "seconds": 1781525676,
+        "nanoseconds": 464000000
+      },
+      "PROCESS": {
+        "seconds": 1780994091,
+        "nanoseconds": 537000000
+      }
+    },
+    "typeRequest": "Phái sinh",
+    "label": "1988s",
+    "tenBai": "Nên Duyên Điệu Lý Bánh Bò (Remix)",
+    "updatedAt": {
+      "seconds": 1783951173,
+      "nanoseconds": 548000000
+    },
+    "mixer": "1988s",
+    "url": "https://drive.google.com/drive/folders/1deNDROhKCBvnjXm2wTNT0xa8JSHcGLku?usp=drive_link",
+    "refLink": "https://vieent.labelmaster.app/products/24007",
+    "releaseDate": "2026-06-03",
+    "producer": "1988s",
+    "releaseTime": "19:00",
+    "requesterName": "Bảo Pooh",
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "artist": "Soon Phạm",
+    "note": "làm ảnh typo ",
+    "status": "COMPLETE",
+    "requesterSegment": "AR"
+  },
+  {
+    "id": "pilmG3qqNJXXyWCdr0rx",
+    "composer": "Thành Đẩu",
+    "createdAt": {
+      "seconds": 1780030250,
+      "nanoseconds": 477000000
+    },
+    "label": "BMT Music",
+    "status": "COMPLETE",
+    "tacQuyen": "đã có",
+    "refLink": "https://vieent.labelmaster.app/products/24029 https://vieent.labelmaster.app/products/24030",
+    "artist": "Thành Đẩu & BMT Music",
+    "typeRequest": "Phái sinh",
+    "note": "",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1780030250,
+        "nanoseconds": 477000000
+      },
+      "COMPLETE": {
+        "seconds": 1781524361,
+        "nanoseconds": 570000000
+      },
+      "PROCESS": {
+        "seconds": 1780386876,
+        "nanoseconds": 416000000
+      }
+    },
+    "url": "https://drive.google.com/drive/folders/1AyvbcPVh2CXVnQpBmUccyYOuDowYbEUR?usp=drive_link",
+    "updatedAt": {
+      "seconds": 1784026766,
+      "nanoseconds": 431000000
+    },
+    "tenBai": "Con Không Sao Mà (Remix Version 2)",
+    "requesterSegment": "AR",
+    "description": "Làm hình typo cơ bản\nFull - CID VOCAL , ONLY CID BEAT, FB +4 ngày, TikTok cùng ngày",
+    "requesterName": "Bảo Pooh",
+    "type": "phai_sinh",
+    "producer": "BMT Music",
+    "mixer": "BMT Music",
+    "releaseDate": "2026-05-29",
+    "releaseTime": "19:00"
+  },
+  {
+    "id": "ptq1TEpZsjfQoi0RfBCh",
+    "mixer": "NVC Media",
+    "producer": "NVC Media",
+    "requesterSegment": "GUEST_REQUESTER",
+    "description": "Full CID, Tiktok cùng ngày, Fb +4 ngày",
+    "artist": "Bạch Dương ft Trí Thức",
+    "requesterName": "",
+    "releaseTime": "20:00",
+    "note": "",
+    "releaseDate": "2026-07-21",
+    "status": "COMPLETE",
+    "updatedAt": {
+      "seconds": 1784638318,
+      "nanoseconds": 380000000
+    },
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1784633849,
+        "nanoseconds": 910000000
+      },
+      "PROCESS": {
+        "seconds": 1784638312,
+        "nanoseconds": 870000000
+      },
+      "COMPLETE": {
+        "seconds": 1784638318,
+        "nanoseconds": 380000000
+      }
+    },
+    "typeRequest": "Phái sinh",
+    "tacQuyen": "NVC Media sở hữu",
+    "url": "https://drive.google.com/drive/folders/1sQ3ZvSTH0dXLjNIu1DXrRIFeKxvuzxkB",
+    "composer": "Huỳnh Tấn Danh",
+    "refLink": "https://vieent.labelmaster.app/products/24708",
+    "type": "phai_sinh",
+    "createdAt": {
+      "seconds": 1784633849,
+      "nanoseconds": 910000000
+    },
+    "label": "NVC Media",
+    "tenBai": "Đóa Hoa Xinh (Trí Thức Remix)"
+  },
+  {
+    "id": "qAmczgab1pd2WMXDb2y0",
+    "refLink": "https://vieent.labelmaster.app/products/24667",
+    "releaseDate": "2026-07-18",
+    "requesterSegment": "GUEST_REQUESTER",
+    "releaseTime": "19:00",
+    "note": "chưa có aw - update vào ngày mai",
+    "composer": "Nguyễn Văn Chung",
+    "description": "Full CID, Tiktok cùng ngày, FB cùng ngày",
+    "label": "Nguyễn Văn Chung",
+    "tenBai": "Chiếc Khăn Gió Ấm",
+    "tacQuyen": "Nguyễn Văn Chung sở hữu",
+    "url": "https://drive.google.com/drive/folders/1lDm_oT8ryuLfM7phiWG9rKqN_79EyF-E?usp=drive_link",
+    "mixer": "Dewar",
+    "createdAt": {
+      "seconds": 1784025912,
+      "nanoseconds": 541000000
+    },
+    "requesterName": "",
+    "artist": "Dewar",
+    "type": "phai_sinh",
+    "status": "COMPLETE",
+    "updatedAt": {
+      "seconds": 1784294478,
+      "nanoseconds": 92000000
+    },
+    "producer": "Dewar",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1784029776,
+        "nanoseconds": 15000000
+      },
+      "PROCESS": {
+        "seconds": 1784121657,
+        "nanoseconds": 221000000
+      },
+      "COMPLETE": {
+        "seconds": 1784294478,
+        "nanoseconds": 92000000
+      }
+    },
+    "typeRequest": "Phái sinh"
+  },
+  {
+    "id": "qoA7cTEaUnCa5j7ysjdy",
+    "releaseTime": "19:00",
+    "updatedAt": {
+      "seconds": 1783951012,
+      "nanoseconds": 938000000
+    },
+    "releaseDate": "2026-06-24",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1782989643,
+        "nanoseconds": 773000000
+      },
+      "COMPLETE": {
+        "seconds": 1782989652,
+        "nanoseconds": 959000000
+      },
+      "REQUESTED": {
+        "seconds": 1782230756,
+        "nanoseconds": 53000000
+      }
+    },
+    "label": "Khỉ Con Music",
+    "refLink": "https://vieent.labelmaster.app/products/24183",
+    "producer": "GOLD MK",
+    "tenBai": "Mai Này Anh Cưới Em (Gold Mk Remix )",
+    "description": "Full CID, FB +4 ngày, TikTok cùng ngày",
+    "type": "phai_sinh",
+    "createdAt": {
+      "seconds": 1782230756,
+      "nanoseconds": 53000000
+    },
+    "url": "https://drive.google.com/drive/u/0/folders/1v-U83GlKWphVskG4WM3o3IDKoZx42Ooo",
+    "typeRequest": "Kho nhạc",
+    "requesterSegment": "GUEST_REQUESTER",
+    "tacQuyen": "Khỉ Con Music Music sở hữu",
+    "mixer": "GOLD MK",
+    "artist": "GOLD MK",
+    "composer": "Văn Thiên Hạnh",
+    "note": "",
+    "requesterName": "",
+    "status": "COMPLETE"
+  },
+  {
+    "id": "r8b5yQd6x7hQulZWKzPO",
+    "producer": "NVC Media",
+    "description": "FULL - CID Vocal/ Only Cid Beat  (Tiktok cùng ngày / FB + 04 ngày)",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1785228686,
+        "nanoseconds": 963000000
+      },
+      "REQUESTED": {
+        "seconds": 1785137360,
+        "nanoseconds": 997000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1785228686,
+      "nanoseconds": 963000000
+    },
+    "releaseDate": "2026-07-28",
+    "releaseTime": "19:00",
+    "mixer": "NVC Media",
+    "createdAt": {
+      "seconds": 1785137360,
+      "nanoseconds": 997000000
+    },
+    "artist": "Inso x Huỳnh Tấn Danh",
+    "requesterSegment": "GUEST_REQUESTER",
+    "status": "COMPLETE",
+    "refLink": "https://vieent.labelmaster.app/products/24837",
+    "composer": "Huỳnh Tấn Danh",
+    "typeRequest": "Phái sinh",
+    "requesterName": "",
+    "label": "NVC Media",
+    "tacQuyen": "NVC Media sỡ hữu",
+    "tenBai": "Đoá Hoa Xinh",
+    "type": "phai_sinh",
+    "url": "https://drive.google.com/drive/folders/1mian2nEa-w_Ra_zaah5F4WqdpzsCgUZb"
+  },
+  {
+    "id": "rJjHFuYxEMNz261PnZjA",
+    "releaseTime": "19:00",
+    "type": "phai_sinh",
+    "updatedAt": {
+      "seconds": 1783950994,
+      "nanoseconds": 2000000
+    },
+    "status": "COMPLETE",
+    "releaseDate": "2026-06-02",
+    "tacQuyen": "https://drive.google.com/file/d/1saU3NlyUPQlHyXsJSQf5I-S_l1djp9va/view?usp=drive_link",
+    "url": "https://drive.google.com/drive/folders/1L3XxT_cNdDWH9qYBnrIPOuX0vIXkIMp7?usp=drive_link",
+    "requesterSegment": "AR",
+    "statusLog": {
+      "REFUND": {
+        "seconds": 1781527321,
+        "nanoseconds": 845000000
+      },
+      "COMPLETE": {
+        "seconds": 1783080532,
+        "nanoseconds": 444000000
+      },
+      "REQUESTED": {
+        "seconds": 1782892115,
+        "nanoseconds": 154000000
+      },
+      "PROCESS": {
+        "seconds": 1780994093,
+        "nanoseconds": 530000000
+      }
+    },
+    "artist": "Quý Nhỏ , QN Entertainment , Tan Remix",
+    "mixer": "Quý Nhỏ",
+    "composer": "Thiên Dũng",
+    "description": "Preview time ( thời gian bất đầu đoạn TIKTOK 60s): 54s\n9 Full - CID Vocal / Only CID Beat,  FB +4 ngày, TikTok +7 ngày",
+    "createdAt": {
+      "seconds": 1780314650,
+      "nanoseconds": 142000000
+    },
+    "refLink": "https://vieent.labelmaster.app/products/24259  https://vieent.labelmaster.app/products/24260",
+    "note": "",
+    "producer": "QN Entertainment",
+    "tenBai": "Khi Yêu Nào Đâu Ai Muốn (Quý Nhỏ Remix)",
+    "typeRequest": "Phái sinh",
+    "label": "Quý Nhỏ",
+    "requesterName": "Bảo Pooh"
+  },
+  {
+    "id": "rjt5xWd1JGuIBE8bYIRk",
+    "mixer": "1988s",
+    "refLink": "https://vieent.labelmaster.app/products/24808?pageSize=200&search=s%E1%BB%91+tr%E1%BB%9Di",
+    "typeRequest": "Phái sinh",
+    "url": "https://drive.google.com/drive/folders/1wQyEDGYRNEGixsj5vsHopLDMobwUYvKa",
+    "requesterSegment": "GUEST_REQUESTER",
+    "note": "",
+    "producer": "1988s",
+    "tenBai": "Số Trời",
+    "description": "Full CID tiktok cùng ngày, fb +4 ngày",
+    "createdAt": {
+      "seconds": 1784916665,
+      "nanoseconds": 25000000
+    },
+    "composer": "Triệu Quốc Cường",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1785226631,
+        "nanoseconds": 437000000
+      },
+      "REQUESTED": {
+        "seconds": 1784916665,
+        "nanoseconds": 25000000
+      }
+    },
+    "artist": "Ý Thơ",
+    "releaseTime": "19:00",
+    "updatedAt": {
+      "seconds": 1785226631,
+      "nanoseconds": 437000000
+    },
+    "releaseDate": "2026-07-27",
+    "type": "phai_sinh",
+    "status": "COMPLETE",
+    "label": "1988s",
+    "requesterName": "",
+    "tacQuyen": "1988s sở hữu"
+  },
+  {
+    "id": "sknGw50M2qEdpdb6Eafl",
+    "tenBai": "Thiên Địa (Remix)",
+    "note": "",
+    "typeRequest": "Phái sinh",
+    "requesterName": "",
+    "mixer": "DJ Kim Chol",
+    "producer": "DJ Kim Chol",
+    "requesterSegment": "GUEST_REQUESTER",
+    "updatedAt": {
+      "seconds": 1783947547,
+      "nanoseconds": 555000000
+    },
+    "type": "phai_sinh",
+    "label": "DJ Kim Chol",
+    "description": "Full CID, FB tiktok cùng ngày",
+    "url": "https://drive.google.com/drive/u/0/folders/1hMH1i7lw-dM8Gbd5iZiihNaBggr5-QWm",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1783416664,
+        "nanoseconds": 293000000
+      },
+      "REQUESTED": {
+        "seconds": 1783415175,
+        "nanoseconds": 560000000
+      }
+    },
+    "refLink": "https://vieent.labelmaster.app/products/24586",
+    "status": "COMPLETE",
+    "artist": "DJ Kim Chol & Wike",
+    "composer": "DJ Kim Chol",
+    "tacQuyen": "DJ Kim Chol sở hữu",
+    "createdAt": {
+      "seconds": 1783415175,
+      "nanoseconds": 560000000
+    },
+    "releaseTime": "19:00",
+    "releaseDate": "2026-07-07"
+  },
+  {
+    "id": "uDmeJGRwHl3sYvevHz0y",
+    "releaseDate": "2026-06-06",
+    "releaseTime": "19:00",
+    "composer": "Đặng Thiên Chí",
+    "type": "phai_sinh",
+    "refLink": "",
+    "mixer": "Nam Anh",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1780994095,
+        "nanoseconds": 373000000
+      },
+      "REQUESTED": {
+        "seconds": 1780632262,
+        "nanoseconds": 171000000
+      },
+      "COMPLETE": {
+        "seconds": 1781177125,
+        "nanoseconds": 749000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783677247,
+      "nanoseconds": 518000000
+    },
+    "url": "https://drive.google.com/drive/folders/1PuIxXGB0sVfNIxC1lsgQkaQMu7y6c_qi",
+    "tacQuyen": "WM Media sở hữu",
+    "createdAt": {
+      "seconds": 1780632262,
+      "nanoseconds": 171000000
+    },
+    "tenBai": "Em Vá Đời Anh (Lo-Fi Version)",
+    "description": "Full CID, FB và Tiktok cùng ngày",
+    "requesterSegment": "AR",
+    "note": "Update fix artist: Đặng Thiên Chí\nhttps://vieent.labelmaster.app/products/24203\n",
+    "producer": "Phong Lê",
+    "label": "WM Media",
+    "typeRequest": "Phái sinh",
+    "status": "COMPLETE",
+    "requesterName": "Bảo Pooh",
+    "artist": "Bảo Long"
+  },
+  {
+    "id": "uI840jVNqT1UviAChALN",
+    "tenBai": "Em Đâu Thua Một Ai (Acoustic Version)",
+    "releaseTime": "19:00",
+    "url": "https://drive.google.com/drive/folders/16-aCaQ5IetNM-0HHvEQ2H2wLG6ATb4Qz",
+    "releaseDate": "2026-07-21",
+    "description": "FULL CID Tiktok cùng ngày FB +04 ngày",
+    "label": "NVC Media",
+    "composer": "Huỳnh Tiến Danh",
+    "tacQuyen": "NVC Media sở hữu",
+    "requesterSegment": "GUEST_REQUESTER",
+    "status": "COMPLETE",
+    "type": "phai_sinh",
+    "artist": "Bạch Dương",
+    "mixer": "NVC Media",
+    "createdAt": {
+      "seconds": 1784549709,
+      "nanoseconds": 768000000
+    },
+    "refLink": "https://vieent.labelmaster.app/products/24703",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1784606005,
+        "nanoseconds": 249000000
+      },
+      "REQUESTED": {
+        "seconds": 1784549709,
+        "nanoseconds": 768000000
+      },
+      "COMPLETE": {
+        "seconds": 1784630701,
+        "nanoseconds": 358000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1784630701,
+      "nanoseconds": 358000000
+    },
+    "typeRequest": "Phái sinh",
+    "producer": "NVC Media",
+    "requesterName": ""
+  },
+  {
+    "id": "vTtnhtzV5dAikKECE7gY",
+    "label": "1988s",
+    "status": "COMPLETE",
+    "artist": "Pinky Vanh ft Huy Diệc, Hoa Vũ",
+    "composer": "Triệu Quốc Cường",
+    "tacQuyen": "1988s sở hữu",
+    "typeRequest": "Phái sinh",
+    "url": "https://drive.google.com/drive/folders/1-uNM2Kj7AAXnNHhmmAIECUcgIWX4VkCE",
+    "requesterSegment": "GUEST_REQUESTER",
+    "tenBai": "Số 1 Là Em x Anh Này Là Của Tui Remix",
+    "createdAt": {
+      "seconds": 1784103512,
+      "nanoseconds": 911000000
+    },
+    "releaseDate": "2026-07-15",
+    "releaseTime": "19:00",
+    "refLink": "https://vieent.labelmaster.app/products/24662",
+    "type": "phai_sinh",
+    "description": "Full CID, tiktok cùng ngày, fb +4 ngày",
+    "requesterName": "",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1784107125,
+        "nanoseconds": 631000000
+      },
+      "REQUESTED": {
+        "seconds": 1784103512,
+        "nanoseconds": 911000000
+      },
+      "COMPLETE": {
+        "seconds": 1784120915,
+        "nanoseconds": 541000000
+      }
+    },
+    "producer": "Ac media",
+    "mixer": "Ac media",
+    "updatedAt": {
+      "seconds": 1784120915,
+      "nanoseconds": 541000000
+    }
+  },
+  {
+    "id": "vimE1FlLkXd91a3kRgSz",
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1784026774,
+        "nanoseconds": 101000000
+      },
+      "COMPLETE": {
+        "seconds": 1784027101,
+        "nanoseconds": 711000000
+      },
+      "REQUESTED": {
+        "seconds": 1784000161,
+        "nanoseconds": 651000000
+      }
+    },
+    "typeRequest": "Phái sinh",
+    "updatedAt": {
+      "seconds": 1784030617,
+      "nanoseconds": 391000000
+    },
+    "status": "COMPLETE",
+    "refLink": "https://vieent.labelmaster.app/products/24639?search=Kh%E1%BA%A5t+Duy%C3%AAn",
+    "type": "phai_sinh",
+    "artist": "Sên",
+    "producer": "BMT Music",
+    "requesterSegment": "GUEST_REQUESTER",
+    "createdAt": {
+      "seconds": 1784000161,
+      "nanoseconds": 651000000
+    },
+    "mixer": "",
+    "tenBai": "Khất Duyên (Remix)",
+    "composer": "Hoàng Oanh",
+    "label": "BMT Music",
+    "requesterName": "",
+    "description": "Full CID, tiktok cùng ngày, Fb cùng ngày ",
+    "tacQuyen": "BMT Music sở hữu",
+    "note": "làm ảnh typo đơn giản\nConfirm: Fb lên cùng ngày (chị Sam confirm)",
+    "releaseTime": "19:00",
+    "releaseDate": "2026-07-14",
+    "url": "https://drive.google.com/drive/folders/1MVvLsuSHOdpkfZaXFLSgDtuHEk8u1Xig"
+  },
+  {
+    "id": "wZHY1YnH6jcPxAX2C5Bc",
+    "tacQuyen": "Đình Nguyễn sở hữu",
+    "tenBai": "Một Đời Vì Con",
+    "description": "FULL CID trừ Zing Mp3",
+    "composer": "Ninh Bảo Văn",
+    "label": "Đình Nguyễn",
+    "releaseDate": "2026-06-26",
+    "releaseTime": "19:00",
+    "requesterName": "",
+    "requesterSegment": "GUEST_REQUESTER",
+    "note": "",
+    "typeRequest": "Phái sinh",
+    "producer": "TTV studio",
+    "createdAt": {
+      "seconds": 1782458061,
+      "nanoseconds": 937000000
+    },
+    "artist": "Tường Quân",
+    "status": "COMPLETE",
+    "updatedAt": {
+      "seconds": 1783947526,
+      "nanoseconds": 651000000
+    },
+    "statusLog": {
+      "PROCESS": {
+        "seconds": 1782459777,
+        "nanoseconds": 293000000
+      },
+      "COMPLETE": {
+        "seconds": 1782981127,
+        "nanoseconds": 763000000
+      },
+      "REQUESTED": {
+        "seconds": 1782458061,
+        "nanoseconds": 937000000
+      }
+    },
+    "mixer": "Nam Anh, MD Studio",
+    "refLink": "https://vieent.labelmaster.app/products/24471",
+    "type": "phai_sinh",
+    "url": "https://drive.google.com/drive/folders/1kJ5K_90nBlbQcYnqJHGbCZTU_cJVxFTX?usp=drive_link"
+  },
+  {
+    "id": "x426pekUomHFCTQ8Bs1S",
+    "releaseDate": "2026-07-06",
+    "type": "phai_sinh",
+    "releaseTime": "19:00",
+    "refLink": "https://vieent.labelmaster.app/products/24569",
+    "mixer": "NVC",
+    "producer": "NVC",
+    "url": "https://drive.google.com/drive/folders/1hoc_oxycWfrjpGhedzp44uV4Z94qXf2o",
+    "tenBai": "Em Đâu Thua Một Ai (Trí Thức Remix)",
+    "description": "Full CID, FB Tiktok cùng ngày",
+    "composer": "Huỳnh Tấn Danh",
+    "createdAt": {
+      "seconds": 1783323085,
+      "nanoseconds": 161000000
+    },
+    "note": "",
+    "requesterName": "",
+    "tacQuyen": "NVC Media tác quyền",
+    "label": "NVC Media",
+    "requesterSegment": "GUEST_REQUESTER",
+    "status": "COMPLETE",
+    "artist": "Bạch Dương",
+    "typeRequest": "Phái sinh",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1783323085,
+        "nanoseconds": 161000000
+      },
+      "COMPLETE": {
+        "seconds": 1783333773,
+        "nanoseconds": 781000000
+      },
+      "PROCESS": {
+        "seconds": 1783332876,
+        "nanoseconds": 469000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783947507,
+      "nanoseconds": 367000000
+    }
+  },
+  {
+    "id": "yAOkGYBnGFTZFgeuj4xz",
+    "createdAt": {
+      "seconds": 1784001993,
+      "nanoseconds": 535000000
+    },
+    "tenBai": "Em Đâu Thua Một Ai (Trí Thức Remix Version 1)",
+    "requesterSegment": "GUEST_REQUESTER",
+    "refLink": "https://vieent.labelmaster.app/products/24666",
+    "label": "NVC Media",
+    "requesterName": "",
+    "description": "FULL trừ CID Vocal / Only CID Beat",
+    "composer": "Huỳnh Tấn Danh",
+    "releaseDate": "2026-07-17",
+    "releaseTime": "19:00",
+    "type": "phai_sinh",
+    "tacQuyen": "NVC Media sở hữu",
+    "statusLog": {
+      "REQUESTED": {
+        "seconds": 1784001993,
+        "nanoseconds": 535000000
+      },
+      "PROCESS": {
+        "seconds": 1784027116,
+        "nanoseconds": 112000000
+      },
+      "COMPLETE": {
+        "seconds": 1784123029,
+        "nanoseconds": 186000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1784123029,
+      "nanoseconds": 186000000
+    },
+    "typeRequest": "Phái sinh",
+    "url": "https://drive.google.com/drive/folders/1amB7mzSN43YksjC-3x4u1WPesuTXC3kV",
+    "artist": "Lan Anh",
+    "status": "COMPLETE",
+    "mixer": "Trí Thức",
+    "note": "version 2\n",
+    "producer": "Trí Thức"
+  },
+  {
+    "id": "yFv9uPBijQ9NWofpSuue",
+    "typeRequest": "Phái sinh",
+    "refLink": "https://vieent.labelmaster.app/products/24641?search=Em+%C4%90%C3%A2u+Thua+M%E1%BB%99t+Ai",
+    "producer": "Trí Thức",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1784031599,
+        "nanoseconds": 9000000
+      },
+      "PROCESS": {
+        "seconds": 1784027117,
+        "nanoseconds": 784000000
+      },
+      "REQUESTED": {
+        "seconds": 1784001861,
+        "nanoseconds": 99000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1784031599,
+      "nanoseconds": 9000000
+    },
+    "type": "phai_sinh",
+    "requesterSegment": "GUEST_REQUESTER",
+    "createdAt": {
+      "seconds": 1784001861,
+      "nanoseconds": 99000000
+    },
+    "status": "COMPLETE",
+    "artist": "Lan Anh",
+    "mixer": "Trí Thức",
+    "composer": "Huỳnh Tấn Danh",
+    "label": "NVC Media",
+    "description": "FULL trừ CID Vocal / Only CID Beat",
+    "tacQuyen": "NVC Media sở hữu",
+    "releaseDate": "2026-07-17",
+    "releaseTime": "19:00",
+    "tenBai": "Em Đâu Thua Một Ai (Trí Thức Remix)",
+    "url": "https://drive.google.com/drive/folders/16wgtSrUhkF1kEf4ZGek82g_CvbFMdMK4",
+    "requesterName": ""
+  },
+  {
+    "id": "zI9j4yRuWBbzgEokBT9l",
+    "type": "phai_sinh",
+    "status": "COMPLETE",
+    "tacQuyen": "NVC Media sở hữu",
+    "description": "FULL - CID (tiktok cùng ngày, fb +4 ngày)",
+    "artist": "Inso",
+    "requesterName": "",
+    "requesterSegment": "GUEST_REQUESTER",
+    "mixer": "Vũ Nhân Remix",
+    "composer": "Huỳnh Văn Danh",
+    "releaseTime": "19:00",
+    "refLink": "https://vieent.labelmaster.app/products/24602",
+    "releaseDate": "2026-07-09",
+    "note": "",
+    "updatedAt": {
+      "seconds": 1783947481,
+      "nanoseconds": 131000000
+    },
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1783595779,
+        "nanoseconds": 10000000
+      },
+      "REQUESTED": {
+        "seconds": 1783509979,
+        "nanoseconds": 722000000
+      }
+    },
+    "url": "https://drive.google.com/drive/folders/19ReoO1erb5l3EBaJucUpEkhA0L-8v4Ez",
+    "producer": "Vũ Nhân Remix",
+    "tenBai": "Em Quá Chân Thành (Vũ Nhân Remix)",
+    "typeRequest": "Phái sinh",
+    "label": "NVC Media",
+    "createdAt": {
+      "seconds": 1783509979,
+      "nanoseconds": 722000000
+    }
+  },
+  {
+    "id": "zjznTKzs7gx9skx8pVmY",
+    "releaseDate": "2026-06-26",
+    "type": "phai_sinh",
+    "refLink": "https://vieent.labelmaster.app/products/24470",
+    "releaseTime": "19:00",
+    "mixer": "Nam Anh, MD Studio",
+    "producer": "TTV studio",
+    "url": "https://drive.google.com/drive/folders/1XNeErXHYDdFLgBevLPNYKZLJ1FK7pTNk?usp=drive_link",
+    "tenBai": "Một Đời Vì Con",
+    "description": "FULL CID trừ Zing Mp3",
+    "composer": "Ninh Bảo Văn",
+    "createdAt": {
+      "seconds": 1782457884,
+      "nanoseconds": 547000000
+    },
+    "note": "",
+    "requesterName": "",
+    "tacQuyen": "Đình Nguyễn sở hữu",
+    "requesterSegment": "GUEST_REQUESTER",
+    "label": "Đình Nguyễn",
+    "status": "COMPLETE",
+    "typeRequest": "Phái sinh",
+    "artist": "Yuki Huy Nam",
+    "statusLog": {
+      "COMPLETE": {
+        "seconds": 1782981129,
+        "nanoseconds": 561000000
+      },
+      "PROCESS": {
+        "seconds": 1782459778,
+        "nanoseconds": 604000000
+      },
+      "REQUESTED": {
+        "seconds": 1782457884,
+        "nanoseconds": 547000000
+      }
+    },
+    "updatedAt": {
+      "seconds": 1783947465,
+      "nanoseconds": 43000000
+    }
+  }
+]

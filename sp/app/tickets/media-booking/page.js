@@ -1,0 +1,2872 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import AppShell from "../../../lib/AppShell";
+import { supabase } from "../../../lib/supabaseClient";
+import { fmtDate, statusColor } from "../../../lib/helpers";
+import { useAuth } from "../../../lib/AuthContext";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
+import TypeSwitcher from "../../../lib/TypeSwitcher";
+import { usePagination } from "../../../lib/usePagination";
+import Pagination from "../../../lib/Pagination";
+import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import styles from "../../shared.module.css";
+import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
+import YoutubeAdsFields from "../../../lib/YoutubeAdsFields";
+import { useIsMobile } from "../../../lib/useIsMobile";
+// Round 125 — item 2: same Linkfire door the Booking Board already has
+// (see app/booking/page.js), now also reachable from inside the booking
+// ticket itself rather than only from the board. Same admin-editable
+// app_settings key, same fallback default.
+import { ARTIST_PROFILE_LINKS_SETTING_KEY, DEFAULT_LINKFIRE_URL } from "../../../lib/externalTools";
+import UrlField from "../../../lib/UrlField";
+import { canEditMediaBookingTicket } from "../../../lib/permissions";
+
+function fmtVnd(n) {
+  if (n === null || n === undefined || n === "") return "—";
+  return new Intl.NumberFormat("vi-VN").format(n) + " đ";
+}
+
+// Display-only thousand-separator (no currency suffix) — for showing
+// inside an editable Đơn Giá input between edits. The value that's
+// actually typed/parsed/saved stays a clean plain number (no dots or
+// commas); this only formats what's shown once the field isn't focused.
+function fmtThousands(n) {
+  if (n === null || n === undefined || n === "") return "";
+  const num = typeof n === "number" ? n : parseFloat(n);
+  if (Number.isNaN(num)) return "";
+  return new Intl.NumberFormat("vi-VN").format(num);
+}
+
+// Round 64 — item 1: a numeric input that shows a thousand-separated
+// value while not focused, and the raw plain-digit value (no separators)
+// while the user is actively typing, so editing stays "clean" per the
+// request. Uncontrolled-feeling (mirrors the existing defaultValue/onBlur
+// pattern used elsewhere in this file) but needs local state to swap the
+// displayed text between the two modes.
+function ThousandInput({ value, onCommit, style, className }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(() => fmtThousands(value));
+
+  useEffect(() => {
+    if (!editing) setText(fmtThousands(value));
+  }, [value, editing]);
+
+  return (
+    <input
+      type={editing ? "number" : "text"}
+      className={className}
+      style={style}
+      value={text}
+      onFocus={() => {
+        setEditing(true);
+        setText(value === null || value === undefined ? "" : String(value));
+      }}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={(e) => {
+        setEditing(false);
+        const raw = e.target.value.trim();
+        const parsed = raw === "" ? null : parseFloat(raw);
+        onCommit(Number.isNaN(parsed) ? null : parsed);
+        setText(fmtThousands(Number.isNaN(parsed) ? null : parsed));
+      }}
+    />
+  );
+}
+
+// This IS the package-building tool (the "workstation" it was briefly
+// pulled out into moved back in here) — clicking a row opens the builder:
+// pick a template, edit the itemized numbers live, generate the magic
+// link as a final check. The executor flipping status PROCESS -> DONE is
+// what actually sends that link forward to the release's detail page.
+export default function MediaBookingList() {
+  const { profile } = useAuth();
+  const [tab, setTab] = useState(null);
+  const [tickets, setTickets] = useState([]);
+  const [profiles, setProfiles] = useState([]);
+  const [releasesByDid, setReleasesByDid] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState(null);
+  const [openTicket, setOpenTicket] = useState(null);
+  const [query, setQuery] = useState(""); // round 76 — quick index search box
+
+  const isExecutorView = !profile?.segment || profile.segment === "Marketing";
+
+  useEffect(() => {
+    if (!supabase) return;
+    load();
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "Marketing"))); // round 78
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    const { data: tabRow } = await supabase.from("ticket_tabs").select("*").eq("key", "media_booking").single();
+    setTab(tabRow);
+    if (tabRow && !statusFilter) setStatusFilter(tabRow.status_options[0]);
+    const { data } = tabRow
+      ? await supabase.from("tickets").select("*, profiles(name)").eq("tab_id", tabRow.id).is("deleted_at", null).order("created_at", { ascending: false })
+      : { data: [] };
+    setTickets(data || []);
+
+    const dids = [...new Set((data || []).map((t) => t.data?.releaseId).filter(Boolean))];
+    if (dids.length > 0) {
+      // Round 68 — item 7: link_lbm added so the ticket list can show a URL
+      // column next to Release, same field/pattern every other ticket
+      // type's list already shows it with (Sony Publish, Spotify MV, etc.).
+      // Round 75 — item 1: swapped for drive_link ("URL Drive" instead of
+      // "URL LBM") per explicit request. Round 75 — item 2: link_media_report
+      // added too, for the new "Package Url" column (the magic link itself,
+      // shown once one's been generated for fast access).
+      // Round 148 — item: "Linkfire url" column added (see below), reading
+      // and writing releases.link_media_report_custom directly — the same
+      // field already editable as "Custom Domain — Package Offer" on the
+      // release detail page's URL tab and inside the Package Builder
+      // popup's "Custom package url" field (see PackagesPanel further
+      // down). `id` is now selected too so this list can write straight
+      // to that release row without a second lookup.
+      const { data: rels } = await supabase.from("releases").select("id, did, title, main_artist, label, release_date, release_time, drive_link, link_media_report, link_media_report_custom").in("did", dids);
+      const map = {};
+      (rels || []).forEach((r) => { map[r.did] = r; });
+      setReleasesByDid(map);
+    }
+    setLoading(false);
+  }
+
+  async function updatePic(t, profileId) {
+    const patch = { pic_profile_id: profileId || null };
+    if (profileId && t.status === tab.default_status) {
+      const nextStatus = tab.status_options[1];
+      if (nextStatus) { patch.status = nextStatus; patch.status_log = { ...t.status_log, [nextStatus]: new Date().toISOString() }; }
+    }
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
+    await supabase.from("tickets").update(patch).eq("id", t.id);
+    load();
+  }
+
+  // Round 148 — "Linkfire url" column: a manual input straight on the list
+  // (not part of the ticket's own data/fields, and not gated by
+  // canEditMediaBookingTicket — this is a plain release field, same as
+  // Package Url/URL Drive next to it, not a package-builder write). Writes
+  // directly to the release row, so this is genuinely the same value as
+  // "Custom Domain — Package Offer" on the release detail page's URL tab.
+  async function updateLinkfireUrl(rel, value) {
+    if (!rel) return;
+    setReleasesByDid((prev) => (prev[rel.did] ? { ...prev, [rel.did]: { ...prev[rel.did], link_media_report_custom: value } } : prev));
+    await supabase.from("releases").update({ link_media_report_custom: value }).eq("id", rel.id);
+  }
+
+  async function updateStatus(t, newStatus) {
+    const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
+    const patch = { status: newStatus, status_log: newLog };
+    if (newStatus === "REFUND") patch.pic_profile_id = null;
+    // Round 80 — refund/cancel-like moves require a short reason, folded
+    // into ticket.data.note (see lib/statusNoteGate.js).
+    if (statusNeedsNote(newStatus)) {
+      const newData = withStatusNote(t.data, newStatus);
+      if (!newData) return; // cancelled / no reason given — abort the change
+      patch.data = newData;
+    }
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
+    await supabase.from("tickets").update(patch).eq("id", t.id);
+
+    // Round 80 — marking this ticket COMPLETE is what ends the release's
+    // SENT TO MARKETING interlude (see app/releases/[id]/page.js's
+    // PIPELINE_STAGES) and moves it into DEALING, waiting on the artist to
+    // actually pick a package via the magic link. Only fires from that
+    // exact stage — a release already past it (DEALING or a real resolved
+    // package) is untouched, and re-completing an already-COMPLETE ticket
+    // is a no-op since the release won't still be SENT TO MARKETING.
+    if (newStatus === "COMPLETE") {
+      const did = t.data?.releaseId;
+      if (did) {
+        const { data: rel } = await supabase.from("releases").select("id, project_type").eq("did", did).maybeSingle();
+        if (rel?.project_type === "SENT TO MARKETING") {
+          await supabase.from("releases").update({ project_type: "DEALING" }).eq("id", rel.id);
+          setReleasesByDid((prev) => (prev[did] ? { ...prev, [did]: { ...prev[did], project_type: "DEALING" } } : prev));
+        }
+      }
+    }
+  }
+
+  // Auto-sort by release date, farthest-out first (descending — per
+  // explicit request, e.g. 31/12/2026 before 01/01/2026) instead of the
+  // query's default created_at desc. Tickets with no matching release
+  // (releaseId missing, or the release wasn't found in releasesByDid) sort
+  // last regardless of direction, rather than being pulled to the top by a
+  // missing/undefined date. "for now" per your ask — a real column-picker
+  // sort can replace this later if release date isn't always the right
+  // axis.
+  function byReleaseDate(a, b) {
+    const da = releasesByDid[a.data?.releaseId]?.release_date;
+    const db = releasesByDid[b.data?.releaseId]?.release_date;
+    if (!da && !db) return 0;
+    // Missing dates always sort last, in EITHER direction — a ticket with
+    // no matched release shouldn't jump to the top just because "no date"
+    // technically sorts high in a descending compare.
+    if (!da) return 1;
+    if (!db) return -1;
+    // Descending — farthest-out release date first (e.g. 31/12/2026 before
+    // 01/01/2026), per explicit request.
+    return db.localeCompare(da);
+  }
+
+  const visibleTickets = useMemo(() => {
+    if (!tab) return [];
+    const base = isExecutorView
+      ? tickets.filter((t) => t.status === statusFilter).sort(byReleaseDate)
+      // Sort by release date first, then a STABLE re-sort pulling REFUND
+      // tickets to the top — Array.sort is stable, so the release-date
+      // order survives within each of the two groups.
+      : [...tickets].sort(byReleaseDate).sort((a, b) => (a.status === "REFUND" ? 0 : 1) - (b.status === "REFUND" ? 0 : 1));
+    return base.filter((t) => matchesQuery({ ...t, release: releasesByDid[t.data?.releaseId] }, query));
+  }, [tickets, tab, isExecutorView, statusFilter, releasesByDid, query]);
+
+  const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
+
+  return (
+    <AppShell>
+      <div className={styles.page}>
+        <div className={styles.container} style={{ maxWidth: 1100 }}>
+          <TypeSwitcher kind="ticket" current="media_booking" />
+          <div className={styles.topRow}>
+            <div>
+              <div className={styles.eyebrow}>// Ticket</div>
+              <h1 className={styles.title} style={{ marginBottom: 0 }}>Media Booking</h1>
+            </div>
+            <Link href="/tickets/media-booking/new" className={styles.btnPrimary}>+ New Ticket</Link>
+          </div>
+
+          <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
+
+          {isExecutorView && tab && (
+            <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
+              {tab.status_options.map((s) => (
+                <button key={s} onClick={() => setStatusFilter(s)} className={`${styles.tabBtn} ${statusFilter === s ? styles.tabBtnActive : ""}`} style={{ border: statusFilter === s ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: statusFilter === s ? "rgba(255,107,26,0.1)" : "transparent" }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {loading ? (
+            <div className={styles.emptyState}>Loading…</div>
+          ) : visibleTickets.length === 0 ? (
+            <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
+          ) : (
+            <>
+            <table className={styles.table}>
+              <thead>
+                <tr><th>Release (DID)</th><th>Release</th><th>URL Drive</th><th>Package Url</th><th>Propose Package</th><th>PIC</th><th>Linkfire url</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {pagedTickets.map((t) => {
+                  const color = statusColor(t.status);
+                  const rel = releasesByDid[t.data?.releaseId];
+                  return (
+                    <tr key={t.id} onClick={() => setOpenTicket(t)} style={{ cursor: "pointer" }}>
+                      <td><span className={styles.rowLink}>{t.data?.releaseId}</span></td>
+                      <td style={{ fontSize: 11, lineHeight: 1.5 }}>
+                        {rel ? (
+                          <>
+                            <div style={{ color: "var(--text-muted)", fontWeight: 700 }}>{rel.title} - {rel.main_artist}</div>
+                            <div style={{ color: "var(--text-faint)" }}>Label: {rel.label || "—"}</div>
+                            <div style={{ color: "var(--text-faint)" }}>{fmtDate(rel.release_date)} {rel.release_time || ""}</div>
+                          </>
+                        ) : (
+                          <span style={{ color: "var(--text-dim)" }}>—</span>
+                        )}
+                      </td>
+                      <td onClick={(e) => e.stopPropagation()} style={{ maxWidth: 160, fontSize: 11 }}>
+                        {rel?.drive_link ? (
+                          <a href={rel.drive_link.split("\n")[0]} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a", wordBreak: "break-all" }}>
+                            {rel.drive_link.split("\n")[0]}
+                          </a>
+                        ) : (
+                          <span style={{ color: "var(--text-dim)" }}>—</span>
+                        )}
+                      </td>
+                      {/* Round 75 — item 2: "Package Url" — the magic link
+                          itself (releases.link_media_report), shown as
+                          soon as one exists for this release so it can be
+                          grabbed straight from the ticket list without
+                          opening the release detail page ("fast track"). */}
+                      <td onClick={(e) => e.stopPropagation()} style={{ maxWidth: 160, fontSize: 11 }}>
+                        {rel?.link_media_report ? (
+                          <a href={rel.link_media_report} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a", wordBreak: "break-all" }}>
+                            {rel.link_media_report}
+                          </a>
+                        ) : (
+                          <span style={{ color: "var(--text-dim)" }}>—</span>
+                        )}
+                      </td>
+                      <td>{t.data?.proposedPackage || "—"}</td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        {isExecutorView ? (
+                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={t.pic_profile_id || ""} onChange={(e) => updatePic(t, e.target.value)}>
+                            <option value="">— Unassigned —</option>
+                            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                        ) : (t.profiles?.name || "—")}
+                      </td>
+                      {/* Round 148 — "Linkfire url" replaces Deadline
+                          (never used on this list). Manual input, not part
+                          of the ticket's own fields — writes straight to
+                          the release's link_media_report_custom, same
+                          value as "Custom Domain — Package Offer" on the
+                          release detail page's URL tab. No release match
+                          (rel missing) means there's nothing to write to
+                          yet, so it falls back to a plain dash. */}
+                      <td onClick={(e) => e.stopPropagation()} style={{ maxWidth: 160 }}>
+                        {rel ? (
+                          <LinkfireUrlCell release={rel} onUpdate={updateLinkfireUrl} />
+                        ) : (
+                          <span style={{ color: "var(--text-dim)" }}>—</span>
+                        )}
+                      </td>
+                      {/* Round 80 — no Note column in this list, so the
+                          reason folded into data.note by statusNoteGate is
+                          only reachable via this hover. */}
+                      <td onClick={(e) => e.stopPropagation()} title={t.data?.note || undefined}>
+                        {isExecutorView ? (
+                          <select value={t.status} onChange={(e) => updateStatus(t, e.target.value)} style={{ background: color.bg, color: color.fg, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>
+                            {tab.status_options.map((s) => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        ) : (
+                          <span className={styles.statusBadge} style={{ background: color.bg, color: color.fg }}>{t.status}</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
+            </>
+          )}
+        </div>
+      </div>
+
+      {openTicket && (
+        <PackageBuilderPopup
+          ticket={openTicket}
+          onClose={() => setOpenTicket(null)}
+          onStatusChange={(newStatus) => { updateStatus(openTicket, newStatus); setOpenTicket((t) => ({ ...t, status: newStatus })); }}
+        />
+      )}
+    </AppShell>
+  );
+}
+
+const CATEGORY_ORDER = ["Social", "Community", "Ads"];
+const PLATFORMS = ["Facebook", "Instagram", "TikTok", "YouTube", "Thread"];
+const PHASES = [
+  ["count_tung_hint", "Tung Hint"],
+  ["count_out_now", "Out Now"],
+  ["count_listen_now", "Listen Now"],
+  ["count_addin_post", "Add-in Post"],
+];
+const PHASE_GROUPS = [["Pre-release", 1], ["Release", 2], ["Post-release", 1]];
+// Which phase key starts each group — used to draw a real separator line
+// through the sub-header AND every body row, not just the top label row
+// (a label-only border doesn't actually look like a separator once there's
+// data underneath it).
+const PHASE_GROUP_START_KEYS = new Set((() => {
+  const starts = [];
+  let idx = 0;
+  for (const [, span] of PHASE_GROUPS) {
+    starts.push(PHASES[idx][0]);
+    idx += span;
+  }
+  return starts;
+})());
+const BRANDS = ["VIEENT", "ENVI"];
+// Community's own brand bracket — flat list (no In-house/Partner grouping
+// like TikTok Channel), same pattern as Social's VIEENT/ENVI toggle.
+const COMMUNITY_BRANDS = ["PAGE BOLERO / MT", "PAGE VPOP", "PAGE INDIE"];
+
+// TikTok Channel's structure — 2 fixed groups, each with 4 fixed brands,
+// each brand always has the same 5 fixed sub-channel rows. Not
+// user-configurable (unlike package_categories/booking_channels), these
+// are specific to this one Hạng Mục.
+const TIKTOK_GROUPS = {
+  "In-house": ["TIKTOK BOLERO / MT", "TIKTOK VPOP", "TIKTOK INDIE", "CAPCUT"],
+  "Partner": ["EXT TIKTOK - BK MUSIC", "EXT TIKTOK - DUCTH", "EXT TIKTOK - BK GROUP", "EXT TIKTOK - CTV MẪU"],
+};
+const TIKTOK_ALL_BRANDS = Object.values(TIKTOK_GROUPS).flat();
+// Round 124 — reordered per explicit team request ("re-order the column
+// so the one they care more actually go first") — was TIKTOK NEWS, TIKTOK
+// CAPCUT, MẪU CAPCUT, TIKTOK REUP MV, TIKTOK LYRICS. MUST stay in sync
+// with the equivalent copy in app/booking/page.js.
+const TIKTOK_SUBCHANNELS = ["TIKTOK CAPCUT", "TIKTOK LYRICS", "MẪU CAPCUT", "TIKTOK NEWS", "TIKTOK REUP MV"];
+
+// Ads' 4 ad-platform groups — always shown together (no single "selected
+// brand" toggle like Social/Community/TikTok), each with its own fixed
+// metric list and its own color. Metric names double as the row label
+// (entry.platform) AND the pickable "+ button" tag; entry.brand holds the
+// group name. Unlike every other Hạng Mục, pricing (Đơn Giá) happens right
+// here at the entry level, not later in the package-line stage — see
+// handleSummarize's Ads branch and BuildPackagePopup's Ads-line special
+// case for why.
+const ADS_BRANDS = ["Facebook Ads", "YouTube Ads", "TikTok Ads", "Spotify Ads"];
+const ADS_BRAND_COLORS = {
+  "Facebook Ads": "#1a7a4c",
+  "YouTube Ads": "#c9b91a",
+  "TikTok Ads": "#e0672c",
+  "Spotify Ads": "#3f7de0",
+};
+const ADS_METRICS = {
+  "Facebook Ads": ["Lượt tiếp cận", "Lượt tương tác", "Lượt truy cập (Link click)"],
+  "YouTube Ads": ["Thruplay (Views)"],
+  "TikTok Ads": ["Lượt tiếp cận", "Lượt xem video", "Lượt theo dõi", "Lượt truy cập (Link click)"],
+  "Spotify Ads": ["HPTO", "In-Stream Audio", "In-Stream Video", "In-Feed Display", "In-Feed Video"],
+};
+
+// Round 78 — item 3: default Chi Tiết text for a freshly-created YouTube
+// Ads package line, per explicit request. Replaces the computed "SL X
+// Thruplay (Views)" text every other Ads brand still gets on first
+// insert — still just a starting value, freely editable afterward (see
+// syncPackageLine's Ads branch and PackagesPanel's Chi Tiết column).
+const YOUTUBE_ADS_DEFAULT_DETAIL = "Áp dụng kênh youtube nghệ sĩ thuộc MCN, MV thời lượng dưới 5 phút";
+
+// Reference layout (team-supplied picture): EXTERNAL group first (= the
+// "Partner" group internally), then INTERNAL (= "In-house"), each brand
+// cell colored distinctly. Display order/labels differ from TIKTOK_GROUPS'
+// own keys, so mapped here rather than renamed at the source.
+const TIKTOK_COUNTS_GROUP_ORDER = ["Partner", "In-house"];
+const TIKTOK_COUNTS_GROUP_LABELS = { "Partner": "EXTERNAL", "In-house": "INTERNAL" };
+const TIKTOK_COUNTS_BRAND_COLORS = {
+  "EXT TIKTOK - BK MUSIC": "#5b7fdb",
+  "EXT TIKTOK - DUCTH": "#5b7fdb",
+  "EXT TIKTOK - BK GROUP": "#5b7fdb",
+  "EXT TIKTOK - CTV MẪU": "#5b7fdb",
+  "TIKTOK BOLERO / MT": "#2f6b4f",
+  "TIKTOK VPOP": "#d9c22e",
+  "TIKTOK INDIE": "#3fa7a0",
+  "CAPCUT": "#e07b39",
+};
+
+// The small "how many things has been added per Hạng Mục" popup that sits
+// right below the DSP grid once a category has been summarized at least
+// once. Shape differs per category: TikTok Channel groups by
+// External/Internal → brand (matches the reference picture exactly);
+// Social (VIEENT/ENVI) and Community (PAGE BOLERO/MT, PAGE VPOP, PAGE
+// INDIE) are both flat brand rows via brandList/currentBrand; Ads has no
+// brand bracket at all, so it's a single total.
+function CategoryCountsPopup({ isTikTokChannel, isAds, brandList, currentBrand, categoryTotals, tiktokBrandTotals, tiktokBrand }) {
+  if (isTikTokChannel) {
+    const orderedBrands = TIKTOK_COUNTS_GROUP_ORDER.flatMap((g) => TIKTOK_GROUPS[g]);
+    return (
+      <div style={{ marginTop: 14, border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+        <div style={{ display: "flex" }}>
+          {TIKTOK_COUNTS_GROUP_ORDER.map((g) => (
+            <div key={g} style={{ flex: TIKTOK_GROUPS[g].length, background: "#141414", color: "#fff", textAlign: "center", fontSize: 11, fontWeight: 700, padding: "6px 0", letterSpacing: 0.5 }}>
+              {TIKTOK_COUNTS_GROUP_LABELS[g]}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex" }}>
+          {orderedBrands.map((b) => (
+            <div key={b} style={{ flex: 1, background: TIKTOK_COUNTS_BRAND_COLORS[b], color: "#fff", textAlign: "center", fontSize: 10, fontWeight: 700, padding: "6px 4px" }}>
+              {b}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex" }}>
+          {orderedBrands.map((b) => (
+            <div key={b} style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 700, padding: "8px 4px", background: b === tiktokBrand ? "rgba(255,107,26,0.1)" : "var(--bg-card)", borderTop: "1px solid var(--border)" }}>
+              {tiktokBrandTotals[b] || 0}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (brandList && brandList.length > 0) {
+    return (
+      <div style={{ marginTop: 14, border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+        <div style={{ display: "flex" }}>
+          {brandList.map((b) => (
+            <div key={b} style={{ flex: 1, background: "#141414", color: "#fff", textAlign: "center", fontSize: 11, fontWeight: 700, padding: "6px 4px" }}>{b}</div>
+          ))}
+        </div>
+        <div style={{ display: "flex" }}>
+          {brandList.map((b) => (
+            <div key={b} style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 700, padding: "8px 0", background: b === currentBrand ? "rgba(255,107,26,0.1)" : "var(--bg-card)", borderTop: "1px solid var(--border)" }}>{categoryTotals[b] || 0}</div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 14, border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <span style={{ fontSize: 12, color: "var(--text-faint)" }}>{isAds ? "Tổng Số Lượng (mọi metric)" : "Số Lượng Bài Đăng"}</span>
+      <strong style={{ fontSize: 15 }}>{categoryTotals[""] || 0}</strong>
+    </div>
+  );
+}
+
+// Round 148 — the list's "Linkfire url" column. Same local-draft-then-
+// commit-on-blur pattern every other inline URL cell in this app uses
+// (e.g. Re-Check workstation's LbmCell) — local state so typing doesn't
+// fight the row's own re-render on every keystroke, committed to the
+// release row on blur.
+function LinkfireUrlCell({ release, onUpdate }) {
+  const [draft, setDraft] = useState(release?.link_media_report_custom || "");
+  return <UrlField styles={styles} value={draft} onChange={setDraft} onBlur={() => onUpdate(release, draft)} />;
+}
+
+// This is the corrected, from-scratch rebuild, now living inside the
+// Media Booking ticket (replacing the old Template/Content-Plan modes
+// entirely) — gated the same way the ticket itself always was, not by
+// Send Upload.
+function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
+  const { profile } = useAuth();
+  const canEdit = canEditMediaBookingTicket(profile);
+  const [release, setRelease] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState(null);
+  const [brand, setBrand] = useState("VIEENT");
+  const [communityBrand, setCommunityBrand] = useState(COMMUNITY_BRANDS[0]);
+  const [adsBrand, setAdsBrand] = useState(ADS_BRANDS[0]); // which of the 4 colored ad-platform groups is shown — display only, doesn't filter what's fetched/summarized (Ads still mushes all 4 into one rollup)
+  const [tiktokGroup, setTiktokGroup] = useState("In-house");
+  const [tiktokBrand, setTiktokBrand] = useState(TIKTOK_GROUPS["In-house"][0]);
+  const [tiktokBrandTotals, setTiktokBrandTotals] = useState({}); // brand name -> total_posts, for the live comparison popup
+  const [categoryTotals, setCategoryTotals] = useState({}); // brand ("" for non-branded categories) -> total_posts, for the currently selected non-TikTok category
+  const [entries, setEntries] = useState([]);
+  const [summary, setSummary] = useState(null);
+  const [summarizedCategoryIds, setSummarizedCategoryIds] = useState(new Set()); // which categories have EVER been summarized (persisted)
+  const [skippedCategoryIds, setSkippedCategoryIds] = useState(new Set()); // subset of the above that were Skip'd rather than really summarized
+  const [dot2Targets, setDot2Targets] = useState(null); // { creation_target, links_paid_target } for TikTok Channel on this release, or null if never set
+  const [showDot2Popup, setShowDot2Popup] = useState(false);
+  const [magicLinkUrl, setMagicLinkUrl] = useState(null);
+  // Round 125 — item 2: mirrors app/booking/page.js's linkfireUrl state —
+  // this popup never loaded app_settings before, so it starts at the
+  // known-good default and gets overwritten by loadAll() below the moment
+  // the setting row is read.
+  const [linkfireUrl, setLinkfireUrl] = useState(DEFAULT_LINKFIRE_URL);
+  const [loading, setLoading] = useState(true);
+  const [showBuildPopup, setShowBuildPopup] = useState(false);
+  // Round 87 — mobile plan phase 3/4: this popup used to always show the
+  // Hạng Mục picker + DSP grid ("left panel") side by side with the
+  // Packages panel ("right panel") once Build Package was open — fine at
+  // 900-1600px wide, unusable squeezed into a phone's ~360-430px. Below
+  // the breakpoint this becomes two tabs (Data Entry / Package) instead of
+  // trying to show both at once — per your explicit call, tabs over
+  // stacking, since these two panels are meant to be compared against
+  // each other (see the "Already in package" readout below), not just
+  // read top-to-bottom. Desktop (isMobile false) is completely unaffected
+  // — mobileTab is simply never consulted.
+  const isMobile = useIsMobile();
+  const [mobileTab, setMobileTab] = useState("data"); // "data" | "package"
+
+  // Package-building state — lives here now (not in a separate BuildPackagePopup
+  // overlay) so the DSP grid (the real live data tool) and the Packages panel
+  // sit side by side in ONE screen, and an "Add to Package" button next to
+  // Summarize/Skip can act on whichever Hạng Mục/brand is currently selected.
+  const [summarizedRows, setSummarizedRows] = useState([]); // full media_booking_package_categories rows (with category name) for package building
+  const [packages, setPackages] = useState([]);
+  const [activePackageId, setActivePackageId] = useState(null);
+  const [referenceTiers, setReferenceTiers] = useState([]);
+  const [namePopup, setNamePopup] = useState(null); // null | "create" | "clone"
+  const [generatingLink, setGeneratingLink] = useState(false);
+  const [showClonePopup, setShowClonePopup] = useState(false); // round 79 — "Clone from another product"
+  const [priceDefaults, setPriceDefaults] = useState(DEFAULT_UNIT_PRICES); // overridden by Config → Media Booking Pricing once saved there
+  // Round 117 — mirrors priceDefaults, but updates SYNCHRONOUSLY (a ref
+  // write takes effect immediately, not on the next render like setState
+  // does). Fixes a real "recheck" bug: this ticket page only ever fetched
+  // Config's Đơn Giá defaults once, on mount (see loadAll below) — if an
+  // admin saved a new/changed default in Config → Media Booking Pricing
+  // AFTER this tab was already open, every Summarize in that already-open
+  // tab kept computing a NEW line's default Đơn Giá from the STALE value
+  // captured at mount (null, if no default existed yet back then), even
+  // though Config genuinely had a real number "set" by the time the line
+  // was created. handleSummarize below now re-fetches fresh defaults into
+  // this ref right before every Summarize, so a new line's default always
+  // reflects whatever's in Config right now, not whatever it was when the
+  // page first loaded. Every price-lookup that seeds a NEW value (as
+  // opposed to just displaying the already-loaded `priceDefaults` state)
+  // reads this ref instead of the state variable.
+  const priceDefaultsRef = useRef(DEFAULT_UNIT_PRICES);
+
+  const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
+  const isSocial = selectedCategory?.name === "Social";
+  const isCommunity = selectedCategory?.name === "Community";
+  const isTikTokChannel = selectedCategory?.name === "TikTok Channel";
+  const isAds = selectedCategory?.name === "Ads";
+  const rowOptions = isTikTokChannel ? TIKTOK_SUBCHANNELS : PLATFORMS;
+  const currentBrand = isSocial ? brand : isCommunity ? communityBrand : isAds ? adsBrand : null;
+  // Ads now rolls up per ad-platform brand (Facebook/YouTube/TikTok/Spotify
+  // Ads), not one mushed '' total — see handleSummarize's Ads branch — so
+  // it needs a real brandList too, same as Social/Community, for the
+  // counts popup below Summarize to show real per-brand numbers.
+  const brandList = isSocial ? BRANDS : isCommunity ? COMMUNITY_BRANDS : isAds ? ADS_BRANDS : null;
+
+  // Round 79 — pulled out of the mount-only useEffect below so "Clone from
+  // another product" can re-run the exact same load after copying another
+  // release's data in, instead of duplicating this logic or forcing a full
+  // page reload.
+  async function loadAll() {
+    setLoading(true);
+    const { data: rel } = await supabase.from("releases").select("*").eq("did", ticket.data?.releaseId).maybeSingle();
+    setRelease(rel);
+    const { data: cats } = await supabase.from("package_categories").select("*").order("sort_order");
+    setCategories(cats || []);
+    if (cats && cats.length > 0) setSelectedCategoryId((prev) => prev ?? cats[0].id);
+
+    // Round 54 — Config-editable default Đơn Giá (falls back to
+    // DEFAULT_UNIT_PRICES above if never saved, or if global_settings
+    // itself doesn't have this key yet).
+    await refreshPriceDefaults();
+
+    // Round 125 — item 2: same app_settings row the Booking Board reads
+    // for its Linkfire button, same access pattern (value is jsonb, not a
+    // string to parse — see app/booking/page.js's load()).
+    const { data: extLinks } = await supabase.from("app_settings").select("value").eq("key", ARTIST_PROFILE_LINKS_SETTING_KEY).maybeSingle();
+    if (extLinks?.value?.linkfire) setLinkfireUrl(extLinks.value.linkfire);
+
+    if (rel) {
+      const [{ data: rollups }, { data: pkgs }, { data: tiers }, { data: link }] = await Promise.all([
+        supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", rel.id),
+        supabase.from("media_booking_packages").select("*, media_booking_package_lines(*)").eq("release_id", rel.id).order("sort_order"),
+        supabase.from("contract_type_packages").select("contract_type, items"),
+        supabase.from("magic_links").select("token").eq("release_id", rel.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      ]);
+      setSummarizedRows(rollups || []);
+      setSummarizedCategoryIds(new Set((rollups || []).map((r) => r.category_id)));
+      // A category can have both a real (non-skipped) row and a skipped
+      // row across different brands — only treat it as "skipped" in the
+      // sidebar if every row for it is a skip, not a real Summarize.
+      const byCategory = {};
+      (rollups || []).forEach((r) => { byCategory[r.category_id] = byCategory[r.category_id] ?? true; byCategory[r.category_id] = byCategory[r.category_id] && r.skipped; });
+      setSkippedCategoryIds(new Set(Object.keys(byCategory).filter((id) => byCategory[id])));
+      setPackages(pkgs || []);
+      if (pkgs && pkgs.length > 0) setActivePackageId(pkgs[0].id);
+      setReferenceTiers(tiers || []);
+      setMagicLinkUrl(link ? `${window.location.origin}/pick-package/${link.token}` : null);
+    }
+    setLoading(false);
+  }
+
+  // Round 117 — pulled out of loadAll so handleSummarize (and addRow) can
+  // call it again right before seeding a NEW price, instead of only ever
+  // reading whatever was fetched once at page-load time. Updates
+  // priceDefaultsRef synchronously (see its declaration above) so the
+  // SAME call that triggered this refresh sees the fresh value
+  // immediately, not just future ones.
+  async function refreshPriceDefaults() {
+    const { data: priceSetting } = await supabase.from("global_settings").select("value").eq("key", UNIT_PRICE_DEFAULTS_SETTING_KEY).maybeSingle();
+    if (priceSetting?.value) {
+      try {
+        const parsed = JSON.parse(priceSetting.value);
+        const merged = {
+          categories: { ...DEFAULT_UNIT_PRICES.categories, ...(parsed.categories || {}) },
+          ads: { ...DEFAULT_UNIT_PRICES.ads, ...(parsed.ads || {}) },
+          addons: { ...DEFAULT_UNIT_PRICES.addons, ...(parsed.addons || {}) },
+        };
+        priceDefaultsRef.current = merged;
+        setPriceDefaults(merged);
+      } catch {
+        // malformed value — keep the hardcoded fallback rather than crash
+      }
+    }
+  }
+
+  useEffect(() => {
+    loadAll();
+  }, []);
+
+  // Round 79 — "Clone from another product": wholesale-copies another
+  // release's manual-input numbers (media_booking_content_entries), its
+  // summarize rollups (media_booking_package_categories), and its built
+  // packages + lines (media_booking_packages/media_booking_package_lines)
+  // into THIS release, so OPS can start from a real product instead of
+  // typing every row from scratch and just retune what's different.
+  // Wipes this release's own existing rows first (confirmed before
+  // calling, see ClonePickerPopup's onPick) — this is a full replace, not
+  // a merge.
+  async function cloneFromRelease(sourceReleaseId) {
+    if (!release) return;
+    const [{ data: srcEntries }, { data: srcRollups }, { data: srcPkgs }] = await Promise.all([
+      supabase.from("media_booking_content_entries").select("*").eq("release_id", sourceReleaseId),
+      supabase.from("media_booking_package_categories").select("*").eq("release_id", sourceReleaseId),
+      supabase.from("media_booking_packages").select("*, media_booking_package_lines(*)").eq("release_id", sourceReleaseId).order("sort_order"),
+    ]);
+
+    // Wipe this release's existing package-building data — package_lines
+    // cascade-delete with their parent package.
+    await Promise.all([
+      supabase.from("media_booking_content_entries").delete().eq("release_id", release.id),
+      supabase.from("media_booking_package_categories").delete().eq("release_id", release.id),
+      supabase.from("media_booking_packages").delete().eq("release_id", release.id),
+    ]);
+
+    if (srcEntries && srcEntries.length > 0) {
+      const rows = srcEntries.map(({ id, release_id, created_at, ...rest }) => ({ ...rest, release_id: release.id }));
+      await supabase.from("media_booking_content_entries").insert(rows);
+    }
+    if (srcRollups && srcRollups.length > 0) {
+      const rows = srcRollups.map(({ id, release_id, updated_at, ...rest }) => ({ ...rest, release_id: release.id }));
+      await supabase.from("media_booking_package_categories").insert(rows);
+    }
+    if (srcPkgs && srcPkgs.length > 0) {
+      for (const pkg of srcPkgs) {
+        const { id, release_id, created_at, media_booking_package_lines, ...pkgRest } = pkg;
+        const { data: newPkg } = await supabase.from("media_booking_packages").insert({ ...pkgRest, release_id: release.id }).select().single();
+        if (newPkg && media_booking_package_lines && media_booking_package_lines.length > 0) {
+          const lineRows = media_booking_package_lines.map(({ id: lineId, package_id, ...lineRest }) => ({ ...lineRest, package_id: newPkg.id }));
+          await supabase.from("media_booking_package_lines").insert(lineRows);
+        }
+      }
+    }
+
+    await loadAll();
+  }
+
+  // Re-fetches just the rollup rows — called after handleSummarize/handleSkip
+  // write new totals, so the "Add to Package" button and the grouped
+  // package-building data always reflect the latest Summarize, without a
+  // full-page reload.
+  async function refreshSummarizedRows() {
+    if (!release) return [];
+    const { data: rollups } = await supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", release.id);
+    setSummarizedRows(rollups || []);
+    return rollups || [];
+  }
+
+  useEffect(() => {
+    if (!selectedCategoryId || !release) return;
+    (async () => {
+      if (isTikTokChannel) {
+        // Rows are user-added now (picker of the 5 sub-channel names, same
+        // pattern as every other Hạng Mục's +Platform buttons) — no more
+        // auto-inserting a fixed 5 per brand.
+        const { data } = await supabase
+          .from("media_booking_content_entries")
+          .select("*")
+          .eq("release_id", release.id)
+          .eq("category_id", selectedCategoryId)
+          .eq("brand", tiktokBrand)
+          .order("sort_order");
+        setEntries(data || []);
+        setSummary(null);
+
+        // Live totals for every brand, for the comparison popup below Summarize.
+        const { data: rollups } = await supabase.from("media_booking_package_categories").select("brand, total_posts").eq("release_id", release.id).eq("category_id", selectedCategoryId);
+        const totals = {};
+        TIKTOK_ALL_BRANDS.forEach((b) => (totals[b] = 0));
+        (rollups || []).forEach((r) => { if (r.brand) totals[r.brand] = r.total_posts; });
+        setTiktokBrandTotals(totals);
+
+        // Đợt 2 targets — scoped to (release, category), not brand.
+        const { data: targets } = await supabase.from("media_booking_dot2_targets").select("creation_target, links_paid_target").eq("release_id", release.id).eq("category_id", selectedCategoryId).maybeSingle();
+        setDot2Targets(targets || null);
+        return;
+      }
+
+      let query = supabase.from("media_booking_content_entries").select("*").eq("release_id", release.id).eq("category_id", selectedCategoryId);
+      if (isSocial) query = query.eq("brand", brand);
+      if (isCommunity) query = query.eq("brand", communityBrand);
+      const { data } = await query.order("sort_order");
+      setEntries(data || []);
+      setSummary(null);
+
+      // Live per-brand totals for this category, for the small counts popup
+      // below Summarize. Social/Community have real brand brackets; Ads
+      // always rolls up under the empty-string brand — see lesson in §7
+      // about NULL vs '' inside the composite unique constraint.
+      const { data: rollups } = await supabase.from("media_booking_package_categories").select("brand, total_posts").eq("release_id", release.id).eq("category_id", selectedCategoryId);
+      const totals = {};
+      if (brandList) brandList.forEach((b) => (totals[b] = 0));
+      else totals[""] = 0;
+      (rollups || []).forEach((r) => { totals[r.brand ?? ""] = r.total_posts; });
+      setCategoryTotals(totals);
+    })();
+  }, [selectedCategoryId, brand, communityBrand, tiktokBrand, release]);
+
+  // brandOverride is only used by Ads — its "brand" is picked per-click
+  // (which of the 4 colored ad-group mini-tables the + button lives in),
+  // not from a single selected-brand state like every other category.
+  async function addRow(platform, brandOverride) {
+    const rowBrand = brandOverride ?? (isSocial ? brand : isCommunity ? communityBrand : isTikTokChannel ? tiktokBrand : "");
+    // Round 54 — Ads rows seed their Đơn Giá from the configured default
+    // for this (ad brand, metric) pair instead of starting at 0, so
+    // whoever's filling this in doesn't have to look the price up and
+    // type it in by hand every time. Still freely editable afterward —
+    // this is only what a brand-new row starts at.
+    const defaultUnitPrice = isAds ? priceDefaultsRef.current.ads[rowBrand]?.[platform] ?? null : null;
+    const { data } = await supabase
+      .from("media_booking_content_entries")
+      .insert({ release_id: release.id, category_id: selectedCategoryId, platform, brand: rowBrand, unit_price: defaultUnitPrice, sort_order: entries.length })
+      .select()
+      .single();
+    if (data) setEntries((prev) => [...prev, data]);
+    setSummary(null);
+  }
+
+  // Fixed the real bug — every phase count lives on the same row now, so
+  // editing one never touches the others.
+  async function updateEntryCount(entry, field, value) {
+    setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, [field]: value } : e)));
+    await supabase.from("media_booking_content_entries").update({ [field]: value }).eq("id", entry.id);
+    setSummary(null);
+  }
+
+  async function removeEntry(entry) {
+    await supabase.from("media_booking_content_entries").delete().eq("id", entry.id);
+    setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+    setSummary(null);
+  }
+
+  // Summarize both computes the on-screen rollup AND persists a
+  // lightweight marker (total posts) — that persisted marker is what the
+  // "all 4 categories" gate below checks, so it survives closing and
+  // reopening the ticket. TikTok Channel uses a different formula (per-row
+  // (sum of phases) × channel count, not just an additive row count) and
+  // rolls up per-brand instead of per-platform.
+  async function handleSummarize() {
+    // Round 117 — "recheck" per explicit request: re-fetch Config's Đơn
+    // Giá defaults fresh, right before this Summarize, instead of trusting
+    // whatever was loaded when this tab first opened. See priceDefaultsRef's
+    // declaration for the full "why" — a default saved in Config after
+    // this tab was already open used to never reach a NEW line created in
+    // that tab, even though Config genuinely had a real number by then.
+    await refreshPriceDefaults();
+    if (isTikTokChannel) {
+      // Đợt 1 only — Số Kênh × Số Bài per row. Đợt 2's own pair is tracked
+      // separately (see saveDot2Targets) and never feeds this total.
+      const rows = entries.map((e) => ({
+        ...e,
+        totalPosts: (e.channel_count || 0) * (e.count_posts || 0),
+      }));
+      setSummary(rows);
+      const brandTotal = rows.reduce((sum, r) => sum + r.totalPosts, 0);
+      // Round 120 — per-subchannel breakdown for THIS brand (e.platform
+      // holds the subchannel name for TikTok Channel rows — see
+      // media_booking_content_entries.platform's comment in schema.sql).
+      // Stored alongside the plain brand total so a package built/synced
+      // from this rollup row can carry the real per-subchannel numbers
+      // through too — see groupSummarizedRows and syncPackageLine below,
+      // and app/booking/page.js's bookedFor().
+      const subchannelTotals = {};
+      rows.forEach((r) => {
+        if (!r.platform) return;
+        subchannelTotals[r.platform] = (subchannelTotals[r.platform] || 0) + r.totalPosts;
+      });
+
+      await supabase.from("media_booking_package_categories").upsert(
+        { release_id: release.id, category_id: selectedCategoryId, brand: tiktokBrand, total_posts: brandTotal, platform_quantities: Object.keys(subchannelTotals).length > 0 ? subchannelTotals : null, skipped: false, updated_at: new Date().toISOString() },
+        { onConflict: "release_id,category_id,brand" }
+      );
+      setTiktokBrandTotals((prev) => ({ ...prev, [tiktokBrand]: brandTotal }));
+      setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
+      setSkippedCategoryIds((prev) => { const next = new Set(prev); next.delete(selectedCategoryId); return next; });
+      // Sync into the active package with the CUMULATIVE total across every
+      // sub-brand summarized so far (not just this one), same total the
+      // old manual "Add to Package" button used — mushed across all 8
+      // TikTok Channel sub-brands into one package line.
+      const freshRows = await refreshSummarizedRows();
+      const freshGroup = groupSummarizedRows(freshRows).find((g) => g.categoryId === selectedCategoryId);
+      await syncPackageLine(freshGroup);
+      return;
+    }
+
+    if (isAds) {
+      // Pricing lives at the entry level here (Số Lượng × Đơn Giá per
+      // metric row). Rolls up PER ad-platform brand now (Facebook/
+      // YouTube/TikTok/Spotify Ads each get their own row) rather than one
+      // mushed '' total — matches the package builder now keeping Ads as
+      // separate brand lines while every other Hạng Mục combines into one
+      // (see BuildPackagePopup). Only brands with at least one filled-in
+      // metric get a row — an ad-platform group nobody touched doesn't
+      // leave a stray 0 row behind.
+      const rows = entries.map((e) => ({ ...e, amount: (e.count_posts || 0) * (e.unit_price || 0) }));
+      setSummary(rows);
+
+      const totalsByBrand = {};
+      for (const adsBrandKey of ADS_BRANDS) {
+        const brandRows = rows.filter((r) => r.brand === adsBrandKey);
+        const totalMoney = brandRows.reduce((sum, r) => sum + r.amount, 0);
+        const totalQty = brandRows.reduce((sum, r) => sum + (r.count_posts || 0), 0);
+        // Round 54 — item A.5: include the actual số lượng in each piece,
+        // not just the metric name, so the right-panel Chi Tiết reads
+        // "SL 30 Lượt tiếp cận; SL 300 Lượt tương tác" instead of just
+        // naming which metrics were filled in.
+        const detailText = brandRows.filter((r) => (r.count_posts || 0) > 0).map((r) => `SL ${r.count_posts} ${r.platform}`).join("; ");
+        if (brandRows.length === 0 || (totalQty === 0 && !detailText)) continue;
+        totalsByBrand[adsBrandKey] = totalQty;
+        // Round 114 — a real per-metric quantity (count_posts) already
+        // exists on every row right here; it was being summed into totalQty
+        // and stringified into detailText but never kept in its structured
+        // { metric: count } shape past this point, so the Booking Board had
+        // no way to show a real target for any brand but YouTube Ads (its
+        // one metric IS totalQty). Carrying this map through to
+        // syncPackageLine fixes that — see media_booking_package_lines.
+        // metric_quantities and app/booking/page.js's bookedFor().
+        const metricQuantities = {};
+        brandRows.forEach((r) => { if ((r.count_posts || 0) > 0) metricQuantities[r.platform] = r.count_posts; });
+        // Round 114 — also stored on the rollup row itself (not just
+        // synced onto the live package line below), so a package built
+        // fresh from already-summarized rows (createPackage's non-clone
+        // path) — a Hạng Mục summarized in an earlier session, package
+        // never built yet — carries the real per-metric numbers too,
+        // instead of only the brand that happened to be re-Summarized
+        // interactively.
+        await supabase.from("media_booking_package_categories").upsert(
+          { release_id: release.id, category_id: selectedCategoryId, brand: adsBrandKey, total_posts: totalQty, total_money: totalMoney, detail_text: detailText || null, metric_quantities: Object.keys(metricQuantities).length > 0 ? metricQuantities : null, skipped: false, updated_at: new Date().toISOString() },
+          { onConflict: "release_id,category_id,brand" }
+        );
+        // Ads never mushes brands together — sync this brand's own line
+        // straight in, using the numbers just computed (no refetch needed).
+        // Round 77 — totalPosts (totalQty) is now passed through; see the
+        // fix note on syncPackageLine's Ads branch below for why this was
+        // missing and what it broke.
+        await syncPackageLine({ key: `${selectedCategoryId}::${adsBrandKey}`, categoryId: selectedCategoryId, categoryName: "Ads", isAds: true, brand: adsBrandKey, totalMoney, totalPosts: totalQty, detailText, metricQuantities });
+      }
+      setCategoryTotals((prev) => ({ ...prev, ...totalsByBrand }));
+      setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
+      setSkippedCategoryIds((prev) => { const next = new Set(prev); next.delete(selectedCategoryId); return next; });
+      await refreshSummarizedRows();
+      return;
+    }
+
+    const byPlatform = {};
+    PLATFORMS.forEach((p) => (byPlatform[p] = { platform: p, channelCount: 0, totalPosts: 0 }));
+    entries.forEach((e) => {
+      if (!e.platform) return;
+      // channel_count defaults to 1 and stays that way for Social (no
+      // Số Kênh column there) — so summing it is equivalent to counting
+      // rows for every category except Community, where it's now editable.
+      const rowChannels = e.channel_count || 1;
+      const rowPosts = PHASES.reduce((sum, [key]) => sum + (e[key] || 0), 0);
+      byPlatform[e.platform].channelCount += rowChannels;
+      // Round 80 — unified formula per explicit request: multiply Số
+      // Lượng Kênh × Số Lượng Bài PER ROW, then sum those products —
+      // sum(byrow(số lượng kênh, số lượng bài)) — instead of the previous
+      // sum(channel counts) and sum(post counts) kept independent of each
+      // other. Matches what TikTok Channel's own formula already did.
+      byPlatform[e.platform].totalPosts += rowChannels * rowPosts;
+    });
+    const rows = PLATFORMS.map((p) => byPlatform[p]).filter((r) => r.channelCount > 0);
+    setSummary(rows);
+
+    const totalPosts = rows.reduce((sum, r) => sum + r.totalPosts, 0);
+    const rollupBrand = isSocial ? brand : isCommunity ? communityBrand : "";
+    // Round 120 — per-platform breakdown for THIS brand, same idea as
+    // TikTok Channel's subchannelTotals above — `rows` already has one
+    // entry per platform with its own totalPosts.
+    const platformTotals = {};
+    rows.forEach((r) => { platformTotals[r.platform] = r.totalPosts; });
+    await supabase.from("media_booking_package_categories").upsert(
+      { release_id: release.id, category_id: selectedCategoryId, brand: rollupBrand, total_posts: totalPosts, platform_quantities: Object.keys(platformTotals).length > 0 ? platformTotals : null, skipped: false, updated_at: new Date().toISOString() },
+      { onConflict: "release_id,category_id,brand" }
+    );
+    setCategoryTotals((prev) => ({ ...prev, [rollupBrand]: totalPosts }));
+    setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
+    setSkippedCategoryIds((prev) => { const next = new Set(prev); next.delete(selectedCategoryId); return next; });
+    // Social/Community mush every brand bracket together into ONE package
+    // line, same as TikTok Channel above — sync with the cumulative total
+    // across every brand summarized so far for this Hạng Mục, not just the
+    // one just saved.
+    const freshRows = await refreshSummarizedRows();
+    const freshGroup = groupSummarizedRows(freshRows).find((g) => g.categoryId === selectedCategoryId);
+    await syncPackageLine(freshGroup);
+  }
+
+  // "Skip" — marks a Hạng Mục as intentionally not applicable, satisfying
+  // the same all-4-Hạng-Mục gate as a real Summarize without needing any
+  // entries. Disabled once real rows exist (see the button below) so it
+  // can't accidentally stomp real data with a 0.
+  async function handleSkip() {
+    const rollupBrand = isTikTokChannel ? "" : isSocial ? brand : isCommunity ? communityBrand : "";
+    await supabase.from("media_booking_package_categories").upsert(
+      { release_id: release.id, category_id: selectedCategoryId, brand: rollupBrand, total_posts: 0, skipped: true, updated_at: new Date().toISOString() },
+      { onConflict: "release_id,category_id,brand" }
+    );
+    setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
+    setSkippedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
+    await refreshSummarizedRows();
+  }
+
+  // Đợt 2 targets save immediately on blur, same convention as everywhere
+  // else here — no separate Save step.
+  async function saveDot2Targets(patch) {
+    const merged = { ...dot2Targets, ...patch };
+    setDot2Targets(merged);
+    await supabase.from("media_booking_dot2_targets").upsert(
+      { release_id: release.id, category_id: selectedCategoryId, ...merged, updated_at: new Date().toISOString() },
+      { onConflict: "release_id,category_id" }
+    );
+  }
+
+  const allCategoriesSummarized = categories.length > 0 && categories.every((c) => summarizedCategoryIds.has(c.id));
+
+  // --- Package building — was BuildPackagePopup's own state/logic, moved
+  // up here so the DSP grid (this component's real data-entry tool) and the
+  // Packages panel can sit side by side and share the same "Add to Package"
+  // action, instead of two separate overlays with their own duplicate
+  // "Summarized Hạng Mục" picker in between. ---
+
+  const activePackage = packages.find((p) => p.id === activePackageId);
+  // Round 86 follow-up item 2 — INT MEDIA used to have its own `isIntMedia`
+  // flag here, driving a "mushed" read-only list in PackagesPanel (Hạng
+  // Mục names only, no quantities/pricing/detail at all). Per explicit
+  // request ("change that to much like of a vĩnh viễn template"), INT
+  // MEDIA's right panel is now the same full editable table every other
+  // tier (Vĩnh Viễn/Custom Years/Internal Package) already gets —
+  // drag-to-reorder, Chi Tiết, Đơn Giá, Thành Tiền, all editable exactly
+  // the same way — so that flag and its one call site are gone. Unrelated
+  // to PackageNamePopup's own allowIntMedia/intMediaTaken logic ("INT
+  // MEDIA must always be a deliberate click, never auto-defaulted") — that
+  // stays exactly as-is, this only changes how an already-built INT MEDIA
+  // package's lines are displayed/edited afterward.
+
+  async function createPackage(name, cloneFromId) {
+    const { data: pkg } = await supabase.from("media_booking_packages").insert({ release_id: release.id, name, sort_order: packages.length }).select().single();
+    if (!pkg) return;
+    let lines = [];
+    if (cloneFromId) {
+      const source = packages.find((p) => p.id === cloneFromId);
+      // Round 86 follow-up 5 — this used to drop unit_price entirely (only
+      // unit/quantity/detail/amount were copied), so a cloned package's
+      // Đơn Giá column always came back blank even though the source
+      // line's Đơn Giá — and the amount computed from it — was right
+      // there. Đơn Giá now clones along with everything else.
+      const cloneRows = (source?.media_booking_package_lines || []).map((l, i) => ({
+        package_id: pkg.id, category_id: l.category_id, brand: l.brand, unit: l.unit, quantity: l.quantity, detail: l.detail, unit_price: l.unit_price, amount: l.amount,
+        metric_quantities: l.metric_quantities || null, // Round 114
+        sort_order: i,
+      }));
+      if (cloneRows.length > 0) {
+        const { data: inserted } = await supabase.from("media_booking_package_lines").insert(cloneRows).select();
+        lines = inserted || [];
+      }
+    } else {
+      // Round 61 — a brand-new (non-cloned) package used to start
+      // completely empty even if every Hạng Mục had already been
+      // summarized before anyone clicked "Create Package" — syncPackageLine
+      // only fires from inside handleSummarize, so with no active package
+      // to sync INTO yet, all that prior summarizing went nowhere, and
+      // building the package for the first time meant re-clicking
+      // Summarize on every Hạng Mục all over again just to trigger the
+      // sync. Now the first build pulls in whatever's already been
+      // summarized immediately — same insert shape syncPackageLine uses
+      // for a brand-new line, just computed for every group at once
+      // instead of one at a time. Skipped Hạng Mục are excluded, same as
+      // Summarize itself never syncs a Skip.
+      const groups = groupSummarizedRows(summarizedRows.filter((r) => !r.skipped));
+      const insertRows = groups.map((g, i) => {
+        if (g.isAds) {
+          const isYoutubeAds = g.brand === "YouTube Ads";
+          return {
+            package_id: pkg.id, category_id: g.categoryId, brand: g.brand,
+            // Round 125 follow-up — this "seed a brand-new package from
+            // already-summarized rows" path was missed by Round 103's fix:
+            // syncPackageLine (the normal Summarize-time path) and the
+            // clone-from-another-product path both already force YouTube
+            // Ads's Chi Tiết to the fixed MCN text, but this one still
+            // wrote g.detailText raw — the old "SL 20000 Thruplay (Views)"
+            // auto-generated string (see handleSummarize's Ads branch),
+            // never the fixed text, for any release where "Create Package"
+            // was the very first action after summarizing (no prior
+            // syncPackageLine call to have already overwritten it).
+            unit: null, quantity: isYoutubeAds ? g.totalPosts ?? null : null, detail: isYoutubeAds ? YOUTUBE_ADS_DEFAULT_DETAIL : (g.detailText || null), amount: g.totalMoney ?? null,
+            metric_quantities: g.metricQuantities || null, // Round 114
+            sort_order: i,
+          };
+        }
+        const unitPrice = priceDefaultsRef.current.categories[g.categoryName] ?? null;
+        return {
+          package_id: pkg.id, category_id: g.categoryId, brand: "",
+          unit: referenceDetailFor(referenceTiers, g.categoryName)?.unit || "Bài Đăng",
+          quantity: g.totalPosts, detail: referenceDetailFor(referenceTiers, g.categoryName)?.detail || null,
+          unit_price: unitPrice, amount: unitPrice != null ? unitPrice * (g.totalPosts || 0) : null,
+          brand_column_quantities: g.brandColumnQuantities ?? null, // Round 120
+          sort_order: i,
+        };
+      });
+      if (insertRows.length > 0) {
+        const { data: inserted } = await supabase.from("media_booking_package_lines").insert(insertRows).select();
+        lines = inserted || [];
+      }
+    }
+    setPackages((prev) => [...prev, { ...pkg, media_booking_package_lines: lines }]);
+    setActivePackageId(pkg.id);
+    setNamePopup(null);
+  }
+
+  async function deletePackage(pkg) {
+    if (!window.confirm(`Delete package "${pkg.name}"? This can't be undone.`)) return;
+    await supabase.from("media_booking_packages").delete().eq("id", pkg.id);
+    setPackages((prev) => {
+      const next = prev.filter((p) => p.id !== pkg.id);
+      if (activePackageId === pkg.id) setActivePackageId(next[0]?.id || null);
+      return next;
+    });
+  }
+
+  function lineFor(categoryId, brand) {
+    return (activePackage?.media_booking_package_lines || []).find((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
+  }
+
+  // Every OTHER Hạng Mục mushes its brand rows into ONE combined package
+  // line (brand '') when building — Social's VIEENT+ENVI, Community's 3
+  // page brands, TikTok Channel's 8 sub-brands all become a single row
+  // with a summed quantity, since the built package/magic link never
+  // needs the brand breakdown. Ads is the one exception — since
+  // handleSummarize now rolls it up per ad-platform brand (Facebook/
+  // YouTube/TikTok/Spotify Ads), it keeps one group per summarized row,
+  // i.e. one line per brand, on purpose.
+  function groupSummarizedRows(rows) {
+    const groups = {};
+    rows.forEach((r) => {
+      const categoryName = r.package_categories?.name || "";
+      if (categoryName === "Ads") {
+        const key = `${r.category_id}::${r.brand || ""}`;
+        groups[key] = { key, categoryId: r.category_id, categoryName, isAds: true, brand: r.brand, totalPosts: r.total_posts, detailText: r.detail_text, totalMoney: r.total_money, metricQuantities: r.metric_quantities || null, rows: [r] };
+      } else {
+        const key = r.category_id;
+        if (!groups[key]) groups[key] = { key, categoryId: r.category_id, categoryName, isAds: false, brand: "", totalPosts: 0, rows: [], brandColumnQuantities: {} };
+        groups[key].totalPosts += r.total_posts || 0;
+        groups[key].rows.push(r);
+        // Round 120 — merge this rollup row's own per-brand
+        // platform_quantities into the group's cumulative map, keyed
+        // "brand::column" (r.brand is the REAL brand this one rollup row
+        // belongs to, unlike the group's own `brand: ""`) — so a package
+        // line built/synced from this group carries every brand's real
+        // per-platform/per-subchannel numbers, not just the mushed total.
+        // See syncPackageLine below and app/booking/page.js's bookedFor().
+        if (r.platform_quantities) {
+          Object.entries(r.platform_quantities).forEach(([col, qty]) => {
+            groups[key].brandColumnQuantities[`${r.brand || ""}::${col}`] = qty;
+          });
+        }
+      }
+    });
+    Object.values(groups).forEach((g) => {
+      if (g.brandColumnQuantities && Object.keys(g.brandColumnQuantities).length === 0) g.brandColumnQuantities = null;
+    });
+    return Object.values(groups);
+  }
+
+  // The group matching whatever Hạng Mục/brand is currently selected in the
+  // DSP grid. null until that Hạng Mục has been summarized at least once
+  // (nothing to sync into a package yet).
+  function currentGroup() {
+    const groups = groupSummarizedRows(summarizedRows);
+    if (isAds) return groups.find((g) => g.categoryId === selectedCategoryId && g.brand === adsBrand) || null;
+    return groups.find((g) => g.categoryId === selectedCategoryId) || null;
+  }
+
+  // Round 54 — item A.3: Summarize now syncs straight into whichever
+  // package tab is active, instead of requiring a separate "Add to
+  // Package" click. If there's no active package yet (nobody's clicked
+  // "Create Package" for this release), this is a no-op — Summarize just
+  // records the rollup in media_booking_package_categories as before, and
+  // nothing gets added anywhere until a package actually exists.
+  //
+  // Upserts rather than always inserting: re-Summarizing the same Hạng
+  // Mục/brand after editing numbers updates the existing line's
+  // quantity/detail/amount in place rather than creating a duplicate.
+  // Đơn Giá is only ever SET on first insert (from the configured
+  // default) — an update never touches unit_price, so re-Summarizing
+  // can't clobber an edit someone already made in the building panel.
+  async function syncPackageLine(group) {
+    if (!activePackage || !group) return;
+    const existing = lineFor(group.categoryId, group.brand);
+    if (group.isAds) {
+      // Ads mushes into one line PER BRAND with a pre-computed Chi Tiết +
+      // Thành Tiền straight from Summarize's per-brand pricing — no unit,
+      // and (for most brands) no single meaningful quantity, since e.g.
+      // Facebook Ads sums 3 different metrics (Lượt tiếp cận + Lượt
+      // tương tác + Lượt truy cập) into one lump amount that doesn't map
+      // to any single number.
+      //
+      // Round 77 fix — YouTube Ads is the one Ads brand with exactly one
+      // possible metric (ADS_METRICS["YouTube Ads"] = ["Thruplay
+      // (Views)"] — same fact syncYoutubeAdsLine's comment already notes),
+      // so group.totalPosts IS a real, single, unambiguous quantity for
+      // it — unlike every other Ads brand. This branch used to always
+      // write quantity: null regardless of brand (and handleSummarize
+      // didn't even pass totalPosts through to get here), so the booking
+      // board's bookedFor() — which reads l.quantity — always summed to 0
+      // for a freshly-Summarized YouTube Ads line, even though the
+      // package popup's Chi Tiết text ("SL 5000 Thruplay (Views)")
+      // showed the real number right there. The number was only ever
+      // written to the DB's quantity column later, if someone happened to
+      // also edit the dedicated quantity field in the right panel
+      // (syncYoutubeAdsLine) — otherwise it silently stayed null/0
+      // forever. Writing it here too closes that gap at the source.
+      const isYoutubeAds = group.brand === "YouTube Ads";
+      const qty = isYoutubeAds ? group.totalPosts ?? null : null;
+      // Round 114 — the real per-metric quantities (e.g. { "HPTO": 10,
+      // "In-Stream Audio": 5 }), computed in handleSummarize just above
+      // from each row's own count_posts. Persisted for every Ads brand
+      // (including YouTube Ads, for consistency, even though its single
+      // metric is already covered by `quantity`) — this is what lets the
+      // Booking Board show a real target per subchannel column instead of
+      // always reading "—" for Facebook/TikTok/Spotify Ads. See
+      // app/booking/page.js's bookedFor().
+      const metricQuantities = Object.keys(group.metricQuantities || {}).length > 0 ? group.metricQuantities : null;
+      if (existing) {
+        // Round 78 — item 2: Chi Tiết is a freely-editable field for every
+        // OTHER Ads brand, so re-Summarize only recomputes the objective
+        // numbers (quantity/amount) and leaves whatever's already typed
+        // there alone — same "never clobber a manual edit" rule Đơn Giá
+        // already gets on every other Hạng Mục.
+        //
+        // Round 103 — reverted for YouTube Ads specifically, per explicit
+        // request: Số Lượng and Chi Tiết go back to being computed/fixed,
+        // not freely editable (see PackagesPanel's row rendering below,
+        // which now shows both read-only for this one brand). So unlike
+        // every other Ads brand, YouTube Ads's Chi Tiết IS recomputed here
+        // on every re-Summarize too — always the fixed MCN text, never a
+        // stale manual edit left over from before this revert.
+        // Round 116 — same null-unit_price-stuck-forever bug as the
+        // non-Ads branch below (see its comment), applied here too since
+        // YouTube Ads is the one Ads brand that actually keeps a real,
+        // editable per-line Đơn Giá (every other Ads brand's Đơn Giá cell
+        // is read-only, computed straight from Thành Tiền — see
+        // PackagesPanel's row rendering). Only backfills when currently
+        // null; a real (including manually-edited) price is never touched.
+        const backfillYoutubeUnitPrice = existing.unit_price == null
+          ? (qty ? Math.round((group.totalMoney ?? 0) / qty) : priceDefaultsRef.current.ads["YouTube Ads"]?.["Thruplay (Views)"] ?? null)
+          : null;
+        const patch = isYoutubeAds
+          ? { quantity: qty, amount: group.totalMoney ?? null, detail: YOUTUBE_ADS_DEFAULT_DETAIL, metric_quantities: metricQuantities, ...(backfillYoutubeUnitPrice != null ? { unit_price: backfillYoutubeUnitPrice } : {}) }
+          : { quantity: qty, amount: group.totalMoney ?? null, metric_quantities: metricQuantities };
+        await supabase.from("media_booking_package_lines").update(patch).eq("id", existing.id);
+        setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === existing.id ? { ...l, ...patch } : l)) })));
+      } else {
+        // Round 78 — item 1: YouTube Ads lines also seed a default Đơn Giá
+        // on first insert instead of staying blank — computed as this
+        // Summarize's actual price-per-unit (totalMoney / totalPosts, i.e.
+        // exactly what was entered on the left grid for its one metric),
+        // falling back to the configured default only if that can't be
+        // computed. Every other Ads brand keeps unit_price null — they
+        // mush multiple metrics into one lump amount with no single
+        // per-unit price to show. Đơn Giá stays freely editable afterward
+        // (see PackagesPanel). Item 3 / Round 103 — YouTube Ads's Chi Tiết
+        // is always this same fixed MCN text, both on first insert and on
+        // every re-Summarize (see the `existing` branch above) — no longer
+        // freely editable for this one brand, unlike every other Ads
+        // brand's Chi Tiết.
+        const unitPrice = isYoutubeAds
+          ? (qty ? Math.round((group.totalMoney ?? 0) / qty) : priceDefaultsRef.current.ads["YouTube Ads"]?.["Thruplay (Views)"] ?? null)
+          : null;
+        const detail = isYoutubeAds ? YOUTUBE_ADS_DEFAULT_DETAIL : (group.detailText || null);
+        const insertPayload = {
+          package_id: activePackage.id, category_id: group.categoryId, brand: group.brand,
+          unit: null, quantity: qty, detail, unit_price: unitPrice, amount: group.totalMoney ?? null,
+          metric_quantities: metricQuantities,
+          sort_order: (activePackage.media_booking_package_lines || []).length,
+        };
+        const { data: line } = await supabase.from("media_booking_package_lines").insert(insertPayload).select().single();
+        if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
+      }
+      return;
+    }
+    const categoryName = group.categoryName;
+    if (existing) {
+      // Round 116 — Đơn Giá used to be set ONLY on a line's first insert
+      // (see the `else` branch below) and never touched again on
+      // re-Summarize, on purpose — so a manual edit to Đơn Giá survives
+      // re-Summarizing (see the comment on the Ads branch above, same
+      // rule). But that also meant a line whose Đơn Giá came back null at
+      // FIRST-insert time (Config → Media Booking Pricing had no default
+      // configured yet for this category, or the key didn't match) stayed
+      // null forever afterward — every later re-Summarize left it alone,
+      // even once a real default got configured in Config. That's exactly
+      // the reported symptom: "the default number was set, not Null" (in
+      // Config, now) "but Đơn Giá usually went blank" (on an OLDER line,
+      // synced before that default existed). Backfilling ONLY when it's
+      // currently null (never overwriting a real, possibly manually-typed
+      // price) keeps the "never clobber a manual edit" guarantee while
+      // letting a genuinely-never-set price pick up a default once one
+      // becomes available.
+      const backfillUnitPrice = existing.unit_price == null ? (priceDefaultsRef.current.categories[categoryName] ?? null) : existing.unit_price;
+      // Round 120 — persist the cumulative per-brand column breakdown on
+      // every re-Summarize too, same "recompute in full from the latest
+      // rollup rows" treatment quantity/amount already get — see
+      // groupSummarizedRows' brandColumnQuantities.
+      const patch = { quantity: group.totalPosts, brand_column_quantities: group.brandColumnQuantities ?? null, ...(existing.unit_price == null && backfillUnitPrice != null ? { unit_price: backfillUnitPrice } : {}) };
+      const amount = computeLineAmount({ ...existing, ...patch });
+      const fullPatch = { ...patch, amount };
+      await supabase.from("media_booking_package_lines").update(fullPatch).eq("id", existing.id);
+      setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === existing.id ? { ...l, ...fullPatch } : l)) })));
+    } else {
+      const unitPrice = priceDefaultsRef.current.categories[categoryName] ?? null;
+      const insertPayload = {
+        package_id: activePackage.id, category_id: group.categoryId, brand: "",
+        unit: referenceDetailFor(referenceTiers, categoryName)?.unit || "Bài Đăng",
+        quantity: group.totalPosts, detail: referenceDetailFor(referenceTiers, categoryName)?.detail || null,
+        unit_price: unitPrice, amount: unitPrice != null ? unitPrice * (group.totalPosts || 0) : null,
+        brand_column_quantities: group.brandColumnQuantities ?? null,
+        sort_order: (activePackage.media_booking_package_lines || []).length,
+      };
+      const { data: line } = await supabase.from("media_booking_package_lines").insert(insertPayload).select().single();
+      if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
+    }
+  }
+
+  // Generic field-level line editor — writes to DB the moment a value
+  // changes. Recomputes and persists Thành Tiền alongside every write since
+  // it's always derived, never typed directly.
+  async function updateLine(line, patch) {
+    const merged = { ...line, ...patch };
+    const cat = categories.find((c) => c.id === line.category_id);
+    // Ads lines are mushed and pre-priced at Summarize time (amount comes
+    // from media_booking_package_categories.total_money) — they never carry
+    // a unit_price here, so the generic computeLineAmount() would always
+    // null the amount out the moment someone edits Chi Tiết. Skip recompute
+    // for Ads and just keep whatever amount the line already has.
+    const isAdsLine = cat?.name === "Ads";
+    const amount = isAdsLine ? line.amount : computeLineAmount(merged);
+    const fullPatch = { ...patch, amount };
+    await supabase.from("media_booking_package_lines").update(fullPatch).eq("id", line.id);
+    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...fullPatch } : l)) })));
+  }
+
+  // Round 65 — item 2: YouTube Ads is the one Ads brand with exactly one
+  // possible metric ("Thruplay (Views)" — see ADS_METRICS), so unlike
+  // every other Ads brand (which can have several metric rows mushed into
+  // one lump amount, never individually editable from the right panel),
+  // its package line can safely be treated as a direct 1:1 mirror of its
+  // single underlying media_booking_content_entries row. This edits BOTH
+  // sides — the entry (so the left DSP grid stays correct too) and the
+  // package line/rollup — instead of only patching the line like
+  // updateLine() does for every other Hạng Mục. Re-queries the entry fresh
+  // rather than relying on `entries` state, since the right panel can be
+  // open while the left grid is showing an entirely different Hạng Mục.
+  // Round 103 — PackagesPanel only ever calls this with field="unit_price"
+  // now (Số Lượng went back to view-only, summed on the left grid — see
+  // that panel's row rendering); left generic since nothing else about the
+  // sync itself changed.
+  async function syncYoutubeAdsLine(line, field, value) {
+    const adsCategoryId = line.category_id;
+    const { data: existingEntry } = await supabase
+      .from("media_booking_content_entries")
+      .select("*")
+      .eq("release_id", release.id)
+      .eq("category_id", adsCategoryId)
+      .eq("brand", "YouTube Ads")
+      .order("sort_order")
+      .limit(1)
+      .maybeSingle();
+
+    let entryAfter;
+    if (existingEntry) {
+      await supabase.from("media_booking_content_entries").update({ [field]: value }).eq("id", existingEntry.id);
+      entryAfter = { ...existingEntry, [field]: value };
+    } else {
+      const insertPayload = {
+        release_id: release.id, category_id: adsCategoryId, brand: "YouTube Ads", platform: "Thruplay (Views)",
+        count_posts: field === "count_posts" ? value : 0,
+        unit_price: field === "unit_price" ? value : priceDefaultsRef.current.ads["YouTube Ads"]?.["Thruplay (Views)"] ?? null,
+        sort_order: 0,
+      };
+      const { data: inserted } = await supabase.from("media_booking_content_entries").insert(insertPayload).select().single();
+      entryAfter = inserted;
+    }
+    if (!entryAfter) return;
+
+    // Keep the left DSP grid's own `entries` state in sync too, if it
+    // happens to already have this row loaded (i.e. Ads is the currently
+    // selected Hạng Mục).
+    setEntries((prev) => {
+      const idx = prev.findIndex((e) => e.id === entryAfter.id);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      next[idx] = entryAfter;
+      return next;
+    });
+
+    const totalMoney = (entryAfter.count_posts || 0) * (entryAfter.unit_price || 0);
+    await supabase.from("media_booking_package_categories").upsert(
+      { release_id: release.id, category_id: adsCategoryId, brand: "YouTube Ads", total_posts: entryAfter.count_posts || 0, total_money: totalMoney, skipped: false, updated_at: new Date().toISOString() },
+      { onConflict: "release_id,category_id,brand" }
+    );
+
+    // Round 103 — Chi Tiết isn't touched here on purpose: it's always the
+    // fixed MCN text now (YOUTUBE_ADS_DEFAULT_DETAIL), written by
+    // syncPackageLine on Summarize — editing Đơn Giá here has nothing to do
+    // with it, so it's left out of this patch entirely (same as before).
+    const linePatch = { quantity: entryAfter.count_posts || 0, unit_price: entryAfter.unit_price ?? null, amount: totalMoney };
+    await supabase.from("media_booking_package_lines").update(linePatch).eq("id", line.id);
+    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...linePatch } : l)) })));
+  }
+
+  // "Convert to Package" — 2-way toggle, flips the Thành Tiền formula
+  // between Đơn Giá × Tổng Số Bài Đăng and Đơn Giá × Số Gói. Free to flip
+  // back anytime, writes immediately either way.
+  function toggleLinePricing(line) {
+    updateLine(line, { is_package_priced: !line.is_package_priced });
+  }
+
+  // Round 68 — item 2b: Recording Studio used to be a PREBUILT_ADDONS line
+  // added to one specific package (see the now-removed "Recording Studio"
+  // entry above). Per explicit correction, it's picked per PRODUCT (this
+  // release), not per package — an artist offered "Độc Quyền 5 năm" or
+  // "Chỉ Phát Hành" should see it on the magic link the same either way if
+  // it was included, which a package-specific line can't do. Lives on
+  // releases.recording_studio_included (round 68 migration) instead —
+  // this just flips it, no package/line involved at all.
+  async function toggleRecordingStudio() {
+    if (!release) return;
+    const next = !release.recording_studio_included;
+    setRelease((r) => ({ ...r, recording_studio_included: next }));
+    await supabase.from("releases").update({ recording_studio_included: next }).eq("id", release.id);
+  }
+
+  // Round 93 — the AR team's YouTube URL + Booking request fields, same
+  // pair of columns as the release detail page's Có Trong Net YouTube
+  // panel and the Booking Board's YouTube Ads column popup. Immediate save
+  // straight to the release, same idiom as toggleRecordingStudio above.
+  async function saveYoutubeAdsField(field, value) {
+    if (!release) return;
+    setRelease((r) => ({ ...r, [field]: value }));
+    await supabase.from("releases").update({ [field]: value }).eq("id", release.id);
+  }
+
+  async function addPrebuiltLine(addon) {
+    if (!activePackage) return;
+    // Round 152 — seed with the configured default price (Config → Media
+    // Booking Pricing) instead of always leaving Đơn Giá blank. Same
+    // priceDefaultsRef pattern already used for category/Ads rows
+    // elsewhere in this file — `?? null` so an addon with no configured
+    // default (the other 3 PREBUILT_ADDONS, for now) keeps the old
+    // blank-and-type-it-in behavior.
+    const defaultAmount = priceDefaultsRef.current.addons?.[addon.name] ?? null;
+    const { data: line } = await supabase
+      .from("media_booking_package_lines")
+      .insert({
+        package_id: activePackage.id, category_id: null, platform: addon.name, brand: "",
+        unit: addon.unit, quantity: 1, detail: addon.detail, amount: defaultAmount,
+        sort_order: (activePackage.media_booking_package_lines || []).length,
+      })
+      .select()
+      .single();
+    if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
+  }
+
+  async function deleteLine(line) {
+    await supabase.from("media_booking_package_lines").delete().eq("id", line.id);
+    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.filter((l) => l.id !== line.id) })));
+  }
+
+  // Round 54 — item A.4: drag-to-reorder Hạng Mục rows in the Packages
+  // panel. Takes the FULL line array already in its new order (the caller —
+  // PackagesPanel's drag handlers — does the array move) and just persists
+  // fresh 0..n-1 sort_order values against that order.
+  async function reorderLines(orderedLines) {
+    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: orderedLines.map((l, i) => ({ ...l, sort_order: i })) })));
+    await Promise.all(orderedLines.map((l, i) => supabase.from("media_booking_package_lines").update({ sort_order: i }).eq("id", l.id)));
+  }
+
+  async function handleGenerateLink() {
+    if (!release) return;
+    setGeneratingLink(true);
+    const { data, error } = await supabase.from("magic_links").insert({ release_id: release.id }).select("token").single();
+    setGeneratingLink(false);
+    if (!error && data) {
+      const url = `${window.location.origin}/pick-package/${data.token}`;
+      // "Link Media Report" on the URL tab is no longer hand-typed — it's
+      // just wherever the release's magic link points, so keep it in sync
+      // the moment a link is generated.
+      await supabase.from("releases").update({ link_media_report: url }).eq("id", release.id);
+      setMagicLinkUrl(url);
+    }
+  }
+
+  const hasSavedPackage = packages.length > 0;
+
+  // Round 141 — "for now", per explicit request: only Marketing admin+
+  // (plus dev) can open the actual package builder. Everyone else still
+  // sees the ticket list/status/counts (unaffected by this) — just not
+  // this popup's contents. See canEditMediaBookingTicket in
+  // lib/permissions.js for the exact rule.
+  if (!canEdit) {
+    return (
+      <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 0 : 20 }} onClick={onClose}>
+        <div
+          style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, maxWidth: 420, width: "100%", padding: 24 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className={styles.emptyState}>Not available for your role.</div>
+          <button className={styles.btnSecondary} style={{ marginTop: 16 }} onClick={onClose}>Close</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 0 : 20 }} onClick={onClose}>
+      <div
+        style={{
+          background: "var(--bg)",
+          border: isMobile ? "none" : "1px solid var(--border-strong)",
+          borderRadius: isMobile ? 0 : 10,
+          maxWidth: isMobile ? "100vw" : showBuildPopup ? 1600 : 900,
+          width: "100%",
+          height: isMobile ? "100vh" : undefined,
+          maxHeight: isMobile ? "100vh" : "88vh",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {loading ? (
+          <div className={styles.emptyState} style={{ padding: 24 }}>Loading…</div>
+        ) : (
+          <>
+            {/* Round 87 — mobile tab switcher, only rendered once there's
+                actually a Package panel to switch to (showBuildPopup) and
+                only on mobile — desktop never sees this, both panels just
+                show side by side as before. */}
+            {isMobile && showBuildPopup && (
+              <div style={{ display: "flex", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+                {[["data", "Data Entry"], ["package", "Package"]].map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setMobileTab(key)}
+                    style={{
+                      flex: 1, padding: "12px 0", fontSize: 13, fontWeight: 700, cursor: "pointer",
+                      border: "none", borderBottom: mobileTab === key ? "2px solid var(--accent)" : "2px solid transparent",
+                      background: "transparent", color: mobileTab === key ? "var(--accent-soft)" : "var(--text-faint)",
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", flex: 1, overflow: "hidden", flexDirection: isMobile ? "column" : "row" }}>
+              {(!isMobile || !showBuildPopup || mobileTab === "data") && (
+              <>
+              {/* LEFT — Hạng Mục picker. Narrowed a bit (was 190) when the
+                  Packages panel is open, to give that panel more room. */}
+              <div style={{ width: isMobile ? "100%" : showBuildPopup ? 160 : 190, borderRight: isMobile ? "none" : "1px solid var(--border)", borderBottom: isMobile ? "1px solid var(--border)" : "none", flexShrink: 0, padding: 16, overflowY: "auto" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>Hạng Mục</div>
+                {categories.map((c) => {
+                  const done = summarizedCategoryIds.has(c.id);
+                  const skipped = skippedCategoryIds.has(c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => setSelectedCategoryId(c.id)}
+                      style={{
+                        display: "block", width: "100%", textAlign: "left", padding: "8px 10px", fontSize: 13, fontWeight: 700, borderRadius: 6, marginBottom: 4, cursor: "pointer",
+                        border: selectedCategoryId === c.id ? "1px solid var(--accent)" : "1px solid transparent",
+                        background: selectedCategoryId === c.id ? "rgba(255,107,26,0.1)" : "transparent",
+                        color: selectedCategoryId === c.id ? "var(--accent-soft)" : "var(--text)",
+                      }}
+                    >
+                      {c.name} {done && <span style={{ color: skipped ? "var(--text-faint)" : "var(--success-fg)" }}>●</span>}{skipped && <span style={{ fontSize: 9, color: "var(--text-faint)", marginLeft: 4 }}>SKIPPED</span>}
+                    </button>
+                  );
+                })}
+                {isSocial && (
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>Brand</div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      {BRANDS.map((b) => (
+                        <button key={b} onClick={() => setBrand(b)} style={{ flex: 1, padding: "6px 0", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", border: brand === b ? "1px solid var(--accent)" : "1px solid var(--border-strong)", background: brand === b ? "rgba(255,107,26,0.1)" : "transparent", color: brand === b ? "var(--accent-soft)" : "var(--text)" }}>
+                          {b}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {isCommunity && (
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>Brand</div>
+                    <div style={{ display: "grid", gap: 4 }}>
+                      {COMMUNITY_BRANDS.map((b) => (
+                        <button
+                          key={b}
+                          onClick={() => setCommunityBrand(b)}
+                          style={{ textAlign: "left", padding: "6px 8px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", border: communityBrand === b ? "1px solid var(--accent)" : "1px solid var(--border-strong)", background: communityBrand === b ? "rgba(255,107,26,0.1)" : "transparent", color: communityBrand === b ? "var(--accent-soft)" : "var(--text)" }}
+                        >
+                          {b}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {isAds && (
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>Ad Platform</div>
+                    <div style={{ display: "grid", gap: 4 }}>
+                      {ADS_BRANDS.map((b) => {
+                        const brandEntryCount = entries.filter((e) => e.brand === b).length;
+                        return (
+                          <button
+                            key={b}
+                            onClick={() => setAdsBrand(b)}
+                            style={{
+                              textAlign: "left", padding: "6px 8px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer",
+                              border: adsBrand === b ? `1px solid ${ADS_BRAND_COLORS[b]}` : "1px solid var(--border-strong)",
+                              background: adsBrand === b ? ADS_BRAND_COLORS[b] : "transparent",
+                              color: adsBrand === b ? "#fff" : "var(--text)",
+                            }}
+                          >
+                            {b} {brandEntryCount > 0 && <span style={{ opacity: 0.8 }}>({brandEntryCount})</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {isTikTokChannel && (
+                  <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>Group</div>
+                    <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
+                      {Object.keys(TIKTOK_GROUPS).map((g) => (
+                        <button
+                          key={g}
+                          onClick={() => { setTiktokGroup(g); setTiktokBrand(TIKTOK_GROUPS[g][0]); }}
+                          style={{ flex: 1, padding: "6px 0", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", border: tiktokGroup === g ? "1px solid var(--accent)" : "1px solid var(--border-strong)", background: tiktokGroup === g ? "rgba(255,107,26,0.1)" : "transparent", color: tiktokGroup === g ? "var(--accent-soft)" : "var(--text)" }}
+                        >
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>Brand</div>
+                    <div style={{ display: "grid", gap: 4 }}>
+                      {TIKTOK_GROUPS[tiktokGroup].map((b) => (
+                        <button
+                          key={b}
+                          onClick={() => setTiktokBrand(b)}
+                          style={{ textAlign: "left", padding: "6px 8px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", border: tiktokBrand === b ? "1px solid var(--accent)" : "1px solid var(--border-strong)", background: tiktokBrand === b ? "rgba(255,107,26,0.1)" : "transparent", color: tiktokBrand === b ? "var(--accent-soft)" : "var(--text)" }}
+                        >
+                          {b} {tiktokBrandTotals[b] > 0 && <span style={{ color: "var(--success-fg)" }}>●</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* RIGHT — DSP grid */}
+              <div style={{ flex: 1, padding: 20, overflowY: "auto" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+                  <div>
+                    <div className={styles.eyebrow}>// Package Builder</div>
+                    <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>{release?.title || ticket.data?.releaseId}</h2>
+                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release?.main_artist} · {selectedCategory?.name}{isSocial ? ` — ${brand}` : ""}{isCommunity ? ` — ${communityBrand}` : ""}{isTikTokChannel ? ` — ${tiktokBrand}` : ""}{isAds ? ` — ${adsBrand}` : ""}</div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    {/* Round 79 — "Clone from another product": copy another
+                        release's manual-input numbers + built package(s) in
+                        wholesale, then refine from there instead of typing
+                        every row from scratch. */}
+                    <button className={styles.btnSecondary} onClick={() => setShowClonePopup(true)}>
+                      Clone from another product
+                    </button>
+                    <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 20, cursor: "pointer" }}>✕</button>
+                  </div>
+                </div>
+
+                {!isAds && (
+                  <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+                    {rowOptions.map((p) => <button key={p} className={styles.btnSmall} onClick={() => addRow(p)}>+ {p}</button>)}
+                  </div>
+                )}
+
+                {isAds ? (
+                  // Ads keeps its own metric list + Đơn Giá-at-entry-level
+                  // shape, but now shows only the ad-platform group picked
+                  // in the left "Ad Platform" bracket (same single-active-
+                  // brand pattern as Social/Community/TikTok Channel)
+                  // instead of stacking all 4 colored tables at once.
+                  // Summarize still mushes ALL 4 groups' entries into one
+                  // rollup regardless of which is on screen — this is
+                  // purely a display change.
+                  (() => {
+                    const brandEntries = entries.filter((e) => e.brand === adsBrand);
+                    return (
+                      <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden", marginBottom: 14 }}>
+                        <div style={{ background: ADS_BRAND_COLORS[adsBrand], color: "#fff", padding: "8px 12px", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                          {adsBrand}
+                        </div>
+                        <div style={{ padding: 10, display: "flex", gap: 6, flexWrap: "wrap", borderBottom: brandEntries.length > 0 ? "1px solid var(--border)" : undefined }}>
+                          {ADS_METRICS[adsBrand].map((metric) => (
+                            <button key={metric} className={styles.btnSmall} onClick={() => addRow(metric, adsBrand)}>+ {metric}</button>
+                          ))}
+                        </div>
+                        {brandEntries.length > 0 ? (
+                          <table className={styles.table}>
+                            <thead>
+                              <tr><th></th><th>Số Lượng</th><th>Đơn Giá</th><th>Thành Tiền</th><th></th></tr>
+                            </thead>
+                            <tbody>
+                              {brandEntries.map((entry) => (
+                                <tr key={entry.id}>
+                                  <td style={{ fontSize: 12, fontWeight: 700 }}>{entry.platform}</td>
+                                  <td>
+                                    <input
+                                      type="number"
+                                      className={styles.input}
+                                      style={{ width: 80, padding: "4px 6px", fontSize: 12 }}
+                                      defaultValue={entry.count_posts || 0}
+                                      onBlur={(e) => updateEntryCount(entry, "count_posts", parseInt(e.target.value, 10) || 0)}
+                                    />
+                                  </td>
+                                  <td>
+                                    <ThousandInput
+                                      className={styles.input}
+                                      style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
+                                      value={entry.unit_price || 0}
+                                      onCommit={(n) => updateEntryCount(entry, "unit_price", n ?? 0)}
+                                    />
+                                  </td>
+                                  <td style={{ fontSize: 12, fontWeight: 700 }}>{fmtVnd((entry.count_posts || 0) * (entry.unit_price || 0))}</td>
+                                  <td><button onClick={() => removeEntry(entry)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button></td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div style={{ padding: 14, fontSize: 12, color: "var(--text-faint)" }}>No metrics added yet for {adsBrand}.</div>
+                        )}
+                      </div>
+                    );
+                  })()
+                ) : entries.length === 0 ? (
+                  <div className={styles.emptyState}>Pick a DSP above to add a row.</div>
+                ) : isTikTokChannel ? (
+                  <table className={styles.table} style={{ marginBottom: 14 }}>
+                    <thead>
+                      <tr>
+                        <th rowSpan={2}>Kênh</th>
+                        <th colSpan={2} style={{ textAlign: "center" }}>ĐỢT 1</th>
+                        <th colSpan={2} style={{ textAlign: "center", borderLeft: "1px solid var(--border)" }}>
+                          <button
+                            onClick={() => setShowDot2Popup(true)}
+                            style={{ background: "none", border: "none", color: "var(--accent-soft)", fontWeight: 700, fontSize: 11, cursor: "pointer", padding: 0, textTransform: "uppercase", letterSpacing: 0.5 }}
+                            title="Set Creation cần đạt / Số Link Đã Trả Cần Đạt for Đợt 2"
+                          >
+                            ĐỢT 2 ⚙
+                          </button>
+                        </th>
+                        {summary && <th rowSpan={2} style={{ borderLeft: "1px solid var(--border)" }}>Số Lượng Bài Đăng</th>}
+                        <th rowSpan={2}></th>
+                      </tr>
+                      <tr>
+                        <th style={{ fontSize: 10, fontWeight: 400 }}>Số Kênh</th>
+                        <th style={{ fontSize: 10, fontWeight: 400 }}>Số Bài</th>
+                        <th style={{ fontSize: 10, fontWeight: 400, borderLeft: "1px solid var(--border)" }}>Số Kênh</th>
+                        <th style={{ fontSize: 10, fontWeight: 400 }}>Số Bài</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entries.map((entry) => {
+                        const summaryRow = summary?.find((r) => r.id === entry.id);
+                        return (
+                          <tr key={entry.id}>
+                            <td style={{ fontSize: 12, fontWeight: 700 }}>{entry.platform}</td>
+                            <td>
+                              <input
+                                type="number"
+                                className={styles.input}
+                                style={{ width: 55, padding: "4px 6px", fontSize: 12 }}
+                                defaultValue={entry.channel_count || 0}
+                                onBlur={(e) => updateEntryCount(entry, "channel_count", parseInt(e.target.value, 10) || 0)}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="number"
+                                className={styles.input}
+                                style={{ width: 55, padding: "4px 6px", fontSize: 12 }}
+                                defaultValue={entry.count_posts || 0}
+                                onBlur={(e) => updateEntryCount(entry, "count_posts", parseInt(e.target.value, 10) || 0)}
+                              />
+                            </td>
+                            <td style={{ borderLeft: "1px solid var(--border)" }}>
+                              <input
+                                type="number"
+                                className={styles.input}
+                                style={{ width: 55, padding: "4px 6px", fontSize: 12 }}
+                                defaultValue={entry.channel_count_dot2 || 0}
+                                onBlur={(e) => updateEntryCount(entry, "channel_count_dot2", parseInt(e.target.value, 10) || 0)}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="number"
+                                className={styles.input}
+                                style={{ width: 55, padding: "4px 6px", fontSize: 12 }}
+                                defaultValue={entry.count_posts_dot2 || 0}
+                                onBlur={(e) => updateEntryCount(entry, "count_posts_dot2", parseInt(e.target.value, 10) || 0)}
+                              />
+                            </td>
+                            {summary && (
+                              <td style={{ borderLeft: "1px solid var(--border)", fontWeight: 700 }}>{summaryRow?.totalPosts ?? 0}</td>
+                            )}
+                            <td><button onClick={() => removeEntry(entry)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className={styles.table} style={{ marginBottom: 14 }}>
+                    <thead>
+                      <tr>
+                        <th rowSpan={2}>DSP</th>
+                        {isCommunity && <th rowSpan={2}>Số Kênh</th>}
+                        {PHASE_GROUPS.map(([label, span], i) => <th key={label} colSpan={span} style={{ textAlign: "center", borderLeft: i > 0 ? "1px solid var(--border)" : undefined }}>{label}</th>)}
+                        <th rowSpan={2}></th>
+                      </tr>
+                      <tr>{PHASES.map(([key, label]) => <th key={label} style={{ fontSize: 10, fontWeight: 400, borderLeft: PHASE_GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>{label}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      {entries.map((entry) => (
+                        <tr key={entry.id}>
+                          <td style={{ fontSize: 12, fontWeight: 700 }}>{entry.platform}</td>
+                          {isCommunity && (
+                            <td>
+                              <input
+                                type="number"
+                                className={styles.input}
+                                style={{ width: 55, padding: "4px 6px", fontSize: 12 }}
+                                defaultValue={entry.channel_count ?? 1}
+                                onBlur={(e) => updateEntryCount(entry, "channel_count", parseInt(e.target.value, 10) || 0)}
+                              />
+                            </td>
+                          )}
+                          {PHASES.map(([key]) => (
+                            <td key={key} style={{ borderLeft: PHASE_GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>
+                              <input
+                                type="number"
+                                className={styles.input}
+                                style={{ width: 55, padding: "4px 6px", fontSize: 12 }}
+                                defaultValue={entry[key] || 0}
+                                onBlur={(e) => updateEntryCount(entry, key, parseInt(e.target.value, 10) || 0)}
+                              />
+                            </td>
+                          ))}
+                          <td><button onClick={() => removeEntry(entry)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer" }}>✕</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  {/* Round 140 — orange, per explicit request, same
+                      styles.btnPrimary token (var(--accent) bg + already
+                      theme-correct var(--accent-on) text — white on light
+                      theme, dark on dark theme) the Build Package button
+                      below already uses, so no new hardcoded colors. */}
+                  <button className={styles.btnPrimary} onClick={handleSummarize} disabled={entries.length === 0}>Summarize</button>
+                  <button
+                    className={styles.btnSecondary}
+                    onClick={handleSkip}
+                    disabled={entries.length > 0}
+                    title={entries.length > 0 ? "Can't skip — this Hạng Mục already has rows" : "Mark as intentionally not applicable"}
+                  >
+                    Skip
+                  </button>
+                  {/* Round 54 — no separate "Add to Package"/"Remove" button
+                      anymore: Summarize itself syncs straight into whichever
+                      package tab is active (see syncPackageLine). This just
+                      shows a quiet confirmation once that's happened, so
+                      it's still obvious the numbers landed in the package. */}
+                  {activePackage && (() => {
+                    const group = currentGroup();
+                    if (!group) return null;
+                    const line = lineFor(group.categoryId, group.brand);
+                    if (!line) return null;
+                    return (
+                      <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--success-fg)" }}>
+                        ✓ In "{activePackage.name}"
+                      </span>
+                    );
+                  })()}
+                </div>
+
+                {/* Round 141 — per explicit request: once the artist has
+                    picked AND locked/confirmed a package on the magic
+                    link (release.package_locked, with release.project_type
+                    holding the name of the package they picked — see
+                    app/pick-package/[token]/page.js's handleConfirm), warn
+                    whoever is editing a package here whether THIS is the
+                    one the artist actually locked in. Only shows once a
+                    package has actually been locked at all — before that,
+                    nothing is "chosen" yet, so no warning either way. */}
+                {activePackage && release?.package_locked && (() => {
+                  const isChosenPackage = activePackage.name === release.project_type;
+                  return (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        padding: "8px 12px",
+                        borderRadius: 6,
+                        background: isChosenPackage ? "var(--warn-bg)" : "var(--bg-hover)",
+                        color: isChosenPackage ? "var(--warn-fg)" : "var(--text-faint)",
+                        border: `1px solid ${isChosenPackage ? "var(--warn-fg)" : "var(--border)"}`,
+                      }}
+                    >
+                      {isChosenPackage
+                        ? "This package has been chosen by artist, please be advised that changing the number will affect the promotion package url as well as the booking board."
+                        : "This package is not chosen by artist, editing will not affect booking board."}
+                    </div>
+                  );
+                })()}
+
+                {/* Round 87 (booking ticket item 4) — the left grid used to
+                    show nothing about what's already sitting in the active
+                    package for this Hạng Mục, so fixing an OLD package
+                    meant first figuring out (or reconstructing) what its
+                    numbers were before touching anything here. This reads
+                    the active package's own line for the current category/
+                    brand directly — updates immediately when the package
+                    tab (right panel) is switched.
+                    Round 87 follow-up 5 — the underlying entries are still
+                    the one shared release-wide pool (not stored per
+                    package, and Summarize's totals can't be un-mixed back
+                    into the individual per-platform rows that made them
+                    up), so pre-loading the grid's own rows from an old
+                    package is still not possible without a real schema
+                    change (a per-package entry history table) — flagged
+                    again below for your call. What CAN be done without
+                    that: this banner is no longer read-only. Số Lượng/Đơn
+                    Giá/Chi Tiết now write straight to the package line
+                    (same updateLine() the Packages panel's own line editor
+                    uses) the moment you blur out of the field — so fixing
+                    an old package's numbers no longer requires first
+                    rebuilding the grid's entries to match and re-
+                    Summarizing; you can just correct the number right
+                    here, next to the grid you're comparing it against,
+                    without leaving this tab. Summarize (above) still
+                    overwrites these fields wholesale if clicked, same as
+                    before — this is an alternate, narrower way to fix just
+                    this one line without touching the grid at all. */}
+                {activePackage && (() => {
+                  const group = currentGroup();
+                  if (!group) return null;
+                  const line = lineFor(group.categoryId, group.brand);
+                  if (!line) return null;
+                  const isAdsLine = group.isAds;
+                  // Round 103 — YouTube Ads is the only Ads brand whose
+                  // combined line's Số Lượng is a real, single, per-metric
+                  // number (see bookedFor's comment in app/booking/page.js
+                  // for the full "why" — every other Ads brand mushes
+                  // several metrics into one lump with no per-metric
+                  // number). This banner used to let Số Lượng be typed onto
+                  // ANY Ads line with no guard at all, which is exactly how
+                  // a Facebook/TikTok/Spotify Ads line could end up with a
+                  // real-looking quantity that then got shown, wrongly,
+                  // under every one of that brand's metric columns on the
+                  // Booking Board. Locked here the same way PackagesPanel's
+                  // main table already treats those brands (view-only,
+                  // "not a real per-metric field") — and while at it, both
+                  // Số Lượng and Chi Tiết are locked for YouTube Ads too,
+                  // matching that same table's Round 103 revert (auto-
+                  // summed / fixed text, not freely typed).
+                  const isYoutubeAdsLine = isAdsLine && group.brand === "YouTube Ads";
+                  const isOtherAdsLine = isAdsLine && !isYoutubeAdsLine;
+                  return (
+                    <div style={{ marginTop: 10, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 6 }}>
+                        Already in "{activePackage.name}" — edit directly, or Summarize above to overwrite from the grid
+                      </div>
+                      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-end" }}>
+                        <label style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                          Số Lượng
+                          {isYoutubeAdsLine ? (
+                            <div style={{ padding: "4px 8px", fontSize: 12, marginTop: 2 }}>{line.quantity ?? 0} thruplay</div>
+                          ) : isOtherAdsLine ? (
+                            // Round 114 — this used to be a flat "— (per-
+                            // entry on the grid)" because there was no
+                            // single Số Lượng for a multi-metric Ads brand.
+                            // There's still no single number (that's still
+                            // true — edit the metric rows on the left grid,
+                            // not here), but the real per-metric quantities
+                            // ARE now persisted on the line (metric_quantities,
+                            // written by handleSummarize) — so show that
+                            // breakdown instead of a bare dash.
+                            <div style={{ padding: "4px 8px", fontSize: 12, marginTop: 2, color: "var(--text-faint)" }} title="Not a single number for this brand — edit the metric rows on the left grid instead.">
+                              {Object.keys(line.metric_quantities || {}).length > 0
+                                ? Object.entries(line.metric_quantities).map(([m, q]) => `${q} ${m}`).join(", ")
+                                : "— (per-entry on the grid)"}
+                            </div>
+                          ) : (
+                            <input
+                              key={`${line.id}-qty`}
+                              type="number"
+                              className={styles.input}
+                              style={{ display: "block", padding: "4px 8px", fontSize: 12, width: 100, marginTop: 2 }}
+                              defaultValue={line.quantity ?? ""}
+                              onBlur={(e) => updateLine(line, { quantity: e.target.value === "" ? null : Number(e.target.value) })}
+                            />
+                          )}
+                        </label>
+                        <label style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                          Đơn Giá
+                          {isOtherAdsLine ? (
+                            // Same reasoning as Số Lượng above — a per-unit
+                            // price doesn't exist at the line level for a
+                            // brand priced per-entry on the left grid.
+                            <div style={{ padding: "4px 8px", fontSize: 12, marginTop: 2, color: "var(--text-faint)" }}>{fmtVnd(line.amount)}</div>
+                          ) : (
+                            <input
+                              key={`${line.id}-price`}
+                              type="number"
+                              className={styles.input}
+                              style={{ display: "block", padding: "4px 8px", fontSize: 12, width: 130, marginTop: 2 }}
+                              defaultValue={line.unit_price ?? ""}
+                              onBlur={(e) => updateLine(line, { unit_price: e.target.value === "" ? null : Number(e.target.value) })}
+                            />
+                          )}
+                        </label>
+                        <label style={{ fontSize: 11, color: "var(--text-faint)", flex: "1 1 200px" }}>
+                          Chi Tiết
+                          {isYoutubeAdsLine ? (
+                            <div style={{ padding: "4px 8px", fontSize: 12, marginTop: 2 }}>{line.detail || YOUTUBE_ADS_DEFAULT_DETAIL}</div>
+                          ) : (
+                            <input
+                              key={`${line.id}-detail`}
+                              className={styles.input}
+                              style={{ display: "block", padding: "4px 8px", fontSize: 12, width: "100%", marginTop: 2, boxSizing: "border-box" }}
+                              defaultValue={line.detail || ""}
+                              onBlur={(e) => updateLine(line, { detail: e.target.value || null })}
+                            />
+                          )}
+                        </label>
+                        <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                          Thành Tiền: <strong style={{ color: "var(--text)" }}>{fmtVnd(line.amount)}</strong>
+                          {isAdsLine && <span> (not recomputed from Số Lượng × Đơn Giá for Ads — edit Thành Tiền in the Packages panel if it needs to change)</span>}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Round 63 — swapped these two blocks' order per explicit
+                    request ("not align on the same side as in picture 1") —
+                    Brand Comparison now renders above the EXTERNAL/INTERNAL
+                    summarize totals table instead of below it. */}
+                {isTikTokChannel && Object.values(tiktokBrandTotals).some((v) => v > 0) && (
+                  <div style={{ marginTop: 14, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
+                      Brand Comparison — {selectedCategory?.name}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                      {Object.entries(TIKTOK_GROUPS).map(([group, brands]) => (
+                        <div key={group}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", marginBottom: 6 }}>{group}</div>
+                          <div style={{ display: "grid", gap: 4 }}>
+                            {brands.map((b) => (
+                              <div
+                                key={b}
+                                style={{
+                                  display: "flex", justifyContent: "space-between", fontSize: 12, padding: "5px 8px", borderRadius: 5,
+                                  background: b === tiktokBrand ? "rgba(255,107,26,0.1)" : "transparent",
+                                  color: b === tiktokBrand ? "var(--accent-soft)" : "var(--text)",
+                                }}
+                              >
+                                <span>{b}</span>
+                                <strong>{tiktokBrandTotals[b] || 0}</strong>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {summarizedCategoryIds.has(selectedCategoryId) && (
+                  <CategoryCountsPopup
+                    isTikTokChannel={isTikTokChannel}
+                    isAds={isAds}
+                    brandList={brandList}
+                    currentBrand={currentBrand}
+                    categoryTotals={categoryTotals}
+                    tiktokBrandTotals={tiktokBrandTotals}
+                    tiktokBrand={tiktokBrand}
+                  />
+                )}
+
+                {summary && !isTikTokChannel && !isAds && (
+                  <table className={styles.table} style={{ marginTop: 14 }}>
+                    <thead><tr><th>DSP</th><th>Số Lượng Bài Đăng</th><th>Số Lượng Kênh</th></tr></thead>
+                    <tbody>
+                      {summary.map((row) => (
+                        <tr key={row.platform}>
+                          <td style={{ fontSize: 12 }}>{row.platform}</td>
+                          <td>{row.totalPosts}</td>
+                          <td>{row.channelCount}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+
+                {/* Artist/label Feed Back, submitted via the magic-link page
+                    (tickets.data.feedback = {text, submittedAt}). Shown as
+                    its own panel below the main DSP-grid content so whoever
+                    is building the package can see it without leaving this
+                    popup — previously this was invisible anywhere in the
+                    internal ticket UI. */}
+                {ticket.data?.feedback?.text && (
+                  <div style={{ marginTop: 14, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase" }}>
+                        Feed Back Từ Đối Tác
+                      </div>
+                      {ticket.data.feedback.submittedAt && (
+                        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                          {new Date(ticket.data.feedback.submittedAt).toLocaleString("vi-VN")}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 13, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{ticket.data.feedback.text}</div>
+                  </div>
+                )}
+
+                {/* AR Request — YouTube Ads Setup. Round 93, per explicit
+                    request: "in booking ticket -> show them in the area we
+                    use to show the artist feedback, add a small title to
+                    show who is asking that line or so for clarity". This
+                    is the AR team's own request (URL + Booking note),
+                    distinct from the artist/label feedback panel just
+                    above it — the small title exists specifically so
+                    Marketing doesn't confuse the two. Only shown once Có
+                    Trong Net YouTube is ticked on the release (same gate
+                    as the panel this mirrors on the detail page). */}
+                {release?.gate_co_trong_net_youtube === "true" && (
+                  <div style={{ marginTop: 14, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>
+                      AR Request — YouTube Ads Setup
+                    </div>
+                    <YoutubeAdsFields
+                      styles={styles}
+                      url={release.youtube_ads_url}
+                      bookingNote={release.youtube_ads_booking_note}
+                      onChangeUrl={(v) => saveYoutubeAdsField("youtube_ads_url", v)}
+                      onChangeBookingNote={(v) => saveYoutubeAdsField("youtube_ads_booking_note", v)}
+                    />
+                  </div>
+                )}
+              </div>
+              </>
+              )}
+
+              {/* THIRD — Packages panel. Sits right next to the DSP grid
+                  (same screen, same scroll area) instead of a separate
+                  overlay on top of this one — editing an entry above and
+                  seeing its package line update are now the same view.
+                  Round 87 — on mobile this only renders while the
+                  "Package" tab is active (see the tab switcher above), one
+                  panel visible at a time instead of squeezed side by side. */}
+              {showBuildPopup && (!isMobile || mobileTab === "package") && (
+                <PackagesPanel
+                  release={release}
+                  categories={categories}
+                  packages={packages}
+                  activePackageId={activePackageId}
+                  setActivePackageId={setActivePackageId}
+                  activePackage={activePackage}
+                  namePopup={namePopup}
+                  setNamePopup={setNamePopup}
+                  createPackage={createPackage}
+                  deletePackage={deletePackage}
+                  addPrebuiltLine={addPrebuiltLine}
+                  deleteLine={deleteLine}
+                  reorderLines={reorderLines}
+                  updateLine={updateLine}
+                  syncYoutubeAdsLine={syncYoutubeAdsLine}
+                  onToggleRecordingStudio={toggleRecordingStudio}
+                  onSaveField={saveYoutubeAdsField}
+                  linkfireUrl={linkfireUrl}
+                  magicLinkUrl={magicLinkUrl}
+                  generatingLink={generatingLink}
+                  onGenerateLink={handleGenerateLink}
+                  proposedPackage={ticket.data?.proposedPackage}
+                  onHide={() => setShowBuildPopup(false)}
+                  mobile={isMobile}
+                />
+              )}
+            </div>
+
+            <div style={{ borderTop: "1px solid var(--border)", padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
+                {allCategoriesSummarized ? "All Hạng Mục summarized." : `Summarize all ${categories.length} Hạng Mục before building a package.`}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  className={styles.btnPrimary}
+                  onClick={() => { setShowBuildPopup((v) => !v); if (packages.length === 0) setNamePopup("create"); }}
+                  disabled={!allCategoriesSummarized}
+                >
+                  {showBuildPopup ? "Hide Packages" : "Build Package"}
+                </button>
+                {/* Everything here already writes to the DB the moment it
+                    changes — nothing is staged. This button doesn't do any
+                    extra saving; it exists so the person building a package
+                    has an explicit, reassuring "I'm done" action instead of
+                    just clicking the ✕ and wondering if their last edit
+                    actually stuck. */}
+                {packages.length > 0 && (
+                  <button className={styles.btnSecondary} onClick={onClose} title="Everything is already saved — this just closes the ticket.">
+                    Save &amp; Close
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {showDot2Popup && (
+        <Dot2TargetsPopup
+          targets={dot2Targets}
+          onSave={saveDot2Targets}
+          onClose={() => setShowDot2Popup(false)}
+        />
+      )}
+
+      {showClonePopup && (
+        <ClonePickerPopup
+          excludeReleaseId={release?.id}
+          onPick={async (sourceReleaseId) => {
+            setShowClonePopup(false);
+            setLoading(true);
+            await cloneFromRelease(sourceReleaseId);
+          }}
+          onClose={() => setShowClonePopup(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Round 79 — search/pick panel for "Clone from another product". Only
+// releases with package_locked = true (a real, confirmed/complete
+// package decision — see lib/packageSimulator.js) AND at least one row
+// in media_booking_packages (an actual built package, not just a locked
+// contract type with nothing built) are pickable, per "only complete
+// package get in that pickable pool".
+function ClonePickerPopup({ excludeReleaseId, onPick, onClose }) {
+  const [query, setQuery] = useState("");
+  const [candidates, setCandidates] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data: pkgs } = await supabase.from("media_booking_packages").select("release_id");
+      const releaseIdsWithPackage = [...new Set((pkgs || []).map((p) => p.release_id))];
+      if (releaseIdsWithPackage.length === 0) { setCandidates([]); setLoading(false); return; }
+      const { data: rels } = await supabase
+        .from("releases")
+        .select("id, did, title, main_artist, label, package_locked, project_type")
+        .in("id", releaseIdsWithPackage)
+        .eq("package_locked", true)
+        .order("created_at", { ascending: false });
+      setCandidates((rels || []).filter((r) => r.id !== excludeReleaseId));
+      setLoading(false);
+    })();
+  }, [excludeReleaseId]);
+
+  const matches = query.trim()
+    ? candidates.filter((r) => `${r.title} ${r.main_artist} ${r.did} ${r.label || ""}`.toLowerCase().includes(query.trim().toLowerCase()))
+    : candidates;
+
+  function handlePick(r) {
+    if (!window.confirm(`Clone "${r.title}" (${r.did})'s whole package into this ticket? This replaces any manual numbers/packages already entered here — it can't be undone.`)) return;
+    onPick(r.id);
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 480, width: "100%", maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.eyebrow}>// Clone from another product</div>
+        <h3 style={{ fontSize: 15, fontWeight: 800, margin: "0 0 4px" }}>Pick a product with a complete package</h3>
+        <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 12 }}>Only releases with a locked package that's actually been built show up here.</div>
+        <input
+          className={styles.input}
+          style={{ width: "100%", padding: "8px 10px", fontSize: 13, marginBottom: 12 }}
+          placeholder="Search by product name, artist, or DID…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          autoFocus
+        />
+        <div style={{ overflowY: "auto", flex: 1 }}>
+          {loading ? (
+            <div className={styles.emptyState} style={{ padding: 16 }}>Loading…</div>
+          ) : matches.length === 0 ? (
+            <div className={styles.emptyState} style={{ padding: 16 }}>No matching products with a complete package.</div>
+          ) : (
+            matches.map((r) => (
+              <div
+                key={r.id}
+                onClick={() => handlePick(r)}
+                style={{ padding: "10px 8px", fontSize: 12, cursor: "pointer", borderBottom: "1px solid var(--border)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              >
+                <div style={{ fontWeight: 700, color: "var(--text)" }}>{r.title}</div>
+                <div style={{ color: "var(--text-faint)" }}>{r.main_artist} · {r.label || "—"} · {r.did} · {r.project_type || "—"}</div>
+              </div>
+            ))
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <button className={styles.btnSmall} onClick={onClose} style={{ flex: 1 }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Đợt 2 targets — scoped to (release, TikTok Channel category) as a
+// whole, not per brand or per row (that's the whole reason this is its
+// own small popup rather than another column on every row).
+function Dot2TargetsPopup({ targets, onSave, onClose }) {
+  const [creationTarget, setCreationTarget] = useState(targets?.creation_target ?? "");
+  const [linksPaidTarget, setLinksPaidTarget] = useState(targets?.links_paid_target ?? "");
+
+  function save() {
+    onSave({
+      creation_target: creationTarget === "" ? null : parseFloat(creationTarget),
+      links_paid_target: linksPaidTarget === "" ? null : parseFloat(linksPaidTarget),
+    });
+    onClose();
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 320, width: "100%" }} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.eyebrow}>// Đợt 2</div>
+        <h3 style={{ fontSize: 15, fontWeight: 800, margin: "0 0 14px" }}>Targets for this release</h3>
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Creation cần đạt</label>
+          <input
+            type="number"
+            className={styles.input}
+            style={{ width: "100%", padding: "8px 10px", fontSize: 13 }}
+            value={creationTarget}
+            onChange={(e) => setCreationTarget(e.target.value)}
+          />
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, color: "var(--text-faint)", display: "block", marginBottom: 4 }}>Số Link Đã Trả Cần Đạt</label>
+          <input
+            type="number"
+            className={styles.input}
+            style={{ width: "100%", padding: "8px 10px", fontSize: 13 }}
+            value={linksPaidTarget}
+            onChange={(e) => setLinksPaidTarget(e.target.value)}
+          />
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className={styles.btnSmall} onClick={onClose} style={{ flex: 1 }}>Cancel</button>
+          <button className={styles.btnPrimary} onClick={save} style={{ flex: 1 }}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Best-effort match against contract_type_packages' item categories —
+// "ads" alone would collide with both ADS FACEBOOK and ADS YOUTUBE, so
+// this needs real aliases per category, not a loose substring check.
+const CATEGORY_REFERENCE_ALIASES = {
+  "social": ["social vieent"],
+  "community": ["page cộng đồng"],
+  "ads": ["ads facebook", "ads youtube"],
+};
+
+function referenceDetailFor(referenceTiers, categoryName) {
+  const aliases = CATEGORY_REFERENCE_ALIASES[categoryName?.toLowerCase()] || [];
+  for (const t of referenceTiers) {
+    const item = (t.items || []).find((it) => aliases.some((a) => (it.category || "").toLowerCase() === a));
+    if (item) return item;
+  }
+  return null;
+}
+
+// Prebuilt add-on lines — seeded with the real default wording from the
+// template, then freely editable same as any other line. category_id is
+// left null (the existing signal for "not tied to a real Hạng Mục"); the
+// add-on's own name rides in `platform`, which no other package-line
+// write path uses. No live-sync to contract_type_packages needed.
+const PREBUILT_ADDONS = [
+  { name: "Design", unit: "Gói", detail: "Hỗ trợ thiết kế ảnh social, resize từ Key visual" },
+  { name: "Discovery Mode on Spotify", unit: "Gói", detail: "Đề xuất & triển khai Discovery Mode theo chu kỳ hàng tháng" },
+  { name: "Priority Pitching Spotify Homepage Banner", unit: "Gói", detail: "Banner Trang Chủ Spotify tháng 6 hoặc tháng 7" },
+  // Round 54 — 3 more, straight off the "Quyền Lợi Dành Riêng Cho Đối Tác
+  // Phát Hành VIEENT" reference sheet (same source PartnerBenefits() on the
+  // magic-link page renders from). Recording Studio was here too — round 68
+  // pulled it out into its own release-level toggle (see the Recording
+  // Studio button below, near the package tabs) since it's picked per
+  // product, not per package, and needs to show on the magic link
+  // regardless of which package the artist ends up choosing — a real
+  // package line couldn't do that.
+  { name: "19 Creative Space", unit: "Gói", detail: "Không gian miễn phí để thực hiện quay phỏng vấn, live session, MV ..." },
+  { name: "Pitching Playlist/Banner", unit: "Gói", detail: "Nền Tảng: Zingmp3, NCT, Spotify, Apple Music\nKết quả Pitching sẽ được cập nhật sau khi nền tảng trả kết quả về" },
+];
+
+// Round 54 — item A.1: default Đơn Giá per Hạng Mục (Social/Community/
+// TikTok Channel each mush their brand rows into one line, so they each
+// get ONE default price) and per (Ads brand, metric) — Ads keeps its own
+// per-row Đơn Giá column, seeded per metric. These are just the fallback
+// used until Config → Media Booking Pricing has real values saved (see
+// loadPriceDefaults below) — editing Config only changes what NEW rows/
+// lines default to going forward, never rewrites anything already saved.
+const DEFAULT_UNIT_PRICES = {
+  categories: {
+    "TikTok Channel": 700000,
+    "Social": 200000,
+    "Community": 200000,
+  },
+  // Round 152 — prebuilt add-on lines (see PREBUILT_ADDONS below) used to
+  // always insert with amount: null, leaving Đơn Giá blank until someone
+  // typed it in by hand every single time a package added one. Per
+  // explicit request, "Design" and "Priority Pitching Spotify Homepage
+  // Banner" now seed with real defaults, same Config → Media Booking
+  // Pricing mechanism as categories/ads above — see MEDIA_BOOKING_PRICE_
+  // ADDONS in app/config/page.js, kept in sync with this object the same
+  // way categories/ads already are (see the comment above DEFAULT_UNIT_
+  // PRICES). Only these 2 addons have a configured default per the
+  // request; the other 3 PREBUILT_ADDONS keep their old "blank, type it
+  // in" behavior until asked for.
+  addons: {
+    "Design": 10000000,
+    "Priority Pitching Spotify Homepage Banner": 20000000,
+  },
+  ads: {
+    "Facebook Ads": { "Lượt tiếp cận": 30, "Lượt tương tác": 300, "Lượt truy cập (Link click)": 2000 },
+    "YouTube Ads": { "Thruplay (Views)": 55 },
+    "TikTok Ads": { "Lượt tiếp cận": 15, "Lượt xem video": 15, "Lượt theo dõi": 1500, "Lượt truy cập (Link click)": 2500 },
+    "Spotify Ads": { "HPTO": 26000, "In-Stream Audio": 26000, "In-Stream Video": 26000, "In-Feed Display": 26000, "In-Feed Video": 26000 },
+  },
+};
+const UNIT_PRICE_DEFAULTS_SETTING_KEY = "media_booking_unit_price_defaults";
+
+// Thành Tiền is always derived, never typed directly — Đơn Giá × Tổng Số
+// Bài Đăng normally, or Đơn Giá × Số Gói once "Convert to Package" is on.
+function computeLineAmount(line) {
+  if (line.unit_price == null) return null;
+  const qty = line.is_package_priced ? line.package_count : line.quantity;
+  if (qty == null) return null;
+  return line.unit_price * qty;
+}
+
+// Small popup for naming a package — replaces the browser prompt, and
+// hides Vĩnh Viễn once one already exists for this release (a fixed,
+// one-per-release name, not custom-typed like the years tiers).
+//
+// INT MEDIA is no longer a normal, freely-pickable tier here — it's a
+// special add-on package that only ever gets built in response to the
+// "Send INT MEDIA Follow-up" button on the release detail page (see
+// app/releases/[id]/page.js), which sets this ticket's Propose Package to
+// "INT MEDIA". allowIntMedia reflects that — the button only shows at all
+// when this ticket was opened for exactly that purpose.
+function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel }) {
+  const vinhVienTaken = existingNames.includes("Độc Quyền Vĩnh Viễn");
+  const intMediaTaken = existingNames.includes("INT MEDIA");
+  // Round 80 — "Internal Package" joins Vĩnh Viễn/Custom Years as a real
+  // pickable tier at package-building time, per explicit request. Fully
+  // editable like Vĩnh Viễn/Custom Years (no locked/read-only behavior
+  // like INT MEDIA) — same one-per-release limit as the other two named
+  // tiers, so it doesn't get accidentally duplicated.
+  const internalTaken = existingNames.includes("Internal Package");
+  // Never auto-default to the INT MEDIA tier, even when it's offered —
+  // it's an internal-only tracking tier (not a real customer-facing
+  // package — see allowIntMedia's own comment above), so silently
+  // pre-selecting it meant clicking "Clone Package" and confirming without
+  // looking could turn a normal clone into an internal one by accident.
+  // INT MEDIA must always be a deliberate click, for both "create" and
+  // "clone". (Round 86 follow-up item 2 — INT MEDIA's package lines are no
+  // longer read-only/names-only afterward; they're fully editable exactly
+  // like every other tier now. This safeguard is unrelated to that and
+  // stays as-is.)
+  const [tierMode, setTierMode] = useState(vinhVienTaken ? "years" : "vinhVien");
+  const [years, setYears] = useState("2");
+  const name = tierMode === "vinhVien" ? "Độc Quyền Vĩnh Viễn" : tierMode === "intMedia" ? "INT MEDIA" : tierMode === "internal" ? "Internal Package" : `Độc Quyền ${years} năm`;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onCancel}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 320, width: "100%" }} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.eyebrow}>// Name Package</div>
+        <h3 style={{ fontSize: 15, fontWeight: 800, margin: "0 0 14px" }}>Which tier is this?</h3>
+        <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+          <button
+            className={styles.btnSmall}
+            onClick={() => !vinhVienTaken && setTierMode("vinhVien")}
+            disabled={vinhVienTaken}
+            style={tierMode === "vinhVien" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}
+            title={vinhVienTaken ? "Already created for this release" : undefined}
+          >
+            Vĩnh Viễn
+          </button>
+          {allowIntMedia && (
+            <button
+              className={styles.btnSmall}
+              onClick={() => !intMediaTaken && setTierMode("intMedia")}
+              disabled={intMediaTaken}
+              style={tierMode === "intMedia" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}
+              title={intMediaTaken ? "Already created for this release" : "Internal-only tracking package — never shown to the artist"}
+            >
+              INT MEDIA
+            </button>
+          )}
+          <button className={styles.btnSmall} onClick={() => setTierMode("years")} style={tierMode === "years" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}>
+            Custom Years
+          </button>
+          <button
+            className={styles.btnSmall}
+            onClick={() => !internalTaken && setTierMode("internal")}
+            disabled={internalTaken}
+            style={tierMode === "internal" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}
+            title={internalTaken ? "Already created for this release" : undefined}
+          >
+            Internal Package
+          </button>
+          {tierMode === "years" && (
+            <input type="number" className={styles.input} style={{ width: 60, padding: "4px 8px", fontSize: 12 }} value={years} onChange={(e) => setYears(e.target.value)} />
+          )}
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 16 }}>Will be named: <strong style={{ color: "var(--text)" }}>{name}</strong></div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className={styles.btnSmall} onClick={onCancel} style={{ flex: 1 }}>Cancel</button>
+          <button className={styles.btnPrimary} onClick={() => onConfirm(name)} style={{ flex: 1 }}>Confirm</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Second popup — assembling named packages (custom tiers, not a fixed
+// pick-list anymore) out of the summarized Hạng Mục totals. First popup
+// shifts left, this one takes the right, purely decorative arrow between
+// them (no wiring — just showing "this becomes that").
+//
+// The left panel always reflects and edits whichever package tab is
+// active — checking a line adds it immediately, unchecking removes it
+// immediately, same for edit/delete on the right. Nothing here is staged
+// then saved — that staging model was the actual source of both the
+// "second package doesn't save" bug and the checkbox cross-talk bug.
+// Mostly presentational now — quantity/Số Gói is synced from the DSP grid
+// above the moment Summarize is clicked (see syncPackageLine — round 54
+// removed the separate "Add to Package"/"Remove" step), and this panel
+// mirrors it read-only. Chi Tiết and Đơn Giá are editable in BOTH places —
+// Chi Tiết is package-specific text with no natural home in the DSP grid,
+// and Đơn Giá isn't reachable from the left tool for every line (Ads never
+// has one), so it's kept editable here too rather than being inconsistent.
+// Renders as a plain in-flow column (not its own fixed-overlay popup) so it
+// sits beside the DSP grid instead of covering it.
+function PackagesPanel({
+  release, categories, packages, activePackageId, setActivePackageId, activePackage,
+  namePopup, setNamePopup, createPackage, deletePackage, addPrebuiltLine, deleteLine, reorderLines, updateLine,
+  syncYoutubeAdsLine, onToggleRecordingStudio, onSaveField, linkfireUrl, magicLinkUrl, generatingLink, onGenerateLink, proposedPackage, onHide,
+  mobile,
+}) {
+  const hasSavedPackage = packages.length > 0;
+  // Round 54 — item A.4: drag-to-reorder. dragIndex tracks which row (by
+  // its position in the sorted array below) the drag started on; dropping
+  // on another row moves it there and persists via reorderLines.
+  const [dragIndex, setDragIndex] = useState(null);
+  const sortedLines = [...(activePackage?.media_booking_package_lines || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+  function handleDrop(targetIndex) {
+    if (dragIndex === null || dragIndex === targetIndex) { setDragIndex(null); return; }
+    const next = [...sortedLines];
+    const [moved] = next.splice(dragIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    setDragIndex(null);
+    reorderLines(next);
+  }
+
+  return (
+    <>
+      <div style={{ width: mobile ? "100%" : 620, flexShrink: 0, borderLeft: mobile ? "none" : "1px solid var(--border)", padding: 20, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+            <div>
+              <div className={styles.eyebrow}>// Packages</div>
+              <h3 style={{ fontSize: 16, fontWeight: 800, margin: 0 }}>{release?.title}</h3>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              {/* Round 125 — item 2: same door to Linkfire the Booking
+                  Board already has (see app/booking/page.js), now also
+                  reachable from inside the ticket itself instead of only
+                  from the board. */}
+              <a
+                href={linkfireUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.btnSecondary}
+                style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+              >
+                🔗 Linkfire
+              </a>
+              <button onClick={onHide} title="Hide this panel — the package stays as-is" style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer" }}>✕</button>
+            </div>
+          </div>
+
+          {/* Round 68 — Recording Studio: per-product (this release), not
+              per-package — deliberately sits outside the package tabs
+              below, since it isn't tied to any one of them. Shows on the
+              magic link's Quyền Lợi table regardless of which package the
+              artist ends up picking. */}
+          <button
+            className={styles.btnSmall}
+            onClick={onToggleRecordingStudio}
+            title="Whether this product includes Recording Studio — shown on the magic link no matter which package is picked"
+            style={{
+              marginBottom: 14,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              border: release?.recording_studio_included ? "1px solid var(--accent)" : "1px solid var(--border-strong)",
+              background: release?.recording_studio_included ? "rgba(255,107,26,0.15)" : "transparent",
+              color: release?.recording_studio_included ? "var(--accent)" : "var(--text-muted)",
+            }}
+          >
+            {release?.recording_studio_included ? "✓ Recording Studio included" : "+ Recording Studio"}
+          </button>
+
+          {/* Round 125 — item 2: "Custom package url" — same field as the
+              release detail page's URL tab ("Custom Domain — Package
+              Offer" / "Custom Domain — Media Report", releases.
+              link_media_report_custom), just also editable from here so
+              the team doesn't have to leave the ticket to fill it in.
+              Same generic saveYoutubeAdsField patcher (passed down as
+              onSaveField) both places write through, so this is
+              genuinely the same value edited on both sides, not a copy. */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>
+              Custom package url
+            </div>
+            <UrlField
+              styles={styles}
+              wide
+              value={release?.link_media_report_custom}
+              onChange={(v) => onSaveField("link_media_report_custom", v)}
+              placeholder="https://your-custom-domain.com/…"
+            />
+            <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 3 }}>
+              Same field as "Custom Domain — Package Offer" on the release's URL tab — editable here too.
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+            {packages.map((p) => (
+              <div
+                key={p.id}
+                onClick={() => setActivePackageId(p.id)}
+                className={`${styles.tabBtn} ${activePackageId === p.id ? styles.tabBtnActive : ""}`}
+                style={{ border: activePackageId === p.id ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: activePackageId === p.id ? "rgba(255,107,26,0.1)" : "transparent", display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer"  }}
+              >
+                {p.name}
+                <span onClick={(e) => { e.stopPropagation(); deletePackage(p); }} style={{ color: "var(--text-faint)", fontSize: 11 }}>✕</span>
+              </div>
+            ))}
+            <button className={styles.btnSmall} onClick={() => setNamePopup(packages.length === 0 ? "create" : "clone")}>
+              {packages.length === 0 ? "+ Create Package" : "Clone Package"}
+            </button>
+          </div>
+
+          {activePackage && (
+            <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+              {PREBUILT_ADDONS.map((addon) => (
+                <button key={addon.name} className={styles.btnSmall} onClick={() => addPrebuiltLine(addon)}>+ {addon.name}</button>
+              ))}
+            </div>
+          )}
+
+          {/* className={styles.scrollBox} — without it, the table's sticky
+              <th> offsets by --topbar-height (the rule meant for tables
+              that scroll with the real page), but this panel has its own
+              small internal scrollport with no topbar above it, so the
+              header floated too low and hovered over the first data
+              row(s) instead of sitting flush above them. */}
+          <div className={styles.scrollBox} style={{ flex: 1, overflowY: "auto", marginBottom: 14 }}>
+            {!activePackage ? (
+              <div className={styles.emptyState}>No package yet — click "Create Package" above.</div>
+            ) : (activePackage.media_booking_package_lines || []).length === 0 ? (
+              <div className={styles.emptyState}>Pick a Hạng Mục on the left and click Summarize — it lands here automatically.</div>
+            ) : (
+              // Round 86 follow-up item 2 — every tier, INT MEDIA included,
+              // now renders through this same full editable table (was a
+              // separate "mushed" names-only branch for INT MEDIA — see the
+              // comment on the removed isIntMedia flag above).
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th></th>
+                    <th>Hạng Mục</th>
+                    <th>Tổng số lượng</th>
+                    <th>Chi Tiết</th>
+                    <th>Đơn Giá</th>
+                    <th>Thành Tiền</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedLines.map((line, index) => {
+                    const cat = categories.find((c) => c.id === line.category_id);
+                    const isAdsLine = cat?.name === "Ads";
+                    // Round 65 — item 2: YouTube Ads is the one Ads brand
+                    // with just a single possible metric (Thruplay
+                    // (Views) — ADS_METRICS only lists one for it), so
+                    // unlike every other Ads brand it gets its own real
+                    // total instead of the "1 Gói" placeholder the other
+                    // Ads brands show.
+                    // Round 103 — reverted Round 65/78's "editable input"
+                    // treatment back to view-only, per explicit request:
+                    // Số Lượng is the auto-summed total of this brand's own
+                    // rows on the left grid (written by syncPackageLine
+                    // whenever you Summarize), not something typed here.
+                    const isYoutubeAdsLine = isAdsLine && line.brand === "YouTube Ads";
+                    return (
+                      <tr
+                        key={line.id}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={() => handleDrop(index)}
+                        style={{ background: dragIndex === index ? "rgba(255,107,26,0.06)" : undefined }}
+                      >
+                        {/* Round 54 — item A.4: drag handle to reorder Hạng
+                            Mục rows. Draggable only on this cell (not the
+                            whole row) so it doesn't fight with selecting
+                            text in Chi Tiết/Đơn Giá. */}
+                        <td
+                          draggable
+                          onDragStart={() => setDragIndex(index)}
+                          onDragEnd={() => setDragIndex(null)}
+                          style={{ cursor: "grab", color: "var(--text-faint)", fontSize: 13, width: 20, userSelect: "none" }}
+                          title="Drag to reorder"
+                        >
+                          ⋮⋮
+                        </td>
+                        <td style={{ fontSize: 12 }}>{cat?.name || line.platform || "—"}{line.brand ? ` — ${line.brand}` : ""}</td>
+                        {/* Read-only now — quantity/Số Gói is edited from the
+                            left data tool, this just mirrors it live. */}
+                        <td style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                          {isYoutubeAdsLine ? (
+                            // Round 103 — view-only, summed from this
+                            // brand's own rows on the left grid (Summarize
+                            // writes line.quantity), shown with its unit —
+                            // no longer a typed-in number here.
+                            <span>{line.quantity ?? 0} thruplay</span>
+                          ) : isAdsLine ? (
+                            // Round 64 — item 2: Ads never carries a real
+                            // quantity at the package-line level (it's
+                            // priced per-entry, then summed into one lump
+                            // amount per brand), so there's nothing real to
+                            // show here — display a fixed "1 Gói" so the
+                            // column isn't just a blank dash.
+                            <span>1 Gói</span>
+                          ) : line.is_package_priced ? (
+                            <span>{line.package_count ?? "—"} Gói</span>
+                          ) : (
+                            <span>{line.quantity ?? "—"} {line.unit}</span>
+                          )}
+                        </td>
+                        <td style={{ minWidth: 260 }}>
+                          {isYoutubeAdsLine ? (
+                            // Round 103 — reverted back to a fixed, view-only
+                            // text for YouTube Ads specifically (Round 78 had
+                            // made this freely editable, same as every other
+                            // Ads brand) — always the same MCN copy,
+                            // rewritten by syncPackageLine on every
+                            // Summarize, so this just mirrors it rather than
+                            // taking manual edits.
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{line.detail || YOUTUBE_ADS_DEFAULT_DETAIL}</span>
+                          ) : (
+                            <textarea
+                              className={styles.textarea}
+                              style={{ width: "100%", padding: "4px 6px", fontSize: 11, minHeight: 44, boxSizing: "border-box" }}
+                              defaultValue={line.detail || ""}
+                              onBlur={(e) => updateLine(line, { detail: e.target.value || null })}
+                            />
+                          )}
+                        </td>
+                        {/* Editable here too now — Đơn Giá wasn't
+                            consistently reachable everywhere (Ads lines
+                            never have one), so this mirrors the left data
+                            tool's field for the categories that do, instead
+                            of being read-only-only on this side. */}
+                        <td>
+                          {isYoutubeAdsLine ? (
+                            <ThousandInput
+                              className={styles.input}
+                              style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
+                              value={line.unit_price ?? ""}
+                              onCommit={(n) => syncYoutubeAdsLine(line, "unit_price", n ?? 0)}
+                            />
+                          ) : isAdsLine ? (
+                            // Round 64 — item 2: pairs with the "1 Gói"
+                            // shown in the quantity column — since Số
+                            // Lượng is being displayed as 1, the "default"
+                            // Đơn Giá for that one package is just the
+                            // line's own total amount. Read-only (not a
+                            // real editable per-unit price — Ads pricing
+                            // stays per-entry on the left grid).
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{fmtVnd(line.amount)}</span>
+                          ) : (
+                            <ThousandInput
+                              className={styles.input}
+                              style={{ width: 90, padding: "4px 6px", fontSize: 12 }}
+                              value={line.unit_price ?? ""}
+                              onCommit={(n) => updateLine(line, { unit_price: n })}
+                            />
+                          )}
+                        </td>
+                        <td style={{ fontSize: 12, fontWeight: 700 }}>{fmtVnd(line.amount)}</td>
+                        <td style={{ whiteSpace: "nowrap" }}>
+                          <button onClick={() => deleteLine(line)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 11 }}>Delete</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {hasSavedPackage && (
+            <>
+              {!magicLinkUrl ? (
+                <button className={styles.btnPrimary} onClick={onGenerateLink} disabled={generatingLink} style={{ width: "100%" }}>
+                  {generatingLink ? "Generating…" : "Create magic link and send package to product"}
+                </button>
+              ) : (
+                <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
+                  {/* Round 54 — same link, 2 names: "Package Offer" until
+                      the Booking Board's "Convert Media Report" is clicked
+                      for this release, then "Media Report" from then on. */}
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>
+                    {release?.media_report_status ? "Media Report" : "Package Offer"}
+                  </div>
+                  <a href={magicLinkUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", fontSize: 12, wordBreak: "break-all" }}>{magicLinkUrl}</a>
+                </div>
+              )}
+              <p style={{ color: "var(--text-faint)", fontSize: 10, marginTop: 8, marginBottom: 0 }}>
+                Double check the package before you send — the artist sees this once it's sent.
+              </p>
+            </>
+          )}
+        </div>
+
+      {namePopup && (
+        <PackageNamePopup
+          existingNames={packages.map((p) => p.name)}
+          allowIntMedia={proposedPackage === "INT MEDIA"}
+          onCancel={() => setNamePopup(null)}
+          onConfirm={(name) => createPackage(name, namePopup === "clone" ? activePackageId : null)}
+        />
+      )}
+    </>
+  );
+}

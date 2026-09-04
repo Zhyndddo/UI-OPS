@@ -1,0 +1,32 @@
+-- Round 161 — Phụ Lục Truyền Thông improvements.
+-- Item 4: "Giá trị phụ lục" becomes a real release-level field (same
+-- pattern as link_phu_luc/phu_luc_ngay_gui/phu_luc_ngay_ky — release is
+-- the single source of truth, the Phụ Lục ticket list just reads/writes it
+-- directly), editable both on the release detail page (Phụ Lục (Booking)
+-- section) and in the ticket list's Giá Trị PL column.
+--
+-- Items 2/3 (Mã PL per-label auto-counter + manual-fix permission) need no
+-- schema change — Mã PL stays exactly where it already lived, in
+-- ticket.data (jsonb), no new column required.
+
+alter table releases add column if not exists phu_luc_gia_tri text;
+
+-- Nothing to backfill from existing data — pre-Round-161 tickets carry
+-- their Giá Trị Phụ Lục in ticket.data.giaTri instead (the ticket list's
+-- Giá Trị PL column already falls back to displaying that value when this
+-- new release column is still blank — see app/tickets/phu-luc/page.js).
+-- If you'd rather have the historical values live on the release too so
+-- they survive independent of the ticket, run this one-time copy — safe
+-- to run more than once, only fills genuinely blank release values, never
+-- overwrites one that's already set:
+--
+-- update releases r
+-- set phu_luc_gia_tri = t.data->>'giaTri'
+-- from tickets t
+-- join ticket_tabs tt on tt.id = t.tab_id
+-- where tt.key = 'phu_luc'
+--   and t.deleted_at is null
+--   and t.data->>'releaseId' = r.id::text
+--   and (r.phu_luc_gia_tri is null or r.phu_luc_gia_tri = '')
+--   and t.data->>'giaTri' is not null
+--   and t.data->>'giaTri' <> '';

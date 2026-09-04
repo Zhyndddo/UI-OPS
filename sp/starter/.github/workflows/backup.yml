@@ -1,0 +1,73 @@
+name: Data Backup
+
+on:
+  schedule:
+    # 18:00 UTC daily (~01:00 ICT). Adjust if a different quiet hour fits better.
+    - cron: "0 18 * * *"
+  workflow_dispatch: {} # lets anyone run a backup on demand from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      # Two checkouts side by side: `app` has the backup scripts (versioned
+      # with the rest of the codebase on main), `data-backups` is where the
+      # JSON snapshots actually live. Keeping backups off main means this
+      # workflow's commits never touch the branch Vercel deploys from.
+      - name: Checkout app (main)
+        uses: actions/checkout@v4
+        with:
+          path: app
+
+      - name: Checkout data-backups branch
+        uses: actions/checkout@v4
+        with:
+          ref: data-backups
+          path: data-backups
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # 22, not 20 — @supabase/supabase-js always spins up a realtime
+          # client on createClient(), which needs a native WebSocket
+          # implementation. That's only built into Node starting at 22;
+          # on 20 it throws ("Node.js 20 detected without native WebSocket
+          # support") the moment the backup script calls createClient().
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm install @supabase/supabase-js --no-save
+
+      - name: Run backup
+        working-directory: app
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/backup.js ../data-backups/backups/daily
+
+      - name: Also copy today's backup into weekly on Sundays
+        run: |
+          STAMP=$(date -u +%F)
+          if [ "$(date -u +%u)" = "7" ]; then
+            mkdir -p data-backups/backups/weekly
+            cp "data-backups/backups/daily/${STAMP}.json" "data-backups/backups/weekly/${STAMP}.json"
+            echo "Saved weekly snapshot for ${STAMP}."
+          fi
+
+      - name: Prune old backups
+        working-directory: data-backups
+        run: node ../app/scripts/prune-backups.js
+
+      - name: Commit and push
+        working-directory: data-backups
+        run: |
+          git config user.name "backup-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add backups
+          git diff --cached --quiet || git commit -m "Backup $(date -u +%F)"
+          git push origin data-backups

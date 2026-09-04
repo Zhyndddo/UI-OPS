@@ -1,0 +1,228 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { supabase } from "./supabaseClient";
+import { useAuth } from "./AuthContext";
+import { TICKET_CONFIGS } from "./ticketConfigs";
+import ReleasePicker from "./ReleasePicker";
+import RelatedDidField from "./RelatedDidField";
+import styles from "../app/shared.module.css";
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// A field renders as a full-width textarea if it's explicitly type
+// "textarea", or if it's flagged multiline — e.g. Manual Claim's URL
+// field, which needs to hold several pasted links, one per line, not a
+// single-line input.
+function isTextareaField(f) {
+  return f.type === "textarea" || f.multiline;
+}
+
+export default function NewTicketPage({ typeKey, basePath }) {
+  const config = TICKET_CONFIGS[typeKey];
+  const router = useRouter();
+  const { profile } = useAuth();
+  const initial = {};
+  (config?.fields || []).forEach((f) => (initial[f.key] = f.defaultValue ?? ""));
+  const [form, setForm] = useState(initial);
+  const [deadline, setDeadline] = useState("");
+  const [deadlineTouched, setDeadlineTouched] = useState(false);
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [overload, setOverload] = useState(null);
+  const [excludeDids, setExcludeDids] = useState(new Set());
+
+  // Design's Overload same-day-deadline soft lock — only relevant here
+  useEffect(() => {
+    if (!supabase || typeKey !== "design") return;
+    supabase.from("app_settings").select("value").eq("key", "design_overload").maybeSingle()
+      .then(({ data }) => setOverload(data?.value || { active: false, date: null }));
+  }, [typeKey]);
+
+  // config.oneTicketPerRelease — types that can ALSO be auto-created from a
+  // gate field ("tick Yes -> ticket appears"). Filter releases that already
+  // have a non-deleted ticket of this type out of the picker entirely, so a
+  // second one can't be created by accident from this manual form. Same
+  // excludeDids mechanism Media Booking's bespoke /new page already uses.
+  useEffect(() => {
+    if (!supabase || !config?.oneTicketPerRelease) return;
+    (async () => {
+      const { data: tabRow } = await supabase.from("ticket_tabs").select("id").eq("key", typeKey).single();
+      if (!tabRow) return;
+      const { data: existing } = await supabase.from("tickets").select("data").eq("tab_id", tabRow.id).is("deleted_at", null);
+      setExcludeDids(new Set((existing || []).map((t) => t.data?.releaseId).filter(Boolean)));
+    })();
+  }, [typeKey]);
+
+  // Deadline defaults to config.defaultDeadlineFrom's field (e.g. Phái
+  // Sinh's Release Date) until the requester picks a deadline themselves.
+  // Clearing the deadline back to blank re-enables auto-fill, so it keeps
+  // tracking Release Date edits until an explicit choice is made.
+  const defaultDeadlineSrc = config?.defaultDeadlineFrom ? form[config.defaultDeadlineFrom] : null;
+  useEffect(() => {
+    if (!defaultDeadlineSrc || deadlineTouched) return;
+    setDeadline(defaultDeadlineSrc);
+  }, [defaultDeadlineSrc, deadlineTouched]);
+
+  function handleDeadlineChange(v) {
+    setDeadline(v);
+    setDeadlineTouched(v !== "");
+  }
+
+  const overloadBlocked = typeKey === "design" && overload?.active && overload.date === todayStr() && deadline === todayStr();
+
+  function update(key, value) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  // Fills whichever fields the type's releaseFieldMap declares, from
+  // whichever release was picked — e.g. tenBai/artist/label for Phái Sinh.
+  function fillFromRelease(release) {
+    const map = config.releaseFieldMap?.map || {};
+    setForm((f) => {
+      const next = { ...f };
+      Object.entries(map).forEach(([formKey, releaseKey]) => {
+        if (release[releaseKey] != null) next[formKey] = release[releaseKey];
+      });
+      return next;
+    });
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError(null);
+    const missing = config.fields.filter((f) => f.required && !form[f.key]?.trim());
+    if (missing.length > 0) {
+      setError(`${missing.map((f) => f.label).join(", ")} required.`);
+      return;
+    }
+    if (overloadBlocked) {
+      setError("Design is overloaded today — please choose a later deadline.");
+      return;
+    }
+    setSubmitting(true);
+    const { data: tab, error: tabErr } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", typeKey).single();
+    if (tabErr || !tab) {
+      setSubmitting(false);
+      setError(`Couldn't find the ${config.label} ticket type — did schema.sql get redeployed?`);
+      return;
+    }
+    // Belt-and-suspenders re-check right before insert — the picker already
+    // filters ticketed releases out, but this catches a race (e.g. an
+    // auto-ticket created from New Release in the gap between this form
+    // loading and being submitted) with a clear error instead of a silent
+    // duplicate.
+    if (config.oneTicketPerRelease && config.releaseFieldMap?.attachTo) {
+      const releaseIdKey = config.releaseFieldMap.attachTo;
+      const releaseIdVal = form[releaseIdKey];
+      if (releaseIdVal) {
+        const { data: dupe } = await supabase
+          .from("tickets")
+          .select("id")
+          .eq("tab_id", tab.id)
+          .is("deleted_at", null)
+          .contains("data", { [releaseIdKey]: releaseIdVal })
+          .maybeSingle();
+        if (dupe) {
+          setSubmitting(false);
+          setError(`A ${config.label} ticket for this release already exists — only one is allowed per release.`);
+          return;
+        }
+      }
+    }
+    const { error: insertErr } = await supabase.from("tickets").insert({
+      tab_id: tab.id,
+      data: form,
+      deadline: deadline || null,
+      status: tab.default_status,
+      status_log: { [tab.default_status]: new Date().toISOString() },
+      requester_segment: profile?.segment || null,
+      requester_name: profile?.name || null,
+    });
+    setSubmitting(false);
+    if (insertErr) setError(insertErr.message);
+    else router.push(basePath);
+  }
+
+  if (!config) return <div className={styles.page}><div className={styles.container}>Unknown ticket type: {typeKey}</div></div>;
+
+  return (
+    <div className={styles.page}>
+      <div className={styles.container} style={{ maxWidth: 640 }}>
+        <Link href={basePath} className={styles.backLink}>← Back</Link>
+        <div className={styles.eyebrow}>// New Ticket</div>
+        <h1 className={styles.title}>{config.label}</h1>
+
+        {error && <div className={styles.errorBox}>{error}</div>}
+
+        <form onSubmit={handleSubmit}>
+          <div className={styles.grid2}>
+            {config.fields.filter((f) => !isTextareaField(f)).map((f) => (
+              <div key={f.key} className={styles.field}>
+                <label className={styles.fieldLabel}>
+                  {f.label} {f.required && <span className={styles.required}>*</span>}
+                </label>
+                <div style={{ position: "relative" }}>
+                  {f.type === "relatedDid" ? (
+                    <RelatedDidField styles={styles} value={form[f.key]} onChange={(v) => update(f.key, v)} />
+                  ) : (
+                    <>
+                      <input
+                        type={f.type === "date" ? "date" : "text"}
+                        className={styles.input}
+                        style={config.releaseFieldMap?.attachTo === f.key ? { paddingRight: 34 } : undefined}
+                        value={form[f.key]}
+                        onChange={(e) => update(f.key, e.target.value)}
+                      />
+                      {config.releaseFieldMap?.attachTo === f.key && (
+                        <ReleasePicker onSelect={fillFromRelease} excludeDids={config.oneTicketPerRelease ? excludeDids : undefined} />
+                      )}
+                    </>
+                  )}
+                </div>
+                {f.helpText && (
+                  <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4, marginBottom: 0 }}>{f.helpText}</p>
+                )}
+              </div>
+            ))}
+            <div className={styles.field}>
+              <label className={styles.fieldLabel}>Deadline</label>
+              <input type="date" className={styles.input} value={deadline} onChange={(e) => handleDeadlineChange(e.target.value)} />
+              {overloadBlocked && (
+                <p style={{ color: "var(--error-fg)", fontSize: 11, marginTop: 4, marginBottom: 0 }}>
+                  ⚠ Design is overloaded today — choose a later date to unlock.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {config.fields.filter(isTextareaField).map((f) => (
+            <div key={f.key} className={styles.field}>
+              <label className={styles.fieldLabel}>
+                {f.label} {f.required && <span className={styles.required}>*</span>}
+              </label>
+              <textarea
+                className={styles.textarea}
+                style={f.multiline ? { minHeight: 90 } : undefined}
+                placeholder={f.placeholder}
+                value={form[f.key]}
+                onChange={(e) => update(f.key, e.target.value)}
+              />
+              {f.helpText && (
+                <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4, marginBottom: 0 }}>{f.helpText}</p>
+              )}
+            </div>
+          ))}
+
+          <button className={styles.btnPrimary} type="submit" disabled={submitting}>
+            {submitting ? "Creating…" : "Create Ticket"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
