@@ -11,6 +11,8 @@ import Pagination, { PAGE_SIZE_OPTIONS } from "../../lib/Pagination";
 import { fetchProductTagSets, ProductTagPills } from "../../lib/productTags";
 import { copyrightChecklistSummary } from "../../lib/copyrightChecklist";
 import DateRangeFilter, { matchesDateRange } from "../../lib/DateRangeFilter";
+import { useAuth } from "../../lib/AuthContext";
+import { canFlagIndie } from "../../lib/permissions";
 import styles from "../shared.module.css";
 
 const CHANNELS = ["VIEENT", "ENVI"];
@@ -110,6 +112,8 @@ const RELEASE_COLUMNS = [
   "priority_pitching", "pitching_status_spotify", "pitching_status_apple", "pitching_status_nct", "pitching_status_zing",
   // Round 88 — Copyright Checklist compiled summary subrow
   "copyright_checklist",
+  // Round 258 — INDIE flag
+  "is_indie",
 ].join(", ");
 
 // Mirrors app/workstation/pitching/page.js's DONE_VALUE/CANCEL_VALUES so the
@@ -250,6 +254,8 @@ function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery
   if (filters.labelFilter) q = q.eq("label", filters.labelFilter);
   if (filters.dateRangeStart) q = q.gte("release_date", filters.dateRangeStart);
   if (filters.dateRangeEnd) q = q.lte("release_date", filters.dateRangeEnd);
+  // Round 258 — INDIE filter, per explicit request.
+  if (filters.indieFilter) q = q.eq("is_indie", true);
 
   if (searchQuery) {
     const op = searchMode === "regex" ? "imatch" : "ilike";
@@ -271,8 +277,8 @@ function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery
 // component) still needs a plain object shape to read/write — unchanged
 // from before other than dropping the fields that no longer exist
 // (nothing removed here, sort/page/filters are all still real state).
-function currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort }) {
-  return { search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort };
+function currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, indieFilter, page, pageSize, sort }) {
+  return { search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, indieFilter, page, pageSize, sort };
 }
 
 export default function ReleasesDashboard() {
@@ -298,8 +304,13 @@ export default function ReleasesDashboard() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [dateRangeStart, setDateRangeStart] = useState("");
   const [dateRangeEnd, setDateRangeEnd] = useState("");
+  const [indieFilter, setIndieFilter] = useState(false); // Round 258 — "only show INDIE" toggle
+  const [savingIndie, setSavingIndie] = useState(null); // release id currently being saved
   const [hoverRelease, setHoverRelease] = useState(null);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
+
+  const { profile } = useAuth();
+  const canEditIndie = canFlagIndie(profile);
 
   const [sort, setSort] = useState(null); // null = default (release date desc) | { key, dir }
   const [page, setPage] = useState(1);
@@ -330,8 +341,8 @@ export default function ReleasesDashboard() {
   }, [search]);
 
   const filters = useMemo(
-    () => ({ statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd }),
-    [statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd]
+    () => ({ statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, indieFilter }),
+    [statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, indieFilter]
   );
 
   // Fires the actual list query, with the invalid-regex fallback baked in.
@@ -440,6 +451,7 @@ export default function ReleasesDashboard() {
       if (saved.labelFilter) setLabelFilter(saved.labelFilter);
       if (saved.dateRangeStart) setDateRangeStart(saved.dateRangeStart);
       if (saved.dateRangeEnd) setDateRangeEnd(saved.dateRangeEnd);
+      if (saved.indieFilter) setIndieFilter(saved.indieFilter);
       if (saved.page) setPage(saved.page);
       if (saved.pageSize) setPageSize(saved.pageSize);
       if (saved.sort) setSort(saved.sort);
@@ -468,6 +480,7 @@ export default function ReleasesDashboard() {
         labelFilter: restored?.labelFilter || "",
         dateRangeStart: restored?.dateRangeStart || "",
         dateRangeEnd: restored?.dateRangeEnd || "",
+        indieFilter: restored?.indieFilter || false,
       },
       searchTerm: restored?.search || "",
     });
@@ -516,7 +529,7 @@ export default function ReleasesDashboard() {
   // empty dep array) always sees the CURRENT values instead of whatever
   // they were at mount.
   const latestDashboardStateRef = useRef(null);
-  latestDashboardStateRef.current = currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort });
+  latestDashboardStateRef.current = currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, indieFilter, page, pageSize, sort });
   useEffect(() => {
     return () => {
       writeDashboardState({ ...latestDashboardStateRef.current, scrollY: window.scrollY });
@@ -539,6 +552,18 @@ export default function ReleasesDashboard() {
       setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, requester_segment: value || null } : r)));
     }
     setSavingChannel(null);
+  }
+
+  // Round 258 — INDIE flag, inline from the dashboard row. Same
+  // "write straight to the DB, optimistic local update" shape as
+  // updateChannel right above.
+  async function updateIndie(release, value) {
+    setSavingIndie(release.id);
+    const { error: err } = await supabase.from("releases").update({ is_indie: value }).eq("id", release.id);
+    if (!err) {
+      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, is_indie: value } : r)));
+    }
+    setSavingIndie(null);
   }
 
   return (
@@ -592,9 +617,17 @@ export default function ReleasesDashboard() {
             <option value="">Label — all</option>
             {labels.map((l) => <option key={l.label_name} value={l.label_name}>{l.label_name}</option>)}
           </select>
-          {(typeFilter || labelFilter || search || dateRangeStart || dateRangeEnd || anyStatClickFilter) && (
+          {/* Round 258 — INDIE filter, per explicit request. Visible to
+              everyone (not gated by canEditIndie — filtering to see
+              INDIE releases is a read, not an edit), same "visible to
+              all, editable by some" split as the column itself below. */}
+          <label className={styles.checkboxRow} style={{ fontSize: 11, whiteSpace: "nowrap" }}>
+            <input type="checkbox" checked={indieFilter} onChange={(e) => setIndieFilter(e.target.checked)} />
+            INDIE only
+          </label>
+          {(typeFilter || labelFilter || search || dateRangeStart || dateRangeEnd || indieFilter || anyStatClickFilter) && (
             <button
-              onClick={() => { setStatusFilter(null); setChannelFilter(null); setCreatedFilter(null); setTypeFilter(""); setLabelFilter(""); setSearch(""); setDateRangeStart(""); setDateRangeEnd(""); }}
+              onClick={() => { setStatusFilter(null); setChannelFilter(null); setCreatedFilter(null); setTypeFilter(""); setLabelFilter(""); setSearch(""); setDateRangeStart(""); setDateRangeEnd(""); setIndieFilter(false); }}
               style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "6px 12px", fontSize: 11, color: "var(--text-faint)", cursor: "pointer" }}
             >
               ✕ Clear all filters
@@ -647,6 +680,10 @@ export default function ReleasesDashboard() {
                 <th>Metadata</th>
                 <th>Booking</th>
                 <th>Upload</th>
+                {/* Round 258 — INDIE flag column. Editable checkbox for
+                    canEditIndie (team lead on Marketing, dev); everyone
+                    else just sees a read-only pill when it's on. */}
+                <th>Indie</th>
               </tr>
             </thead>
             <tbody>
@@ -763,6 +800,22 @@ export default function ReleasesDashboard() {
                     </td>
                     <td>
                       <span className={`${styles.pill} ${upct > 0 ? styles.pillOrange : styles.pillGray}`}>{upct}%</span>
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {canEditIndie ? (
+                        <label className={styles.checkboxRow} style={{ opacity: savingIndie === r.id ? 0.5 : 1 }}>
+                          <input
+                            type="checkbox"
+                            checked={!!r.is_indie}
+                            disabled={savingIndie === r.id}
+                            onChange={(e) => updateIndie(r, e.target.checked)}
+                          />
+                        </label>
+                      ) : r.is_indie ? (
+                        <span className={`${styles.pill} ${styles.pillOrange}`}>INDIE</span>
+                      ) : (
+                        <span style={{ color: "var(--text-faint)" }}>—</span>
+                      )}
                     </td>
                   </tr>
                 );

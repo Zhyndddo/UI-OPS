@@ -19,7 +19,7 @@ import PickSelect from "../../../lib/PickSelect";
 import { TICKET_TYPE_LABELS, TEAMS, REPORTING_TEAMS } from "../../../lib/teamTypes";
 import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import { useAuth } from "../../../lib/AuthContext";
-import { isDev, isAdminOrAbove } from "../../../lib/permissions";
+import { isDev, isAdminOrAbove, canFlagIndie } from "../../../lib/permissions";
 import { runOne } from "../../../lib/packageSimulator";
 import { fetchProductTagSets, ProductTagPills } from "../../../lib/productTags";
 import { recomputeDid } from "../../../lib/didHelpers";
@@ -1305,6 +1305,17 @@ export default function ReleaseDetailPage() {
     setRelease((r) => ({ ...r, package_locked: newVal }));
   }
 
+  // Round 258 — INDIE flag, header switch. Same "write immediately,
+  // don't wait for Save" idiom as togglePackageLock right above — a
+  // classification flag like this should stick the moment it's flipped,
+  // not get lost if the rest of the form's edits never get saved.
+  async function toggleIndie() {
+    const newVal = !form.is_indie;
+    setForm((f) => ({ ...f, is_indie: newVal }));
+    await supabase.from("releases").update({ is_indie: newVal }).eq("id", id);
+    setRelease((r) => ({ ...r, is_indie: newVal }));
+  }
+
   // Round 121 — undoes a resolved package decision (INT MEDIA via SEND INT
   // SUPPORT PACKAGE, or any other real contract type — e.g. a genuine
   // artist pick via the magic link) back to DEALING, as if nothing had
@@ -1430,7 +1441,20 @@ export default function ReleaseDetailPage() {
 
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20, alignItems: "start", marginBottom: 20 }}>
             <div>
-              <div className={styles.eyebrow}>{form.did || "—"}</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                <div className={styles.eyebrow} style={{ marginBottom: 0 }}>{form.did || "—"}</div>
+                {/* Round 258 — INDIE flag switch, header. Only shown to
+                    whoever can actually flip it (canFlagIndie — team lead
+                    on Marketing, dev); everyone else who isn't permitted
+                    just sees a plain read-only pill when it's on, same
+                    "visible to all, editable by some" split the New
+                    Release dashboard's own INDIE column uses. */}
+                {canFlagIndie(profile) ? (
+                  <IndieSwitch on={!!form.is_indie} onToggle={toggleIndie} />
+                ) : form.is_indie ? (
+                  <span className={`${styles.pill} ${styles.pillOrange}`}>INDIE</span>
+                ) : null}
+              </div>
               {firstUrl(form.link_lbm) ? (
                 <a
                   href={firstUrl(form.link_lbm)}
@@ -1630,6 +1654,45 @@ function GateStatusPill({ label, gateOn, ticket }) {
     >
       {label}
     </span>
+  );
+}
+
+// Round 258 — INDIE flag switch, header (see toggleIndie above and the
+// matching per-row control on the New Release dashboard, app/releases/
+// page.js). Writes immediately on click, same idiom as the rest of the
+// header's inline controls (togglePackageLock) — no "hit Save first".
+function IndieSwitch({ on, onToggle }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={on ? "Marked INDIE — click to unmark" : "Mark this project INDIE"}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        border: "1px solid var(--border-strong)",
+        borderRadius: 20,
+        padding: "3px 10px 3px 3px",
+        background: on ? "rgba(255,107,26,0.14)" : "transparent",
+        cursor: "pointer",
+        fontSize: 11,
+        fontWeight: 700,
+        color: on ? "#ff9d5c" : "var(--text-faint)",
+        flexShrink: 0,
+      }}
+    >
+      <span
+        style={{
+          width: 14,
+          height: 14,
+          borderRadius: "50%",
+          background: on ? "#ff6b1a" : "var(--bg-hover)",
+          border: "1px solid var(--border-strong)",
+        }}
+      />
+      INDIE
+    </button>
   );
 }
 
