@@ -461,6 +461,15 @@ export default function TaskTablePage() {
               : "Outstanding (undone) work per member, grouped by team — click a count to open that task's own page."}
           </p>
 
+          {/* Round 251 TEMPORARY debug line — remove once the View-As/exc
+              detection bug is confirmed fixed. Shows exactly what this page
+              sees `profile` as, to settle whether the personal view isn't
+              showing because of stale View-As state, a role string mismatch,
+              or something else entirely. */}
+          <div style={{ fontSize: 11, color: "#ff6b1a", border: "1px dashed #ff6b1a", borderRadius: 4, padding: "6px 8px", marginBottom: 16, fontFamily: "monospace" }}>
+            DEBUG — profile.role: {JSON.stringify(profile?.role)} · profile.segment: {JSON.stringify(profile?.segment)} · profile.id: {JSON.stringify(profile?.id)} · isExc: {String(isExc)}
+          </div>
+
           {isExc && (
             <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid var(--border)" }}>
               {[["mine", "My Tasks"], ["team", "My Team"]].map(([key, label]) => (
