@@ -780,12 +780,29 @@ export default function NewReleasePage() {
           </button>
         </div>
 
-        {/* Round 212 — DID moved out of here. It used to be its own big
-            dashed box right at the top of the page; per explicit request
-            it now sits as a slim accent line directly above the Release
-            Time field instead (see .didAccent in styles.module.css and
-            the Release Time field further down, row 6 of the new
-            layout) — same content, just relocated. */}
+        {/* Round 259 — DID moved back up here, per explicit request
+            ("make the DID go back up at the top"). Round 212 had pulled
+            it out of the top-of-page big box down into a slim accent
+            line above Release Time (Row 6 of the grid below); this keeps
+            that same slim-accent styling (.didAccent — never went back
+            to the old "big dashed box" look, just relocated) but puts it
+            back at the very top, above everything else on the page,
+            matching where it originally lived. */}
+        <div className={styles.didAccent} style={{ marginBottom: 20 }}>
+          <div className={styles.didLabel}>// Release ID (DID)</div>
+          {createdDid ? (
+            <div className={styles.didValue}>{createdDid}</div>
+          ) : form.title.trim() || form.main_artist.trim() ? (
+            <>
+              <div className={styles.didValue}>{didPreview(form.title, form.main_artist, form.release_date)}</div>
+              <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 4 }}>
+                Preview — the final 4 digits are assigned by the database on creation, to guarantee no collisions
+              </div>
+            </>
+          ) : (
+            <div className={styles.didPlaceholder}>---- ---- ----</div>
+          )}
+        </div>
 
         {error && <div className={styles.errorBox}>{error}</div>}
         {autofillNote && (
@@ -1113,30 +1130,6 @@ export default function NewReleasePage() {
               </div>
             </div>
 
-            {/* Row 6: DID accent box only now — used to be its own big
-                dashed box at the very top of the page; per an earlier
-                explicit request, it moved here as a slim accent line.
-                Giờ phát hành used to live in this same block too, but
-                per Round 254 it moved up next to Ngày phát hành instead
-                (see the comment there) so date and time are actually on
-                the same row. */}
-            <div className={`${styles.field} ${styles.fieldFull}`}>
-              <div className={styles.didAccent}>
-                <div className={styles.didLabel}>// Release ID (DID)</div>
-                {createdDid ? (
-                  <div className={styles.didValue}>{createdDid}</div>
-                ) : form.title.trim() || form.main_artist.trim() ? (
-                  <>
-                    <div className={styles.didValue}>{didPreview(form.title, form.main_artist, form.release_date)}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 4 }}>
-                      Preview — the final 4 digits are assigned by the database on creation, to guarantee no collisions
-                    </div>
-                  </>
-                ) : (
-                  <div className={styles.didPlaceholder}>---- ---- ----</div>
-                )}
-              </div>
-            </div>
           </div>
 
           <div className={styles.subheading} style={{ marginTop: 8 }}>Metadata Checklist</div>

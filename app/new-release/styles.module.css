@@ -76,9 +76,12 @@
   margin-bottom: 4px;
 }
 
+/* Round 260 — "make the content of the DID smaller, about half the size
+   now" (was 16px at this top-of-page spot since Round 259 moved it back
+   up here). */
 .didAccent .didValue,
 .didAccent .didPlaceholder {
-  font-size: 16px;
+  font-size: 8px;
 }
 
 /* Round 212 — the compact "Label:" prefix in front of the Label field's

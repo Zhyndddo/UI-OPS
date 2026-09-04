@@ -13,6 +13,7 @@ import { copyrightChecklistSummary } from "../../lib/copyrightChecklist";
 import DateRangeFilter, { matchesDateRange } from "../../lib/DateRangeFilter";
 import { useAuth } from "../../lib/AuthContext";
 import { canFlagIndie } from "../../lib/permissions";
+import { cycleProjectTag } from "../../lib/projectTags";
 import styles from "../shared.module.css";
 
 const CHANNELS = ["VIEENT", "ENVI"];
@@ -112,8 +113,9 @@ const RELEASE_COLUMNS = [
   "priority_pitching", "pitching_status_spotify", "pitching_status_apple", "pitching_status_nct", "pitching_status_zing",
   // Round 88 — Copyright Checklist compiled summary subrow
   "copyright_checklist",
-  // Round 258 — INDIE flag
-  "is_indie",
+  // Round 260 — project tag (INDIE/VPOP/ENVI/VIEENT), replaces Round 258's
+  // plain is_indie boolean
+  "project_tag", "project_tag_locked",
 ].join(", ");
 
 // Mirrors app/workstation/pitching/page.js's DONE_VALUE/CANCEL_VALUES so the
@@ -254,8 +256,10 @@ function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery
   if (filters.labelFilter) q = q.eq("label", filters.labelFilter);
   if (filters.dateRangeStart) q = q.gte("release_date", filters.dateRangeStart);
   if (filters.dateRangeEnd) q = q.lte("release_date", filters.dateRangeEnd);
-  // Round 258 — INDIE filter, per explicit request.
-  if (filters.indieFilter) q = q.eq("is_indie", true);
+  // Round 258/260 — INDIE filter, per explicit request. Still just the
+  // one tag ("INDIE only") — the other 3 tags didn't get their own
+  // filters asked for.
+  if (filters.indieFilter) q = q.eq("project_tag", "INDIE");
 
   if (searchQuery) {
     const op = searchMode === "regex" ? "imatch" : "ilike";
@@ -554,14 +558,25 @@ export default function ReleasesDashboard() {
     setSavingChannel(null);
   }
 
-  // Round 258 — INDIE flag, inline from the dashboard row. Same
-  // "write straight to the DB, optimistic local update" shape as
-  // updateChannel right above.
-  async function updateIndie(release, value) {
+  // Round 260 — project tag, inline from the dashboard row. Clicking the
+  // flag cycles NONE -> INDIE -> VPOP -> ENVI -> VIEENT -> NONE (see
+  // lib/projectTags.js). Per explicit request, going FROM a set tag back
+  // TO NONE ("in case they incorrectly unflag") asks for confirmation
+  // first — every other step in the cycle just happens, only the "remove
+  // the flag" direction is a mistake worth a second click for. Any manual
+  // change (this or the detail page's own switch) sets
+  // project_tag_locked so the automatic Indie-channel check (see the
+  // release detail page) never overwrites a human's choice again.
+  async function cycleIndieTag(release) {
+    const next = cycleProjectTag(release.project_tag);
+    if (release.project_tag && !next) {
+      const ok = window.confirm(`Remove the "${release.project_tag}" tag from "${release.title}"?`);
+      if (!ok) return;
+    }
     setSavingIndie(release.id);
-    const { error: err } = await supabase.from("releases").update({ is_indie: value }).eq("id", release.id);
+    const { error: err } = await supabase.from("releases").update({ project_tag: next, project_tag_locked: true }).eq("id", release.id);
     if (!err) {
-      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, is_indie: value } : r)));
+      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, project_tag: next, project_tag_locked: true } : r)));
     }
     setSavingIndie(null);
   }
@@ -617,12 +632,15 @@ export default function ReleasesDashboard() {
             <option value="">Label — all</option>
             {labels.map((l) => <option key={l.label_name} value={l.label_name}>{l.label_name}</option>)}
           </select>
-          {/* Round 258 — INDIE filter, per explicit request. Visible to
-              everyone (not gated by canEditIndie — filtering to see
+          {/* Round 258/260 — INDIE filter, per explicit request. Visible
+              to everyone (not gated by canEditIndie — filtering to see
               INDIE releases is a read, not an edit), same "visible to
-              all, editable by some" split as the column itself below. */}
-          <label className={styles.checkboxRow} style={{ fontSize: 11, whiteSpace: "nowrap" }}>
-            <input type="checkbox" checked={indieFilter} onChange={(e) => setIndieFilter(e.target.checked)} />
+              all, editable by some" split as the column itself below.
+              Round 260 — restyled from a checkbox into an actual switch
+              ("can you make it like a true switch rather a small
+              square"), visual only, same boolean underneath. */}
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, whiteSpace: "nowrap", cursor: "pointer" }}>
+            <ToggleSwitch checked={indieFilter} onChange={setIndieFilter} />
             INDIE only
           </label>
           {(typeFilter || labelFilter || search || dateRangeStart || dateRangeEnd || indieFilter || anyStatClickFilter) && (
@@ -680,9 +698,11 @@ export default function ReleasesDashboard() {
                 <th>Metadata</th>
                 <th>Booking</th>
                 <th>Upload</th>
-                {/* Round 258 — INDIE flag column. Editable checkbox for
-                    canEditIndie (team lead on Marketing, dev); everyone
-                    else just sees a read-only pill when it's on. */}
+                {/* Round 258/260 — project tag column, short header
+                    ("Indie") per explicit request even though the tag can
+                    be any of INDIE/VPOP/ENVI/VIEENT now. Clickable flag
+                    for canEditIndie (team lead on Marketing, dev);
+                    everyone else just sees a read-only pill when it's set. */}
                 <th>Indie</th>
               </tr>
             </thead>
@@ -802,20 +822,12 @@ export default function ReleasesDashboard() {
                       <span className={`${styles.pill} ${upct > 0 ? styles.pillOrange : styles.pillGray}`}>{upct}%</span>
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      {canEditIndie ? (
-                        <label className={styles.checkboxRow} style={{ opacity: savingIndie === r.id ? 0.5 : 1 }}>
-                          <input
-                            type="checkbox"
-                            checked={!!r.is_indie}
-                            disabled={savingIndie === r.id}
-                            onChange={(e) => updateIndie(r, e.target.checked)}
-                          />
-                        </label>
-                      ) : r.is_indie ? (
-                        <span className={`${styles.pill} ${styles.pillOrange}`}>INDIE</span>
-                      ) : (
-                        <span style={{ color: "var(--text-faint)" }}>—</span>
-                      )}
+                      <ProjectTagFlag
+                        tag={r.project_tag}
+                        editable={canEditIndie}
+                        saving={savingIndie === r.id}
+                        onClick={() => cycleIndieTag(r)}
+                      />
                     </td>
                   </tr>
                 );
@@ -863,6 +875,82 @@ export default function ReleasesDashboard() {
       </div>
     )}
     </AppShell>
+  );
+}
+
+// Round 260 — visual toggle switch, used for the "INDIE only" filter.
+// Purely cosmetic swap for a checkbox — same boolean checked/onChange
+// contract, just styled as a track+thumb instead of a native square.
+function ToggleSwitch({ checked, onChange }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      style={{
+        width: 34,
+        height: 18,
+        borderRadius: 10,
+        border: "1px solid var(--border-strong)",
+        background: checked ? "#ff6b1a" : "var(--bg-hover)",
+        position: "relative",
+        cursor: "pointer",
+        padding: 0,
+        flexShrink: 0,
+        transition: "background 0.15s ease",
+      }}
+    >
+      <span
+        style={{
+          position: "absolute",
+          top: 1,
+          left: checked ? 17 : 1,
+          width: 14,
+          height: 14,
+          borderRadius: "50%",
+          background: "#fff",
+          transition: "left 0.15s ease",
+        }}
+      />
+    </button>
+  );
+}
+
+// Round 260 — project tag flag icon + label, per explicit request ("an
+// actual flag icon... click on it will cycle through ... INDIE; VPOP;
+// ENVI, VIEENT, NONE"). Same component used read-only (editable=false)
+// for anyone who isn't canFlagIndie — visible to all, clickable by the
+// permitted few, matching the split the checkbox column used before this
+// round. Stacked vertically ("vertical if we need space") since this
+// column is narrow and "INDIE"/"VIEENT" don't both fit next to a 🚩 on
+// one line at a readable size.
+const PROJECT_TAG_PILL_CLASS = {
+  INDIE: "pillOrange",
+  VPOP: "pillGreen",
+  ENVI: "pillPublishing",
+  VIEENT: "pillSplitshare",
+};
+function ProjectTagFlag({ tag, editable, saving, onClick }) {
+  const content = (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, opacity: saving ? 0.5 : 1 }}>
+      <span style={{ fontSize: 14, lineHeight: 1 }}>{tag ? "🚩" : "⚑"}</span>
+      {tag && <span className={`${styles.pill} ${styles[PROJECT_TAG_PILL_CLASS[tag]] || styles.pillGray}`}>{tag}</span>}
+    </div>
+  );
+  if (!editable) {
+    return tag ? content : <span style={{ color: "var(--text-faint)" }}>—</span>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={saving}
+      title={tag ? `Tagged ${tag} — click to change` : "Click to tag this project"}
+      style={{ background: "none", border: "none", padding: 0, cursor: saving ? "default" : "pointer" }}
+    >
+      {content}
+    </button>
   );
 }
 
