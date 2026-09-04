@@ -4,12 +4,10 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
-import { fmtDate, metadataPercent, uploadPercent, fetchAllRows } from "../../lib/helpers";
+import { fmtDate, metadataPercent, uploadPercent } from "../../lib/helpers";
 import { buildProductNote } from "../../lib/releaseNotes";
-import { useSortableRows } from "../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../lib/SortableTh";
-import { usePagination } from "../../lib/usePagination";
-import Pagination from "../../lib/Pagination";
+import Pagination, { PAGE_SIZE_OPTIONS } from "../../lib/Pagination";
 import { fetchProductTagSets, ProductTagPills } from "../../lib/productTags";
 import { copyrightChecklistSummary } from "../../lib/copyrightChecklist";
 import DateRangeFilter, { matchesDateRange } from "../../lib/DateRangeFilter";
@@ -24,11 +22,7 @@ const CHANNELS = ["VIEENT", "ENVI"];
 // sessionStorage only (clears when the tab closes, never written to or
 // read from the database, so this costs nothing beyond a few bytes in
 // the browser and is per-device by nature — nobody else's session is
-// affected). Read once via readDashboardState()/setter calls right after
-// mount (so it applies before the "Loading…" gate lifts and nothing ever
-// visibly flickers between default and restored state) and written once
-// on unmount via a ref that always holds the latest values, not on every
-// keystroke — see the component body for both halves.
+// affected).
 const DASHBOARD_STATE_KEY = "vieent-releases-dashboard-v1";
 
 function readDashboardState() {
@@ -51,14 +45,59 @@ function writeDashboardState(state) {
   }
 }
 
-// Round 86 follow-up item 1 (load speed) — releases is a genuinely wide
-// table (every workstation's own checklist/gate/confirm columns live on
-// it too — see schema.sql), but this dashboard only ever reads the fields
-// below (directly, or through metadataPercent()/uploadPercent()/
-// pitchingSummary() in lib/helpers.js and this file). `select("*")` was
-// pulling every column across the wire for every row on every load — this
-// cuts that payload down to what's actually rendered. Keep this list in
-// sync if the dashboard starts reading a new release field.
+// Round 247 — real server-side pagination (see project doc
+// "server-side-pagination-pitch.md"). This page used to pull the ENTIRE
+// releases table (fetchAllRows, no .range()) on every visit, then do
+// EVERYTHING client-side: the 6 stat cards, search (regex-first against
+// title/artist/label), every filter, sort, and the page slice itself all
+// read the one full in-memory array. That doesn't scale with table size —
+// see the pitch doc for the full case.
+//
+// What changed:
+//  - The row fetch now uses .range() + { count: "exact" } — only the
+//    current page's rows (and columns — RELEASE_COLUMNS below, unchanged)
+//    cross the wire, with an exact total for Pagination's "Page X / Y".
+//    Chosen over Postgres's cheaper estimated count per explicit request —
+//    this page's numbers get reported off of, so exact was worth the extra
+//    real scan.
+//  - The 6 stat cards + the 2 channel cards are now 9 independent
+//    `{ count: "exact", head: true }` queries instead of a client .reduce()
+//    over the full array — see loadStats() below. These are INTENTIONALLY
+//    independent of the active filters (matches the original behavior:
+//    the old `stats` useMemo depended only on the unfiltered `releases`
+//    array, never on statusFilter/channelFilter/etc.), so they're fetched
+//    once on load/refresh, not on every filter change.
+//  - Search moved server-side via Postgres regex (`imatch`, the `~*`
+//    operator) across title/main_artist/label — per explicit request, kept
+//    genuinely regex-capable rather than downgrading to plain substring
+//    matching, matching the client's old "regex-first" behavior as closely
+//    as PostgREST allows. An invalid regex previously fell back to a plain
+//    substring match client-side (a JS try/catch around `new RegExp`) —
+//    the server can't try/catch a bad pattern the same way, so an invalid
+//    pattern here triggers a SECOND query using `ilike` (substring) as the
+//    fallback instead. Debounced 350ms so normal typing doesn't fire a
+//    query per keystroke.
+//  - Sort now drives `.order()` instead of a client array sort
+//    (useSortableRows) — every sortable column here (did, requester_segment,
+//    release_category... see the <SortableTh> list below) is a real
+//    `releases` column, not a computed/joined value, so this is a clean
+//    1:1 swap with zero behavior change.
+//  - bookingPct / pitchingData / albumNameByDid — previously joined against
+//    ALL releases; now scoped to just the current page's release ids/DIDs
+//    once that page's rows are known (see loadPageJoins below). Smaller
+//    queries, same displayed values.
+//  - The old 30s whole-page cache (loadDashboardData's dashboardCache) is
+//    gone — each filter/sort/page change is its own small query now rather
+//    than a slice of one giant cached blob, so there's no single blob left
+//    to cache. Trade-off worth knowing about: a "click Back" revisit is no
+//    longer free/instant the way it was within that 30s window — it's a
+//    fresh (but now cheap) query every time.
+//  - typeFilter's dropdown options used to come from `[...new
+//    Set(releases.map(r => r.project_type))]` over the full loaded table —
+//    with only one page in memory now that would silently shrink to
+//    whatever types happen to be on the current page. loadTypeOptions()
+//    below fetches just the `project_type` column (capped, deduped
+//    client-side) once on load instead — see its own comment.
 const RELEASE_COLUMNS = [
   "id", "did", "title", "main_artist", "label", "media_report_status", "project_type",
   "pseudo_package_parent_did", "release_category", "release_date", "release_time",
@@ -102,112 +141,150 @@ function pitchingSummary(release, ticketData) {
   return { label: "In Progress", tone: "yellow" };
 }
 
-// Round 223 — repeat-visit caching, same short-TTL + in-flight-dedup
-// technique Round 150 used for getNotDoneCount (see
-// lib/notDoneCounts.js's CACHE_TTL_MS/notDoneCountCache) — applied here
-// to this page's own full load() instead. This is the page people bounce
-// back to constantly (open a release, hit Back, repeat), so a revisit
-// within DASHBOARD_CACHE_TTL_MS being free is worth it even though it
-// does nothing for the very first load. Doesn't touch WHAT gets fetched
-// or how much — see project doc "server-side-pagination-pitch.md" for
-// the bigger, still-undecided lever (real server-side pagination,
-// converting this full fetchAllRows into a paginated one) this
-// deliberately does NOT attempt. A manual "↻ Refresh" button (below,
-// next to the filter row) bypasses the cache for anyone who edited
-// something elsewhere and wants this page caught up immediately instead
-// of waiting out the TTL.
-const DASHBOARD_CACHE_TTL_MS = 30000;
-let dashboardCache = null; // { promise } while in flight, or { value, expiresAt } once settled
+// Local-calendar boundaries, same math the old client `stats` useMemo used
+// (now.getDate()/getDay()/getMonth() are all local-time getters) — just
+// converted to ISO instants for use as query bounds instead of compared
+// against in JS. NOTE: this assumes the database compares a `date` column
+// against a timestamptz bound the same way `new Date(release_date) > now`
+// does client-side (both effectively UTC-midnight for the date side) —
+// that held in the original client code because `new Date("YYYY-MM-DD")`
+// parses as UTC per the JS spec. Worth a real smoke-test against live data
+// (compare these 6 stat cards' numbers to what the old client-computed
+// version showed) before trusting this at the edges — session couldn't
+// verify DB timezone handling without a live connection.
+function calendarBounds() {
+  const now = new Date();
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const startOfTomorrow = new Date(startOfToday);
+  startOfTomorrow.setDate(startOfToday.getDate() + 1);
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay());
+  startOfWeek.setHours(0, 0, 0, 0);
+  const startOfNextWeek = new Date(startOfWeek);
+  startOfNextWeek.setDate(startOfWeek.getDate() + 7);
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  return { now, startOfToday, startOfTomorrow, startOfWeek, startOfNextWeek, startOfMonth, startOfNextMonth, sevenDaysAgo };
+}
 
-function loadDashboardData({ bypassCache } = {}) {
-  if (!bypassCache && dashboardCache) {
-    if (dashboardCache.promise) return dashboardCache.promise;
-    if (dashboardCache.expiresAt > Date.now()) return Promise.resolve(dashboardCache.value);
+async function countReleases(build) {
+  let q = supabase.from("releases").select("id", { count: "exact", head: true });
+  q = build(q);
+  const { count, error } = await q;
+  if (error) throw error;
+  return count || 0;
+}
+
+// The 6 stat cards + 2 channel cards — 9 independent head-only counts,
+// fired together. Deliberately does NOT depend on the page's active
+// filters (statusFilter/channelFilter/etc.) — matches the original
+// behavior where these always reflected the WHOLE table, not the current
+// filtered view (a stat card's job here is "how many total", the filters
+// below are a separate, independent lens onto the list).
+async function loadStats() {
+  const b = calendarBounds();
+  const iso = (d) => d.toISOString();
+  const [total, today, thisWeek, thisMonth, preRelease, released, postRelease, viennt, envi] = await Promise.all([
+    countReleases((q) => q),
+    countReleases((q) => q.gte("release_date", iso(b.startOfToday)).lt("release_date", iso(b.startOfTomorrow))),
+    countReleases((q) => q.gte("release_date", iso(b.startOfWeek)).lt("release_date", iso(b.startOfNextWeek))),
+    countReleases((q) => q.gte("release_date", iso(b.startOfMonth)).lt("release_date", iso(b.startOfNextMonth))),
+    countReleases((q) => q.gt("release_date", iso(b.now))),
+    countReleases((q) => q.lte("release_date", iso(b.now)).gte("release_date", iso(b.sevenDaysAgo))),
+    countReleases((q) => q.lt("release_date", iso(b.sevenDaysAgo))),
+    countReleases((q) => q.eq("requester_segment", "VIEENT")),
+    countReleases((q) => q.eq("requester_segment", "ENVI")),
+  ]);
+  return {
+    total, today, thisWeek, thisMonth, preRelease, released, postRelease,
+    byChannel: { VIEENT: viennt, ENVI: envi },
+  };
+}
+
+// Real SELECT DISTINCT isn't exposed through the Supabase JS client — this
+// pulls just the `project_type` column (one skinny column, not the whole
+// row) capped at a generous row count and dedupes client-side. Good enough
+// for a filter dropdown: project_type is a small, reused vocabulary (a
+// handful of literal pipeline-stage/package-type strings — see
+// PIPELINE_STAGES in app/releases/[id]/page.js), so any real value is
+// overwhelmingly likely to show up well within this cap even on a huge
+// table — this is NOT a guarantee of true completeness the way a real
+// `SELECT DISTINCT` would be, just a practical stand-in.
+async function loadTypeOptions() {
+  const { data } = await supabase.from("releases").select("project_type").not("project_type", "is", null).limit(5000);
+  return [...new Set((data || []).map((r) => r.project_type).filter(Boolean))].sort();
+}
+
+// PostgREST's `.or()` filter syntax uses `,` to separate conditions and
+// `(`/`)` to group them — both are completely ordinary characters in real
+// release titles ("State Lines, Pt. 2", "Deluxe (2024)"), so the raw search
+// text can't go into the filter string unescaped or it desyncs PostgREST's
+// own parser (not just a wrong-match risk — a real query error). PostgREST's
+// fix for this is documented: wrap the value in double quotes, and escape
+// any literal backslash/double-quote inside it. Applies to both the ilike
+// substring value and the imatch regex pattern — quoting only affects how
+// PostgREST's filter-string tokenizer reads the value, not what the
+// operator itself receives, so a regex pattern that legitimately uses ()
+// or {1,2} still works as a regex once unquoted server-side.
+function escapeOrFilterValue(v) {
+  return `"${String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+// Builds the filtered/sorted/paginated releases query. Shared by the real
+// fetch and by the regex-invalid-pattern fallback below.
+function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery }) {
+  let q = supabase.from("releases").select(RELEASE_COLUMNS, { count: "exact" });
+
+  const b = calendarBounds();
+  const iso = (d) => d.toISOString();
+  if (filters.createdFilter === "today") q = q.gte("release_date", iso(b.startOfToday)).lt("release_date", iso(b.startOfTomorrow));
+  if (filters.createdFilter === "week") q = q.gte("release_date", iso(b.startOfWeek)).lt("release_date", iso(b.startOfNextWeek));
+  if (filters.createdFilter === "month") q = q.gte("release_date", iso(b.startOfMonth)).lt("release_date", iso(b.startOfNextMonth));
+  if (filters.statusFilter === "preRelease") q = q.gt("release_date", iso(b.now));
+  if (filters.statusFilter === "released") q = q.lte("release_date", iso(b.now)).gte("release_date", iso(b.sevenDaysAgo));
+  if (filters.statusFilter === "postRelease") q = q.lt("release_date", iso(b.sevenDaysAgo));
+  if (filters.channelFilter) q = q.eq("requester_segment", filters.channelFilter);
+  if (filters.typeFilter) q = q.eq("project_type", filters.typeFilter);
+  if (filters.labelFilter) q = q.eq("label", filters.labelFilter);
+  if (filters.dateRangeStart) q = q.gte("release_date", filters.dateRangeStart);
+  if (filters.dateRangeEnd) q = q.lte("release_date", filters.dateRangeEnd);
+
+  if (searchQuery) {
+    const op = searchMode === "regex" ? "imatch" : "ilike";
+    const rawVal = searchMode === "regex" ? searchQuery : `%${searchQuery}%`;
+    const val = escapeOrFilterValue(rawVal);
+    q = q.or(`title.${op}.${val},main_artist.${op}.${val},label.${op}.${val}`);
   }
 
-  const promise = (async () => {
-    // Round 86 follow-up item 1 (load speed) — these 5 fetches don't
-    // depend on each other (each reads its own table/tab), but used to
-    // run one after another, so the page's total wait was roughly the
-    // SUM of all of them instead of just the slowest one. Running them
-    // together cuts that down to one round trip's worth of wall-clock
-    // time. Only the pitching TICKETS fetch below genuinely depends on
-    // pitchTabResult (needs its tab id first), so that one stays
-    // sequential, after this batch resolves.
-    const [releasesResult, bookingsResult, labelsResult, pitchTabResult, tagSets] = await Promise.all([
-      // Round 60 — the Dashboard is the one place a truncated release
-      // list would be most visible (rows just silently missing), so
-      // this reads through fetchAllRows instead of a plain select() —
-      // see DATA_FIXES.md round 59/60 for the 1000-row default cap this
-      // works around. Sort needs a unique tiebreaker (id) for .range()
-      // pagination to be stable across requests — created_at alone can
-      // collide (e.g. a bulk import where many rows share the same
-      // timestamp). select(RELEASE_COLUMNS) instead of select("*") —
-      // see that const's comment just above this component.
-      fetchAllRows(() =>
-        supabase.from("releases").select(RELEASE_COLUMNS).order("created_at", { ascending: false }).order("id", { ascending: true })
-      ),
-      fetchAllRows(() => supabase.from("media_booking_entries").select("release_id, status").order("id")),
-      supabase.from("labels").select("label_name").order("label_name"),
-      // Pitching tickets — one per release (matched by DID, stored oddly
-      // as data->>releaseId, same pattern as app/releases/[id]/page.js).
-      // Used to compute the "Status Pitching" column below without
-      // opening each release individually. Only the tab lookup itself
-      // can join this batch — the tickets fetch that depends on its id
-      // happens below, after this Promise.all resolves.
-      supabase.from("ticket_tabs").select("id").eq("key", "pitching").single(),
-      // Round 86 item 5 — one batched fetch (3 queries total, not one
-      // per row) for the product tag pills' Publishing/Splitshare/Phụ
-      // Lục MG ticket existence — see lib/productTags.js.
-      fetchProductTagSets(supabase),
-    ]);
+  const sortKey = sort?.key || "release_date";
+  const sortAsc = sort ? sort.dir === "asc" : false; // default: release date, newest first — matches the old useSortableRows default
+  q = q.order(sortKey, { ascending: sortAsc }).order("id", { ascending: true });
 
-    const { data, error: err } = releasesResult;
-    if (err) throw err;
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+  return q.range(from, to);
+}
 
-    const { data: bookings } = bookingsResult;
-    const grouped = {};
-    (bookings || []).forEach((b) => {
-      if (!grouped[b.release_id]) grouped[b.release_id] = { total: 0, done: 0 };
-      grouped[b.release_id].total++;
-      if (b.status === "Done") grouped[b.release_id].done++;
-    });
-    const pctMap = {};
-    Object.entries(grouped).forEach(([id, g]) => (pctMap[id] = Math.round((g.done / g.total) * 100)));
-
-    const { data: labelRows } = labelsResult;
-
-    const { data: pitchTab } = pitchTabResult;
-    let pitchingMap = {};
-    if (pitchTab) {
-      const { data: pitchTix } = await supabase
-        .from("tickets")
-        .select("data")
-        .eq("tab_id", pitchTab.id)
-        .is("deleted_at", null);
-      (pitchTix || []).forEach((t) => {
-        const did = t.data?.releaseId;
-        if (did) pitchingMap[did] = t.data;
-      });
-    }
-
-    return { releases: data || [], bookingPct: pctMap, labels: labelRows || [], pitchingData: pitchingMap, productTagSets: tagSets };
-  })();
-
-  dashboardCache = { promise };
-  promise
-    .then((value) => { dashboardCache = { value, expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS }; })
-    .catch(() => { dashboardCache = null; }); // don't cache a failure — next visit/refresh should retry for real
-
-  return promise;
+// Round 224 restore/save (see the two effects near the bottom of the
+// component) still needs a plain object shape to read/write — unchanged
+// from before other than dropping the fields that no longer exist
+// (nothing removed here, sort/page/filters are all still real state).
+function currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort }) {
+  return { search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort };
 }
 
 export default function ReleasesDashboard() {
-  const [releases, setReleases] = useState([]);
-  const [bookingPct, setBookingPct] = useState({}); // release_id -> %
-  const [pitchingData, setPitchingData] = useState({}); // did -> pitching ticket's data (selected types)
+  const [releases, setReleases] = useState([]); // current PAGE only, not the whole table
+  const [totalRows, setTotalRows] = useState(0);
+  const [bookingPct, setBookingPct] = useState({}); // release_id -> %, scoped to current page
+  const [pitchingData, setPitchingData] = useState({}); // did -> pitching ticket's data, scoped to current page
+  const [albumNameByDid, setAlbumNameByDid] = useState(new Map()); // scoped to current page's parent DIDs
   const [labels, setLabels] = useState([]);
-  const [productTagSets, setProductTagSets] = useState({}); // Round 86 item 5 — see lib/productTags.js
+  const [typeOptions, setTypeOptions] = useState([]);
+  const [productTagSets, setProductTagSets] = useState({}); // small, unfiltered — see fetchProductTagSets
+  const [stats, setStats] = useState({ total: 0, today: 0, thisWeek: 0, thisMonth: 0, preRelease: 0, released: 0, postRelease: 0, byChannel: { VIEENT: 0, ENVI: 0 } });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [savingChannel, setSavingChannel] = useState(null); // release id currently being saved
@@ -217,240 +294,212 @@ export default function ReleasesDashboard() {
   const [channelFilter, setChannelFilter] = useState(null); // "VIEENT" | "ENVI" (from stat click or dropdown, same state)
   const [typeFilter, setTypeFilter] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
-  const [search, setSearch] = useState(""); // regex tested against main_artist, title, label
-  // Round 152 — new, independent custom date-range filter, sits next to
-  // the search box. ANDed with everything else (including the existing
-  // today/this-week/this-month preset filter above — this doesn't replace
-  // or repurpose that, both can be active together) via matchesDateRange
-  // below. See lib/DateRangeFilter.js for why it's built as a generic,
-  // reusable component rather than page-specific.
+  const [search, setSearch] = useState(""); // regex tested server-side against main_artist, title, label
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [dateRangeStart, setDateRangeStart] = useState("");
   const [dateRangeEnd, setDateRangeEnd] = useState("");
   const [hoverRelease, setHoverRelease] = useState(null);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
 
+  const [sort, setSort] = useState(null); // null = default (release date desc) | { key, dir }
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
   const [refreshing, setRefreshing] = useState(false);
 
-  async function runLoad({ bypassCache } = {}) {
+  function toggleSort(key) {
+    setSort((prev) => {
+      if (!prev || prev.key !== key) return { key, dir: "asc" };
+      if (prev.dir === "asc") return { key, dir: "desc" };
+      return null;
+    });
+    setPage(1);
+  }
+  function resetSort() {
+    setSort(null);
+  }
+  const isDefault = sort === null;
+
+  // Debounce search — 350ms of no typing before it becomes a query. Also
+  // resets to page 1 whenever the effective search term actually changes
+  // (a stale page number past the new, smaller result set would otherwise
+  // render empty).
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const filters = useMemo(
+    () => ({ statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd }),
+    [statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd]
+  );
+
+  // Fires the actual list query, with the invalid-regex fallback baked in.
+  // Returns { rows, total } so the caller (both the main effect and the
+  // sessionStorage-restore path) can share one implementation.
+  async function fetchListPage({ page, pageSize, sort, filters, searchTerm }) {
+    if (searchTerm) {
+      const attempt = await buildListQuery({ page, pageSize, sort, filters, searchMode: "regex", searchQuery: searchTerm });
+      if (!attempt.error) return { rows: attempt.data || [], total: attempt.count || 0 };
+      // Invalid regex (Postgres rejects it as a bad `~*` pattern) — same
+      // "fall back to a plain substring match" the old client try/catch
+      // around `new RegExp` did.
+      const fallback = await buildListQuery({ page, pageSize, sort, filters, searchMode: "substring", searchQuery: searchTerm });
+      if (fallback.error) throw fallback.error;
+      return { rows: fallback.data || [], total: fallback.count || 0 };
+    }
+    const result = await buildListQuery({ page, pageSize, sort, filters, searchMode: "substring", searchQuery: "" });
+    if (result.error) throw result.error;
+    return { rows: result.data || [], total: result.count || 0 };
+  }
+
+  // Booking %, pitching status, and parent-album title — scoped to just
+  // the rows actually on screen, instead of the whole table (see the
+  // Round 247 comment block above RELEASE_COLUMNS for why).
+  async function loadPageJoins(rows) {
+    const releaseIds = rows.map((r) => r.id);
+    const dids = rows.map((r) => r.did).filter(Boolean);
+    const parentDids = [...new Set(rows.map((r) => r.pseudo_package_parent_did).filter(Boolean))];
+
+    const [bookingsResult, pitchTabResult, parentsResult] = await Promise.all([
+      releaseIds.length ? supabase.from("media_booking_entries").select("release_id, status").in("release_id", releaseIds) : Promise.resolve({ data: [] }),
+      supabase.from("ticket_tabs").select("id").eq("key", "pitching").single(),
+      parentDids.length ? supabase.from("releases").select("did, title").in("did", parentDids) : Promise.resolve({ data: [] }),
+    ]);
+
+    const grouped = {};
+    (bookingsResult.data || []).forEach((b) => {
+      if (!grouped[b.release_id]) grouped[b.release_id] = { total: 0, done: 0 };
+      grouped[b.release_id].total++;
+      if (b.status === "Done") grouped[b.release_id].done++;
+    });
+    const pctMap = {};
+    Object.entries(grouped).forEach(([id, g]) => (pctMap[id] = Math.round((g.done / g.total) * 100)));
+
+    let pitchingMap = {};
+    const { data: pitchTab } = pitchTabResult;
+    if (pitchTab && dids.length) {
+      const { data: pitchTix } = await supabase
+        .from("tickets")
+        .select("data")
+        .eq("tab_id", pitchTab.id)
+        .is("deleted_at", null)
+        .filter("data->>releaseId", "in", `(${dids.join(",")})`);
+      (pitchTix || []).forEach((t) => {
+        const did = t.data?.releaseId;
+        if (did) pitchingMap[did] = t.data;
+      });
+    }
+
+    const albumMap = new Map();
+    (parentsResult.data || []).forEach((r) => { if (r.did) albumMap.set(r.did, r.title); });
+
+    return { bookingPct: pctMap, pitchingData: pitchingMap, albumNameByDid: albumMap };
+  }
+
+  async function runLoad({ page, pageSize, sort, filters, searchTerm, isRefresh } = {}) {
     try {
-      const value = await loadDashboardData({ bypassCache });
-      setReleases(value.releases);
-      setBookingPct(value.bookingPct);
-      setLabels(value.labels);
-      setProductTagSets(value.productTagSets);
-      setPitchingData(value.pitchingData);
+      const { rows, total } = await fetchListPage({ page, pageSize, sort, filters, searchTerm });
+      const joins = await loadPageJoins(rows);
+      setReleases(rows);
+      setTotalRows(total);
+      setBookingPct(joins.bookingPct);
+      setPitchingData(joins.pitchingData);
+      setAlbumNameByDid(joins.albumNameByDid);
+      // A filter/search narrowed things (or pageSize changed) while sitting
+      // on a later page — snap back into range instead of an empty table
+      // with no obvious way back. Same guard usePagination used to do
+      // client-side.
+      const totalPagesNow = Math.max(1, Math.ceil(total / pageSize));
+      if (page > totalPagesNow) setPage(totalPagesNow);
     } catch (err) {
       setError(err.message || "Failed to load.");
     } finally {
       setLoading(false);
-      setRefreshing(false);
+      if (isRefresh) setRefreshing(false);
     }
   }
 
-  useEffect(() => {
-    if (!supabase) return;
-    runLoad();
-  }, []);
-
-  function refresh() {
-    setRefreshing(true);
-    runLoad({ bypassCache: true });
-  }
-
-  const stats = useMemo(() => {
-    const now = new Date();
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - now.getDay());
-    startOfWeek.setHours(0, 0, 0, 0);
-    const startOfNextWeek = new Date(startOfWeek);
-    startOfNextWeek.setDate(startOfWeek.getDate() + 7);
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-
-    let today = 0, thisWeek = 0, thisMonth = 0, preRelease = 0, released = 0, postRelease = 0;
-    const byChannel = { VIEENT: 0, ENVI: 0 };
-
-    const startOfTomorrow = new Date(startOfToday);
-    startOfTomorrow.setDate(startOfToday.getDate() + 1);
-
-    releases.forEach((r) => {
-      // "Today" means releasing today — same reasoning as This Week/This
-      // Month below: release_date is what the team tracks against, not
-      // created_at (when the row happened to be entered into the app).
-      if (r.release_date) {
-        const rdt = new Date(r.release_date);
-        if (rdt >= startOfToday && rdt < startOfTomorrow) today++;
-      }
-      // "This Week" means releasing this week (Sunday through the following
-      // Sunday), not created this week — same reasoning/fix as "This Month"
-      // below: release_date is what the team actually cares about tracking
-      // here, and it can be set well after (or, for backfilled data, well
-      // before) created_at.
-      if (r.release_date) {
-        const rdw = new Date(r.release_date);
-        if (rdw >= startOfWeek && rdw < startOfNextWeek) thisWeek++;
-      }
-      // "This Month" means releasing this month, not created this month —
-      // reads release_date, with an upper bound too (release_date can be
-      // months/years in the future, unlike created_at).
-      if (r.release_date) {
-        const rd0 = new Date(r.release_date);
-        if (rd0 >= startOfMonth && rd0 < startOfNextMonth) thisMonth++;
-      }
-
-      const rd = r.release_date ? new Date(r.release_date) : null;
-      if (rd) {
-        if (rd > now) preRelease++;
-        else {
-          const daysSince = (now - rd) / (1000 * 60 * 60 * 24);
-          if (daysSince <= 7) released++;
-          else postRelease++;
-        }
-      }
-      if (byChannel[r.requester_segment] !== undefined) byChannel[r.requester_segment]++;
-    });
-
-    return { total: releases.length, today, thisWeek, thisMonth, preRelease, released, postRelease, byChannel };
-  }, [releases]);
-
-  // Regex-first: if the typed text is a valid regex, it's tested as one
-  // (case-insensitive) against artist/song/label; anything that fails to
-  // compile (unbalanced groups, etc. — easy to type by accident) just
-  // falls back to a plain case-insensitive substring match instead of
-  // erroring the whole page out.
-  const searchTest = useMemo(() => {
-    const q = search.trim();
-    if (!q) return null;
-    try {
-      const re = new RegExp(q, "i");
-      return (s) => re.test(s || "");
-    } catch {
-      const needle = q.toLowerCase();
-      return (s) => (s || "").toLowerCase().includes(needle);
-    }
-  }, [search]);
-
-  // Round 86 item 2 — "Album Name" column resolves each row's
-  // pseudo_package_parent_did against its parent release's title. The
-  // dashboard already loads the entire releases table into memory (see
-  // fetchAllRows above), so this is a free client-side lookup — no extra
-  // query needed.
-  const albumNameByDid = useMemo(() => {
-    const map = new Map();
-    releases.forEach((r) => { if (r.did) map.set(r.did, r.title); });
-    return map;
-  }, [releases]);
-
-  const filteredReleases = useMemo(() => {
-    const now = new Date();
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - now.getDay());
-    startOfWeek.setHours(0, 0, 0, 0);
-    const startOfNextWeek = new Date(startOfWeek);
-    startOfNextWeek.setDate(startOfWeek.getDate() + 7);
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-
-    const startOfTomorrow = new Date(startOfToday);
-    startOfTomorrow.setDate(startOfToday.getDate() + 1);
-
-    return releases.filter((r) => {
-      if (createdFilter) {
-        if (createdFilter === "today") {
-          // Filters by release_date, not created_at — same fix as the stat
-          // card above.
-          if (!r.release_date) return false;
-          const rdt = new Date(r.release_date);
-          if (!(rdt >= startOfToday && rdt < startOfTomorrow)) return false;
-        }
-        if (createdFilter === "week") {
-          // Same fix as the stat card above — "This Week" filters by
-          // release_date (releasing Sunday through the following Sunday),
-          // not created_at.
-          if (!r.release_date) return false;
-          const rdw = new Date(r.release_date);
-          if (!(rdw >= startOfWeek && rdw < startOfNextWeek)) return false;
-        }
-        if (createdFilter === "month") {
-          // Same fix as the stat card above — "This Month" filters by
-          // release_date (releasing this month), not created_at.
-          if (!r.release_date) return false;
-          const rd0 = new Date(r.release_date);
-          if (!(rd0 >= startOfMonth && rd0 < startOfNextMonth)) return false;
-        }
-      }
-      if (statusFilter) {
-        const rd = r.release_date ? new Date(r.release_date) : null;
-        if (!rd) return false;
-        if (statusFilter === "preRelease" && !(rd > now)) return false;
-        if (statusFilter === "released" && !(rd <= now && (now - rd) / (1000 * 60 * 60 * 24) <= 7)) return false;
-        if (statusFilter === "postRelease" && !(rd <= now && (now - rd) / (1000 * 60 * 60 * 24) > 7)) return false;
-      }
-      if (channelFilter && r.requester_segment !== channelFilter) return false;
-      if (typeFilter && r.project_type !== typeFilter) return false;
-      if (labelFilter && r.label !== labelFilter) return false;
-      if (searchTest && !(searchTest(r.main_artist) || searchTest(r.title) || searchTest(r.label))) return false;
-      // Round 152 — new custom date-range filter, independent of
-      // createdFilter's presets above (both can be active at once).
-      if (!matchesDateRange(r.release_date, dateRangeStart, dateRangeEnd)) return false;
-      return true;
-    });
-  }, [releases, createdFilter, statusFilter, channelFilter, typeFilter, labelFilter, searchTest, dateRangeStart, dateRangeEnd]);
-
-  // "nhớ cập nhật cái channel nhan" — the Channel column was read-only and
-  // commonly blank (requester_segment is an optional dropdown on the create
-  // form, nothing defaults or requires it), so fixing a batch of blanks
-  // meant opening every release individually. Inline-editable here instead.
-  async function updateChannel(release, value) {
-    setSavingChannel(release.id);
-    const { error: err } = await supabase.from("releases").update({ requester_segment: value || null }).eq("id", release.id);
-    if (!err) {
-      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, requester_segment: value || null } : r)));
-    }
-    setSavingChannel(null);
-  }
-
-  // Round 79's updateTrackDid (inline-editable EP/Album DID straight from
-  // this dashboard row) was removed in round 86 item 2 — the column it fed
-  // is now hidden here entirely (see the "Album Name" column below); the
-  // field itself is untouched and still editable from the release detail
-  // page.
-
-  const { sorted: sortedReleases, sort, setSort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
-  const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(sortedReleases);
-
-  const anyStatClickFilter = statusFilter || channelFilter || createdFilter;
-
-  // Round 224 — restore, once, right after mount (before the "Loading…"
-  // gate ever lifts, so there's nothing to visibly flicker between).
-  // Deliberately NOT read via a useState lazy initializer above — this
-  // page prerenders statically (no sessionStorage at build time), so
-  // seeding state straight from storage at construction time would make
-  // the client's very first render disagree with the prerendered HTML
-  // and trip a hydration mismatch. Applying it a tick later via setters
-  // instead avoids that entirely.
+  // Restore remembered filters/sort/page — applied once, right after
+  // mount, before the first fetch ever fires (see the skip-first-run guard
+  // on the main fetch effect below), same "no visible flicker" ordering as
+  // before. Deliberately NOT a useState lazy initializer — this page
+  // prerenders statically (no sessionStorage at build time), so seeding
+  // state at construction time would disagree with the prerendered HTML
+  // and trip a hydration mismatch.
+  const restoredRef = useRef(false);
   const pendingScrollRef = useRef(null);
   useEffect(() => {
     const saved = readDashboardState();
-    if (!saved) return;
-    if (saved.search) setSearch(saved.search);
-    if (saved.statusFilter) setStatusFilter(saved.statusFilter);
-    if (saved.createdFilter) setCreatedFilter(saved.createdFilter);
-    if (saved.channelFilter) setChannelFilter(saved.channelFilter);
-    if (saved.typeFilter) setTypeFilter(saved.typeFilter);
-    if (saved.labelFilter) setLabelFilter(saved.labelFilter);
-    if (saved.dateRangeStart) setDateRangeStart(saved.dateRangeStart);
-    if (saved.dateRangeEnd) setDateRangeEnd(saved.dateRangeEnd);
-    if (saved.page) setPage(saved.page);
-    if (saved.pageSize) setPageSize(saved.pageSize);
-    if (saved.sort) setSort(saved.sort);
-    if (typeof saved.scrollY === "number") pendingScrollRef.current = saved.scrollY;
+    if (saved) {
+      if (saved.search) { setSearch(saved.search); setDebouncedSearch(saved.search); }
+      if (saved.statusFilter) setStatusFilter(saved.statusFilter);
+      if (saved.createdFilter) setCreatedFilter(saved.createdFilter);
+      if (saved.channelFilter) setChannelFilter(saved.channelFilter);
+      if (saved.typeFilter) setTypeFilter(saved.typeFilter);
+      if (saved.labelFilter) setLabelFilter(saved.labelFilter);
+      if (saved.dateRangeStart) setDateRangeStart(saved.dateRangeStart);
+      if (saved.dateRangeEnd) setDateRangeEnd(saved.dateRangeEnd);
+      if (saved.page) setPage(saved.page);
+      if (saved.pageSize) setPageSize(saved.pageSize);
+      if (saved.sort) setSort(saved.sort);
+      if (typeof saved.scrollY === "number") pendingScrollRef.current = saved.scrollY;
+    }
+    restoredRef.current = true;
+    if (!supabase) return;
+    Promise.all([supabase.from("labels").select("label_name").order("label_name"), loadTypeOptions(), fetchProductTagSets(supabase), loadStats()]).then(
+      ([labelsResult, types, tagSets, statsResult]) => {
+        setLabels(labelsResult.data || []);
+        setTypeOptions(types);
+        setProductTagSets(tagSets);
+        setStats(statsResult);
+      }
+    );
+    const restored = readDashboardState();
+    runLoad({
+      page: restored?.page || 1,
+      pageSize: restored?.pageSize || 50,
+      sort: restored?.sort || null,
+      filters: {
+        statusFilter: restored?.statusFilter || null,
+        createdFilter: restored?.createdFilter || null,
+        channelFilter: restored?.channelFilter || null,
+        typeFilter: restored?.typeFilter || "",
+        labelFilter: restored?.labelFilter || "",
+        dateRangeStart: restored?.dateRangeStart || "",
+        dateRangeEnd: restored?.dateRangeEnd || "",
+      },
+      searchTerm: restored?.search || "",
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Every subsequent filter/sort/page/search change — skips the very first
+  // run (mount is handled above, using the restored values directly, so
+  // this doesn't double-fetch on load).
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    setLoading(true);
+    runLoad({ page, pageSize, sort, filters, searchTerm: debouncedSearch });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize, sort, filters, debouncedSearch]);
+
+  // Any filter/search/sort change (not a page/pageSize change) snaps back
+  // to page 1 — same behavior the old client-side filtering had for free
+  // (a narrower array just naturally re-clamped via usePagination's own
+  // effect); now explicit since filters and page are independent queries.
+  const firstFilterRunRef = useRef(true);
+  useEffect(() => {
+    if (firstFilterRunRef.current) { firstFilterRunRef.current = false; return; }
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, debouncedSearch, sort]);
+
+  function refresh() {
+    setRefreshing(true);
+    runLoad({ page, pageSize, sort, filters, searchTerm: debouncedSearch, isRefresh: true });
+    loadStats().then(setStats);
+  }
 
   // Scroll restore has to wait for the real content to actually be on the
   // page (rows rendered) — applying it while still showing "Loading…"
@@ -465,16 +514,32 @@ export default function ReleasesDashboard() {
   // Latest filter/sort/page state, mirrored into a ref on every render so
   // the unmount-time write below (a stable-identity effect, see its own
   // empty dep array) always sees the CURRENT values instead of whatever
-  // they were at mount — a plain closure over the effect's own deps would
-  // go stale the moment any filter changed after the first render.
+  // they were at mount.
   const latestDashboardStateRef = useRef(null);
-  latestDashboardStateRef.current = { search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort };
+  latestDashboardStateRef.current = currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort });
   useEffect(() => {
     return () => {
       writeDashboardState({ ...latestDashboardStateRef.current, scrollY: window.scrollY });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const anyStatClickFilter = statusFilter || channelFilter || createdFilter;
+
+  // Round 79's updateTrackDid (inline-editable EP/Album DID straight from
+  // this dashboard row) was removed in round 86 item 2 — the column it fed
+  // is now hidden here entirely (see the "Album Name" column below); the
+  // field itself is untouched and still editable from the release detail
+  // page.
+  async function updateChannel(release, value) {
+    setSavingChannel(release.id);
+    const { error: err } = await supabase.from("releases").update({ requester_segment: value || null }).eq("id", release.id);
+    if (!err) {
+      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, requester_segment: value || null } : r)));
+    }
+    setSavingChannel(null);
+  }
 
   return (
     <AppShell>
@@ -517,7 +582,7 @@ export default function ReleasesDashboard() {
           <DateRangeFilter start={dateRangeStart} end={dateRangeEnd} onStartChange={setDateRangeStart} onEndChange={setDateRangeEnd} />
           <select className={styles.select} style={{ maxWidth: 200 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
             <option value="">Type — all</option>
-            {[...new Set(releases.map((r) => r.project_type).filter(Boolean))].map((t) => <option key={t} value={t}>{t}</option>)}
+            {typeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
           <select className={styles.select} style={{ maxWidth: 200 }} value={channelFilter || ""} onChange={(e) => setChannelFilter(e.target.value || null)}>
             <option value="">Channel — all</option>
@@ -539,7 +604,7 @@ export default function ReleasesDashboard() {
           <button
             onClick={refresh}
             disabled={refreshing}
-            title="This list is cached for up to 30s between visits — force a fresh reload if you just edited something elsewhere"
+            title="Re-run the current search/filters/page against the database"
             style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "6px 12px", fontSize: 11, color: "var(--text-faint)", cursor: refreshing ? "default" : "pointer" }}
           >
             {refreshing ? "Refreshing…" : "↻ Refresh"}
@@ -550,7 +615,7 @@ export default function ReleasesDashboard() {
 
         {loading ? (
           <div className={styles.emptyState}>Loading…</div>
-        ) : sortedReleases.length === 0 ? (
+        ) : releases.length === 0 ? (
           <div className={styles.emptyState}>No releases match these filters.</div>
         ) : (
           <>
@@ -585,7 +650,7 @@ export default function ReleasesDashboard() {
               </tr>
             </thead>
             <tbody>
-              {pagedReleases.map((r) => {
+              {releases.map((r) => {
                 const pct = metadataPercent(r);
                 const bpct = bookingPct[r.id] ?? 0;
                 const upct = uploadPercent(r);

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, fetchAllRows } from "../../../lib/helpers";
@@ -67,8 +68,33 @@ function hasUpcAndSmartlink(r) {
 // into lib/releaseDateHighlight.js in Round 139 so New Release Setup can
 // share the exact same rule instead of a second, driftable copy.
 
+// Round 250 fix — same build failure and same fix as app/report/page.js's
+// Round 61 comment explains: a page reading useSearchParams() has to be
+// able to bail out of static prerendering just for that part, which
+// requires the component that calls it to sit inside a <Suspense> boundary
+// rather than being the page's default export directly.
 export default function ConfirmWorkstation() {
+  return (
+    <Suspense fallback={<AppShell><div className={styles.page}><div className={styles.container}>Loading…</div></div></AppShell>}>
+      <ConfirmWorkstationInner />
+    </Suspense>
+  );
+}
+
+function ConfirmWorkstationInner() {
   const [phase, setPhase] = useState("confirm_phase1");
+
+  // Round 250 — Task Table's per-member drill-down links straight into
+  // whichever phase actually has that member's outstanding work, instead of
+  // always landing on Phase 1 and making them find Phase 2 themselves.
+  // Only ever reads this once on mount — the tab buttons below still just
+  // use local state after that, same as before this existed.
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const p = searchParams.get("phase");
+    if (p === "confirm_phase1" || p === "confirm_phase2") setPhase(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [releases, setReleases] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [defaultPics, setDefaultPics] = useState({}); // phase -> profile_id
