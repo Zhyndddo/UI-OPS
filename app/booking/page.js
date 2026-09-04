@@ -1733,7 +1733,22 @@ function CellPopup({ anchorRef, open, onClose, placement = "right", width, child
         setPos({ top, left: rect.left + rect.width / 2, maxHeight: Math.max(160, window.innerHeight - top - margin) });
       } else {
         const top = Math.max(margin, Math.min(rect.top, window.innerHeight - desiredMaxHeight - margin));
-        setPos({ top, left: rect.right + 6, maxHeight: Math.min(desiredMaxHeight, window.innerHeight - top - margin) });
+        // Round 254 — same idea as the vertical clamp above, but
+        // horizontal: this always anchored `left` to the trigger cell's
+        // right edge with no check for whether the popup (at its own
+        // `width`) actually fits before the viewport's right edge. On a
+        // narrow enough screen, or a cell far enough right (last few
+        // columns of a wide table), rect.right + 6 + width runs past
+        // window.innerWidth — and being `position: fixed`, it just gets
+        // clipped by the viewport with no way to scroll it into view,
+        // same failure mode the vertical fix above already solved once.
+        // If there isn't room on the right, flip to the LEFT of the
+        // trigger instead (right edge of the popup flush against the
+        // trigger's left edge) rather than letting it run off-screen.
+        const popupWidth = width || 280;
+        const spaceRight = window.innerWidth - rect.right - margin;
+        const left = spaceRight >= popupWidth ? rect.right + 6 : Math.max(margin, rect.left - 6 - popupWidth);
+        setPos({ top, left, maxHeight: Math.min(desiredMaxHeight, window.innerHeight - top - margin) });
       }
     }
     compute();

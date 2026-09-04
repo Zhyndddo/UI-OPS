@@ -1403,7 +1403,28 @@ export default function ReleaseDetailPage() {
         </Link>
 
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20, alignItems: "start", marginBottom: 20 }}>
-          <div>
+          {/* Round 255 — sticky header, per explicit request. Same
+              convention app/shared.module.css's sticky table headers
+              already use (top: var(--topbar-height), matching background,
+              same drop-shadow instead of a border) rather than inventing a
+              new one. Only this left identification block is sticky, not
+              the whole 2-col grid row — ReleaseNotePanel on the right stays
+              in normal flow. If ReleaseNotePanel ends up taller than this
+              block on a given release (long notes), this block will stay
+              stuck for the height of that difference and then release once
+              the row's actually done — a real quirk of sticky being scoped
+              to its containing block, not a bug. Per explicit note ("if it
+              need another container like the booking board, we'll
+              re-evaluate") this is the simple first pass; a dedicated
+              scroll container is the next step if this quirk is a problem
+              in practice. */}
+          <div
+            style={{
+              position: "sticky", top: "var(--topbar-height)", zIndex: 20,
+              background: "var(--bg)", boxShadow: "0 4px 6px -4px rgba(0, 0, 0, 0.35)",
+              paddingBottom: 10,
+            }}
+          >
             <div className={styles.eyebrow}>{form.did || "—"}</div>
             {firstUrl(form.link_lbm) ? (
               <a
@@ -1424,8 +1445,18 @@ export default function ReleaseDetailPage() {
             )}
             {/* Round 86 item 5 — product tag pills, right next to the Name row */}
             <ProductTagPills styles={styles} release={form} tagSets={productTagSets} style={{ marginBottom: 8 }} />
-            <div style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: form.upc ? 4 : 14 }}>
-              {form.release_date} {form.release_time}
+            <div style={{ color: "var(--text-faint)", fontSize: 13, marginBottom: form.upc ? 4 : 14, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span>{form.release_date} {form.release_time}</span>
+              {/* Round 255 — Publishing / YouTube gate pills, per explicit
+                  request: only shown once the gate is actually "Yes" (not
+                  "No" or "TBU" — see GATE_OPTIONS in lib/GateFields.js),
+                  orange while its linked ticket is still open, green once
+                  that ticket's status is COMPLETE. gateTicketMap already
+                  holds these tickets (fetched once on load, keyed by
+                  ticket type — see the useState near the top of this
+                  component), so this is zero new queries. */}
+              <GateStatusPill label="Publishing" gateOn={form.gate_publishing === "true"} ticket={gateTicketMap?.publishing} />
+              <GateStatusPill label="YouTube" gateOn={form.gate_co_trong_net_youtube === "true"} ticket={gateTicketMap?.co_trong_net_youtube} />
             </div>
             {form.upc && (
               <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 14 }}>
@@ -1571,6 +1602,24 @@ function firstUrl(value) {
 // available/not-available state scannable at a glance without having to
 // notice the text color/underline — green + filled when a URL is set,
 // grey + hollow when it isn't.
+// Round 255 — Publishing/YouTube gate status pill, next to the release
+// date/time in the header. Orange while the gate is Yes but the linked
+// ticket isn't COMPLETE yet, green once it is; renders nothing at all when
+// the gate isn't Yes (matches "if they are yes, show the tag" — a "No" or
+// "TBU" gate shows no pill, not a gray/off one).
+function GateStatusPill({ label, gateOn, ticket }) {
+  if (!gateOn) return null;
+  const done = ticket?.status === "COMPLETE";
+  return (
+    <span
+      className={`${styles.pill} ${done ? styles.pillGreen : styles.pillOrange}`}
+      title={done ? `${label} — ticket complete` : ticket ? `${label} — ticket in progress (${ticket.status})` : `${label} — gate is Yes, ticket not created yet`}
+    >
+      {label}
+    </span>
+  );
+}
+
 function LinkPill({ label, href }) {
   const dot = (
     <span

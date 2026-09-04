@@ -1004,6 +1004,23 @@ export default function NewReleasePage() {
               />
             </div>
 
+            {/* Round 254 — moved here from Row 6 (way further down the
+                form, past Artist/Label) so it sits right next to Ngày
+                phát hành instead of being separated from its own date
+                field — per explicit report. The 2-column grid (see
+                .grid in styles.module.css) puts this in the very next
+                cell after Ngày phát hành, same row. Row 6 below keeps
+                just the DID accent box now. */}
+            <div className={styles.field}>
+              <label className={styles.fieldLabel}>Giờ phát hành</label>
+              <input
+                type="time"
+                className={styles.input}
+                value={form.release_time}
+                onChange={(e) => update("release_time", e.target.value)}
+              />
+            </div>
+
             <div className={`${styles.field} ${styles.fieldFull}`}>
               <label className={styles.fieldLabel}>Next Step Note</label>
               <textarea
@@ -1096,11 +1113,13 @@ export default function NewReleasePage() {
               </div>
             </div>
 
-            {/* Row 6: Release Time. DID moved here too (see .didAccent in
-                styles.module.css) — used to be its own big dashed box at
-                the very top of the page; per explicit request, it now
-                sits as a slim accent line directly above this field
-                instead, since this row has the height for it. */}
+            {/* Row 6: DID accent box only now — used to be its own big
+                dashed box at the very top of the page; per an earlier
+                explicit request, it moved here as a slim accent line.
+                Giờ phát hành used to live in this same block too, but
+                per Round 254 it moved up next to Ngày phát hành instead
+                (see the comment there) so date and time are actually on
+                the same row. */}
             <div className={`${styles.field} ${styles.fieldFull}`}>
               <div className={styles.didAccent}>
                 <div className={styles.didLabel}>// Release ID (DID)</div>
@@ -1117,13 +1136,6 @@ export default function NewReleasePage() {
                   <div className={styles.didPlaceholder}>---- ---- ----</div>
                 )}
               </div>
-              <label className={styles.fieldLabel}>Giờ phát hành</label>
-              <input
-                type="time"
-                className={styles.input}
-                value={form.release_time}
-                onChange={(e) => update("release_time", e.target.value)}
-              />
             </div>
           </div>
 

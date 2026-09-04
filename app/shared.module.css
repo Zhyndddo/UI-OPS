@@ -247,6 +247,15 @@
   color: var(--text-muted);
 }
 
+/* Round 255 — "done" state for a gate-status pill (see GateStatusPill in
+   app/releases/[id]/page.js) — same success tokens .pillPhuLucMg already
+   uses further down, split into its own class since this one's meaning is
+   generic ("done"), not specific to Phụ Lục MG. */
+.pillGreen {
+  background: var(--success-bg);
+  color: var(--success-fg);
+}
+
 /* Round 86 item 5 — "product tag" pills (Publishing / Splitshare / Phụ
    Lục MG), one color per type so they stay visually distinct sitting next
    to each other under the Name column / next to the Name row. */
