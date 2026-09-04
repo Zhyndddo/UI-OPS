@@ -8,7 +8,7 @@ import { fetchAllRows } from "../../lib/helpers";
 import { useAuth } from "../../lib/AuthContext";
 import {
   TICKET_TYPE_LABELS, TICKET_ROUTES, WORKSTATION_TYPE_LABELS, WORKSTATION_ROUTES,
-  TEAM_TICKET_TYPES, TEAM_WORKSTATION_TYPES, resolveTeamKey,
+  TEAM_TICKET_TYPES, TEAM_WORKSTATION_TYPES, resolveTeamKey, isOpsTeam, OPS_SUB_TEAMS,
 } from "../../lib/teamTypes";
 import { TASK_PHASES, phaseForColumn } from "../../lib/taskPhases";
 import styles from "../shared.module.css";
@@ -28,16 +28,31 @@ import styles from "../shared.module.css";
 // (workstations, then tickets).
 //
 // Round 250 — per explicit request, this now branches by the VIEWER's own
-// role:
-//   - role "exc" (the only role that ever actually gets assigned as a
-//     task's PIC) gets two tabs: "My Tasks" (default — just their own
-//     bucket, grouped by phase, with a per-task-type drill-down list) and
-//     "My Team" (the same style as the old page, but scoped to just their
-//     own team instead of every team).
-//   - dev/admin/teamlead get exactly the old page, unchanged: every team,
-//     every member, no personal view — per explicit request ("no personal
-//     view, just full everyone view"), since these roles don't carry a
-//     real per-person PIC assignment the way an exc does.
+// role, and Round 253 locked in the full hierarchy for every non-dev role
+// (originally exc-only in Round 250, then widened per explicit request):
+//   - exc ("member"): "My Tasks" (default — own bucket, grouped by phase,
+//     with a per-task-type drill-down) + "My Team" — their own team/
+//     segment only, every member of it plus the Unassigned ("blank PIC")
+//     row.
+//   - teamlead: same shape as exc — own tasks + their own team/segment
+//     only. A team lead whose segment happens to be one of the 3 real OPS
+//     sub-teams (Youtube/Publishing/Operation) still only sees that ONE
+//     sub-team, not the other two — "their own subteam", singular, per
+//     explicit request.
+//   - admin: own tasks + their own team/segment, but if their segment is
+//     one of the OPS sub-teams, "My Team" expands to ALL THREE OPS sub-
+//     teams (Youtube + Publishing + Operation) instead of just their own
+//     one — "all subteam", per explicit request. For a non-OPS segment
+//     (AR/Marketing/Design/Legal, none of which split into sub-teams) this
+//     is identical to teamlead's scope, since there's nothing to expand.
+//   - dev: exactly the old page, unchanged — every team, every member, NO
+//     personal tab at all ("dev see all team, no personal view though").
+//     Deliberate: dev has no segment of their own to build a personal
+//     bucket from in the first place.
+// This is a Task-Table-specific visibility rule, intentionally narrower
+// than lib/permissions.js's scopeableTeamMembers (where admin sees every
+// team, for Config -> Team purposes) — the two are answering different
+// questions and aren't meant to match.
 //
 // "Undone" reuses the exact same terminal-status rules lib/notDoneCounts.js
 // already uses for its aggregate badges (TERMINAL_EXECUTOR/DESIGN/REPORT_
@@ -290,6 +305,17 @@ function TeamSection({ segment, members, memberItems, title }) {
   );
 }
 
+// Round 253 — which real segments a "My Team" tab should render, per the
+// hierarchy in the big comment block up top. Only admin ever sees more
+// than their own single segment, and only when that segment is one of the
+// 3 real OPS sub-teams (isOpsTeam/OPS_SUB_TEAMS — same aggregation concept
+// lib/teamTypes.js already uses for reporting).
+function scopeSegmentsForRole(profile) {
+  if (!profile?.segment) return [];
+  if (profile.role === "admin" && isOpsTeam(profile.segment)) return OPS_SUB_TEAMS;
+  return [profile.segment];
+}
+
 // Round 250 — sessionStorage key for "which sub-tab was I on" on the
 // personal Task Table view, same idiom as app/releases/page.js's Round 224
 // "remember position" (see that file for the fuller precedent) — here it's
@@ -435,19 +461,23 @@ export default function TaskTablePage() {
   const noSegmentProfiles = profiles.filter((p) => !p.segment);
   const sections = [...teamOrder, ...otherSegments].filter((seg) => profiles.some((p) => p.segment === seg));
 
-  const isExc = profile?.role === "exc";
+  // Round 253 — every non-dev role gets a personal view now (was exc-only
+  // in Round 250). "dev" has no segment of its own to build one from, and
+  // explicitly keeps the old full-org page with no personal tab at all.
+  const hasPersonalView = !!profile && profile.role !== "dev";
+  const myTeamSegments = scopeSegmentsForRole(profile);
 
   // Default the drill-down tab to the member's own first task type with
   // outstanding work once data has loaded, instead of leaving it blank —
   // only runs once nothing's been picked yet (including nothing restored
   // from sessionStorage), so it never overrides a real choice.
   useEffect(() => {
-    if (!isExc || !profile || loading || activeItemTab) return;
+    if (!hasPersonalView || !profile || loading || activeItemTab) return;
     const columns = columnsForTeam(profile.segment);
     const withCount = columns.find((c) => countOf(memberItems, profile.id, c.id) > 0);
     setActiveItemTab((withCount || columns[0])?.id || null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isExc, profile, loading, memberItems]);
+  }, [hasPersonalView, profile, loading, memberItems]);
 
   return (
     <AppShell>
@@ -456,21 +486,12 @@ export default function TaskTablePage() {
           <div className={styles.eyebrow}>// Overview</div>
           <h1 className={styles.title}>Task Table</h1>
           <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -16, marginBottom: 24 }}>
-            {isExc
+            {hasPersonalView
               ? "Your own outstanding work, grouped by release phase — switch to My Team for the full team breakdown."
               : "Outstanding (undone) work per member, grouped by team — click a count to open that task's own page."}
           </p>
 
-          {/* Round 251 TEMPORARY debug line — remove once the View-As/exc
-              detection bug is confirmed fixed. Shows exactly what this page
-              sees `profile` as, to settle whether the personal view isn't
-              showing because of stale View-As state, a role string mismatch,
-              or something else entirely. */}
-          <div style={{ fontSize: 11, color: "#ff6b1a", border: "1px dashed #ff6b1a", borderRadius: 4, padding: "6px 8px", marginBottom: 16, fontFamily: "monospace" }}>
-            DEBUG — profile.role: {JSON.stringify(profile?.role)} · profile.segment: {JSON.stringify(profile?.segment)} · profile.id: {JSON.stringify(profile?.id)} · isExc: {String(isExc)}
-          </div>
-
-          {isExc && (
+          {hasPersonalView && (
             <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid var(--border)" }}>
               {[["mine", "My Tasks"], ["team", "My Team"]].map(([key, label]) => (
                 <button
@@ -486,11 +507,13 @@ export default function TaskTablePage() {
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
-          ) : isExc ? (
+          ) : hasPersonalView ? (
             mainTab === "mine" ? (
               <MyTasksView profile={profile} memberItems={memberItems} activeItemTab={activeItemTab} setActiveItemTab={setActiveItemTab} />
             ) : (
-              <TeamSection segment={profile.segment} members={profiles.filter((p) => p.segment === profile.segment)} memberItems={memberItems} title={profile.segment} />
+              myTeamSegments.map((segment) => (
+                <TeamSection key={segment} segment={segment} members={profiles.filter((p) => p.segment === segment)} memberItems={memberItems} title={segment} />
+              ))
             )
           ) : (
             <>
