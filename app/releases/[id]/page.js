@@ -19,8 +19,8 @@ import PickSelect from "../../../lib/PickSelect";
 import { TICKET_TYPE_LABELS, TEAMS, REPORTING_TEAMS } from "../../../lib/teamTypes";
 import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import { useAuth } from "../../../lib/AuthContext";
-import { isDev, isAdminOrAbove, canFlagIndie } from "../../../lib/permissions";
-import { cycleProjectTag } from "../../../lib/projectTags";
+import { isDev, isAdminOrAbove, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM } from "../../../lib/permissions";
+import { subteamTagPillClass, MARKETING_SUBTEAM_TAGS } from "../../../lib/projectTags";
 import { runOne } from "../../../lib/packageSimulator";
 import { fetchProductTagSets, ProductTagPills } from "../../../lib/productTags";
 import { recomputeDid } from "../../../lib/didHelpers";
@@ -233,6 +233,12 @@ export default function ReleaseDetailPage() {
     fetchProductTagSets(supabase).then(setProductTagSets);
   }, []);
 
+  // Round 262 follow-up — Marketing's 4 tag names are a hardcoded
+  // constant (lib/projectTags.js's MARKETING_SUBTEAM_TAGS), not read
+  // from the SUBTEAM config table — see that file's header comment for
+  // why. No fetch needed for the header's dev/admin popups anymore.
+  const [tagPopupOpen, setTagPopupOpen] = useState(false);
+
   // Round 105 — Send Upload's copyright gate, EP/Album half. Only fetches
   // when it's actually not a Single (no point querying release_tracks for
   // a product type that has none) — re-fetches whenever the release id
@@ -260,24 +266,27 @@ export default function ReleaseDetailPage() {
         // Fresh load — nothing edited yet against this baseline.
         dirtyKeysRef.current = new Set();
 
-        // Round 260 — automatic Indie-channel flag. Fires only when
-        // nobody has ever manually (or automatically) touched this
-        // release's tag yet (project_tag_locked === false — see
-        // lib/projectTags.js and sql/pending/add-round260-project-tag.sql).
-        // "Any booking package that has a number for indie channel" is
-        // read here as: media_booking_package_categories.total_posts or
+        // Round 260 — automatic Indie-channel flag, ported in Round 262 to
+        // write subteam_tags.INDIE instead of the retired single-cycling
+        // project_tag column. Fires only when nobody has ever manually
+        // (or automatically) touched this release's INDIE subteam tag yet
+        // (subteam_tags_locked.INDIE not true — see sql/pending/
+        // add-round262-subteam-rework.sql). "Any booking package that has
+        // a number for indie channel" is read here as:
+        // media_booking_package_categories.total_posts or
         // media_booking_package_lines.quantity > 0 on a row whose brand
         // mentions "Indie" — the closest join available, since there's no
         // real FK from a package line back to booking_channels (whose own
         // "brand" column is the real INDIE/VPOP/ENVI/VIEENT grouping this
-        // tag is modeled on). Once it fires, project_tag_locked flips to
-        // true so this never re-fires or overwrites a later manual
-        // change — same lock cycleIndieTag below sets on a manual pick.
-        // NOTE: this only runs when someone actually opens THIS release's
-        // detail page (no DB trigger backing it) — flagged as worth
-        // confirming against live data, couldn't verify the brand-text
-        // vocabulary or test this join without a live DB connection.
-        if (!data.project_tag_locked) {
+        // tag is modeled on). Once it fires, subteam_tags_locked.INDIE
+        // flips to true so this never re-fires or overwrites a later
+        // manual change — same lock toggleSubteamTag below sets on a
+        // manual pick. NOTE: this only runs when someone actually opens
+        // THIS release's detail page (no DB trigger backing it) —
+        // flagged as worth confirming against live data, couldn't verify
+        // the brand-text vocabulary or test this join without a live DB
+        // connection.
+        if (!(data.subteam_tags_locked || {}).INDIE) {
           const [catRes, pkgRes] = await Promise.all([
             supabase.from("media_booking_package_categories").select("total_posts, brand").eq("release_id", id).ilike("brand", "%indie%"),
             supabase.from("media_booking_packages").select("id, media_booking_package_lines(quantity, brand)").eq("release_id", id),
@@ -287,9 +296,11 @@ export default function ReleaseDetailPage() {
             (pkg.media_booking_package_lines || []).some((l) => (l.brand || "").toLowerCase().includes("indie") && (l.quantity || 0) > 0)
           );
           if (hasIndieCategory || hasIndieLine) {
-            await supabase.from("releases").update({ project_tag: "INDIE", project_tag_locked: true }).eq("id", id);
-            setForm((f) => ({ ...f, project_tag: "INDIE", project_tag_locked: true }));
-            setRelease((r) => ({ ...r, project_tag: "INDIE", project_tag_locked: true }));
+            const nextTags = { ...(data.subteam_tags || {}), INDIE: true };
+            const nextLocked = { ...(data.subteam_tags_locked || {}), INDIE: true };
+            await supabase.from("releases").update({ subteam_tags: nextTags, subteam_tags_locked: nextLocked }).eq("id", id);
+            setForm((f) => ({ ...f, subteam_tags: nextTags, subteam_tags_locked: nextLocked }));
+            setRelease((r) => ({ ...r, subteam_tags: nextTags, subteam_tags_locked: nextLocked }));
           }
         }
         // Round 151 — load-reduction pass, release detail page. This block
@@ -1339,23 +1350,28 @@ export default function ReleaseDetailPage() {
     setRelease((r) => ({ ...r, package_locked: newVal }));
   }
 
-  // Round 258/260 — project tag, header switch. Same "write immediately,
-  // don't wait for Save" idiom as togglePackageLock right above — a
-  // classification tag like this should stick the moment it's changed,
-  // not get lost if the rest of the form's edits never get saved. Cycles
-  // NONE -> INDIE -> VPOP -> ENVI -> VIEENT -> NONE (lib/projectTags.js);
-  // going back to NONE ("in case they incorrectly unflag") confirms
-  // first, same as the dashboard's own flag. Any manual change here locks
-  // out the automatic Indie-channel check above for good.
-  async function cycleIndieTag() {
-    const next = cycleProjectTag(form.project_tag);
-    if (form.project_tag && !next) {
-      const ok = window.confirm(`Remove the "${form.project_tag}" tag from this release?`);
+  // Round 261/262 — per-subteam tag toggle, header switch. Same "write
+  // immediately, don't wait for Save" idiom as togglePackageLock right
+  // above. Round 262 retired the Round 258/260 single-cycling project_tag
+  // switch this used to be ("what i mean of round 261 is not the
+  // [cycling] behavior... it should be the other round, one pill tag
+  // toggle for one subteam") — plain on/off for ONE named subteam, same
+  // shape as the dashboard's own per-subteam toggle. Turning it off
+  // confirms first ("in case they incorrectly unflag"), and any manual
+  // change locks that subteam so the automatic Indie-channel check above
+  // never overwrites it again.
+  async function toggleSubteamTag(subteamName) {
+    const current = !!(form.subteam_tags || {})[subteamName];
+    const next = !current;
+    if (current && !next) {
+      const ok = window.confirm(`Turn off the "${subteamName}" tag for this release?`);
       if (!ok) return;
     }
-    setForm((f) => ({ ...f, project_tag: next, project_tag_locked: true }));
-    await supabase.from("releases").update({ project_tag: next, project_tag_locked: true }).eq("id", id);
-    setRelease((r) => ({ ...r, project_tag: next, project_tag_locked: true }));
+    const nextTags = { ...(form.subteam_tags || {}), [subteamName]: next };
+    const nextLocked = { ...(form.subteam_tags_locked || {}), [subteamName]: true };
+    setForm((f) => ({ ...f, subteam_tags: nextTags, subteam_tags_locked: nextLocked }));
+    await supabase.from("releases").update({ subteam_tags: nextTags, subteam_tags_locked: nextLocked }).eq("id", id);
+    setRelease((r) => ({ ...r, subteam_tags: nextTags, subteam_tags_locked: nextLocked }));
   }
 
   // Round 121 — undoes a resolved package decision (INT MEDIA via SEND INT
@@ -1485,22 +1501,50 @@ export default function ReleaseDetailPage() {
             <div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
                 <div className={styles.eyebrow} style={{ marginBottom: 0 }}>{form.did || "—"}</div>
-                {/* Round 258/260 — project tag switch, header. Only
-                    shown to whoever can actually change it (canFlagIndie
-                    — team lead on Marketing, dev); everyone else who
-                    isn't permitted just sees a plain read-only pill when
-                    it's set, same "visible to all, editable by some"
-                    split the New Release dashboard's own Indie column
-                    uses. One spot, single choice (INDIE/VPOP/ENVI/
-                    VIEENT/NONE) — not the 3-way Yes/No/TBU GateToggle
-                    used elsewhere on this page. */}
-                {canFlagIndie(profile) ? (
-                  <ProjectTagSwitch tag={form.project_tag} onClick={cycleIndieTag} />
-                ) : form.project_tag ? (
-                  <span className={`${styles.pill} ${PROJECT_TAG_PILL_CLASS[form.project_tag] ? styles[PROJECT_TAG_PILL_CLASS[form.project_tag]] : styles.pillGray}`}>
-                    {form.project_tag}
-                  </span>
-                ) : null}
+                {/* Round 261/262 — per-subteam tag switch, header. The
+                    Round 258/260 single-cycling project_tag switch this
+                    used to be is retired; each subteam is now its own
+                    on/off flag, so this renders differently by who's
+                    looking: dev (edits any subteam, via a small popup —
+                    there's no single "their" subteam to show inline), a
+                    team lead with a subteam set (a single named on/off
+                    toggle, editable), an admin whose team has subteams
+                    defined (a read-only summary popup, same policy as
+                    the dashboard's collapsed admin column), or anyone
+                    else (plain read-only pills for whichever tags are
+                    already set). */}
+                {isDev(profile) ? (
+                  <DevSubteamTagButton
+                    form={form}
+                    subteamNames={MARKETING_SUBTEAM_TAGS}
+                    open={tagPopupOpen}
+                    onToggleOpen={() => setTagPopupOpen((o) => !o)}
+                    onClose={() => setTagPopupOpen(false)}
+                    onToggleTag={toggleSubteamTag}
+                  />
+                ) : profile?.role === "teamlead" && profile?.segment === SUBTEAM_TAG_TEAM && profile?.subteam ? (
+                  <SubteamHeaderToggle
+                    name={profile.subteam}
+                    on={!!(form.subteam_tags || {})[profile.subteam]}
+                    onClick={() => toggleSubteamTag(profile.subteam)}
+                  />
+                ) : canViewSubteamSummaryColumn(profile, SUBTEAM_TAG_TEAM) ? (
+                  <ReadOnlySubteamSummaryButton
+                    form={form}
+                    subteamNames={MARKETING_SUBTEAM_TAGS}
+                    open={tagPopupOpen}
+                    onToggleOpen={() => setTagPopupOpen((o) => !o)}
+                    onClose={() => setTagPopupOpen(false)}
+                  />
+                ) : (
+                  Object.entries(form.subteam_tags || {}).filter(([, v]) => v).length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {Object.entries(form.subteam_tags || {}).filter(([, v]) => v).map(([name]) => (
+                        <span key={name} className={`${styles.pill} ${subteamTagPillClass(styles, name)}`}>{name}</span>
+                      ))}
+                    </div>
+                  )
+                )}
               </div>
               {firstUrl(form.link_lbm) ? (
                 <a
@@ -1704,30 +1748,18 @@ function GateStatusPill({ label, gateOn, ticket }) {
   );
 }
 
-// Round 260 — same 4-color mapping the dashboard's ProjectTagFlag uses
-// (app/releases/page.js) — kept as a separate copy here rather than a
-// shared import since it's just object literal, not worth a new lib file
-// on its own.
-const PROJECT_TAG_PILL_CLASS = {
-  INDIE: "pillOrange",
-  VPOP: "pillGreen",
-  ENVI: "pillPublishing",
-  VIEENT: "pillSplitshare",
-};
-
-// Round 258/260 — project tag switch, header (see cycleIndieTag above and
-// the matching flag icon on the New Release dashboard,
-// app/releases/page.js's ProjectTagFlag). Writes immediately on click,
-// same idiom as the rest of the header's inline controls
-// (togglePackageLock) — no "hit Save first". One spot, click-to-cycle —
-// not 3 separate Yes/No/TBU buttons like GateToggle elsewhere on this
-// page.
-function ProjectTagSwitch({ tag, onClick }) {
+// Round 262 — single named subteam on/off switch, header. Replaces the
+// Round 258/260 4-way cycling ProjectTagSwitch — a team lead only ever
+// has ONE subteam, so this is just plain on/off for that one name, same
+// idiom as the dashboard's own SubteamToggle. Writes immediately on
+// click, same as the rest of the header's inline controls
+// (togglePackageLock) — no "hit Save first".
+function SubteamHeaderToggle({ name, on, onClick }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      title={tag ? `Tagged ${tag} — click to change` : "Click to tag this project"}
+      title={on ? `${name} — click to turn off` : `${name} — click to turn on`}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -1735,17 +1767,121 @@ function ProjectTagSwitch({ tag, onClick }) {
         border: "1px solid var(--border-strong)",
         borderRadius: 20,
         padding: "3px 10px 3px 3px",
-        background: tag ? "rgba(255,107,26,0.14)" : "transparent",
+        background: on ? "rgba(255,107,26,0.14)" : "transparent",
         cursor: "pointer",
         fontSize: 11,
         fontWeight: 700,
-        color: tag ? "#ff9d5c" : "var(--text-faint)",
+        color: on ? "#ff9d5c" : "var(--text-faint)",
         flexShrink: 0,
       }}
     >
-      <span style={{ fontSize: 13, lineHeight: 1 }}>{tag ? "🚩" : "⚑"}</span>
-      {tag || "TAG"}
+      <span style={{ fontSize: 13, lineHeight: 1 }}>{on ? "🚩" : "⚑"}</span>
+      {name}
     </button>
+  );
+}
+
+// Round 262 — dev's header control: dev can edit ANY subteam's tag (the
+// usual global-bypass exception), but with no single "their own" subteam
+// to show inline like a team lead, this is a small popup listing every
+// one of Marketing's tags (subteamNames — MARKETING_SUBTEAM_TAGS, a
+// hardcoded constant, see lib/projectTags.js) with its own editable
+// toggle.
+function DevSubteamTagButton({ form, subteamNames, open, onToggleOpen, onClose, onToggleTag }) {
+  const activeCount = Object.values(form.subteam_tags || {}).filter(Boolean).length;
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <button
+        type="button"
+        onClick={onToggleOpen}
+        title="Edit this release's subteam tags"
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          border: "1px solid var(--border-strong)", borderRadius: 20, padding: "3px 10px 3px 3px",
+          background: activeCount > 0 ? "rgba(255,107,26,0.14)" : "transparent",
+          cursor: "pointer", fontSize: 11, fontWeight: 700,
+          color: activeCount > 0 ? "#ff9d5c" : "var(--text-faint)", flexShrink: 0,
+        }}
+      >
+        <span style={{ fontSize: 13, lineHeight: 1 }}>{activeCount > 0 ? "🚩" : "⚑"}</span>
+        {activeCount > 0 ? `${activeCount} tag${activeCount > 1 ? "s" : ""}` : "TAG"}
+      </button>
+      {open && (
+        <>
+          <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 449 }} />
+          <div
+            style={{
+              position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 450,
+              minWidth: 180, background: "var(--bg-card)", border: "1px solid var(--border-strong)",
+              borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+            }}
+          >
+            {subteamNames.map((name) => {
+              const on = !!(form.subteam_tags || {})[name];
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => onToggleTag(name)}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, width: "100%", padding: "4px 0", fontSize: 12, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+                >
+                  <span style={{ color: "var(--text-faint)" }}>{name}</span>
+                  <span className={`${styles.pill} ${on ? subteamTagPillClass(styles, name) : styles.pillGray}`} style={{ opacity: on ? 1 : 0.5 }}>{on ? "On" : "Off"}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Round 262 item 2 — admin's read-only summary popup, header. Same
+// view-only policy as the dashboard's collapsed admin column
+// (canViewSubteamSummaryColumn) — admin can look, only a team lead (or
+// dev) can change it.
+function ReadOnlySubteamSummaryButton({ form, subteamNames, open, onToggleOpen, onClose }) {
+  const activeCount = subteamNames.filter((s) => !!(form.subteam_tags || {})[s]).length;
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <button
+        type="button"
+        onClick={onToggleOpen}
+        title="View this release's subteam tags"
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          border: "1px solid var(--border-strong)", borderRadius: 20, padding: "3px 10px 3px 3px",
+          background: activeCount > 0 ? "rgba(255,107,26,0.14)" : "transparent",
+          cursor: "pointer", fontSize: 11, fontWeight: 700,
+          color: activeCount > 0 ? "#ff9d5c" : "var(--text-faint)", flexShrink: 0,
+        }}
+      >
+        🏳 {activeCount > 0 ? activeCount : "—"}
+      </button>
+      {open && (
+        <>
+          <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 449 }} />
+          <div
+            style={{
+              position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 450,
+              minWidth: 160, background: "var(--bg-card)", border: "1px solid var(--border-strong)",
+              borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+            }}
+          >
+            {subteamNames.map((s) => {
+              const on = !!(form.subteam_tags || {})[s];
+              return (
+                <div key={s} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
+                  <span className={`${styles.pill} ${on ? subteamTagPillClass(styles, s) : styles.pillGray}`} style={{ opacity: on ? 1 : 0.5 }}>{s}</span>
+                  <span style={{ color: "var(--text-faint)", fontSize: 10 }}>{on ? "On" : "Off"}</span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

@@ -17,18 +17,23 @@ import {
 import { PITCHING_PIC_LIST_KEY, DEFAULT_PITCHING_PIC_LIST, parsePitchingPicList } from "../../lib/pitchingPicList";
 import { MILESTONE_HIGHLIGHT_SETTING_KEY, DEFAULT_MILESTONE_HIGHLIGHT_CONFIG, parseMilestoneHighlightConfig } from "../../lib/milestoneHighlight";
 import { MAGIC_LINK_THEME_LOCK_KEY, LOCKABLE_THEMES } from "../../lib/magicLinkThemeLock";
+import { MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
+import { TEAM_SUBTEAMS } from "../../lib/teamTypes";
 import styles from "../shared.module.css";
 
 const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
 // release_category is a fixed 2-value single choice ("New Release" /
 // "Remarketing"), hardcoded directly in the New Release form and release
 // detail page — not admin-configurable via lookup_options anymore.
-// "OPS" split into Youtube/Publishing/Operation per explicit request — OPS
-// itself is intentionally excluded here (hidden from the profile create/
-// reassign dropdown), it's now a hidden aggregate elsewhere in the app
-// (see lib/teamTypes.js's OPS_SUB_TEAMS/isOpsTeam/resolveTeamKey). Must
-// match lib/teamTypes.js's TEAMS export — see that file's header comment.
-const TEAMS = ["AR", "Marketing", "Design", "Youtube", "Publishing", "Operation", "Legal"];
+// Round 262 — "OPS" is a real, assignable segment again (Youtube/
+// Publishing/Operation folded back into it as subteams). Must match
+// lib/teamTypes.js's TEAMS export.
+const TEAMS = ["AR", "Marketing", "Design", "OPS", "Legal"];
+// Round 264 — every team's subteam options, all hardcoded now (Marketing's
+// own list lives in lib/projectTags.js; everyone else's in
+// lib/teamTypes.js's TEAM_SUBTEAMS) — the round 262/263 SUBTEAM config
+// table/tab is retired per explicit request ("hardcode it in").
+const SUBTEAM_OPTIONS = { Marketing: MARKETING_SUBTEAM_TAGS, ...TEAM_SUBTEAMS };
 
 export default function ConfigPage() {
   const { profile } = useAuth();
@@ -346,15 +351,15 @@ function TeamSection({ profile }) {
     load();
   }
 
-  // Round 261 item 3 — free text, no fixed list on purpose ("I will
-  // manually filled them in so no worries about that") — see
-  // profiles.subteam, sql/pending/add-round261-subteam-tags.sql. Same
-  // admin/dev-only edit, team-lead-sees-plain-text split as the Team
-  // (segment) field right above it in this table.
+  // Round 261 item 3 introduced this as free text ("I will manually
+  // filled them in so no worries about that"); Round 262 replaced that
+  // with a config-table-backed dropdown, then Round 264 hardcoded the
+  // options instead (SUBTEAM_OPTIONS above) — same admin/dev-only edit,
+  // team-lead-sees-plain-text split as the Team (segment) field right
+  // above it in this table throughout.
   async function updateSubteam(p, newSubteam) {
-    const trimmed = newSubteam.trim();
-    if (trimmed === (p.subteam || "")) return;
-    await supabase.from("profiles").update({ subteam: trimmed || null }).eq("id", p.id);
+    if (newSubteam === (p.subteam || "")) return;
+    await supabase.from("profiles").update({ subteam: newSubteam || null }).eq("id", p.id);
     load();
   }
 
@@ -506,22 +511,29 @@ function TeamSection({ profile }) {
                     </select>
                   )}
                 </td>
-                {/* Round 261 item 3 — free text, admin/dev-only edit
-                    (same split as Team/segment above); a team lead just
-                    sees the plain value for people on their own roster.
-                    "I will manually filled them in" — no dropdown/fixed
-                    list, deliberately. */}
+                {/* Round 264 — every team's Subteam options are hardcoded
+                    (SUBTEAM_OPTIONS above — Marketing's own list from
+                    lib/projectTags.js, everyone else's from
+                    lib/teamTypes.js's TEAM_SUBTEAMS), per explicit
+                    request in favor of the round 262/263 config-table
+                    version. admin/dev-only edit (same split as Team/
+                    segment above) — a team lead just sees the plain
+                    value for people on their own roster. */}
                 <td>
                   {profile?.role === "teamlead" ? (
                     <span style={{ fontSize: 12, color: "var(--text-faint)" }}>{p.subteam || "—"}</span>
                   ) : (
-                    <input
-                      className={styles.input}
-                      style={{ padding: "4px 8px", fontSize: 12, minWidth: 100 }}
-                      defaultValue={p.subteam || ""}
-                      placeholder="—"
-                      onBlur={(e) => updateSubteam(p, e.target.value)}
-                    />
+                    <select
+                      className={styles.select}
+                      style={{ padding: "4px 8px", fontSize: 12, minWidth: 110 }}
+                      value={p.subteam || ""}
+                      onChange={(e) => updateSubteam(p, e.target.value)}
+                    >
+                      <option value="">—</option>
+                      {(SUBTEAM_OPTIONS[p.segment] || []).map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
                   )}
                 </td>
                 <td>{p.auth_id ? <span style={{ color: "var(--success-fg)" }}>Yes</span> : <span style={{ color: "var(--text-faint)" }}>Not yet</span>}</td>

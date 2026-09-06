@@ -8,7 +8,7 @@ import { fetchAllRows } from "../../lib/helpers";
 import { useAuth } from "../../lib/AuthContext";
 import {
   TICKET_TYPE_LABELS, TICKET_ROUTES, WORKSTATION_TYPE_LABELS, WORKSTATION_ROUTES,
-  TEAM_TICKET_TYPES, TEAM_WORKSTATION_TYPES, resolveTeamKey, isOpsTeam, OPS_SUB_TEAMS,
+  TEAM_TICKET_TYPES, TEAM_WORKSTATION_TYPES, resolveTeamKey, isOpsTeam,
 } from "../../lib/teamTypes";
 import { TASK_PHASES, phaseForColumn } from "../../lib/taskPhases";
 import styles from "../shared.module.css";
@@ -305,14 +305,18 @@ function TeamSection({ segment, members, memberItems, title }) {
   );
 }
 
-// Round 253 — which real segments a "My Team" tab should render, per the
-// hierarchy in the big comment block up top. Only admin ever sees more
-// than their own single segment, and only when that segment is one of the
-// 3 real OPS sub-teams (isOpsTeam/OPS_SUB_TEAMS — same aggregation concept
-// lib/teamTypes.js already uses for reporting).
-function scopeSegmentsForRole(profile) {
+// Round 253 — which real segments/subteams a "My Team" tab should render,
+// per the hierarchy in the big comment block up top. Only admin ever sees
+// more than one section, and only on OPS (where Round 262 moved the 3
+// former standalone segments to profiles.subteam — see
+// lib/teamTypes.js's header comment). Needs the full profiles list since
+// the subteam names are no longer a fixed constant, just whatever real
+// values exist on OPS profiles right now.
+function scopeSegmentsForRole(profile, allProfiles) {
   if (!profile?.segment) return [];
-  if (profile.role === "admin" && isOpsTeam(profile.segment)) return OPS_SUB_TEAMS;
+  if (profile.role === "admin" && isOpsTeam(profile.segment)) {
+    return [...new Set((allProfiles || []).filter((p) => p.segment === "OPS" && p.subteam).map((p) => p.subteam))].sort();
+  }
   return [profile.segment];
 }
 
@@ -449,13 +453,14 @@ export default function TaskTablePage() {
     })();
   }, []);
 
-  // Real, individually-assignable team segments only (matches
-  // lib/teamTypes.js TEAMS — Youtube/Publishing/Operation shown separately
-  // since that's the segment actually stored on each profile; "OPS" itself
-  // is never assigned to a profile). Any profile with no/unknown segment
-  // (or role "dev", who has no segment) falls into its own catch-all
-  // section at the end rather than being silently dropped.
-  const teamOrder = ["AR", "Marketing", "Design", "Youtube", "Publishing", "Operation", "Legal"];
+  // Real, individually-assignable team segments (matches lib/teamTypes.js
+  // TEAMS — Round 262 folded Youtube/Publishing/Operation into "OPS" as
+  // subteams, so they no longer show as separate sections here; an OPS
+  // admin's "My Team" tab still breaks them out individually, see
+  // scopeSegmentsForRole below). Any profile with no/unknown segment (or
+  // role "dev", who has no segment) falls into its own catch-all section
+  // at the end rather than being silently dropped.
+  const teamOrder = ["AR", "Marketing", "Design", "OPS", "Legal"];
   const segmentsPresent = [...new Set(profiles.map((p) => p.segment).filter(Boolean))];
   const otherSegments = segmentsPresent.filter((s) => !teamOrder.includes(s)).sort();
   const noSegmentProfiles = profiles.filter((p) => !p.segment);
@@ -465,7 +470,11 @@ export default function TaskTablePage() {
   // in Round 250). "dev" has no segment of its own to build one from, and
   // explicitly keeps the old full-org page with no personal tab at all.
   const hasPersonalView = !!profile && profile.role !== "dev";
-  const myTeamSegments = scopeSegmentsForRole(profile);
+  const myTeamSegments = scopeSegmentsForRole(profile, profiles);
+  // True when myTeamSegments holds subteam NAMES (an OPS admin's
+  // per-subteam breakdown) rather than real segment values — the members
+  // filter and columnsForTeam call below need to know which.
+  const isOpsAdminSplit = profile?.role === "admin" && isOpsTeam(profile?.segment);
 
   // Default the drill-down tab to the member's own first task type with
   // outstanding work once data has loaded, instead of leaving it blank —
@@ -512,7 +521,13 @@ export default function TaskTablePage() {
               <MyTasksView profile={profile} memberItems={memberItems} activeItemTab={activeItemTab} setActiveItemTab={setActiveItemTab} />
             ) : (
               myTeamSegments.map((segment) => (
-                <TeamSection key={segment} segment={segment} members={profiles.filter((p) => p.segment === segment)} memberItems={memberItems} title={segment} />
+                <TeamSection
+                  key={segment}
+                  segment={isOpsAdminSplit ? "OPS" : segment}
+                  members={profiles.filter((p) => (isOpsAdminSplit ? p.segment === "OPS" && p.subteam === segment : p.segment === segment))}
+                  memberItems={memberItems}
+                  title={segment}
+                />
               ))
             )
           ) : (

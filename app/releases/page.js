@@ -12,8 +12,8 @@ import { fetchProductTagSets, ProductTagPills } from "../../lib/productTags";
 import { copyrightChecklistSummary } from "../../lib/copyrightChecklist";
 import DateRangeFilter, { matchesDateRange } from "../../lib/DateRangeFilter";
 import { useAuth } from "../../lib/AuthContext";
-import { canFlagIndie, isDev, visibleSubteamsFor } from "../../lib/permissions";
-import { cycleProjectTag } from "../../lib/projectTags";
+import { visibleSubteamsFor, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM } from "../../lib/permissions";
+import { subteamTagPillClass, MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
 import styles from "../shared.module.css";
 
 const CHANNELS = ["VIEENT", "ENVI"];
@@ -113,11 +113,12 @@ const RELEASE_COLUMNS = [
   "priority_pitching", "pitching_status_spotify", "pitching_status_apple", "pitching_status_nct", "pitching_status_zing",
   // Round 88 — Copyright Checklist compiled summary subrow
   "copyright_checklist",
-  // Round 260 — project tag (INDIE/VPOP/ENVI/VIEENT), replaces Round 258's
-  // plain is_indie boolean
-  "project_tag", "project_tag_locked",
-  // Round 261 — per-subteam tags, {subteamName: boolean}
-  "subteam_tags",
+  // Round 261 — per-subteam tags, {subteamName: boolean}. Round 262
+  // retired the single cycling project_tag/project_tag_locked columns
+  // (Round 258/260) in favor of this generic map — Marketing's old
+  // INDIE/VPOP/ENVI/VIEENT values are now just 4 subteam_tags entries,
+  // same shape as any other team's subteam tag.
+  "subteam_tags", "subteam_tags_locked",
 ].join(", ");
 
 // Mirrors app/workstation/pitching/page.js's DONE_VALUE/CANCEL_VALUES so the
@@ -258,10 +259,6 @@ function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery
   if (filters.labelFilter) q = q.eq("label", filters.labelFilter);
   if (filters.dateRangeStart) q = q.gte("release_date", filters.dateRangeStart);
   if (filters.dateRangeEnd) q = q.lte("release_date", filters.dateRangeEnd);
-  // Round 258/260 — INDIE filter, per explicit request. Still just the
-  // one tag ("INDIE only") — the other 3 tags didn't get their own
-  // filters asked for.
-  if (filters.indieFilter) q = q.eq("project_tag", "INDIE");
 
   if (searchQuery) {
     const op = searchMode === "regex" ? "imatch" : "ilike";
@@ -283,8 +280,8 @@ function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery
 // component) still needs a plain object shape to read/write — unchanged
 // from before other than dropping the fields that no longer exist
 // (nothing removed here, sort/page/filters are all still real state).
-function currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, indieFilter, page, pageSize, sort }) {
-  return { search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, indieFilter, page, pageSize, sort };
+function currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort }) {
+  return { search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort };
 }
 
 export default function ReleasesDashboard() {
@@ -310,28 +307,28 @@ export default function ReleasesDashboard() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [dateRangeStart, setDateRangeStart] = useState("");
   const [dateRangeEnd, setDateRangeEnd] = useState("");
-  const [indieFilter, setIndieFilter] = useState(false); // Round 258 — "only show INDIE" toggle
-  const [savingIndie, setSavingIndie] = useState(null); // release id currently being saved
-  const [allSubteams, setAllSubteams] = useState([]); // Round 261 — every distinct subteam that exists (dev only needs this; a team lead already knows their own)
   const [savingSubteam, setSavingSubteam] = useState(null); // `${releaseId}:${subteamName}` currently being saved
+  const [summaryPopupFor, setSummaryPopupFor] = useState(null); // release id whose admin summary popup is open
   const [hoverRelease, setHoverRelease] = useState(null);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
 
   const { profile } = useAuth();
-  const canEditIndie = canFlagIndie(profile);
+  // Per explicit correction — "tags only for marketing please", then
+  // "is making a new subteam config like this better, or hardcode will
+  // be better" — Marketing's 4 tag names are now a hardcoded constant
+  // (lib/projectTags.js's MARKETING_SUBTEAM_TAGS), not read from the
+  // SUBTEAM config table, since other code already hardcodes these exact
+  // 4 strings (the automatic Indie auto-flag, the pill color map) and a
+  // rename via the table would silently desync from those. No fetch
+  // needed here anymore.
   // Round 261 — which subteam column(s), if any, THIS viewer gets on the
-  // left of the table. Empty for anyone who isn't a team lead with a
-  // subteam set (or dev).
-  const visibleSubteams = visibleSubteamsFor(profile, allSubteams);
-
-  useEffect(() => {
-    if (!supabase || !isDev(profile)) return;
-    supabase
-      .from("profiles")
-      .select("subteam")
-      .not("subteam", "is", null)
-      .then(({ data }) => setAllSubteams([...new Set((data || []).map((p) => p.subteam).filter(Boolean))].sort()));
-  }, [profile?.role]);
+  // left of the table. Empty for anyone who isn't a Marketing team lead
+  // with a subteam set (or dev).
+  const visibleSubteams = visibleSubteamsFor(profile, MARKETING_SUBTEAM_TAGS);
+  // Round 262 item 2 — admin on Marketing gets ONE collapsed column for
+  // Marketing's subteams (view-only popup) instead of per-subteam
+  // columns.
+  const showAdminSummaryColumn = canViewSubteamSummaryColumn(profile, SUBTEAM_TAG_TEAM);
 
   const [sort, setSort] = useState(null); // null = default (release date desc) | { key, dir }
   const [page, setPage] = useState(1);
@@ -362,8 +359,8 @@ export default function ReleasesDashboard() {
   }, [search]);
 
   const filters = useMemo(
-    () => ({ statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, indieFilter }),
-    [statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, indieFilter]
+    () => ({ statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd }),
+    [statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd]
   );
 
   // Fires the actual list query, with the invalid-regex fallback baked in.
@@ -472,7 +469,6 @@ export default function ReleasesDashboard() {
       if (saved.labelFilter) setLabelFilter(saved.labelFilter);
       if (saved.dateRangeStart) setDateRangeStart(saved.dateRangeStart);
       if (saved.dateRangeEnd) setDateRangeEnd(saved.dateRangeEnd);
-      if (saved.indieFilter) setIndieFilter(saved.indieFilter);
       if (saved.page) setPage(saved.page);
       if (saved.pageSize) setPageSize(saved.pageSize);
       if (saved.sort) setSort(saved.sort);
@@ -501,7 +497,6 @@ export default function ReleasesDashboard() {
         labelFilter: restored?.labelFilter || "",
         dateRangeStart: restored?.dateRangeStart || "",
         dateRangeEnd: restored?.dateRangeEnd || "",
-        indieFilter: restored?.indieFilter || false,
       },
       searchTerm: restored?.search || "",
     });
@@ -550,7 +545,7 @@ export default function ReleasesDashboard() {
   // empty dep array) always sees the CURRENT values instead of whatever
   // they were at mount.
   const latestDashboardStateRef = useRef(null);
-  latestDashboardStateRef.current = currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, indieFilter, page, pageSize, sort });
+  latestDashboardStateRef.current = currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort });
   useEffect(() => {
     return () => {
       writeDashboardState({ ...latestDashboardStateRef.current, scrollY: window.scrollY });
@@ -575,33 +570,12 @@ export default function ReleasesDashboard() {
     setSavingChannel(null);
   }
 
-  // Round 260 — project tag, inline from the dashboard row. Clicking the
-  // flag cycles NONE -> INDIE -> VPOP -> ENVI -> VIEENT -> NONE (see
-  // lib/projectTags.js). Per explicit request, going FROM a set tag back
-  // TO NONE ("in case they incorrectly unflag") asks for confirmation
-  // first — every other step in the cycle just happens, only the "remove
-  // the flag" direction is a mistake worth a second click for. Any manual
-  // change (this or the detail page's own switch) sets
-  // project_tag_locked so the automatic Indie-channel check (see the
-  // release detail page) never overwrites a human's choice again.
-  async function cycleIndieTag(release) {
-    const next = cycleProjectTag(release.project_tag);
-    if (release.project_tag && !next) {
-      const ok = window.confirm(`Remove the "${release.project_tag}" tag from "${release.title}"?`);
-      if (!ok) return;
-    }
-    setSavingIndie(release.id);
-    const { error: err } = await supabase.from("releases").update({ project_tag: next, project_tag_locked: true }).eq("id", release.id);
-    if (!err) {
-      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, project_tag: next, project_tag_locked: true } : r)));
-    }
-    setSavingIndie(null);
-  }
-
-  // Round 261 — per-subteam tag toggle, left-most columns. Plain on/off
-  // (no cycling like the project tag above) — but per explicit spec,
-  // turning it OFF still confirms first, same "in case they incorrectly
-  // unflag" reasoning as the project tag.
+  // Round 261 — per-subteam tag toggle, left-most columns. Plain on/off —
+  // per explicit spec, turning it OFF still confirms first ("in case they
+  // incorrectly unflag"). Round 262 — also sets subteam_tags_locked for
+  // this subteam so a manual choice is never silently overwritten by an
+  // automatic flag later (see app/releases/[id]/page.js's INDIE
+  // auto-flag check, the one surviving consumer of that lock).
   async function toggleSubteamTag(release, subteamName) {
     const current = !!(release.subteam_tags || {})[subteamName];
     const next = !current;
@@ -612,9 +586,10 @@ export default function ReleasesDashboard() {
     const key = `${release.id}:${subteamName}`;
     setSavingSubteam(key);
     const nextTags = { ...(release.subteam_tags || {}), [subteamName]: next };
-    const { error: err } = await supabase.from("releases").update({ subteam_tags: nextTags }).eq("id", release.id);
+    const nextLocked = { ...(release.subteam_tags_locked || {}), [subteamName]: true };
+    const { error: err } = await supabase.from("releases").update({ subteam_tags: nextTags, subteam_tags_locked: nextLocked }).eq("id", release.id);
     if (!err) {
-      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, subteam_tags: nextTags } : r)));
+      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, subteam_tags: nextTags, subteam_tags_locked: nextLocked } : r)));
     }
     setSavingSubteam(null);
   }
@@ -670,20 +645,9 @@ export default function ReleasesDashboard() {
             <option value="">Label — all</option>
             {labels.map((l) => <option key={l.label_name} value={l.label_name}>{l.label_name}</option>)}
           </select>
-          {/* Round 258/260 — INDIE filter, per explicit request. Visible
-              to everyone (not gated by canEditIndie — filtering to see
-              INDIE releases is a read, not an edit), same "visible to
-              all, editable by some" split as the column itself below.
-              Round 260 — restyled from a checkbox into an actual switch
-              ("can you make it like a true switch rather a small
-              square"), visual only, same boolean underneath. */}
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, whiteSpace: "nowrap", cursor: "pointer" }}>
-            <ToggleSwitch checked={indieFilter} onChange={setIndieFilter} />
-            INDIE only
-          </label>
-          {(typeFilter || labelFilter || search || dateRangeStart || dateRangeEnd || indieFilter || anyStatClickFilter) && (
+          {(typeFilter || labelFilter || search || dateRangeStart || dateRangeEnd || anyStatClickFilter) && (
             <button
-              onClick={() => { setStatusFilter(null); setChannelFilter(null); setCreatedFilter(null); setTypeFilter(""); setLabelFilter(""); setSearch(""); setDateRangeStart(""); setDateRangeEnd(""); setIndieFilter(false); }}
+              onClick={() => { setStatusFilter(null); setChannelFilter(null); setCreatedFilter(null); setTypeFilter(""); setLabelFilter(""); setSearch(""); setDateRangeStart(""); setDateRangeEnd(""); }}
               style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "6px 12px", fontSize: 11, color: "var(--text-faint)", cursor: "pointer" }}
             >
               ✕ Clear all filters
@@ -719,6 +683,12 @@ export default function ReleasesDashboard() {
                 {visibleSubteams.map((s) => (
                   <th key={`subteam-th-${s}`} title={`${s} tag — only visible to ${s}'s team lead`}>{s}</th>
                 ))}
+                {/* Round 262 item 2 — admin's single collapsed column for
+                    their own team's subteams (view-only popup), instead
+                    of one column per subteam. */}
+                {showAdminSummaryColumn && (
+                  <th title={`${profile.segment}'s subteam tags — view only`}>{profile.segment} Tags</th>
+                )}
                 <SortableTh label="DID" sortKey="did" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Channel" sortKey="requester_segment" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Package" sortKey="release_category" sort={sort} onToggle={toggleSort} />
@@ -743,12 +713,6 @@ export default function ReleasesDashboard() {
                 <th>Metadata</th>
                 <th>Booking</th>
                 <th>Upload</th>
-                {/* Round 258/260 — project tag column, short header
-                    ("Indie") per explicit request even though the tag can
-                    be any of INDIE/VPOP/ENVI/VIEENT now. Clickable flag
-                    for canEditIndie (team lead on Marketing, dev);
-                    everyone else just sees a read-only pill when it's set. */}
-                <th>Indie</th>
               </tr>
             </thead>
             <tbody>
@@ -772,6 +736,17 @@ export default function ReleasesDashboard() {
                         />
                       </td>
                     ))}
+                    {showAdminSummaryColumn && (
+                      <td onClick={(e) => e.stopPropagation()} style={{ position: "relative" }}>
+                        <AdminSubteamSummaryButton
+                          release={r}
+                          subteamNames={MARKETING_SUBTEAM_TAGS}
+                          open={summaryPopupFor === r.id}
+                          onToggleOpen={() => setSummaryPopupFor((cur) => (cur === r.id ? null : r.id))}
+                          onClose={() => setSummaryPopupFor(null)}
+                        />
+                      </td>
+                    )}
                     <td
                       onMouseEnter={(e) => { setHoverRelease(r); setHoverPos({ x: e.clientX, y: e.clientY }); }}
                       onMouseLeave={() => setHoverRelease(null)}
@@ -820,7 +795,7 @@ export default function ReleasesDashboard() {
                           {Object.entries(r.subteam_tags || {})
                             .filter(([, v]) => v)
                             .map(([name]) => (
-                              <span key={name} className={`${styles.pill} ${styles.pillGray}`} style={{ fontSize: 9 }}>{name}</span>
+                              <span key={name} className={`${styles.pill} ${subteamTagPillClass(styles, name)}`} style={{ fontSize: 9 }}>{name}</span>
                             ))}
                         </div>
                       )}
@@ -896,14 +871,6 @@ export default function ReleasesDashboard() {
                     <td>
                       <span className={`${styles.pill} ${upct > 0 ? styles.pillOrange : styles.pillGray}`}>{upct}%</span>
                     </td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <ProjectTagFlag
-                        tag={r.project_tag}
-                        editable={canEditIndie}
-                        saving={savingIndie === r.id}
-                        onClick={() => cycleIndieTag(r)}
-                      />
-                    </td>
                   </tr>
                 );
               })}
@@ -953,79 +920,55 @@ export default function ReleasesDashboard() {
   );
 }
 
-// Round 260 — visual toggle switch, used for the "INDIE only" filter.
-// Purely cosmetic swap for a checkbox — same boolean checked/onChange
-// contract, just styled as a track+thumb instead of a native square.
-function ToggleSwitch({ checked, onChange }) {
+// Round 262 item 2 — admin's collapsed one-column-per-team summary.
+// Clicking it opens a small VIEW-ONLY popup listing every one of that
+// team's subteams and whether this release has each one — no click
+// handler on the individual rows, per Round 261's "let's not let them
+// change, only the team leader" policy (asked the user whether the popup
+// should also let admin edit; view-only was the recommendation, matching
+// the "crowded admin view" reasoning that kept admin out of the per-
+// subteam columns in the first place).
+function AdminSubteamSummaryButton({ release, subteamNames, open, onToggleOpen, onClose }) {
+  const activeCount = subteamNames.filter((s) => !!(release.subteam_tags || {})[s]).length;
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      style={{
-        width: 34,
-        height: 18,
-        borderRadius: 10,
-        border: "1px solid var(--border-strong)",
-        background: checked ? "#ff6b1a" : "var(--bg-hover)",
-        position: "relative",
-        cursor: "pointer",
-        padding: 0,
-        flexShrink: 0,
-        transition: "background 0.15s ease",
-      }}
-    >
-      <span
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <button
+        type="button"
+        onClick={onToggleOpen}
+        title="View this release's subteam tags"
         style={{
-          position: "absolute",
-          top: 1,
-          left: checked ? 17 : 1,
-          width: 14,
-          height: 14,
-          borderRadius: "50%",
-          background: "#fff",
-          transition: "left 0.15s ease",
+          display: "inline-flex", alignItems: "center", gap: 4,
+          border: "1px solid var(--border-strong)", borderRadius: 20, padding: "3px 8px",
+          background: activeCount > 0 ? "rgba(255,107,26,0.14)" : "transparent",
+          cursor: "pointer", fontSize: 11, fontWeight: 700,
+          color: activeCount > 0 ? "#ff9d5c" : "var(--text-faint)",
         }}
-      />
-    </button>
-  );
-}
-
-// Round 260 — project tag flag icon + label, per explicit request ("an
-// actual flag icon... click on it will cycle through ... INDIE; VPOP;
-// ENVI, VIEENT, NONE"). Same component used read-only (editable=false)
-// for anyone who isn't canFlagIndie — visible to all, clickable by the
-// permitted few, matching the split the checkbox column used before this
-// round. Stacked vertically ("vertical if we need space") since this
-// column is narrow and "INDIE"/"VIEENT" don't both fit next to a 🚩 on
-// one line at a readable size.
-const PROJECT_TAG_PILL_CLASS = {
-  INDIE: "pillOrange",
-  VPOP: "pillGreen",
-  ENVI: "pillPublishing",
-  VIEENT: "pillSplitshare",
-};
-function ProjectTagFlag({ tag, editable, saving, onClick }) {
-  const content = (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, opacity: saving ? 0.5 : 1 }}>
-      <span style={{ fontSize: 14, lineHeight: 1 }}>{tag ? "🚩" : "⚑"}</span>
-      {tag && <span className={`${styles.pill} ${styles[PROJECT_TAG_PILL_CLASS[tag]] || styles.pillGray}`}>{tag}</span>}
+      >
+        🏳 {activeCount > 0 ? activeCount : "—"}
+      </button>
+      {open && (
+        <>
+          <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 449 }} />
+          <div
+            style={{
+              position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 450,
+              minWidth: 160, background: "var(--bg-card)", border: "1px solid var(--border-strong)",
+              borderRadius: 8, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+            }}
+          >
+            {subteamNames.map((s) => {
+              const on = !!(release.subteam_tags || {})[s];
+              return (
+                <div key={s} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
+                  <span className={`${styles.pill} ${on ? subteamTagPillClass(styles, s) : styles.pillGray}`} style={{ opacity: on ? 1 : 0.5 }}>{s}</span>
+                  <span style={{ color: "var(--text-faint)", fontSize: 10 }}>{on ? "On" : "Off"}</span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
-  );
-  if (!editable) {
-    return tag ? content : <span style={{ color: "var(--text-faint)" }}>—</span>;
-  }
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={saving}
-      title={tag ? `Tagged ${tag} — click to change` : "Click to tag this project"}
-      style={{ background: "none", border: "none", padding: 0, cursor: saving ? "default" : "pointer" }}
-    >
-      {content}
-    </button>
   );
 }
 
