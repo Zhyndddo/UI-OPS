@@ -259,6 +259,11 @@ function TeamSection({ profile }) {
   const [error, setError] = useState(null);
   const [inviteStatus, setInviteStatus] = useState(null);
   const canManageAccountSecurity = isAdminOrAbove(profile); // delete account / change login email
+  // Round 261 item 4 — "ADD MEMBERS" moved into a popup (was an always-
+  // visible inline form at the top); a roster search box now lives in the
+  // spot that form used to occupy.
+  const [addOpen, setAddOpen] = useState(false);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     if (!supabase) return;
@@ -302,6 +307,7 @@ function TeamSection({ profile }) {
     }
     setName("");
     setEmail("");
+    setAddOpen(false);
     load();
 
     // Send the real invite — they'll get an email to set their own
@@ -337,6 +343,18 @@ function TeamSection({ profile }) {
   async function updateName(p, newName) {
     if (!newName.trim() || newName.trim() === p.name) return;
     await supabase.from("profiles").update({ name: newName.trim() }).eq("id", p.id);
+    load();
+  }
+
+  // Round 261 item 3 — free text, no fixed list on purpose ("I will
+  // manually filled them in so no worries about that") — see
+  // profiles.subteam, sql/pending/add-round261-subteam-tags.sql. Same
+  // admin/dev-only edit, team-lead-sees-plain-text split as the Team
+  // (segment) field right above it in this table.
+  async function updateSubteam(p, newSubteam) {
+    const trimmed = newSubteam.trim();
+    if (trimmed === (p.subteam || "")) return;
+    await supabase.from("profiles").update({ subteam: trimmed || null }).eq("id", p.id);
     load();
   }
 
@@ -386,6 +404,14 @@ function TeamSection({ profile }) {
     }
   }
 
+  // Round 261 item 4 — client-side, name/email substring, case-insensitive.
+  // The roster is small (a Config tab, not a paginated dashboard) so this
+  // doesn't need a server round trip like the New Release dashboard's
+  // search does.
+  const searchedProfiles = search.trim()
+    ? visibleProfiles.filter((p) => `${p.name} ${p.email}`.toLowerCase().includes(search.trim().toLowerCase()))
+    : visibleProfiles;
+
   return (
     <div>
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
@@ -402,48 +428,32 @@ function TeamSection({ profile }) {
         </div>
       )}
 
-      <form onSubmit={addProfile} style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <div className={styles.field} style={{ marginBottom: 0, minWidth: 160 }}>
-          <label className={styles.fieldLabel}>Name</label>
-          <input className={styles.input} value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div className={styles.field} style={{ marginBottom: 0, minWidth: 200 }}>
-          <label className={styles.fieldLabel}>Email</label>
-          <input className={styles.input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        </div>
-        <div className={styles.field} style={{ marginBottom: 0, minWidth: 100 }}>
-          <label className={styles.fieldLabel}>Role</label>
-          <select className={styles.select} value={role} onChange={(e) => setRole(e.target.value)}>
-            {grantable.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
-          </select>
-        </div>
-        {/* A Team Lead's segment is fixed (see effectiveSegment above) — no
-            picker for them, just a plain readout so it's clear who this
-            lands under. Admin/Dev keep the real picker, same as before. */}
-        {role !== "dev" && (
-          profile?.role === "teamlead" ? (
-            <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "8px 0" }}>Team: {profile.segment}</div>
-          ) : (
-            <div className={styles.field} style={{ marginBottom: 0, minWidth: 130 }}>
-              <label className={styles.fieldLabel}>Team</label>
-              <select className={styles.select} value={segment} onChange={(e) => setSegment(e.target.value)}>
-                {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-          )
-        )}
-        <button className={styles.btnPrimary} type="submit">+ Add</button>
-      </form>
+      {/* Round 261 item 4 — the always-visible inline add-form used to
+          live right here; it's now a popup (see the AddMemberModal render
+          at the bottom of this component), triggered by the button on the
+          right. A roster search box takes its old spot on the left. */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+        <input
+          className={styles.input}
+          style={{ maxWidth: 280 }}
+          placeholder="Search by name or email…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <button className={styles.btnPrimary} type="button" onClick={() => setAddOpen(true)}>+ ADD MEMBERS</button>
+      </div>
 
       {loading ? (
         <div className={styles.emptyState}>Loading…</div>
       ) : visibleProfiles.length === 0 ? (
         <div className={styles.emptyState}>{profile?.role === "teamlead" ? "No one on your team's roster yet — add someone above." : "No one on the roster yet — add yourself first."}</div>
+      ) : searchedProfiles.length === 0 ? (
+        <div className={styles.emptyState}>No one matches "{search}".</div>
       ) : (
         <table className={styles.table}>
-          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Signed In</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Subteam</th><th>Signed In</th><th></th></tr></thead>
           <tbody>
-            {visibleProfiles.map((p) => {
+            {searchedProfiles.map((p) => {
               // A person can only be re-assigned to a role the CALLER is
               // allowed to grant — plus their own current role, so the
               // select still shows what they actually are even if the
@@ -496,6 +506,24 @@ function TeamSection({ profile }) {
                     </select>
                   )}
                 </td>
+                {/* Round 261 item 3 — free text, admin/dev-only edit
+                    (same split as Team/segment above); a team lead just
+                    sees the plain value for people on their own roster.
+                    "I will manually filled them in" — no dropdown/fixed
+                    list, deliberately. */}
+                <td>
+                  {profile?.role === "teamlead" ? (
+                    <span style={{ fontSize: 12, color: "var(--text-faint)" }}>{p.subteam || "—"}</span>
+                  ) : (
+                    <input
+                      className={styles.input}
+                      style={{ padding: "4px 8px", fontSize: 12, minWidth: 100 }}
+                      defaultValue={p.subteam || ""}
+                      placeholder="—"
+                      onBlur={(e) => updateSubteam(p, e.target.value)}
+                    />
+                  )}
+                </td>
                 <td>{p.auth_id ? <span style={{ color: "var(--success-fg)" }}>Yes</span> : <span style={{ color: "var(--text-faint)" }}>Not yet</span>}</td>
                 <td>
                   {canManageAccountSecurity && (
@@ -507,6 +535,63 @@ function TeamSection({ profile }) {
             })}
           </tbody>
         </table>
+      )}
+
+      {/* Round 261 item 4 — the add-member popup. Same form/fields/submit
+          logic as before (addProfile), just moved off the page into an
+          overlay, same overlay/box convention used elsewhere in this app
+          (fixed inset:0 rgba(0,0,0,0.5) backdrop, centered box). */}
+      {addOpen && (
+        <div onClick={() => setAddOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 399, background: "rgba(0,0,0,0.5)" }} />
+      )}
+      {addOpen && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 400,
+            width: "min(480px, calc(100vw - 32px))", maxHeight: "85vh", overflowY: "auto",
+            background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10,
+            padding: 20, boxShadow: "0 12px 36px rgba(0,0,0,0.4)",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#ff6b1a", textTransform: "uppercase" }}>Add Members</div>
+            <button type="button" onClick={() => setAddOpen(false)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
+          </div>
+          <form onSubmit={addProfile} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className={styles.field} style={{ marginBottom: 0 }}>
+              <label className={styles.fieldLabel}>Name</label>
+              <input className={styles.input} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+            </div>
+            <div className={styles.field} style={{ marginBottom: 0 }}>
+              <label className={styles.fieldLabel}>Email</label>
+              <input className={styles.input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+            <div className={styles.field} style={{ marginBottom: 0 }}>
+              <label className={styles.fieldLabel}>Role</label>
+              <select className={styles.select} value={role} onChange={(e) => setRole(e.target.value)}>
+                {grantable.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+              </select>
+            </div>
+            {/* A Team Lead's segment is fixed (see effectiveSegment above) —
+                no picker for them, just a plain readout so it's clear who
+                this lands under. Admin/Dev keep the real picker, same as
+                before. */}
+            {role !== "dev" && (
+              profile?.role === "teamlead" ? (
+                <div style={{ fontSize: 12, color: "var(--text-faint)" }}>Team: {profile.segment}</div>
+              ) : (
+                <div className={styles.field} style={{ marginBottom: 0 }}>
+                  <label className={styles.fieldLabel}>Team</label>
+                  <select className={styles.select} value={segment} onChange={(e) => setSegment(e.target.value)}>
+                    {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+              )
+            )}
+            <button className={styles.btnPrimary} type="submit">+ Add</button>
+          </form>
+        </div>
       )}
     </div>
   );

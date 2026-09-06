@@ -12,7 +12,7 @@ import { fetchProductTagSets, ProductTagPills } from "../../lib/productTags";
 import { copyrightChecklistSummary } from "../../lib/copyrightChecklist";
 import DateRangeFilter, { matchesDateRange } from "../../lib/DateRangeFilter";
 import { useAuth } from "../../lib/AuthContext";
-import { canFlagIndie } from "../../lib/permissions";
+import { canFlagIndie, isDev, visibleSubteamsFor } from "../../lib/permissions";
 import { cycleProjectTag } from "../../lib/projectTags";
 import styles from "../shared.module.css";
 
@@ -116,6 +116,8 @@ const RELEASE_COLUMNS = [
   // Round 260 — project tag (INDIE/VPOP/ENVI/VIEENT), replaces Round 258's
   // plain is_indie boolean
   "project_tag", "project_tag_locked",
+  // Round 261 — per-subteam tags, {subteamName: boolean}
+  "subteam_tags",
 ].join(", ");
 
 // Mirrors app/workstation/pitching/page.js's DONE_VALUE/CANCEL_VALUES so the
@@ -310,11 +312,26 @@ export default function ReleasesDashboard() {
   const [dateRangeEnd, setDateRangeEnd] = useState("");
   const [indieFilter, setIndieFilter] = useState(false); // Round 258 — "only show INDIE" toggle
   const [savingIndie, setSavingIndie] = useState(null); // release id currently being saved
+  const [allSubteams, setAllSubteams] = useState([]); // Round 261 — every distinct subteam that exists (dev only needs this; a team lead already knows their own)
+  const [savingSubteam, setSavingSubteam] = useState(null); // `${releaseId}:${subteamName}` currently being saved
   const [hoverRelease, setHoverRelease] = useState(null);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
 
   const { profile } = useAuth();
   const canEditIndie = canFlagIndie(profile);
+  // Round 261 — which subteam column(s), if any, THIS viewer gets on the
+  // left of the table. Empty for anyone who isn't a team lead with a
+  // subteam set (or dev).
+  const visibleSubteams = visibleSubteamsFor(profile, allSubteams);
+
+  useEffect(() => {
+    if (!supabase || !isDev(profile)) return;
+    supabase
+      .from("profiles")
+      .select("subteam")
+      .not("subteam", "is", null)
+      .then(({ data }) => setAllSubteams([...new Set((data || []).map((p) => p.subteam).filter(Boolean))].sort()));
+  }, [profile?.role]);
 
   const [sort, setSort] = useState(null); // null = default (release date desc) | { key, dir }
   const [page, setPage] = useState(1);
@@ -581,6 +598,27 @@ export default function ReleasesDashboard() {
     setSavingIndie(null);
   }
 
+  // Round 261 — per-subteam tag toggle, left-most columns. Plain on/off
+  // (no cycling like the project tag above) — but per explicit spec,
+  // turning it OFF still confirms first, same "in case they incorrectly
+  // unflag" reasoning as the project tag.
+  async function toggleSubteamTag(release, subteamName) {
+    const current = !!(release.subteam_tags || {})[subteamName];
+    const next = !current;
+    if (current && !next) {
+      const ok = window.confirm(`Turn off the "${subteamName}" tag for "${release.title}"?`);
+      if (!ok) return;
+    }
+    const key = `${release.id}:${subteamName}`;
+    setSavingSubteam(key);
+    const nextTags = { ...(release.subteam_tags || {}), [subteamName]: next };
+    const { error: err } = await supabase.from("releases").update({ subteam_tags: nextTags }).eq("id", release.id);
+    if (!err) {
+      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, subteam_tags: nextTags } : r)));
+    }
+    setSavingSubteam(null);
+  }
+
   return (
     <AppShell>
     <div className={styles.page}>
@@ -674,6 +712,13 @@ export default function ReleasesDashboard() {
           <table className={styles.table}>
             <thead>
               <tr>
+                {/* Round 261 — per-subteam tag column(s), left-most per
+                    explicit spec. Zero columns for anyone who isn't a
+                    team lead with a subteam set (or dev) — see
+                    visibleSubteamsFor. */}
+                {visibleSubteams.map((s) => (
+                  <th key={`subteam-th-${s}`} title={`${s} tag — only visible to ${s}'s team lead`}>{s}</th>
+                ))}
                 <SortableTh label="DID" sortKey="did" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Channel" sortKey="requester_segment" sort={sort} onToggle={toggleSort} />
                 <SortableTh label="Package" sortKey="release_category" sort={sort} onToggle={toggleSort} />
@@ -714,6 +759,19 @@ export default function ReleasesDashboard() {
                 const pitching = pitchingSummary(r, pitchingData[r.did]);
                 return (
                   <tr key={r.id}>
+                    {/* Round 261 — per-subteam toggle(s), left-most. Same
+                        flag-icon switch visual as the project tag's, but
+                        plain on/off (no cycling) — confirms only when
+                        turning OFF. */}
+                    {visibleSubteams.map((s) => (
+                      <td key={`subteam-td-${r.id}-${s}`} onClick={(e) => e.stopPropagation()}>
+                        <SubteamToggle
+                          on={!!(r.subteam_tags || {})[s]}
+                          saving={savingSubteam === `${r.id}:${s}`}
+                          onClick={() => toggleSubteamTag(r, s)}
+                        />
+                      </td>
+                    ))}
                     <td
                       onMouseEnter={(e) => { setHoverRelease(r); setHoverPos({ x: e.clientX, y: e.clientY }); }}
                       onMouseLeave={() => setHoverRelease(null)}
@@ -747,8 +805,25 @@ export default function ReleasesDashboard() {
                         )}
                       </select>
                     </td>
-                    <td style={{ maxWidth: 260, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {r.release_category ? `${r.release_category} - ${r.project_type || "—"}` : (r.project_type || "—")}
+                    <td style={{ maxWidth: 260 }}>
+                      <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {r.release_category ? `${r.release_category} - ${r.project_type || "—"}` : (r.project_type || "—")}
+                      </div>
+                      {/* Round 261 item 2 — every flagged subteam shows here
+                          as a purely visual pill, for EVERYONE (no
+                          canViewSubteamColumn gate — that only governs the
+                          left-most toggle columns above, which control the
+                          data). This is read-only context, not a second
+                          place to edit the same field. */}
+                      {Object.entries(r.subteam_tags || {}).filter(([, v]) => v).length > 0 && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                          {Object.entries(r.subteam_tags || {})
+                            .filter(([, v]) => v)
+                            .map(([name]) => (
+                              <span key={name} className={`${styles.pill} ${styles.pillGray}`} style={{ fontSize: 9 }}>{name}</span>
+                            ))}
+                        </div>
+                      )}
                     </td>
                     <td>{r.label || "—"}</td>
                     <td
@@ -950,6 +1025,41 @@ function ProjectTagFlag({ tag, editable, saving, onClick }) {
       style={{ background: "none", border: "none", padding: 0, cursor: saving ? "default" : "pointer" }}
     >
       {content}
+    </button>
+  );
+}
+
+// Round 261 — per-subteam left-most column toggle. Same flag-icon switch
+// look as ProjectTagFlag above (per explicit request — "I want that
+// visual for the index page too") but binary, not a 4-way cycle: one
+// click just flips it, no intermediate states. Always editable where
+// rendered — visibleSubteamsFor already restricted which column(s) this
+// viewer even sees, so by the time this renders, the viewer IS the one
+// person allowed to touch it (or dev).
+function SubteamToggle({ on, saving, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={saving}
+      title={on ? "On — click to turn off" : "Off — click to turn on"}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        border: "1px solid var(--border-strong)",
+        borderRadius: 20,
+        padding: "3px 8px 3px 3px",
+        background: on ? "rgba(255,107,26,0.14)" : "transparent",
+        cursor: saving ? "default" : "pointer",
+        fontSize: 11,
+        fontWeight: 700,
+        color: on ? "#ff9d5c" : "var(--text-faint)",
+        opacity: saving ? 0.5 : 1,
+      }}
+    >
+      <span style={{ fontSize: 13, lineHeight: 1 }}>{on ? "🚩" : "⚑"}</span>
+      {on ? "ON" : "OFF"}
     </button>
   );
 }
