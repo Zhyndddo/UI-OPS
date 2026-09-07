@@ -150,17 +150,26 @@ function pitchingSummary(release, ticketData) {
   return { label: "In Progress", tone: "yellow" };
 }
 
+// Round 268 — the old NOTE right here flagged this as unverified, and it
+// turned out to be wrong: confirmed live, the "Today" stat card/filter was
+// showing releases dated YESTERDAY (by local calendar), not today, for
+// anyone in a timezone ahead of UTC (the team is GMT+7). Root cause: `iso()`
+// below used to be `d.toISOString()`, which converts a local Date to a UTC
+// INSTANT first — local midnight at GMT+7 becomes `...T17:00:00.000Z`,
+// still the PREVIOUS UTC calendar day. `release_date` is a plain `date`
+// column, and Postgres casts an incoming ISO string against a `date` column
+// by taking its literal date part as written (dates have no timezone to
+// re-interpret by) — so `startOfToday` silently became yesterday's date the
+// moment it crossed that cast, and every boundary built the same way
+// (This Week/Month, Pre-Release, Released, Post-Release) inherited the same
+// one-day shift. Fixed by formatting the LOCAL calendar date directly as
+// "YYYY-MM-DD" (matching release_date's own format and how
+// dateRangeStart/dateRangeEnd below already work) instead of ever going
+// through a UTC instant — see `dateStr` below, which replaced the old
+// `iso` helper in both loadStats() and buildListQuery().
+//
 // Local-calendar boundaries, same math the old client `stats` useMemo used
-// (now.getDate()/getDay()/getMonth() are all local-time getters) — just
-// converted to ISO instants for use as query bounds instead of compared
-// against in JS. NOTE: this assumes the database compares a `date` column
-// against a timestamptz bound the same way `new Date(release_date) > now`
-// does client-side (both effectively UTC-midnight for the date side) —
-// that held in the original client code because `new Date("YYYY-MM-DD")`
-// parses as UTC per the JS spec. Worth a real smoke-test against live data
-// (compare these 6 stat cards' numbers to what the old client-computed
-// version showed) before trusting this at the edges — session couldn't
-// verify DB timezone handling without a live connection.
+// (now.getDate()/getDay()/getMonth() are all local-time getters).
 function calendarBounds() {
   const now = new Date();
   const startOfToday = new Date(now);
@@ -176,6 +185,18 @@ function calendarBounds() {
   const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   return { now, startOfToday, startOfTomorrow, startOfWeek, startOfNextWeek, startOfMonth, startOfNextMonth, sevenDaysAgo };
+}
+
+// Local calendar date as "YYYY-MM-DD" — deliberately NOT toISOString(),
+// which would shift to a UTC instant first (see the long comment on
+// calendarBounds above for why that broke the Today/Week/Month stat cards).
+// release_date is a plain `date` column, and this format is exactly what
+// it, and dateRangeStart/dateRangeEnd's filter inputs, already use.
+function dateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 async function countReleases(build) {
@@ -194,15 +215,14 @@ async function countReleases(build) {
 // below are a separate, independent lens onto the list).
 async function loadStats() {
   const b = calendarBounds();
-  const iso = (d) => d.toISOString();
   const [total, today, thisWeek, thisMonth, preRelease, released, postRelease, viennt, envi] = await Promise.all([
     countReleases((q) => q),
-    countReleases((q) => q.gte("release_date", iso(b.startOfToday)).lt("release_date", iso(b.startOfTomorrow))),
-    countReleases((q) => q.gte("release_date", iso(b.startOfWeek)).lt("release_date", iso(b.startOfNextWeek))),
-    countReleases((q) => q.gte("release_date", iso(b.startOfMonth)).lt("release_date", iso(b.startOfNextMonth))),
-    countReleases((q) => q.gt("release_date", iso(b.now))),
-    countReleases((q) => q.lte("release_date", iso(b.now)).gte("release_date", iso(b.sevenDaysAgo))),
-    countReleases((q) => q.lt("release_date", iso(b.sevenDaysAgo))),
+    countReleases((q) => q.gte("release_date", dateStr(b.startOfToday)).lt("release_date", dateStr(b.startOfTomorrow))),
+    countReleases((q) => q.gte("release_date", dateStr(b.startOfWeek)).lt("release_date", dateStr(b.startOfNextWeek))),
+    countReleases((q) => q.gte("release_date", dateStr(b.startOfMonth)).lt("release_date", dateStr(b.startOfNextMonth))),
+    countReleases((q) => q.gt("release_date", dateStr(b.now))),
+    countReleases((q) => q.lte("release_date", dateStr(b.now)).gte("release_date", dateStr(b.sevenDaysAgo))),
+    countReleases((q) => q.lt("release_date", dateStr(b.sevenDaysAgo))),
     countReleases((q) => q.eq("requester_segment", "VIEENT")),
     countReleases((q) => q.eq("requester_segment", "ENVI")),
   ]);
@@ -247,13 +267,12 @@ function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery
   let q = supabase.from("releases").select(RELEASE_COLUMNS, { count: "exact" });
 
   const b = calendarBounds();
-  const iso = (d) => d.toISOString();
-  if (filters.createdFilter === "today") q = q.gte("release_date", iso(b.startOfToday)).lt("release_date", iso(b.startOfTomorrow));
-  if (filters.createdFilter === "week") q = q.gte("release_date", iso(b.startOfWeek)).lt("release_date", iso(b.startOfNextWeek));
-  if (filters.createdFilter === "month") q = q.gte("release_date", iso(b.startOfMonth)).lt("release_date", iso(b.startOfNextMonth));
-  if (filters.statusFilter === "preRelease") q = q.gt("release_date", iso(b.now));
-  if (filters.statusFilter === "released") q = q.lte("release_date", iso(b.now)).gte("release_date", iso(b.sevenDaysAgo));
-  if (filters.statusFilter === "postRelease") q = q.lt("release_date", iso(b.sevenDaysAgo));
+  if (filters.createdFilter === "today") q = q.gte("release_date", dateStr(b.startOfToday)).lt("release_date", dateStr(b.startOfTomorrow));
+  if (filters.createdFilter === "week") q = q.gte("release_date", dateStr(b.startOfWeek)).lt("release_date", dateStr(b.startOfNextWeek));
+  if (filters.createdFilter === "month") q = q.gte("release_date", dateStr(b.startOfMonth)).lt("release_date", dateStr(b.startOfNextMonth));
+  if (filters.statusFilter === "preRelease") q = q.gt("release_date", dateStr(b.now));
+  if (filters.statusFilter === "released") q = q.lte("release_date", dateStr(b.now)).gte("release_date", dateStr(b.sevenDaysAgo));
+  if (filters.statusFilter === "postRelease") q = q.lt("release_date", dateStr(b.sevenDaysAgo));
   if (filters.channelFilter) q = q.eq("requester_segment", filters.channelFilter);
   if (filters.typeFilter) q = q.eq("project_type", filters.typeFilter);
   if (filters.labelFilter) q = q.eq("label", filters.labelFilter);

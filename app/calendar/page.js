@@ -6,6 +6,7 @@ import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { fmtDate, uploadPercent } from "../../lib/helpers";
 import { MARKETING_CHECKLIST_FIELDS } from "../../lib/GateFields";
+import { localDateStr } from "../../lib/releaseDateHighlight";
 import styles from "../shared.module.css";
 
 // Round 172 item 3 — new sidebar entry, per explicit request: "make me a
@@ -247,8 +248,16 @@ export default function CalendarPage() {
             "link_lbm, link_share, smartlink, link_preorder, " +
             "phu_luc_gia_tri, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky"
         )
-        .gte("release_date", rangeStart.toISOString().slice(0, 10))
-        .lt("release_date", rangeEnd.toISOString().slice(0, 10))
+        // Round 268 — was rangeStart/rangeEnd.toISOString().slice(0, 10),
+        // same bug class as the Releases dashboard's stat cards (see
+        // app/releases/page.js's calendarBounds comment): toISOString()
+        // converts to a UTC instant first, which lands on the previous
+        // calendar day for any local time before ~07:00 in GMT+7 — so
+        // between midnight and 7am this range silently shifted back a
+        // day, fetching the wrong week's releases. localDateStr keeps it
+        // in local calendar terms, matching release_date's own format.
+        .gte("release_date", localDateStr(rangeStart))
+        .lt("release_date", localDateStr(rangeEnd))
         .order("release_date");
       const rows = data || [];
       setReleases(rows);
