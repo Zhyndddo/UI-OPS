@@ -205,6 +205,27 @@ function brandsLikelyMatch(a, b) {
   return false;
 }
 
+// Round 265 — stale-while-revalidate cache for load()'s big fetch, per
+// reported symptom: "slow the first time, and slow again coming back —
+// after that it's smooth." That's exactly the signature of a page that
+// refetches everything from scratch on every mount with no memory of the
+// last visit — React unmounts this component's state entirely when you
+// navigate away, so a return visit pays the full ~8-query cost again even
+// though nothing may have changed. Module-level (survives unmount, unlike
+// component state) — holds the last successful load()'s full result set.
+// On mount, if this is populated: paint it immediately (zero spinner,
+// feels instant), then still kick off a real fetch in the background to
+// catch up on anything changed since — updates state again (and this
+// cache) once it resolves, silently. First-ever visit this session still
+// shows the normal loading state, since there's nothing to paint yet.
+// Same idea as Round 150's getNotDoneCount cache (lib/notDoneCounts.js),
+// applied to a full page's dataset instead of one count — deliberately
+// NOT time-limited (no TTL) since this is a stale-while-revalidate
+// pattern, not a "skip the fetch entirely for N seconds" one: the
+// background refetch always runs, so data is never more than one
+// round-trip stale, just never blocks the paint waiting for it.
+let bookingBoardCache = null;
+
 export default function BookingBoard() {
   const [releases, setReleases] = useState([]);
   const [entries, setEntries] = useState([]);
@@ -274,11 +295,36 @@ export default function BookingBoard() {
 
   useEffect(() => {
     if (!supabase) return;
-    load();
+    if (bookingBoardCache) {
+      // Round 265 — instant paint from last visit's data, no spinner,
+      // while a real fetch runs quietly underneath to catch up on
+      // anything changed since (by this user or anyone else).
+      hydrateFromCache(bookingBoardCache);
+      setLoading(false);
+      load({ silent: true });
+    } else {
+      load();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function load() {
-    setLoading(true);
+  function hydrateFromCache(c) {
+    setReleases(c.releases);
+    setEntries(c.entries);
+    setCategories(c.categories);
+    setPackages(c.packages);
+    setDot2ReleaseIds(c.dot2ReleaseIds);
+    setBookingChannels(c.bookingChannels);
+    setLinkfireUrl(c.linkfireUrl);
+    setChannelStatuses(c.channelStatuses);
+  }
+
+  async function load({ silent = false } = {}) {
+    // Round 265 — `silent` skips the loading spinner for the background
+    // revalidation pass so a cached return-visit never flashes
+    // "Loading…" even briefly; a true cold load (no cache yet) still
+    // shows it as before.
+    if (!silent) setLoading(true);
     // Round 150 — load-reduction pass, item "Booking Board still feels
     // heavy". These 8 queries are all independent — none reads a result
     // from another — but were previously awaited one at a time in series,
@@ -371,18 +417,24 @@ export default function BookingBoard() {
     // via pseudo_package_parent_did) skip the whole booking process and
     // never appear on the Booking board at all.
     const filteredRels = (rels || []).filter((r) => !r.pseudo_package_parent_did);
-    setReleases(filteredRels);
-    setEntries(ents || []);
-    setCategories(cats || []);
-    setPackages(pkgs || []);
-    setDot2ReleaseIds(new Set((targets || []).map((t) => t.release_id)));
-    setBookingChannels(chans || []);
-    if (extLinks?.value?.linkfire) setLinkfireUrl(extLinks.value.linkfire);
     const statusMap = {};
     (chanStatuses || []).forEach((s) => {
       statusMap[`${s.release_id}:${s.category_id}:${s.brand}:${s.column_key}`] = s.status;
     });
-    setChannelStatuses(statusMap);
+    // Round 265 — build the fresh snapshot once, use it both to update
+    // this render AND as the cache the next mount hydrates from.
+    const fresh = {
+      releases: filteredRels,
+      entries: ents || [],
+      categories: cats || [],
+      packages: pkgs || [],
+      dot2ReleaseIds: new Set((targets || []).map((t) => t.release_id)),
+      bookingChannels: chans || [],
+      linkfireUrl: extLinks?.value?.linkfire || linkfireUrl,
+      channelStatuses: statusMap,
+    };
+    bookingBoardCache = fresh;
+    hydrateFromCache(fresh);
     setLoading(false);
   }
 

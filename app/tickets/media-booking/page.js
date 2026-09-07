@@ -643,7 +643,22 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       (rollups || []).forEach((r) => { byCategory[r.category_id] = byCategory[r.category_id] ?? true; byCategory[r.category_id] = byCategory[r.category_id] && r.skipped; });
       setSkippedCategoryIds(new Set(Object.keys(byCategory).filter((id) => byCategory[id])));
       setPackages(pkgs || []);
-      if (pkgs && pkgs.length > 0) setActivePackageId(pkgs[0].id);
+      // Round 266 — default to whichever package's name matches
+      // release.project_type (the one Booking Board's packageByRelease
+      // actually reads — see app/booking/page.js), not just the first one
+      // by sort_order. Before this fix, a release with more than one
+      // package row (a draft built before the final name was settled, one
+      // built via "Clone from another product," etc.) would silently
+      // auto-select whichever came first, so Summarize could keep syncing
+      // real numbers into a package the Booking Board never looks at —
+      // the numbers looked fine in the ticket but were "missing" on the
+      // board until someone happened to land on the right tab and
+      // re-Summarized. Falls back to pkgs[0] when nothing matches (e.g.
+      // project_type not decided yet), same as before.
+      if (pkgs && pkgs.length > 0) {
+        const chosen = pkgs.find((p) => p.name === rel.project_type);
+        setActivePackageId((chosen || pkgs[0]).id);
+      }
       setReferenceTiers(tiers || []);
       setMagicLinkUrl(link ? `${window.location.origin}/pick-package/${link.token}` : null);
     }
@@ -1896,11 +1911,29 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                     holding the name of the package they picked — see
                     app/pick-package/[token]/page.js's handleConfirm), warn
                     whoever is editing a package here whether THIS is the
-                    one the artist actually locked in. Only shows once a
-                    package has actually been locked at all — before that,
-                    nothing is "chosen" yet, so no warning either way. */}
-                {activePackage && release?.package_locked && (() => {
+                    one the artist actually locked in.
+                    //
+                    Round 266 — this used to only show once package_locked
+                    was true, so before the artist ever confirmed anything
+                    there was zero indication of whether the active tab was
+                    even the package Booking Board reads from (it matches
+                    on name === release.project_type regardless of
+                    package_locked — see app/booking/page.js's
+                    packageByRelease). That silent gap is exactly how
+                    numbers could get Summarized into the wrong package tab
+                    and never show up on the board. Now shown any time
+                    release.project_type is set (i.e. some package has been
+                    picked at all, locked-in or not), with wording that
+                    says whether it's locked. */}
+                {activePackage && release?.project_type && (() => {
                   const isChosenPackage = activePackage.name === release.project_type;
+                  const label = isChosenPackage
+                    ? release.package_locked
+                      ? "This package has been chosen by artist, please be advised that changing the number will affect the promotion package url as well as the booking board."
+                      : "This package matches the release's current package type — numbers here will show on the booking board."
+                    : release.package_locked
+                      ? "This package is not chosen by artist, editing will not affect booking board."
+                      : "This package does not match the release's current package type — numbers here will NOT show on the booking board.";
                   return (
                     <div
                       style={{
@@ -1914,9 +1947,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                         border: `1px solid ${isChosenPackage ? "var(--warn-fg)" : "var(--border)"}`,
                       }}
                     >
-                      {isChosenPackage
-                        ? "This package has been chosen by artist, please be advised that changing the number will affect the promotion package url as well as the booking board."
-                        : "This package is not chosen by artist, editing will not affect booking board."}
+                      {label}
                     </div>
                   );
                 })()}
