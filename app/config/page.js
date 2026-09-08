@@ -2139,13 +2139,20 @@ function SidebarLabelSection() {
 // Round 269 — Secret Messages: dev composes a message targeted at one
 // person, a whole segment/team, a subteam, a role, or everyone; it shows up
 // on the recipient's sidebar (see Sidebar.js's polling) and read-only page
-// (app/secret-messages/page.js) until dev deletes it here. Delete is a
-// SOFT delete (deleted_at set) — the row stays in this list, greyed out,
-// as a hidden audit trail dev can still see; recipients never see it again
-// the moment it's deleted. Only Marketing has real subteams beyond OPS
-// (MARKETING_SUBTEAM_TAGS) — SUBTEAM_OPTIONS (already defined above, top
-// of this file) already covers both, so the subteam picker reuses it
-// rather than inventing a third list.
+// (app/secret-messages/page.js).
+//
+// Round 273 — the Delete button here was removed entirely, per explicit
+// request ("no delete message for secret message from there, incase
+// someone do some shady stuff") — a dev who wanted to cover their tracks
+// on a message they shouldn't have sent could previously just delete it
+// (soft delete, but still self-service and immediate). Every message sent
+// is now a permanent, un-deletable record in this table; there's no UI
+// path left to hide one. `deleted_at`/`describeTarget`'s "Deleted" case
+// stays supported for reading — messages soft-deleted before this round
+// still render greyed out below — this just stops any NEW deletion from
+// happening. Recipients still only ever see undeleted messages
+// (loadMyActiveSecretMessages filters deleted_at IS NULL), which for any
+// message sent from now on is permanently true.
 function SecretMessagesSection({ profile }) {
   const [messages, setMessages] = useState([]);
   const [profiles, setProfiles] = useState([]);
@@ -2199,12 +2206,6 @@ function SecretMessagesSection({ profile }) {
     load();
   }
 
-  async function remove(m) {
-    if (!window.confirm("Delete this secret message? The recipient(s) will stop seeing it immediately.")) return;
-    await supabase.from("secret_messages").update({ deleted_at: new Date().toISOString() }).eq("id", m.id);
-    setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, deleted_at: new Date().toISOString() } : x)));
-  }
-
   function recipientLabel(m) {
     if (m.target_type === "individual") {
       const p = profiles.find((x) => x.id === m.target_value);
@@ -2217,8 +2218,8 @@ function SecretMessagesSection({ profile }) {
     <div>
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
         Sends a message that only shows up for its target — one person, a whole team, a subteam, a role, or
-        everyone. It sits on their sidebar and a dedicated page until you delete it here; deleting is a soft
-        delete, so it stays in the list below (greyed out) as a record of what was sent.
+        everyone. It sits on their sidebar and a dedicated page permanently — there's no delete here, by
+        design, so this list below doubles as a permanent record of what was sent.
       </p>
 
       <form onSubmit={send} style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 480, marginBottom: 28 }}>
@@ -2285,23 +2286,14 @@ function SecretMessagesSection({ profile }) {
         <div className={styles.emptyState}>No secret messages sent yet.</div>
       ) : (
         <table className={styles.table}>
-          <thead><tr><th>Sent</th><th>To</th><th>Message</th><th>From</th><th></th></tr></thead>
+          <thead><tr><th>Sent</th><th>To</th><th>Message</th><th>From</th></tr></thead>
           <tbody>
             {messages.map((m) => (
               <tr key={m.id} style={m.deleted_at ? { opacity: 0.45 } : undefined}>
                 <td style={{ whiteSpace: "nowrap", fontSize: 11 }}>{new Date(m.created_at).toLocaleString()}</td>
                 <td style={{ fontSize: 12 }}>{recipientLabel(m)}</td>
-                <td style={{ fontSize: 12, maxWidth: 320 }}>{m.message}</td>
+                <td style={{ fontSize: 12, maxWidth: 320 }}>{m.message}{m.deleted_at && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-faint)" }}>(Deleted)</span>}</td>
                 <td style={{ fontSize: 12 }}>{m.sender?.name || "—"}</td>
-                <td>
-                  {m.deleted_at ? (
-                    <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Deleted</span>
-                  ) : (
-                    <button className={styles.btnSecondary} style={{ fontSize: 11, padding: "3px 8px" }} onClick={() => remove(m)}>
-                      Delete
-                    </button>
-                  )}
-                </td>
               </tr>
             ))}
           </tbody>
