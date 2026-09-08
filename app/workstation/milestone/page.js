@@ -761,6 +761,21 @@ function songLineText(r, showChart) {
 // same order/grouping as the on-screen Report panel (digest groups, then
 // the Fell-off section if there is one). Header line matches the format
 // already used when sending these by hand ("Em gửi BXH hnay d.m.yyyy").
+// Round 271 — a blank line between each chart block, and 2 blank lines
+// between platforms, per explicit request ("put a linebreak between each
+// chart, and 2 line break between platforms"). digest is already sorted
+// platform-then-chart (see the `digest` useMemo below, platformCompare
+// then chart name), so consecutive same-platform groups are always
+// adjacent — comparing each group's platform to the previous one is
+// enough to tell "new chart, same platform" from "new platform" without
+// re-sorting or grouping again here. Same separator helper reused for
+// the Fell-off list, where each row carries its own platform|chart
+// header (there's no group to key off, so the row IS the chart unit).
+function pushChartSeparator(lines, samePlatform) {
+  if (samePlatform) lines.push("");
+  else lines.push("", "");
+}
+
 function buildReportText(digest, report, highlightConfig) {
   // Reuses fmtDate (same "YYYY-MM-DD" -> locale date-string conversion
   // already used everywhere else in this file, e.g. the on-screen "Report
@@ -770,13 +785,21 @@ function buildReportText(digest, report, highlightConfig) {
   // parsing path. Only reformats fmtDate's "27/8/2026" to the dotted
   // "27.8.2026" the team already writes by hand ("hnay 27.8.2026").
   const lines = [`Em gửi BXH hnay ${fmtDate(report.today).replace(/\//g, ".")}`];
+  let prevPlatform = null;
   digest.forEach((g, i) => {
+    if (i > 0) pushChartSeparator(lines, g.platform === prevPlatform);
     lines.push(`${i + 1}. ${g.platform} | ${g.chart} — ${g.rows.length}/${highlightConfig.chartDepth}`);
     g.rows.forEach((r) => lines.push(songLineText(r, false)));
+    prevPlatform = g.platform;
   });
   if (report.outRows.length > 0) {
     lines.push(`Fell off since ${fmtDate(report.yesterday)}`);
-    report.outRows.forEach((r) => lines.push(songLineText(r, true)));
+    let prevOutPlatform = null;
+    report.outRows.forEach((r, i) => {
+      if (i > 0) pushChartSeparator(lines, r.platform === prevOutPlatform);
+      lines.push(songLineText(r, true));
+      prevOutPlatform = r.platform;
+    });
   }
   return lines.join("\n");
 }
@@ -802,21 +825,37 @@ function highlightLineText(r) {
 // same sections/order as on screen: the 3 HighlightSections (skipped if
 // empty, same as their on-screen counterparts), then the Chart Highlight
 // summary if there is one.
+// Round 271 — same spacing request as buildReportText above, applied
+// here too: a blank line between each chart, 2 between platforms. Each
+// HighlightLine row already carries its own platform|chart header (no
+// grouped block the way the Report digest has), so the row itself is the
+// chart unit here. Chart Highlight's charts ARE already grouped under a
+// platform heading, so the same rule reads as "blank line between charts
+// under one platform, 2 blank lines before the next platform's heading."
 function buildHighlightText(highlight, highlightConfig) {
   const lines = [];
   const section = (title, rows) => {
     if (rows.length === 0) return;
     lines.push(title);
-    rows.forEach((r) => lines.push(highlightLineText(r)));
+    let prevPlatform = null;
+    rows.forEach((r, i) => {
+      if (i > 0) pushChartSeparator(lines, r.platform === prevPlatform);
+      lines.push(highlightLineText(r));
+      prevPlatform = r.platform;
+    });
   };
   section("Bắt Đầu Vào Chart", highlight.inRows);
   section("Quay Lại Chart", highlight.returnRows);
   section(`Thăng Hạng (lên top ${highlightConfig.climbToRankHighlight}) / Top ${highlightConfig.topRankAlwaysHighlight}`, highlight.topRows);
   if (highlight.chartSummary.length > 0) {
     lines.push("Chart Highlight");
-    highlight.chartSummary.forEach(({ platform, charts }) => {
+    highlight.chartSummary.forEach(({ platform, charts }, pi) => {
+      if (pi > 0) lines.push("", "");
       lines.push(platform);
-      charts.forEach(([chart, count]) => lines.push(`${chart} — ${count}/${highlightConfig.chartDepth}`));
+      charts.forEach(([chart, count], ci) => {
+        if (ci > 0) lines.push("");
+        lines.push(`${chart} — ${count}/${highlightConfig.chartDepth}`);
+      });
     });
   }
   return lines.join("\n");

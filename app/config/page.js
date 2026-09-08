@@ -19,6 +19,7 @@ import { MILESTONE_HIGHLIGHT_SETTING_KEY, DEFAULT_MILESTONE_HIGHLIGHT_CONFIG, pa
 import { MAGIC_LINK_THEME_LOCK_KEY, LOCKABLE_THEMES } from "../../lib/magicLinkThemeLock";
 import { MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
 import { TEAM_SUBTEAMS } from "../../lib/teamTypes";
+import { describeTarget } from "../../lib/secretMessages";
 import styles from "../shared.module.css";
 
 const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
@@ -83,7 +84,7 @@ export default function ConfigPage() {
       // Sheet system had it.
       ["milestoneSettings", "Milestone"],
     ] : []),
-    ...(isDev ? [["notifications", "Notifications"], ["magicLinkTheme", "Magic Link Theme"], ["designNotifications", "Design Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
+    ...(isDev ? [["notifications", "Notifications"], ["magicLinkTheme", "Magic Link Theme"], ["designNotifications", "Design Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"], ["secretMessages", "Secret Messages"]] : []),
   ];
   const [section, setSection] = useState(null);
   useEffect(() => {
@@ -139,6 +140,7 @@ export default function ConfigPage() {
               {section === "designNotifications" && isDev && <DesignNotificationsSection />}
               {section === "sessions" && isDev && <SessionsSection />}
               {section === "sidebarLabel" && isDev && <SidebarLabelSection />}
+              {section === "secretMessages" && isDev && <SecretMessagesSection profile={profile} />}
             </>
           )}
         </div>
@@ -2130,6 +2132,181 @@ function SidebarLabelSection() {
         {saving ? "Saving…" : "Save"}
       </button>
       {saved && <span style={{ marginLeft: 10, color: "var(--success-fg)", fontSize: 12 }}>Saved</span>}
+    </div>
+  );
+}
+
+// Round 269 — Secret Messages: dev composes a message targeted at one
+// person, a whole segment/team, a subteam, a role, or everyone; it shows up
+// on the recipient's sidebar (see Sidebar.js's polling) and read-only page
+// (app/secret-messages/page.js) until dev deletes it here. Delete is a
+// SOFT delete (deleted_at set) — the row stays in this list, greyed out,
+// as a hidden audit trail dev can still see; recipients never see it again
+// the moment it's deleted. Only Marketing has real subteams beyond OPS
+// (MARKETING_SUBTEAM_TAGS) — SUBTEAM_OPTIONS (already defined above, top
+// of this file) already covers both, so the subteam picker reuses it
+// rather than inventing a third list.
+function SecretMessagesSection({ profile }) {
+  const [messages, setMessages] = useState([]);
+  const [profiles, setProfiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [targetType, setTargetType] = useState("individual");
+  const [targetValue, setTargetValue] = useState("");
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!supabase) return;
+    load();
+  }, []);
+
+  async function load() {
+    setLoading(true);
+    const [{ data: msgs }, { data: profs }] = await Promise.all([
+      supabase.from("secret_messages").select("*, sender:profiles!secret_messages_created_by_fkey(name)").order("created_at", { ascending: false }),
+      supabase.from("profiles").select("id, name, email, segment, role").order("name"),
+    ]);
+    setMessages(msgs || []);
+    setProfiles(profs || []);
+    setLoading(false);
+  }
+
+  const subteamChoices = Object.entries(SUBTEAM_OPTIONS).flatMap(([team, names]) => names.map((n) => ({ team, name: n })));
+
+  async function send(e) {
+    e.preventDefault();
+    if (!message.trim()) return;
+    if (targetType !== "all" && !targetValue) {
+      setError("Pick a target first.");
+      return;
+    }
+    setSending(true);
+    setError(null);
+    const { error: err } = await supabase.from("secret_messages").insert({
+      created_by: profile.id,
+      target_type: targetType,
+      target_value: targetType === "all" ? null : targetValue,
+      message: message.trim(),
+    });
+    setSending(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    setMessage("");
+    setTargetValue("");
+    load();
+  }
+
+  async function remove(m) {
+    if (!window.confirm("Delete this secret message? The recipient(s) will stop seeing it immediately.")) return;
+    await supabase.from("secret_messages").update({ deleted_at: new Date().toISOString() }).eq("id", m.id);
+    setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, deleted_at: new Date().toISOString() } : x)));
+  }
+
+  function recipientLabel(m) {
+    if (m.target_type === "individual") {
+      const p = profiles.find((x) => x.id === m.target_value);
+      return p ? `${p.name || p.email} (individual)` : "One person";
+    }
+    return describeTarget(m);
+  }
+
+  return (
+    <div>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
+        Sends a message that only shows up for its target — one person, a whole team, a subteam, a role, or
+        everyone. It sits on their sidebar and a dedicated page until you delete it here; deleting is a soft
+        delete, so it stays in the list below (greyed out) as a record of what was sent.
+      </p>
+
+      <form onSubmit={send} style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 480, marginBottom: 28 }}>
+        <div style={{ display: "flex", gap: 4 }}>
+          {[["individual", "Person"], ["segment", "Team"], ["subteam", "Subteam"], ["role", "Role"], ["all", "Everyone"]].map(([key, label]) => (
+            <button
+              type="button"
+              key={key}
+              onClick={() => { setTargetType(key); setTargetValue(""); }}
+              className={`${styles.tabBtn} ${targetType === key ? styles.tabBtnActive : ""}`}
+              style={{ border: targetType === key ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: targetType === key ? "rgba(255,107,26,0.1)" : "transparent", fontSize: 12 }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {targetType === "individual" && (
+          <select className={styles.select} value={targetValue} onChange={(e) => setTargetValue(e.target.value)}>
+            <option value="">— choose a person —</option>
+            {profiles.map((p) => (
+              <option key={p.id} value={p.id}>{p.name || p.email}</option>
+            ))}
+          </select>
+        )}
+        {targetType === "segment" && (
+          <select className={styles.select} value={targetValue} onChange={(e) => setTargetValue(e.target.value)}>
+            <option value="">— choose a team —</option>
+            {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        )}
+        {targetType === "subteam" && (
+          <select className={styles.select} value={targetValue} onChange={(e) => setTargetValue(e.target.value)}>
+            <option value="">— choose a subteam —</option>
+            {subteamChoices.map((s) => <option key={`${s.team}::${s.name}`} value={s.name}>{s.name} ({s.team})</option>)}
+          </select>
+        )}
+        {targetType === "role" && (
+          <select className={styles.select} value={targetValue} onChange={(e) => setTargetValue(e.target.value)}>
+            <option value="">— choose a role —</option>
+            {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>)}
+          </select>
+        )}
+        {targetType === "all" && (
+          <div style={{ fontSize: 12, color: "var(--text-faint)" }}>Goes to every signed-in profile.</div>
+        )}
+
+        <textarea
+          className={styles.input}
+          style={{ minHeight: 80, resize: "vertical" }}
+          placeholder="Message…"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+        />
+        {error && <div style={{ color: "var(--error-fg)", fontSize: 12 }}>{error}</div>}
+        <button className={styles.btnPrimary} type="submit" disabled={sending || !message.trim()}>
+          {sending ? "Sending…" : "Send"}
+        </button>
+      </form>
+
+      {loading ? (
+        <div className={styles.emptyState}>Loading…</div>
+      ) : messages.length === 0 ? (
+        <div className={styles.emptyState}>No secret messages sent yet.</div>
+      ) : (
+        <table className={styles.table}>
+          <thead><tr><th>Sent</th><th>To</th><th>Message</th><th>From</th><th></th></tr></thead>
+          <tbody>
+            {messages.map((m) => (
+              <tr key={m.id} style={m.deleted_at ? { opacity: 0.45 } : undefined}>
+                <td style={{ whiteSpace: "nowrap", fontSize: 11 }}>{new Date(m.created_at).toLocaleString()}</td>
+                <td style={{ fontSize: 12 }}>{recipientLabel(m)}</td>
+                <td style={{ fontSize: 12, maxWidth: 320 }}>{m.message}</td>
+                <td style={{ fontSize: 12 }}>{m.sender?.name || "—"}</td>
+                <td>
+                  {m.deleted_at ? (
+                    <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Deleted</span>
+                  ) : (
+                    <button className={styles.btnSecondary} style={{ fontSize: 11, padding: "3px 8px" }} onClick={() => remove(m)}>
+                      Delete
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

@@ -227,7 +227,9 @@ export default function BatchPhaiSinhDetail() {
                   <th style={{ minWidth: 160 }}>Smartlink</th>
                   <th style={{ minWidth: 120 }}>Ngày Nhận</th>
                   <th style={{ minWidth: 130 }}>Ngày Hoàn Thành</th>
-                  <th style={{ minWidth: 140 }}>Tác Quyền</th>
+                  <th style={{ minWidth: 130 }}>Tác Quyền Q1 (Bản ghi)</th>
+                  <th style={{ minWidth: 130 }}>Tác Quyền Q2 (Người biểu diễn)</th>
+                  <th style={{ minWidth: 130 }}>Tác Quyền Q3 (Tác giả)</th>
                   <th style={{ minWidth: 100 }}>Type</th>
                   <th style={{ minWidth: 140 }}>Note</th>
                   <th style={{ minWidth: 160 }}>Link Labelmaster</th>
@@ -267,7 +269,9 @@ export default function BatchPhaiSinhDetail() {
                       <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.smartlink || ""} onBlur={(e) => updateItem(item, { smartlink: e.target.value })} /></td>
                       <td><input type="date" className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.ngay_nhan || ""} onBlur={(e) => updateItem(item, { ngay_nhan: e.target.value || null })} /></td>
                       <td style={{ fontSize: 11, color: "var(--text-faint)" }}>{fmtDate(item.ngay_hoan_thanh)}</td>
-                      <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.tac_quyen || ""} onBlur={(e) => updateItem(item, { tac_quyen: e.target.value })} /></td>
+                      <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.tac_quyen_master || ""} onBlur={(e) => updateItem(item, { tac_quyen_master: e.target.value })} /></td>
+                      <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.tac_quyen_vocal || ""} onBlur={(e) => updateItem(item, { tac_quyen_vocal: e.target.value })} /></td>
+                      <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.tac_quyen_author || ""} onBlur={(e) => updateItem(item, { tac_quyen_author: e.target.value })} /></td>
                       <td>
                         <select className={styles.select} style={{ padding: "4px 6px", fontSize: 11 }} value={item.type_request || "Phái Sinh"} onChange={(e) => updateItem(item, { type_request: e.target.value })}>
                           <option value="Phái Sinh">Phái Sinh</option>

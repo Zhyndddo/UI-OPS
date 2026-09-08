@@ -1,0 +1,22 @@
+-- Round 270 — fix "Could not find the 'album_name' column of
+-- 'phai_sinh_batch_items' in the schema cache" reported by the user while
+-- importing a Kho Nhạc batch file.
+--
+-- Root cause: Round 116 added "Tên Album" (album_name) to
+-- BATCH_ITEM_COLUMNS / FIELD_KEYS in lib/phaiSinhBatchParse.js, and Round
+-- 117 moved it to the front of that list. Every batch-paste and
+-- batch-file-upload row built since then includes an album_name key
+-- (cellsToItem() maps FIELD_KEYS[i] -> cells[i] for every key, unconditionally),
+-- and app/tickets/batch-phai-sinh/[id]/page.js inserts those rows as-is
+-- into phai_sinh_batch_items. No migration was ever written to add the
+-- column itself — grepping the whole sql/ tree for "album_name" turns up
+-- zero hits before this file, and sql/reference/prod_schema_clean.sql's
+-- own CREATE TABLE for phai_sinh_batch_items has no such column. So this
+-- has been a live gap since Round 116/117; it only surfaces once a batch
+-- actually includes an Album value in that column and gets inserted.
+--
+-- Nullable text, matching every other optional free-text field on this
+-- table (version, the_loai, artist, composer, ...) — album isn't always
+-- applicable (single-track Phái Sinh requests with no parent album).
+alter table if exists phai_sinh_batch_items
+  add column if not exists album_name text;

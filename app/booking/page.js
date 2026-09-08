@@ -1488,6 +1488,8 @@ export default function BookingBoard() {
                           youtubeBookingNote={r.youtube_ads_booking_note}
                           onSaveYoutubeAdsUrl={(v) => updateYoutubeAdsField(r, "youtube_ads_url", v)}
                           onSaveYoutubeBookingNote={(v) => updateYoutubeAdsField(r, "youtube_ads_booking_note", v)}
+                          promotionPackageUrl={r.promotion_package_url}
+                          onSavePromotionPackageUrl={(v) => updateYoutubeAdsField(r, "promotion_package_url", v)}
                           cellBorderLeft={isGroupStart ? "2px solid #555" : "1px solid var(--border)"}
                           onSave={(quantity, status) => saveAdsQuantity(r.id, c.brand, c.platform, quantity, status, cellEntries[0] || null)}
                         />
@@ -1681,6 +1683,8 @@ function BookingBoardCards({
                               youtubeBookingNote={r.youtube_ads_booking_note}
                               onSaveYoutubeAdsUrl={(v) => updateYoutubeAdsField(r, "youtube_ads_url", v)}
                               onSaveYoutubeBookingNote={(v) => updateYoutubeAdsField(r, "youtube_ads_booking_note", v)}
+                              promotionPackageUrl={r.promotion_package_url}
+                              onSavePromotionPackageUrl={(v) => updateYoutubeAdsField(r, "promotion_package_url", v)}
                               cellBorderLeft="none"
                               onSave={(quantity, status) => saveAdsQuantity(r.id, c.brand, c.platform, quantity, status, cellEntries[0] || null)}
                             />
@@ -2548,7 +2552,7 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
 // number of different unit not number of url"). Click opens a small popup
 // with a "Số lượng" number field and a 4-way status switch; the main cell
 // shows the number itself colored by status (not the cell background).
-function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBorderLeft, onSave, showYoutubeAdsFields, youtubeAdsUrl, youtubeBookingNote, onSaveYoutubeAdsUrl, onSaveYoutubeBookingNote }) {
+function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBorderLeft, onSave, showYoutubeAdsFields, youtubeAdsUrl, youtubeBookingNote, onSaveYoutubeAdsUrl, onSaveYoutubeBookingNote, promotionPackageUrl, onSavePromotionPackageUrl }) {
   const anchorRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [quantity, setQuantity] = useState(existingEntry?.quantity ?? "");
@@ -2630,6 +2634,27 @@ function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBo
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
               autoFocus
+            />
+          </div>
+          {/* Round 272 — Promotion Package URL, every Ads brand's popup
+              (Facebook/YouTube/TikTok/Spotify), per explicit request ("the
+              ads, every pop up have a promotion package url fields...
+              same one that already in the url tab of detail page, just
+              add another place for entry"). Same releases.promotion_package_url
+              column the URL tab (app/releases/[id]/page.js) and the
+              read-only link already shown elsewhere on this board's rows
+              both use — writes straight to the release, immediate save on
+              blur, same idiom as YoutubeAdsFields right below it. */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", display: "block", marginBottom: 3 }}>
+              URL Promotion Package
+            </label>
+            <input
+              className={styles.input}
+              style={{ width: "100%", boxSizing: "border-box" }}
+              defaultValue={promotionPackageUrl || ""}
+              onBlur={(e) => onSavePromotionPackageUrl(e.target.value)}
+              placeholder="https://…"
             />
           </div>
           {showYoutubeAdsFields && (
@@ -2717,6 +2742,20 @@ function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBo
               </button>
             ))}
           </div>
+        </div>
+        {/* Round 272 — same Promotion Package URL field as the locked
+            popup above, see its comment for the full explanation. */}
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", display: "block", marginBottom: 3 }}>
+            URL Promotion Package
+          </label>
+          <input
+            className={styles.input}
+            style={{ width: "100%", boxSizing: "border-box" }}
+            defaultValue={promotionPackageUrl || ""}
+            onBlur={(e) => onSavePromotionPackageUrl(e.target.value)}
+            placeholder="https://…"
+          />
         </div>
         {showYoutubeAdsFields && (
           // Round 93 — same YouTube URL + Booking request fields as the
