@@ -229,7 +229,13 @@ export default function PitchingWorkstation() {
       (rels || []).forEach((r) => (releaseMap[r.did] = r));
     }
     let allRows = (tickets || []).map((t) => ({ ticket: t, release: releaseMap[t.data?.releaseId] || null }));
-    allRows = allRows.filter((row) => row.release?.upc);
+    // Round 274 — show rule widened from "has UPC" to "has UPC AND Apple
+    // ID", per explicit request. Apple ID now also gets filled in earlier
+    // (New Release Setup, for Priority Pitching rows — see
+    // app/workstation/upload/page.js), so this workstation waiting on it
+    // too keeps rows from showing up here before they're actually ready
+    // to pitch.
+    allRows = allRows.filter((row) => row.release?.upc && row.release?.apple_id);
 
     // Auto-sync each DSP's status column from the ticket's requested-flags
     // + overall status (see autoTargetFor above) — same "auto-sync on
@@ -294,7 +300,21 @@ export default function PitchingWorkstation() {
     // filterProfilesByTeam now accepts an array of teams for exactly this
     // case (see its own comment) — falls back, same as before, to whatever
     // the Pitching PIC List (Config → Pitching) narrows it down to.
-    setProfiles(applyPitchingPicList(filterProfilesByTeam(profs || [], ["OPS", "AR"]), picList));
+    //
+    // Round 274 — per explicit request ("PIC default configs, expand the
+    // list to everyone, so dev can add any PIC to a task regardless"):
+    // once the PIC List is actually configured (picList.length > 0), it
+    // is now applied to EVERY profile, not just OPS/AR — Config's own PIC
+    // List picker (app/config/page.js's PitchingPicListSection) already
+    // lets dev tick anyone regardless of team, but this OPS/AR
+    // pre-filter used to silently drop that pick again right here before
+    // it ever reached the dropdown. The OPS/AR filter now only applies as
+    // the FALLBACK, same as before, while the list is still blank/unset.
+    setProfiles(
+      picList.length > 0
+        ? applyPitchingPicList(profs || [], picList)
+        : filterProfilesByTeam(profs || [], ["OPS", "AR"])
+    );
 
     setLoading(false);
   }
@@ -343,10 +363,32 @@ export default function PitchingWorkstation() {
     return { done, notDone, cancel };
   }, [rows]);
 
+  // Round 274 — "allow search by what is requested," same clickable
+  // counter+filter idiom the rest of the app already uses for a
+  // single-select filter row (e.g. lib/TicketListPage.js's status tabs,
+  // Booking Board's Hạng Mục tabs) — one chip per TYPE_TABS platform,
+  // showing how many currently-visible (showDone-gated, same base as
+  // StatusCounter above) rows requested it, click to narrow the table
+  // down to just that platform. requestedVisualTypes already collapses
+  // Priority/Apple into one "priority" flag and NCT/Zing into one
+  // "domestic" flag, so a release requesting either NCT or Zing still
+  // counts once under "Domestic" here, matching the table's own tag
+  // display.
+  const [typeFilter, setTypeFilter] = useState("");
+  const typeCounts = useMemo(() => {
+    const counts = {};
+    TYPE_TABS.forEach(([key]) => (counts[key] = 0));
+    rows.forEach((row) => {
+      requestedVisualTypes(row.ticket).forEach((key) => { counts[key] = (counts[key] || 0) + 1; });
+    });
+    return counts;
+  }, [rows]);
+
   const filteredRows = useMemo(() => {
     const filtered = showDone ? rows : rows.filter((row) => !isDone(row));
-    return filtered.map((row) => ({ ...row, release_date: row.release?.release_date })).filter((row) => matchesQuery(row, query));
-  }, [rows, showDone, query]);
+    const typeFiltered = typeFilter ? filtered.filter((row) => isTypeRequested(row.ticket, typeFilter)) : filtered;
+    return typeFiltered.map((row) => ({ ...row, release_date: row.release?.release_date })).filter((row) => matchesQuery(row, query));
+  }, [rows, showDone, query, typeFilter]);
 
   const { sorted: visibleRows, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredRows);
   const { pageRows: pagedRows, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleRows);
@@ -363,6 +405,27 @@ export default function PitchingWorkstation() {
 
           <StatusCounter done={counts.done} notDone={counts.notDone} cancel={counts.cancel} />
           <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
+          <div style={{ display: "flex", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setTypeFilter("")}
+              className={`${styles.tabBtn} ${typeFilter === "" ? styles.tabBtnActive : ""}`}
+              style={{ border: typeFilter === "" ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: typeFilter === "" ? "rgba(255,107,26,0.1)" : "transparent" }}
+            >
+              All ({rows.length})
+            </button>
+            {TYPE_TABS.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTypeFilter(key)}
+                className={`${styles.tabBtn} ${typeFilter === key ? styles.tabBtnActive : ""}`}
+                style={{ border: typeFilter === key ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: typeFilter === key ? "rgba(255,107,26,0.1)" : "transparent" }}
+              >
+                {label} ({typeCounts[key] || 0})
+              </button>
+            ))}
+          </div>
           <button onClick={() => setShowDone((s) => !s)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
             {showDone ? "Hide done rows" : `Show done rows (${counts.done})`}
           </button>

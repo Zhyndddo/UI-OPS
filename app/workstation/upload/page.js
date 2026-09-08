@@ -41,6 +41,15 @@ export default function UploadWorkstation() {
   const [query, setQuery] = useState(""); // round 76 — quick index search box
   const [notePopup, setNotePopup] = useState(null); // { release, kind: "product" | "linkshare" } | null
   const [copyrightPopupRelease, setCopyrightPopupRelease] = useState(null); // release | null
+  // Round 274 — dids with a real Priority Pitching request, so the Apple
+  // ID field below (see UploadRow) only shows up where it's actually
+  // needed. Mirrors the Pitching workstation's own check (a release
+  // "has priority pitching" iff its Pitching ticket's data.priority flag
+  // is set) rather than release.priority_pitching's status text, since
+  // that column is auto-synced FROM the flag and can lag/be blank before
+  // the Pitching workstation has ever loaded for this release — the flag
+  // on the ticket itself is the actual source of truth.
+  const [priorityDids, setPriorityDids] = useState(new Set());
   const sonyPublishDids = useSonyPublishDids();
 
   useEffect(() => {
@@ -56,11 +65,11 @@ export default function UploadWorkstation() {
     // concurrently instead; total wait time becomes roughly the slowest
     // single query rather than the sum of all 3. No query/column/filter
     // behavior changed. See project doc "load-reduction-additional-ideas.md".
-    const [{ data: rels }, { data: profs }, { data: assigns }] = await Promise.all([
+    const [{ data: rels }, { data: profs }, { data: assigns }, { data: pitchTab }] = await Promise.all([
       supabase
         .from("releases")
         .select(
-          "id, did, title, main_artist, release_date, release_time, upc, drive_link, link_lbm, link_lbm_source, link_share, smartlink, link_preorder, upload_status, " +
+          "id, did, title, main_artist, release_date, release_time, upc, apple_id, drive_link, link_lbm, link_lbm_source, link_share, smartlink, link_preorder, upload_status, " +
           "link_ugc, link_media_report, requester_segment, linkshare_tiktok_timing, linkshare_facebook_timing, needs_update, " +
           // Round 88 2nd follow-up — Copyright popup column
           "single_album_ep, copyright_checklist"
@@ -68,6 +77,9 @@ export default function UploadWorkstation() {
         .eq("requested", true),
       supabase.from("profiles").select("id, name, segment, role").order("name"),
       supabase.from("workstation_assignments").select("release_id, pic_profile_id").eq("workstation", "upload"),
+      // Round 274 — same tab lookup app/workstation/pitching/page.js does,
+      // run alongside the 3 queries above instead of after them.
+      supabase.from("ticket_tabs").select("id").eq("key", "pitching").single(),
     ]);
     setReleases(rels || []);
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
@@ -80,6 +92,16 @@ export default function UploadWorkstation() {
     });
     setDefaultPic(def);
     setAssignments(map);
+
+    // Round 274 — Priority Pitching dids, for UploadRow's Apple ID field.
+    // t.data.releaseId is (despite the name) the release's `did`, same
+    // field the Pitching workstation itself matches on.
+    if (pitchTab) {
+      const { data: pitchTickets } = await supabase.from("tickets").select("data").eq("tab_id", pitchTab.id).is("deleted_at", null);
+      const priority = new Set();
+      (pitchTickets || []).forEach((t) => { if (t.data?.priority && t.data?.releaseId) priority.add(t.data.releaseId); });
+      setPriorityDids(priority);
+    }
 
     setLoading(false);
   }
@@ -217,6 +239,7 @@ export default function UploadWorkstation() {
                       profiles={profiles}
                       highlight={isThisWeekOrNext(r.release_date)}
                       dateHighlight={rowHighlightColor(r)}
+                      hasPriorityPitching={priorityDids.has(r.did)}
                       onUpdateField={updateField}
                       onUpdatePic={updatePic}
                       onOpenNote={(kind) => setNotePopup({ release: r, kind })}
@@ -260,7 +283,7 @@ function missingHighlightStyle(value) {
     : { boxShadow: "inset 0 0 0 2px var(--missing-highlight)", background: "var(--missing-highlight-bg)", borderRadius: 6 };
 }
 
-function UploadRow({ release, pic, isOverride, profiles, highlight, dateHighlight, onUpdateField, onUpdatePic, onOpenNote, onOpenCopyright }) {
+function UploadRow({ release, pic, isOverride, profiles, highlight, dateHighlight, hasPriorityPitching, onUpdateField, onUpdatePic, onOpenNote, onOpenCopyright }) {
   const URL_KEYS = ["drive_link", "link_lbm", "link_share", "smartlink"];
   const [drafts, setDrafts] = useState(() => {
     const initial = {};
@@ -268,6 +291,12 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, dateHighligh
     return initial;
   });
   const [upc, setUpc] = useState(release.upc || "");
+  // Round 274 — Apple ID, only editable here for rows with a real
+  // Priority Pitching request (see hasPriorityPitching above) — other
+  // rows don't need it filled in at this stage. Same releases.apple_id
+  // column the Pitching workstation's own Priority tab already edits
+  // (app/workstation/pitching/page.js), just another entry point.
+  const [appleId, setAppleId] = useState(release.apple_id || "");
 
   // Round 77 — was a hardcoded near-black box (#1a120a) with text left on
   // var(--text)/var(--text-faint)/.rowLink's inherited color, which flip to
@@ -291,14 +320,31 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, dateHighligh
   return (
     <tr style={rowStyle}>
       <td style={{ position: "sticky", left: 0, zIndex: 1, background: stickyBg, borderRight: "2px solid var(--accent)" }}>
-        <input
-          className={styles.input}
-          style={{ padding: "4px 8px", fontSize: 12, marginBottom: 4, ...missingHighlightStyle(upc) }}
-          value={upc}
-          placeholder="UPC…"
-          onChange={(e) => setUpc(e.target.value)}
-          onBlur={() => onUpdateField(release, "upc", upc)}
-        />
+        {/* Round 274 — UPC cut to half width, per explicit request, to
+            make room for Apple ID right next to it on Priority Pitching
+            rows (see hasPriorityPitching). Non-priority rows keep UPC at
+            the same half width rather than snapping back to full width,
+            so the column doesn't jump around row to row. */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+          <input
+            className={styles.input}
+            style={{ padding: "4px 8px", fontSize: 12, flex: "0 0 50%", minWidth: 0, ...missingHighlightStyle(upc) }}
+            value={upc}
+            placeholder="UPC…"
+            onChange={(e) => setUpc(e.target.value)}
+            onBlur={() => onUpdateField(release, "upc", upc)}
+          />
+          {hasPriorityPitching && (
+            <input
+              className={styles.input}
+              style={{ padding: "4px 8px", fontSize: 12, flex: "0 0 50%", minWidth: 0, ...missingHighlightStyle(appleId) }}
+              value={appleId}
+              placeholder="Apple ID…"
+              onChange={(e) => setAppleId(e.target.value)}
+              onBlur={() => onUpdateField(release, "apple_id", appleId)}
+            />
+          )}
+        </div>
         <div style={{ marginBottom: 4, ...missingHighlightStyle(drafts.drive_link) }}>
           <UrlField
             styles={styles}
