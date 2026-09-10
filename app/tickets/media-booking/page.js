@@ -17,6 +17,8 @@ import YoutubeAdsFields from "../../../lib/YoutubeAdsFields";
 import { useIsMobile } from "../../../lib/useIsMobile";
 // Round 281 — audit log / requester attribution
 import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
+// Round 292 — INT MEDIA auto-lock on ticket COMPLETE, see updateStatus below
+import { runOne } from "../../../lib/packageSimulator";
 // Round 125 — item 2: same Linkfire door the Booking Board already has
 // (see app/booking/page.js), now also reachable from inside the booking
 // ticket itself rather than only from the board. Same admin-editable
@@ -196,6 +198,37 @@ export default function MediaBookingList() {
         if (rel?.project_type === "SENT TO MARKETING") {
           await supabase.from("releases").update({ project_type: "DEALING" }).eq("id", rel.id);
           setReleasesByDid((prev) => (prev[did] ? { ...prev, [did]: { ...prev[did], project_type: "DEALING" } } : prev));
+        }
+
+        // Round 292 — INT MEDIA auto-lock, per explicit request ("when
+        // building this package, it bypass the choosing in the magic
+        // link and went straight to the booking board"). Used to require
+        // a dev/AR-team member to manually click "SEND INT SUPPORT
+        // PACKAGE" on the release detail page (State C in that page's
+        // sendIntPackage()) — now fires automatically, for ANY release
+        // whose built package here is named "INT MEDIA", the moment this
+        // ticket completes. Reuses the exact same commit a real artist
+        // magic-link confirm makes (lib/packageSimulator.js's runOne —
+        // same project_type/package_locked/package_total_value writes,
+        // same "seed a Phụ Lục ticket if this was still mid-pipeline"
+        // side effect). allowOverwrite stays false, so a release that
+        // already resolved to a different, already-locked package (e.g.
+        // Chỉ Phát Hành) is left alone — same as the old manual button,
+        // which also refused once package_locked was already true.
+        if (rel && rel.id) {
+          const { data: intPkg } = await supabase
+            .from("media_booking_packages")
+            .select("id")
+            .eq("release_id", rel.id)
+            .eq("name", "INT MEDIA")
+            .limit(1)
+            .maybeSingle();
+          if (intPkg) {
+            const r = await runOne({ did, legacyDid: "", contractType: "INT MEDIA" }, { allowOverwrite: false });
+            if (r.ok) {
+              setReleasesByDid((prev) => (prev[did] ? { ...prev, [did]: { ...prev[did], project_type: "INT MEDIA", package_locked: true } } : prev));
+            }
+          }
         }
       }
     }

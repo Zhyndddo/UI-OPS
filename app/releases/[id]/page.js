@@ -1570,13 +1570,14 @@ export default function ReleaseDetailPage() {
                     used to be is retired; each subteam is now its own
                     on/off flag, so this renders differently by who's
                     looking: dev (edits any subteam, via a small popup —
-                    there's no single "their" subteam to show inline), a
-                    team lead with a subteam set (a single named on/off
-                    toggle, editable), an admin whose team has subteams
-                    defined (a read-only summary popup, same policy as
-                    the dashboard's collapsed admin column), or anyone
-                    else (plain read-only pills for whichever tags are
-                    already set). */}
+                    there's no single "their" subteam to show inline),
+                    anyone on Marketing with a subteam set — member or
+                    team lead, Round 291 widened this from team-lead-only
+                    (a single named on/off toggle, editable), an admin
+                    whose team has subteams defined (a read-only summary
+                    popup, same policy as the dashboard's collapsed admin
+                    column), or anyone else (plain read-only pills for
+                    whichever tags are already set). */}
                 {isDev(profile) ? (
                   <DevSubteamTagButton
                     form={form}
@@ -1586,7 +1587,7 @@ export default function ReleaseDetailPage() {
                     onClose={() => setTagPopupOpen(false)}
                     onToggleTag={toggleSubteamTag}
                   />
-                ) : profile?.role === "teamlead" && profile?.segment === SUBTEAM_TAG_TEAM && profile?.subteam ? (
+                ) : profile?.segment === SUBTEAM_TAG_TEAM && profile?.subteam ? (
                   <SubteamHeaderToggle
                     name={profile.subteam}
                     on={!!(form.subteam_tags || {})[profile.subteam]}

@@ -696,11 +696,12 @@ export default function ReleasesDashboard() {
             <thead>
               <tr>
                 {/* Round 261 — per-subteam tag column(s), left-most per
-                    explicit spec. Zero columns for anyone who isn't a
-                    team lead with a subteam set (or dev) — see
-                    visibleSubteamsFor. */}
+                    explicit spec. Round 291 — widened from team-lead-only
+                    to anyone on that subteam. Zero columns for anyone
+                    without a matching Marketing subteam set (or dev) —
+                    see visibleSubteamsFor. */}
                 {visibleSubteams.map((s) => (
-                  <th key={`subteam-th-${s}`} title={`${s} tag — only visible to ${s}'s team lead`}>{s}</th>
+                  <th key={`subteam-th-${s}`} title={`${s} tag — only visible to ${s}'s team members`}>{s}</th>
                 ))}
                 {/* Round 262 item 2 — admin's single collapsed column for
                     their own team's subteams (view-only popup), instead
