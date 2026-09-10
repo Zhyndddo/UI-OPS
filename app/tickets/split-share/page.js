@@ -13,6 +13,8 @@ import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
+// Round 282 — audit log / requester attribution
+import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 
 // Bespoke (not the generic TicketListPage) per explicit request — "reuse
 // the current phụ lục template" (dual view + 4 status tabs, same visual
@@ -79,6 +81,9 @@ export default function SplitShareTicketList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id || null, after: profileId || null });
+    if (patch.status) logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus: patch.status, statusOptions: tab?.status_options });
   }
 
   // Ngày Hoàn Thành tracks COMPLETE specifically, independent of the
@@ -100,6 +105,8 @@ export default function SplitShareTicketList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus, statusOptions: tab?.status_options });
   }
 
   const visibleTickets = isExecutorView ? tickets.filter((t) => t.status === statusFilter) : tickets;

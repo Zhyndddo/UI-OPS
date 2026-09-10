@@ -17,6 +17,8 @@ import NoteCell from "../../../lib/NoteCell";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import { parseManualClaimBatchPaste, MANUAL_CLAIM_BATCH_COLUMNS } from "../../../lib/manualClaimBatchParse";
 import styles from "../../shared.module.css";
+// Round 282 — audit log / requester attribution
+import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 
 // Rebuilt bespoke to match v1's real Manual Claim table — simpler than
 // Phái Sinh (no computed group columns), but same link-or-edit URL
@@ -53,7 +55,7 @@ export default function ManualClaimList() {
     if (!tabRow) { setLoading(false); return; }
     setTab(tabRow);
     if (!statusFilter) setStatusFilter(tabRow.status_options[0]);
-    const { data } = await supabase.from("tickets").select("*, profiles(name)").eq("tab_id", tabRow.id).is("deleted_at", null).order("created_at", { ascending: false });
+    const { data } = await supabase.from("tickets").select("*, profiles!tickets_pic_profile_id_fkey(name)").eq("tab_id", tabRow.id).is("deleted_at", null).order("created_at", { ascending: false });
     setTickets(data || []);
     setLoading(false);
   }
@@ -99,6 +101,12 @@ export default function ManualClaimList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution. No distinct "claim"
+    // handler exists on this page — assigning a PIC here (via this select)
+    // IS the claim action for Manual Claim, same generic PIC-assignment
+    // shape as every other ticket type, so it's logged as a plain
+    // reassign rather than inventing a separate "claim" action.
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id, after: profileId || null });
   }
 
   async function updateStatus(t, newStatus) {
@@ -115,6 +123,8 @@ export default function ManualClaimList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus, statusOptions: tab?.status_options });
   }
 
   // Round 81 item 4 — same insert shape lib/NewTicketPage.js uses for a

@@ -15,6 +15,8 @@ import styles from "../../shared.module.css";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import YoutubeAdsFields from "../../../lib/YoutubeAdsFields";
 import { useIsMobile } from "../../../lib/useIsMobile";
+// Round 281 — audit log / requester attribution
+import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 // Round 125 — item 2: same Linkfire door the Booking Board already has
 // (see app/booking/page.js), now also reachable from inside the booking
 // ticket itself rather than only from the board. Same admin-editable
@@ -104,8 +106,14 @@ export default function MediaBookingList() {
     const { data: tabRow } = await supabase.from("ticket_tabs").select("*").eq("key", "media_booking").single();
     setTab(tabRow);
     if (tabRow && !statusFilter) setStatusFilter(tabRow.status_options[0]);
+    // Round 288 — requesterProfile joined in too (explicit FK per the
+    // Round 283 fix — a bare profiles(name) here would be ambiguous now
+    // that tickets has two FKs to profiles), so the list can show a real
+    // Requester column. new/page.js has written requester_profile_id on
+    // every ticket created since Round 281 — this list just never
+    // displayed it until now.
     const { data } = tabRow
-      ? await supabase.from("tickets").select("*, profiles(name)").eq("tab_id", tabRow.id).is("deleted_at", null).order("created_at", { ascending: false })
+      ? await supabase.from("tickets").select("*, profiles!tickets_pic_profile_id_fkey(name), requesterProfile:profiles!tickets_requester_profile_id_fkey(name)").eq("tab_id", tabRow.id).is("deleted_at", null).order("created_at", { ascending: false })
       : { data: [] };
     setTickets(data || []);
 
@@ -141,6 +149,8 @@ export default function MediaBookingList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 281 — audit log / requester attribution
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id, after: profileId });
     load();
   }
 
@@ -169,6 +179,8 @@ export default function MediaBookingList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 281 — audit log / requester attribution
+    logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus, statusOptions: tab?.status_options });
 
     // Round 80 — marking this ticket COMPLETE is what ends the release's
     // SENT TO MARKETING interlude (see app/releases/[id]/page.js's
@@ -257,7 +269,7 @@ export default function MediaBookingList() {
             <>
             <table className={styles.table}>
               <thead>
-                <tr><th>Release (DID)</th><th>Release</th><th>URL Drive</th><th>Package Url</th><th>Propose Package</th><th>PIC</th><th>Linkfire url</th><th>Status</th></tr>
+                <tr><th>Release (DID)</th><th>Release</th><th>URL Drive</th><th>Package Url</th><th>Propose Package</th><th>PIC</th><th>Linkfire url</th><th>Requester</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {pagedTickets.map((t) => {
@@ -324,6 +336,14 @@ export default function MediaBookingList() {
                           <span style={{ color: "var(--text-dim)" }}>—</span>
                         )}
                       </td>
+                      {/* Round 288 — requester_profile_id has been written
+                          on every ticket created here since Round 281 (the
+                          creator of the ticket — see new/page.js — there's
+                          no separate "who created the product" concept for
+                          Media Booking, one ticket per release, made by
+                          whoever clicks Save on the New Ticket form), just
+                          never shown on this list until now. */}
+                      <td style={{ fontSize: 11 }}>{t.requesterProfile?.name || "—"}</td>
                       {/* Round 80 — no Note column in this list, so the
                           reason folded into data.note by statusNoteGate is
                           only reachable via this hover. */}
@@ -630,7 +650,11 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     if (rel) {
       const [{ data: rollups }, { data: pkgs }, { data: tiers }, { data: link }] = await Promise.all([
         supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", rel.id),
-        supabase.from("media_booking_packages").select("*, media_booking_package_lines(*)").eq("release_id", rel.id).order("sort_order"),
+        // Round 287 — media_booking_package_entry_snapshots joined in
+        // alongside the lines every package already carried, so
+        // snapshotEntriesFor (below) can read a package's grid history
+        // straight off `packages` without a separate fetch.
+        supabase.from("media_booking_packages").select("*, media_booking_package_lines(*), media_booking_package_entry_snapshots(*)").eq("release_id", rel.id).order("sort_order"),
         supabase.from("contract_type_packages").select("contract_type, items"),
         supabase.from("magic_links").select("token").eq("release_id", rel.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       ]);
@@ -885,6 +909,11 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       const freshRows = await refreshSummarizedRows();
       const freshGroup = groupSummarizedRows(freshRows).find((g) => g.categoryId === selectedCategoryId);
       await syncPackageLine(freshGroup);
+      // Round 287 — this sub-brand's own grid rows, as they stood at this
+      // Summarize, into whichever package is active. Keyed by the real
+      // sub-brand (tiktokBrand), not the mushed "" the line above uses —
+      // see snapshotEntriesFor's comment.
+      await saveEntrySnapshot(selectedCategoryId, tiktokBrand, entries);
       return;
     }
 
@@ -939,6 +968,9 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         // fix note on syncPackageLine's Ads branch below for why this was
         // missing and what it broke.
         await syncPackageLine({ key: `${selectedCategoryId}::${adsBrandKey}`, categoryId: selectedCategoryId, categoryName: "Ads", isAds: true, brand: adsBrandKey, totalMoney, totalPosts: totalQty, detailText, metricQuantities });
+        // Round 287 — this ad brand's own grid rows, as they stood at this
+        // Summarize, into whichever package is active.
+        await saveEntrySnapshot(selectedCategoryId, adsBrandKey, entries.filter((e) => e.brand === adsBrandKey));
       }
       setCategoryTotals((prev) => ({ ...prev, ...totalsByBrand }));
       setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
@@ -988,6 +1020,10 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     const freshRows = await refreshSummarizedRows();
     const freshGroup = groupSummarizedRows(freshRows).find((g) => g.categoryId === selectedCategoryId);
     await syncPackageLine(freshGroup);
+    // Round 287 — this brand bracket's own grid rows, as they stood at
+    // this Summarize, into whichever package is active. Keyed by the real
+    // brand (rollupBrand), not the mushed "" the line above uses.
+    await saveEntrySnapshot(selectedCategoryId, rollupBrand, entries);
   }
 
   // "Skip" — marks a Hạng Mục as intentionally not applicable, satisfying
@@ -1124,6 +1160,62 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
 
   function lineFor(categoryId, brand) {
     return (activePackage?.media_booking_package_lines || []).find((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
+  }
+
+  // Round 287 — read-only per-package history of the grid, keyed by the
+  // same REAL brand Summarize itself groups by (a TikTok Channel
+  // sub-brand, a Social/Community bracket, an Ads platform brand, or ''
+  // for anything without a brand concept) — finer-grained than lineFor's
+  // key, which mushes TikTok Channel/Social/Community down to one line
+  // per category. That's fine: this only ever gets looked up against
+  // whichever single real brand is currently selected in the grid above
+  // it, never against the mushed line.
+  function snapshotEntriesFor(categoryId, brand) {
+    return (activePackage?.media_booking_package_entry_snapshots || []).find((s) => s.category_id === categoryId && (s.brand || "") === (brand || ""));
+  }
+
+  // Upserts this (package, category, brand)'s grid snapshot — called
+  // right alongside the existing media_booking_package_categories upsert
+  // in handleSummarize, one call per real brand rolled up. No-op with no
+  // active package yet, same guard syncPackageLine already uses — nothing
+  // to snapshot INTO until a package exists.
+  async function saveEntrySnapshot(categoryId, brand, rows) {
+    if (!activePackage) return;
+    const payload = { package_id: activePackage.id, category_id: categoryId, brand: brand || "", entries: rows, updated_at: new Date().toISOString() };
+    const { data } = await supabase
+      .from("media_booking_package_entry_snapshots")
+      .upsert(payload, { onConflict: "package_id,category_id,brand" })
+      .select()
+      .single();
+    if (!data) return;
+    setPackages((prev) => prev.map((p) => {
+      if (p.id !== activePackage.id) return p;
+      const existing = p.media_booking_package_entry_snapshots || [];
+      const idx = existing.findIndex((s) => s.category_id === categoryId && (s.brand || "") === (brand || ""));
+      const next = idx >= 0 ? existing.map((s, i) => (i === idx ? data : s)) : [...existing, data];
+      return { ...p, media_booking_package_entry_snapshots: next };
+    }));
+  }
+
+  // Human-readable one-line summary of a single snapshotted grid row,
+  // using the exact same per-category total formula handleSummarize
+  // itself computes (channel_count × count_posts for TikTok Channel;
+  // channel_count × sum(phases) for Social/Community/anything generic;
+  // count_posts × unit_price for Ads) — so the number shown here always
+  // matches what that row actually contributed the moment it was
+  // Summarized, not a re-derivation that could drift from it.
+  function formatSnapshotLine(e, isAdsCategory, isTikTok) {
+    if (isAdsCategory) {
+      const amt = (e.count_posts || 0) * (e.unit_price || 0);
+      return `${e.platform}: ${e.count_posts || 0} × ${fmtVnd(e.unit_price || 0)} = ${fmtVnd(amt)}`;
+    }
+    if (isTikTok) {
+      const total = (e.channel_count || 0) * (e.count_posts || 0);
+      return `${e.platform}: ${e.channel_count || 0} kênh × ${e.count_posts || 0} bài = ${total}`;
+    }
+    const phaseSum = PHASES.reduce((s, [key]) => s + (e[key] || 0), 0);
+    const channels = e.channel_count || 1;
+    return `${e.platform}: ${channels} kênh × ${phaseSum} bài = ${channels * phaseSum}`;
   }
 
   // Every OTHER Hạng Mục mushes its brand rows into ONE combined package
@@ -2076,6 +2168,39 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                           Thành Tiền: <strong style={{ color: "var(--text)" }}>{fmtVnd(line.amount)}</strong>
                           {isAdsLine && <span> (not recomputed from Số Lượng × Đơn Giá for Ads — edit Thành Tiền in the Packages panel if it needs to change)</span>}
                         </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Round 287 (booking ticket item 4) — the DSP grid above
+                    is one shared live pool per release, not per package
+                    (Summarize just snapshots whatever's in it into
+                    whichever package tab is active — see this file's own
+                    Round 87 comment further up), so it can never itself
+                    show "what built package 1" once you've since typed
+                    numbers for package 2. This is the fix that doesn't
+                    require forking the live grid: a read-only record of
+                    what the grid actually looked like the last time THIS
+                    package was Summarized for whichever real brand is
+                    currently selected above — switches immediately with
+                    the package tab, same as the banner above it. */}
+                {activePackage && (() => {
+                  const currentRealBrand = isAds ? adsBrand : isSocial ? brand : isCommunity ? communityBrand : isTikTokChannel ? tiktokBrand : "";
+                  const snap = snapshotEntriesFor(selectedCategoryId, currentRealBrand);
+                  if (!snap || !Array.isArray(snap.entries) || snap.entries.length === 0) return null;
+                  return (
+                    <div style={{ marginTop: 10, background: "var(--bg-hover)", border: "1px dashed var(--border-strong)", borderRadius: 8, padding: "10px 14px" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 6 }}>
+                        Grid snapshot from "{activePackage.name}" — as of its last Summarize for this brand
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        {snap.entries.map((e) => (
+                          <div key={e.id} style={{ fontSize: 12, color: "var(--text-muted)" }}>{formatSnapshotLine(e, isAds, isTikTokChannel)}</div>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 6 }}>
+                        Read-only — the grid above is always live/shared across every package; edit it and Summarize again to update this package's numbers.
                       </div>
                     </div>
                   );

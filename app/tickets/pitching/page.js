@@ -57,7 +57,7 @@ export default function PitchingTicketList() {
     if (!statusFilter) setStatusFilter(tabRow.status_options[0]);
     const { data: tickets } = await supabase
       .from("tickets")
-      .select("*, profiles(name)")
+      .select("*, profiles!tickets_pic_profile_id_fkey(name)")
       .eq("tab_id", tabRow.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false });

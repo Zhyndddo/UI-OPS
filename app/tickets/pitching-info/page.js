@@ -4,7 +4,9 @@ import AppShell from "../../../lib/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate } from "../../../lib/helpers";
+import { useAuth } from "../../../lib/AuthContext";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
+import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
@@ -124,6 +126,7 @@ const FIELD_LABELS = { genre: "Genre", moods: "Moods", songStyles: "Song Styles"
 
 function PitchingInfoTickets() {
   const isMobile = useIsMobile();
+  const { profile } = useAuth();
   const [tab, setTab] = useState(null);
   const [rows, setRows] = useState([]); // { ticket, release }
   const [profiles, setProfiles] = useState([]);
@@ -169,6 +172,7 @@ function PitchingInfoTickets() {
 
   async function updatePic(ticket, profileId) {
     const patch = { pic_profile_id: profileId || null };
+    const prevStatus = ticket.status;
     if (profileId && ticket.status === tab.default_status) {
       const nextStatus = tab.status_options[1];
       if (nextStatus) {
@@ -178,12 +182,19 @@ function PitchingInfoTickets() {
     }
     setRows((prev) => prev.map((row) => (row.ticket.id !== ticket.id ? row : { ...row, ticket: { ...row.ticket, ...patch } })));
     await supabase.from("tickets").update(patch).eq("id", ticket.id);
+    // Round 282 — audit log / requester attribution
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: ticket.id, before: ticket.pic_profile_id || null, after: patch.pic_profile_id });
+    if (patch.status) {
+      logTicketStatusChange({ actor: profile?.id, ticketId: ticket.id, prevStatus, newStatus: patch.status, statusOptions: tab?.status_options });
+    }
   }
 
   async function updateStatus(ticket, newStatus) {
     const patch = { status: newStatus, status_log: { ...ticket.status_log, [newStatus]: new Date().toISOString() } };
     setRows((prev) => prev.map((row) => (row.ticket.id !== ticket.id ? row : { ...row, ticket: { ...row.ticket, ...patch } })));
     await supabase.from("tickets").update(patch).eq("id", ticket.id);
+    // Round 282 — audit log / requester attribution
+    logTicketStatusChange({ actor: profile?.id, ticketId: ticket.id, prevStatus: ticket.status, newStatus, statusOptions: tab?.status_options });
   }
 
   async function updateData(ticket, newData) {

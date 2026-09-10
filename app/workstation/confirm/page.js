@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
+import { useAuth } from "../../../lib/AuthContext";
 import { fmtDate, fetchAllRows } from "../../../lib/helpers";
 import { BoolToggle } from "../../../lib/GateFields";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
@@ -12,8 +13,10 @@ import UrlField from "../../../lib/UrlField";
 import LinkLbmSourceBadge from "../../../lib/LinkLbmSourceBadge";
 import PhaiSinhSmartlinkPopup from "../../../lib/PhaiSinhSmartlinkPopup";
 import StatusCounter from "../../../lib/StatusCounter";
-import { sortByReleaseDateDesc, filterProfilesByTeam } from "../../../lib/workstationHelpers";
-import { rowHighlightColor } from "../../../lib/releaseDateHighlight";
+import { sortByReleaseDateDesc, filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/workstationHelpers";
+import { logPicReassign } from "../../../lib/auditLog";
+import { rowHighlightColor, DATE_HIGHLIGHT_LEGEND } from "../../../lib/releaseDateHighlight";
+import ColorLegend from "../../../lib/ColorLegend";
 import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { usePagination } from "../../../lib/usePagination";
@@ -111,6 +114,7 @@ function ConfirmWorkstationInner() {
   // workstation" request (see lib/PhaiSinhSmartlinkPopup.js).
   const [phaiSinhSmartlinks, setPhaiSinhSmartlinks] = useState([]);
   const [showAddSmartlink, setShowAddSmartlink] = useState(false);
+  const { profile } = useAuth();
 
   useEffect(() => {
     if (!supabase) return;
@@ -136,6 +140,31 @@ function ConfirmWorkstationInner() {
     });
     setDefaultPics(defs);
     setAssignments(rows);
+
+    // Round 281 — auto-assign unassigned rows to team lead/admin, see
+    // lib/workstationHelpers.js. Both phases are OPS-scoped, each with its
+    // own `workstation` key ("confirm_phase1"/"confirm_phase2") — a release
+    // can be unassigned on one phase and assigned on the other, so each
+    // phase is checked independently. Fire-and-forget, not awaited here.
+    const scopedProfs = filterProfilesByTeam(profs || [], "OPS");
+    ["confirm_phase1", "confirm_phase2"].forEach((ph) => {
+      Promise.all(
+        (rels || [])
+          .filter((r) => rows[ph][r.id] == null)
+          .map((r) =>
+            autoAssignUnassigned({
+              profiles: scopedProfs,
+              segment: "OPS",
+              entity: "workstation_assignment",
+              entityId: `${ph}:${r.id}`,
+              write: async (profileId) => {
+                await supabase.from("workstation_assignments").insert({ workstation: ph, column_key: "all", release_id: r.id, pic_profile_id: profileId });
+                setAssignments((prev) => (prev[ph]?.[r.id] != null ? prev : { ...prev, [ph]: { ...prev[ph], [r.id]: profileId } }));
+              },
+            })
+          )
+      );
+    });
 
     const { data: psLinks } = await supabase.from("phai_sinh_smartlinks").select("*").order("created_at", { ascending: false });
     setPhaiSinhSmartlinks(psLinks || []);
@@ -168,7 +197,11 @@ function ConfirmWorkstationInner() {
   }
 
   async function updatePic(releaseId, profileId) {
+    const before = assignments[phase]?.[releaseId] ?? null;
     setAssignments((prev) => ({ ...prev, [phase]: { ...prev[phase], [releaseId]: profileId || undefined } }));
+    // Round 281 — manual PIC reassignment audit trail (separate from the
+    // auto-assign case above, which logs itself via autoAssignUnassigned).
+    logPicReassign({ actor: profile?.id, entity: "workstation_assignment", entityId: releaseId, before, after: profileId || null });
     if (!profileId) {
       await supabase.from("workstation_assignments").delete().eq("workstation", phase).eq("release_id", releaseId);
       return;
@@ -253,7 +286,10 @@ function ConfirmWorkstationInner() {
           <button onClick={() => setShowMissingUpcSmartlink((s) => !s)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
             {showMissingUpcSmartlink ? "Hide missing UPC/Smartlink" : `Show missing UPC/Smartlink (${missingUpcSmartlinkCount})`}
           </button>
-          <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
+            <ColorLegend entries={DATE_HIGHLIGHT_LEGEND} />
+          </div>
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>

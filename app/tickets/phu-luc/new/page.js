@@ -6,10 +6,14 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../../../lib/supabaseClient";
 import { computeNextMaPL } from "../../../../lib/phuLucCounter";
+import { useAuth } from "../../../../lib/AuthContext";
+// Round 282 — audit log / requester attribution
+import { logTicketCreate } from "../../../../lib/auditLog";
 import styles from "../../../shared.module.css";
 
 export default function NewPhuLucTicket() {
   const router = useRouter();
+  const { profile } = useAuth();
   const [releases, setReleases] = useState([]);
   const [releaseId, setReleaseId] = useState("");
   const [search, setSearch] = useState("");
@@ -101,15 +105,22 @@ export default function NewPhuLucTicket() {
     // living in ticket.data — write it there directly rather than on the
     // ticket, same "release is the single source of truth" pattern
     // link_phu_luc/phu_luc_ngay_gui/phu_luc_ngay_ky already use.
-    const { error: insertErr } = await supabase.from("tickets").insert({
+    // Round 282 — requester_profile_id auto-populated from the creating
+    // profile, same pattern as every other ticket-creation call site wired
+    // this round/last round.
+    const { data: inserted, error: insertErr } = await supabase.from("tickets").insert({
       tab_id: tab.id,
       data: { releaseId, maPL, vcpmcDocQuyen: vcpmc },
       deadline: deadline || null,
-    });
+      requester_profile_id: profile?.id || null,
+    }).select().single();
     if (!insertErr) await supabase.from("releases").update({ phu_luc_gia_tri: giaTri }).eq("id", releaseId);
     setSubmitting(false);
     if (insertErr) setError(insertErr.message);
-    else router.push("/tickets/phu-luc");
+    else {
+      if (inserted) logTicketCreate({ actor: profile?.id || null, ticketId: inserted.id });
+      router.push("/tickets/phu-luc");
+    }
   }
 
   return (

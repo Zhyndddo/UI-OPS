@@ -14,6 +14,8 @@ import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
+// Round 282 — audit log / requester attribution
+import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 
 // Bespoke (not the generic TicketListPage) per explicit request, laid out
 // like Sony Publish's/Music Video on Spotify's ticket pages — Release
@@ -52,7 +54,7 @@ export default function DiscoveryModeSpotifyTicketList() {
     if (!statusFilter) setStatusFilter(tabRow.status_options[0]);
     const { data: tickets } = await supabase
       .from("tickets")
-      .select("*, profiles(name)")
+      .select("*, profiles!tickets_pic_profile_id_fkey(name)")
       .eq("tab_id", tabRow.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -81,6 +83,9 @@ export default function DiscoveryModeSpotifyTicketList() {
     const pic = profiles.find((p) => p.id === profileId);
     setRows((prev) => prev.map((row) => (row.ticket.id === t.id ? { ...row, ticket: { ...row.ticket, ...patch, profiles: pic ? { name: pic.name } : null } } : row)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id || null, after: profileId || null });
+    if (patch.status) logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus: patch.status, statusOptions: tab?.status_options });
   }
 
   async function updateStatus(t, newStatus) {
@@ -95,6 +100,8 @@ export default function DiscoveryModeSpotifyTicketList() {
     }
     setRows((prev) => prev.map((row) => (row.ticket.id === t.id ? { ...row, ticket: { ...row.ticket, ...patch } } : row)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus, statusOptions: tab?.status_options });
   }
 
   const visibleRows = isExecutorView ? rows.filter((row) => row.ticket.status === statusFilter) : rows;

@@ -34,6 +34,8 @@ import { useAuth } from "../../../../lib/AuthContext";
 import ReleasePicker from "../../../../lib/ReleasePicker";
 import { fmtDate } from "../../../../lib/helpers";
 import styles from "../../../shared.module.css";
+// Round 282 — audit log / requester attribution
+import { logTicketCreate } from "../../../../lib/auditLog";
 
 const CONFLICT_TYPES = ["TikTok", "YouTube", "Facebook", "Spotify"];
 
@@ -104,17 +106,23 @@ export default function NewReportConflictPage() {
       setError("Couldn't find the Report Conflict ticket type — did schema.sql get redeployed?");
       return;
     }
-    const { error: insertErr } = await supabase.from("tickets").insert({
+    const { data: newTicket, error: insertErr } = await supabase.from("tickets").insert({
       tab_id: tab.id,
       data: form,
       status: tab.default_status,
       status_log: { [tab.default_status]: new Date().toISOString() },
       requester_segment: profile?.segment || null,
       requester_name: profile?.name || null,
-    });
+      // Round 282 — audit log / requester attribution
+      requester_profile_id: profile?.id || null,
+    }).select("id").single();
     setSubmitting(false);
     if (insertErr) setError(insertErr.message);
-    else router.push("/tickets/report-conflict");
+    else {
+      // Round 282 — audit log / requester attribution
+      logTicketCreate({ actor: profile?.id, ticketId: newTicket?.id });
+      router.push("/tickets/report-conflict");
+    }
   }
 
   return (

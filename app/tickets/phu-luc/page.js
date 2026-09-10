@@ -13,6 +13,8 @@ import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import { useAuth } from "../../../lib/AuthContext";
 import { canEditPhuLucMaPL } from "../../../lib/permissions";
+// Round 282 — audit log / requester attribution
+import { logAudit, logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 import styles from "../../shared.module.css";
 
 const PHU_LUC_COLOR = {
@@ -97,13 +99,21 @@ export default function PhuLucList() {
   // Writes straight into ticket.data, same shape computeNextMaPL's
   // auto-assignment already uses at creation time — a manual fix here is
   // just a later overwrite of the same field, not a different mechanism.
+  // Round 282 — manual Mã PL override is a distinct, meaningful action
+  // (gated to canEditPhuLucMaPL, overwrites the auto-assigned per-label
+  // counter) — logged as its own edit, separate from status/PIC.
   async function updateMaPL(t, value) {
+    const prevMaPL = t.data?.maPL;
     const newData = { ...(t.data || {}), maPL: value };
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, data: newData } : x)));
     await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
+    if (prevMaPL !== value) {
+      logAudit({ actor: profile?.id || null, action: "edit", entity: "ticket", entityId: t.id, field: "ma_pl", before: prevMaPL ?? null, after: value ?? null });
+    }
   }
 
   async function updatePic(t, profileId) {
+    const prevPic = t.pic_profile_id || null;
     const patch = { pic_profile_id: profileId || null };
     if (profileId && t.status === "REQUESTED") {
       patch.status = "PROCESS";
@@ -111,6 +121,9 @@ export default function PhuLucList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    if (prevPic !== patch.pic_profile_id) {
+      logPicReassign({ actor: profile?.id || null, entity: "ticket", entityId: t.id, before: prevPic, after: patch.pic_profile_id });
+    }
   }
 
   async function updateStatus(t, newStatus) {
@@ -126,6 +139,8 @@ export default function PhuLucList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log
+    logTicketStatusChange({ actor: profile?.id || null, ticketId: t.id, prevStatus: t.status, newStatus, statusOptions: ["REQUESTED", "PROCESS", "COMPLETE", "REFUND", "CANCELED"] });
   }
 
   const visibleTickets = tickets

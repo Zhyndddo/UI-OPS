@@ -7,6 +7,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, formatDetailText } from "../../../lib/helpers";
 import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, GATE_TICKET_TYPES, CO_TRONG_NET_DRAFT_DEFAULTS, GatePopupShell, GatePanelTrigger } from "../../../lib/GateFields";
+import { META_ITEMS, REQUIRED_META_KEYS } from "../../../lib/metadataChecklist";
 import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import ArtistTagInput from "../../../lib/ArtistTagInput";
@@ -19,6 +20,12 @@ import PickSelect from "../../../lib/PickSelect";
 import { TICKET_TYPE_LABELS, TEAMS, REPORTING_TEAMS } from "../../../lib/teamTypes";
 import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import { useAuth } from "../../../lib/AuthContext";
+// Round 281 — audit log / requester attribution. Only logTicketCreate and
+// logTicketStatusChange are actually used on this page — this file has no
+// deleted_at soft-delete writes and no pic_profile_id/deadline field
+// updates to hang logTicketDelete/logPicReassign/logDeadlineChange off of
+// (checked via grep across the whole file before writing this round).
+import { logTicketCreate, logTicketStatusChange } from "../../../lib/auditLog";
 import { isDev, isAdminOrAbove, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM } from "../../../lib/permissions";
 import { subteamTagPillClass, MARKETING_SUBTEAM_TAGS } from "../../../lib/projectTags";
 import { runOne } from "../../../lib/packageSimulator";
@@ -51,20 +58,10 @@ const TABS = [
 // package resolved yet").
 const PIPELINE_STAGES = ["BRIEF & DATA", "SENT TO MARKETING", "DEALING"];
 
-const META_ITEMS = [
-  { key: "meta_audio", label: "Audio" },
-  { key: "meta_artwork", label: "Artwork" },
-  { key: "meta_working_files", label: "Working Files" },
-  { key: "meta_lyric", label: "Lyric" },
-  { key: "meta_mv", label: "MV" },
-  { key: "meta_doc", label: "Metadata" },
-];
-
-// Send Upload only actually needs these 4 — Working Files and MV are
-// tracked here for completeness but no longer gate the ticket. Keeping
-// this as a subset of META_ITEMS (by key) instead of a separate list so
-// the two can never drift out of sync on labels.
-const REQUIRED_META_KEYS = ["meta_audio", "meta_artwork", "meta_lyric", "meta_doc"];
+// Round 280 — moved to lib/metadataChecklist.js (imported below) so the
+// new Bổ Sung DATA ticket type can read the exact same list/required set
+// instead of duplicating it. No behavior change here — same objects, same
+// values, just no longer defined twice.
 
 export default function ReleaseDetailPage() {
   const { id } = useParams();
@@ -729,10 +726,16 @@ export default function ReleaseDetailPage() {
               status: tab.default_status,
               status_log: { [tab.default_status]: new Date().toISOString() },
               requester_segment: form.requester_segment || null,
+              // Round 281 — audit log / requester attribution
+              requester_profile_id: release?.created_by_profile_id || profile?.id || null,
             })
             .select()
             .single();
-          if (created) setPitchingTicket(created);
+          if (created) {
+            setPitchingTicket(created);
+            // Round 281 — audit log / requester attribution
+            logTicketCreate({ actor: profile?.id, ticketId: created.id });
+          }
         }
       }
     }
@@ -778,10 +781,16 @@ export default function ReleaseDetailPage() {
                   status: apTab.default_status,
                   status_log: { [apTab.default_status]: new Date().toISOString() },
                   requester_segment: form.requester_segment || null,
+                  // Round 281 — audit log / requester attribution
+                  requester_profile_id: release?.created_by_profile_id || profile?.id || null,
                 })
                 .select()
                 .single()
-                .then(({ data }) => data)
+                .then(({ data }) => {
+                  // Round 281 — audit log / requester attribution
+                  if (data) logTicketCreate({ actor: profile?.id, ticketId: data.id });
+                  return data;
+                })
             )
           );
           const createdTickets = created.filter(Boolean);
@@ -855,9 +864,13 @@ export default function ReleaseDetailPage() {
               status: tab.default_status,
               status_log: { [tab.default_status]: new Date().toISOString() },
               requester_segment: form.requester_segment || null,
+              // Round 281 — audit log / requester attribution
+              requester_profile_id: release?.created_by_profile_id || profile?.id || null,
             })
             .select()
             .single();
+          // Round 281 — audit log / requester attribution
+          if (row) logTicketCreate({ actor: profile?.id, ticketId: row.id });
           return row ? [ticketType, row] : null;
         })
       );
@@ -888,18 +901,28 @@ export default function ReleaseDetailPage() {
             status: spTab.default_status,
             status_log: { [spTab.default_status]: new Date().toISOString() },
             requester_segment: form.requester_segment || null,
+            // Round 281 — audit log / requester attribution
+            requester_profile_id: release?.created_by_profile_id || profile?.id || null,
           })
           .select()
           .single();
-        if (spCreated) setGateTicketMap((m) => ({ ...m, sony_publish: spCreated }));
+        if (spCreated) {
+          setGateTicketMap((m) => ({ ...m, sony_publish: spCreated }));
+          // Round 281 — audit log / requester attribution
+          logTicketCreate({ actor: profile?.id, ticketId: spCreated.id });
+        }
       }
       if (sonyPublishSendsUpload) {
         const { data: uploadTab } = await supabase.from("ticket_tabs").select("id").eq("key", "newrelease_upload").single();
         if (uploadTab) {
-          await supabase.from("tickets").insert({
+          const { data: uploadCreated } = await supabase.from("tickets").insert({
             tab_id: uploadTab.id,
             data: { releaseId: newDid, project: form.title, artist: form.main_artist, label: form.label },
-          });
+            // Round 281 — audit log / requester attribution
+            requester_profile_id: release?.created_by_profile_id || profile?.id || null,
+          }).select().single();
+          // Round 281 — audit log / requester attribution
+          if (uploadCreated) logTicketCreate({ actor: profile?.id, ticketId: uploadCreated.id });
         }
       }
     }
@@ -914,14 +937,20 @@ export default function ReleaseDetailPage() {
           .from("tickets")
           .insert({
             tab_id: pubTab.id,
-            data: { releaseId: form.id, giaTri: form.publishing_gia_tri },
+            data: { releaseId: form.id, giaTri: form.publishing_gia_tri, composer: (form.publishing_composer || "").trim() || null },
             status: pubTab.default_status,
             status_log: { [pubTab.default_status]: new Date().toISOString() },
             requester_segment: form.requester_segment || null,
+            // Round 281 — audit log / requester attribution
+            requester_profile_id: release?.created_by_profile_id || profile?.id || null,
           })
           .select()
           .single();
-        if (pubCreated) setGateTicketMap((m) => ({ ...m, publishing: pubCreated }));
+        if (pubCreated) {
+          setGateTicketMap((m) => ({ ...m, publishing: pubCreated }));
+          // Round 281 — audit log / requester attribution
+          logTicketCreate({ actor: profile?.id, ticketId: pubCreated.id });
+        }
       }
     }
 
@@ -967,10 +996,14 @@ export default function ReleaseDetailPage() {
 
     const { data: uploadTab } = await supabase.from("ticket_tabs").select("id").eq("key", "newrelease_upload").single();
     if (uploadTab) {
-      await supabase.from("tickets").insert({
+      const { data: uploadCreated } = await supabase.from("tickets").insert({
         tab_id: uploadTab.id,
         data: { releaseId: form.did, project: form.title, artist: form.main_artist, label: form.label },
-      });
+        // Round 281 — audit log / requester attribution
+        requester_profile_id: release?.created_by_profile_id || profile?.id || null,
+      }).select().single();
+      // Round 281 — audit log / requester attribution
+      if (uploadCreated) logTicketCreate({ actor: profile?.id, ticketId: uploadCreated.id });
     }
 
     const patch = { requested: true, link_lbm_source: source || null };
@@ -1056,6 +1089,9 @@ export default function ReleaseDetailPage() {
       const { error: updErr } = await supabase.from("tickets").update({ status: "REQUESTED", status_log: newLog, data: newData }).eq("id", freshTicket.id);
       if (updErr) { setError(updErr.message); return; }
       setMediaBookingTicket((t) => ({ ...t, status: "REQUESTED", status_log: newLog, data: newData }));
+      // Round 281 — audit log / requester attribution — sendPackageTicket()
+      // reopening an already-COMPLETE Media Booking ticket back to REQUESTED.
+      logTicketStatusChange({ actor: profile?.id, ticketId: freshTicket.id, prevStatus: freshTicket.status, newStatus: "REQUESTED", statusOptions: undefined });
       // Reopening is an UPDATE, not an INSERT, so trg_notify_on_ticket_insert
       // never fires for it — fire the same "Marketing has new work" fanout
       // by hand via the existing helper function.
@@ -1086,6 +1122,8 @@ export default function ReleaseDetailPage() {
           // Marketing marks it COMPLETE (the "magic link goes live +
           // notification fires simultaneously" step of the new cycle).
           requester_segment: "AR",
+          // Round 281 — audit log / requester attribution
+          requester_profile_id: release?.created_by_profile_id || profile?.id || null,
         })
         .select()
         .single();
@@ -1100,6 +1138,8 @@ export default function ReleaseDetailPage() {
         return;
       }
       setMediaBookingTicket(created);
+      // Round 281 — audit log / requester attribution
+      if (created) logTicketCreate({ actor: profile?.id, ticketId: created.id });
     }
     setHasMediaBookingTicket(true);
 
@@ -1157,10 +1197,16 @@ export default function ReleaseDetailPage() {
         status: piTab.default_status,
         status_log: { [piTab.default_status]: new Date().toISOString() },
         requester_segment: form.requester_segment || null,
+        // Round 281 — audit log / requester attribution
+        requester_profile_id: release?.created_by_profile_id || profile?.id || null,
       })
       .select()
       .single();
-    if (created) setPitchingInfoTicket(created);
+    if (created) {
+      setPitchingInfoTicket(created);
+      // Round 281 — audit log / requester attribution
+      logTicketCreate({ actor: profile?.id, ticketId: created.id });
+    }
   }
 
   // The standalone "Send Ticket" click for Data Request/Marketing
@@ -1196,10 +1242,16 @@ export default function ReleaseDetailPage() {
         status: tab.default_status,
         status_log: { [tab.default_status]: new Date().toISOString() },
         requester_segment: form.requester_segment || null,
+        // Round 281 — audit log / requester attribution
+        requester_profile_id: release?.created_by_profile_id || profile?.id || null,
       })
       .select()
       .single();
-    if (created) setGateTicketMap((m) => ({ ...m, co_trong_net_youtube: created }));
+    if (created) {
+      setGateTicketMap((m) => ({ ...m, co_trong_net_youtube: created }));
+      // Round 281 — audit log / requester attribution
+      logTicketCreate({ actor: profile?.id, ticketId: created.id });
+    }
   }
 
   // Magic link generation moved to Marketing's package spec builder (not
@@ -1260,7 +1312,7 @@ export default function ReleaseDetailPage() {
     if (mbTab) {
       const { data: existing } = await supabase
         .from("tickets")
-        .select("id, data, status_log")
+        .select("id, data, status, status_log")
         .eq("tab_id", mbTab.id)
         .contains("data", { releaseId: form.did })
         .is("deleted_at", null)
@@ -1277,6 +1329,9 @@ export default function ReleaseDetailPage() {
           .eq("id", existing.id);
         setMediaBookingTicket((t) => (t && t.id === existing.id ? { ...t, status: "REQUESTED", status_log: newLog, data: newData } : t));
         setHasMediaBookingTicket(true);
+        // Round 281 — audit log / requester attribution — sendIntPackage()
+        // reopening an existing Media Booking ticket back to REQUESTED.
+        logTicketStatusChange({ actor: profile?.id, ticketId: existing.id, prevStatus: existing.status, newStatus: "REQUESTED", statusOptions: undefined });
         // Same as sendPackageTicket's reopen path — an UPDATE never fires
         // trg_notify_on_ticket_insert, so tell Marketing by hand.
         await supabase.rpc("fanout_notification", {
@@ -1295,10 +1350,16 @@ export default function ReleaseDetailPage() {
             data: { releaseId: form.did, proposedPackage: "INT MEDIA" },
             status: "REQUESTED",
             status_log: { REQUESTED: new Date().toISOString() },
+            // Round 281 — audit log / requester attribution
+            requester_profile_id: release?.created_by_profile_id || profile?.id || null,
           })
           .select()
           .single();
-        if (created) setMediaBookingTicket(created);
+        if (created) {
+          setMediaBookingTicket(created);
+          // Round 281 — audit log / requester attribution
+          logTicketCreate({ actor: profile?.id, ticketId: created.id });
+        }
         setHasMediaBookingTicket(true);
       }
     }
@@ -1407,6 +1468,9 @@ export default function ReleaseDetailPage() {
       const newLog = { ...(mediaBookingTicket.status_log || {}), REQUESTED: new Date().toISOString() };
       await supabase.from("tickets").update({ status: "REQUESTED", status_log: newLog }).eq("id", mediaBookingTicket.id);
       setMediaBookingTicket((t) => ({ ...t, status: "REQUESTED", status_log: newLog }));
+      // Round 281 — audit log / requester attribution — resetToDealing()
+      // unconditionally reopening the release's Media Booking ticket.
+      logTicketStatusChange({ actor: profile?.id, ticketId: mediaBookingTicket.id, prevStatus: mediaBookingTicket.status, newStatus: "REQUESTED", statusOptions: undefined });
       // Same manual fanout sendPackageTicket()'s resend uses — an UPDATE
       // never fires trg_notify_on_ticket_insert.
       await supabase.rpc("fanout_notification", {
@@ -2026,7 +2090,10 @@ function SaveBar({ onSave, saving }) {
           className={styles.btnPrimary}
           onClick={onSave}
           disabled={saving}
-          style={{ position: "fixed", bottom: 24, right: 24, zIndex: 250, boxShadow: "0 4px 16px rgba(0,0,0,0.45)" }}
+          // Round 284 — bumped up by --bottombar-height so the new fixed
+          // BottomBar (site-wide now, see lib/BottomBar.js) doesn't sit on
+          // top of/overlap this floating Save button.
+          style={{ position: "fixed", bottom: "calc(var(--bottombar-height) + 24px)", right: 24, zIndex: 250, boxShadow: "0 4px 16px rgba(0,0,0,0.45)" }}
         >
           {saving ? "Saving…" : "Save"}
         </button>

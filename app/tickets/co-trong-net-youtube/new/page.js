@@ -9,6 +9,8 @@ import { useAuth } from "../../../../lib/AuthContext";
 import ReleasePicker from "../../../../lib/ReleasePicker";
 import { CO_TRONG_NET_DRAFT_DEFAULTS, MoTaPopup } from "../../../../lib/GateFields";
 import styles from "../../../shared.module.css";
+// Round 282 — audit log / requester attribution
+import { logTicketCreate } from "../../../../lib/auditLog";
 
 // Bespoke manual-creation form per explicit spec — "DID (search-able,
 // auto fill name and artist, and label); the 4 fields above [Teaser/
@@ -61,17 +63,23 @@ export default function CoTrongNetYoutubeNewTicket() {
       setError("A Có Trong Net YouTube ticket for this release already exists — only one is allowed per release.");
       return;
     }
-    const { error: insertErr } = await supabase.from("tickets").insert({
+    const { data: newTicket, error: insertErr } = await supabase.from("tickets").insert({
       tab_id: tab.id,
       data: { releaseId: release.did, ...draft },
       status: tab.default_status,
       status_log: { [tab.default_status]: new Date().toISOString() },
       requester_segment: profile?.segment || null,
       requester_name: profile?.name || null,
-    });
+      // Round 282 — audit log / requester attribution
+      requester_profile_id: profile?.id || null,
+    }).select("id").single();
     setSubmitting(false);
     if (insertErr) setError(insertErr.message);
-    else router.push("/tickets/co-trong-net-youtube");
+    else {
+      // Round 282 — audit log / requester attribution
+      logTicketCreate({ actor: profile?.id, ticketId: newTicket?.id });
+      router.push("/tickets/co-trong-net-youtube");
+    }
   }
 
   return (

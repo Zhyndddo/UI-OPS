@@ -4,6 +4,9 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
+// Round 281 — audit log / requester attribution
+import { useAuth } from "../../lib/AuthContext";
+import { logAudit, logTicketCreate } from "../../lib/auditLog";
 import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, CO_TRONG_NET_DRAFT_DEFAULTS } from "../../lib/GateFields";
 import { MV_TYPE_OPTIONS } from "../../lib/pickerOptions";
 import { publishingHdDone } from "../../lib/labelHopTacStatus";
@@ -88,6 +91,12 @@ const EMPTY_FORM = {
   // of firing blank like the other Legal Request types just above.
   gate_publishing: "false",
   publishing_gia_tri: "",
+  // Round 290 — Composer, free text for now, per explicit request — same
+  // popup as Tỉ Lệ Sở Hữu above (TEXT_GATE_FIELDS.gate_publishing.extraField
+  // in lib/GateFields.js), carried into the auto-created ticket's
+  // data.composer alongside giaTri below. Optional — doesn't gate ticket
+  // creation the way publishing_gia_tri does.
+  publishing_composer: "",
   // Round 88 — Copyright Checklist (Master/Vocal/Author rights) — see
   // lib/copyrightChecklist.js for the shape.
   copyright_checklist: emptyCopyrightChecklist(),
@@ -114,6 +123,8 @@ const REQUIRED_META_KEYS = ["meta_audio", "meta_artwork", "meta_lyric", "meta_do
 
 export default function NewReleasePage() {
   const router = useRouter();
+  // Round 281 — audit log / requester attribution
+  const { profile } = useAuth();
   const [form, setForm] = useState(EMPTY_FORM);
   const [pitchingTypes, setPitchingTypes] = useState(EMPTY_PITCHING_TYPES);
   const [artistProfileTypes, setArtistProfileTypes] = useState(EMPTY_ARTIST_PROFILE_TYPES);
@@ -403,9 +414,12 @@ export default function NewReleasePage() {
   async function performInsert(payload, trackRows, navMode = "detail") {
     setSubmitting(true);
 
+    // Round 281 — audit log / requester attribution: stamp the creating
+    // profile on the release, single insert point for both the full form
+    // (handleSubmit) and Quick Create (handleQuickSubmit).
     const { data, error: insertError } = await supabase
       .from("releases")
-      .insert(payload)
+      .insert({ ...payload, created_by_profile_id: profile?.id || null })
       .select("id, did")
       .single();
 
@@ -416,6 +430,9 @@ export default function NewReleasePage() {
       return;
     }
 
+    // Round 281 — audit log / requester attribution
+    logAudit({ actor: profile?.id, action: "create", entity: "release", entityId: data.id });
+
     // gate_pitching = "true" means pitching is required — create the real
     // Pitching ticket now, holding which of the 4 types were chosen.
     // received_at/lifecycle start is handled elsewhere (Upload flow), not
@@ -423,7 +440,7 @@ export default function NewReleasePage() {
     if (form.gate_pitching === "true") {
       const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching").single();
       if (tab) {
-        await supabase.from("tickets").insert({
+        const { data: newTicket } = await supabase.from("tickets").insert({
           tab_id: tab.id,
           // Round 106 item 5 — 4 merged top-level keys (was 5) — see
           // lib/GateFields.js's PITCHING_TYPES comment for the merge mapping.
@@ -437,7 +454,11 @@ export default function NewReleasePage() {
           status: tab.default_status,
           status_log: { [tab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
-        });
+          // Round 281 — audit log / requester attribution
+          requester_profile_id: profile?.id || null,
+        }).select("id").single();
+        // Round 281 — audit log / requester attribution
+        if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
       }
 
       // Pitching Info (DSP editorial tagging — Genre/Moods/Song Styles/
@@ -449,13 +470,17 @@ export default function NewReleasePage() {
       if (pitchingTypes.priority || pitchingTypes.spotifyS4a) {
         const { data: infoTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pitching_info").single();
         if (infoTab) {
-          await supabase.from("tickets").insert({
+          const { data: newTicket } = await supabase.from("tickets").insert({
             tab_id: infoTab.id,
             data: { releaseId: data.did },
             status: infoTab.default_status,
             status_log: { [infoTab.default_status]: new Date().toISOString() },
             requester_segment: form.requester_segment || null,
-          });
+            // Round 281 — audit log / requester attribution
+            requester_profile_id: profile?.id || null,
+          }).select("id").single();
+          // Round 281 — audit log / requester attribution
+          if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
         }
       }
     }
@@ -470,15 +495,19 @@ export default function NewReleasePage() {
       const { data: apTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
       if (apTab) {
         await Promise.all(
-          artistProfileVerifySelected.map((artistName) =>
-            supabase.from("tickets").insert({
+          artistProfileVerifySelected.map(async (artistName) => {
+            const { data: newTicket } = await supabase.from("tickets").insert({
               tab_id: apTab.id,
               data: { releaseId: data.did, artistName, email: "", ...artistProfileTypes },
               status: apTab.default_status,
               status_log: { [apTab.default_status]: new Date().toISOString() },
               requester_segment: form.requester_segment || null,
-            })
-          )
+              // Round 281 — audit log / requester attribution
+              requester_profile_id: profile?.id || null,
+            }).select("id").single();
+            // Round 281 — audit log / requester attribution
+            if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
+          })
         );
       }
     }
@@ -492,13 +521,17 @@ export default function NewReleasePage() {
     if (form.gate_pre_order === "true") {
       const { data: poTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "pre_order_itunes").single();
       if (poTab) {
-        await supabase.from("tickets").insert({
+        const { data: newTicket } = await supabase.from("tickets").insert({
           tab_id: poTab.id,
           data: { releaseId: data.did },
           status: poTab.default_status,
           status_log: { [poTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
-        });
+          // Round 281 — audit log / requester attribution
+          requester_profile_id: profile?.id || null,
+        }).select("id").single();
+        // Round 281 — audit log / requester attribution
+        if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
       }
     }
 
@@ -508,13 +541,17 @@ export default function NewReleasePage() {
     if (form.gate_lyric_musixmatch === "true") {
       const { data: pslTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "priority_sync_lyric").single();
       if (pslTab) {
-        await supabase.from("tickets").insert({
+        const { data: newTicket } = await supabase.from("tickets").insert({
           tab_id: pslTab.id,
           data: { releaseId: data.did },
           status: pslTab.default_status,
           status_log: { [pslTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
-        });
+          // Round 281 — audit log / requester attribution
+          requester_profile_id: profile?.id || null,
+        }).select("id").single();
+        // Round 281 — audit log / requester attribution
+        if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
       }
     }
 
@@ -523,13 +560,17 @@ export default function NewReleasePage() {
     if (form.gate_mv_spotify === "true") {
       const { data: mvTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "mv_spotify").single();
       if (mvTab) {
-        await supabase.from("tickets").insert({
+        const { data: newTicket } = await supabase.from("tickets").insert({
           tab_id: mvTab.id,
           data: { releaseId: data.did },
           status: mvTab.default_status,
           status_log: { [mvTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
-        });
+          // Round 281 — audit log / requester attribution
+          requester_profile_id: profile?.id || null,
+        }).select("id").single();
+        // Round 281 — audit log / requester attribution
+        if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
       }
     }
 
@@ -540,13 +581,17 @@ export default function NewReleasePage() {
     if (form.gate_co_trong_net_youtube === "true") {
       const { data: ctnTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "co_trong_net_youtube").single();
       if (ctnTab) {
-        await supabase.from("tickets").insert({
+        const { data: newTicket } = await supabase.from("tickets").insert({
           tab_id: ctnTab.id,
           data: { releaseId: data.did, ...coTrongNetDraft },
           status: ctnTab.default_status,
           status_log: { [ctnTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
-        });
+          // Round 281 — audit log / requester attribution
+          requester_profile_id: profile?.id || null,
+        }).select("id").single();
+        // Round 281 — audit log / requester attribution
+        if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
       }
     }
 
@@ -558,13 +603,17 @@ export default function NewReleasePage() {
     if (form.gate_discovery_mode_spotify === "true") {
       const { data: dmTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "discovery_mode_spotify").single();
       if (dmTab) {
-        await supabase.from("tickets").insert({
+        const { data: newTicket } = await supabase.from("tickets").insert({
           tab_id: dmTab.id,
           data: { releaseId: data.did },
           status: dmTab.default_status,
           status_log: { [dmTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
-        });
+          // Round 281 — audit log / requester attribution
+          requester_profile_id: profile?.id || null,
+        }).select("id").single();
+        // Round 281 — audit log / requester attribution
+        if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
       }
     }
 
@@ -576,37 +625,49 @@ export default function NewReleasePage() {
     if (form.gate_split_share === "true") {
       const { data: ssTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "split_share").single();
       if (ssTab) {
-        await supabase.from("tickets").insert({
+        const { data: newTicket } = await supabase.from("tickets").insert({
           tab_id: ssTab.id,
           data: { releaseId: data.did },
           status: ssTab.default_status,
           status_log: { [ssTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
-        });
+          // Round 281 — audit log / requester attribution
+          requester_profile_id: profile?.id || null,
+        }).select("id").single();
+        // Round 281 — audit log / requester attribution
+        if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
       }
     }
     if (form.gate_phu_luc_mg === "true") {
       const { data: mgTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "phu_luc_mg").single();
       if (mgTab) {
-        await supabase.from("tickets").insert({
+        const { data: newTicket } = await supabase.from("tickets").insert({
           tab_id: mgTab.id,
           data: { releaseId: data.did },
           status: mgTab.default_status,
           status_log: { [mgTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
-        });
+          // Round 281 — audit log / requester attribution
+          requester_profile_id: profile?.id || null,
+        }).select("id").single();
+        // Round 281 — audit log / requester attribution
+        if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
       }
     }
     if (form.gate_phu_luc_publishing === "true") {
       const { data: pubTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "phu_luc_publishing").single();
       if (pubTab) {
-        await supabase.from("tickets").insert({
+        const { data: newTicket } = await supabase.from("tickets").insert({
           tab_id: pubTab.id,
           data: { releaseId: data.did },
           status: pubTab.default_status,
           status_log: { [pubTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
-        });
+          // Round 281 — audit log / requester attribution
+          requester_profile_id: profile?.id || null,
+        }).select("id").single();
+        // Round 281 — audit log / requester attribution
+        if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
       }
     }
 
@@ -621,13 +682,17 @@ export default function NewReleasePage() {
     if (form.gate_publishing === "true" && (form.publishing_gia_tri || "").trim() !== "") {
       const { data: pubTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "publishing").single();
       if (pubTab) {
-        await supabase.from("tickets").insert({
+        const { data: newTicket } = await supabase.from("tickets").insert({
           tab_id: pubTab.id,
-          data: { releaseId: data.id, giaTri: form.publishing_gia_tri },
+          data: { releaseId: data.id, giaTri: form.publishing_gia_tri, composer: (form.publishing_composer || "").trim() || null },
           status: pubTab.default_status,
           status_log: { [pubTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
-        });
+          // Round 281 — audit log / requester attribution
+          requester_profile_id: profile?.id || null,
+        }).select("id").single();
+        // Round 281 — audit log / requester attribution
+        if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
       }
     }
 
@@ -646,20 +711,28 @@ export default function NewReleasePage() {
     if (form.gate_sony_publish === "true" && REQUIRED_META_KEYS.every((k) => form[k] === "true")) {
       const { data: spTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "sony_publish").single();
       if (spTab) {
-        await supabase.from("tickets").insert({
+        const { data: newTicket } = await supabase.from("tickets").insert({
           tab_id: spTab.id,
           data: { releaseId: data.did },
           status: spTab.default_status,
           status_log: { [spTab.default_status]: new Date().toISOString() },
           requester_segment: form.requester_segment || null,
-        });
+          // Round 281 — audit log / requester attribution
+          requester_profile_id: profile?.id || null,
+        }).select("id").single();
+        // Round 281 — audit log / requester attribution
+        if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
       }
       const { data: uploadTab } = await supabase.from("ticket_tabs").select("id").eq("key", "newrelease_upload").single();
       if (uploadTab) {
-        await supabase.from("tickets").insert({
+        const { data: newUploadTicket } = await supabase.from("tickets").insert({
           tab_id: uploadTab.id,
           data: { releaseId: data.did, project: form.title, artist: form.main_artist, label: form.label },
-        });
+          // Round 281 — audit log / requester attribution
+          requester_profile_id: profile?.id || null,
+        }).select("id").single();
+        // Round 281 — audit log / requester attribution
+        if (newUploadTicket) logTicketCreate({ actor: profile?.id, ticketId: newUploadTicket.id });
       }
       await supabase.from("releases").update({ requested: true }).eq("id", data.id);
     }
@@ -1224,7 +1297,9 @@ export default function NewReleasePage() {
             className={styles.btnPrimary}
             disabled={submitting}
             onClick={(e) => handleSubmit(e, "detail")}
-            style={{ position: "fixed", bottom: 24, right: 24, zIndex: 250, boxShadow: "0 4px 16px rgba(0,0,0,0.45)" }}
+            // Round 284 — bumped up by --bottombar-height, same fix as
+            // app/releases/[id]/page.js's floating Save button.
+            style={{ position: "fixed", bottom: "calc(var(--bottombar-height) + 24px)", right: 24, zIndex: 250, boxShadow: "0 4px 16px rgba(0,0,0,0.45)" }}
           >
             {submitting ? "Đang tạo…" : "Tạo Release"}
           </button>

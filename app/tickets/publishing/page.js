@@ -6,12 +6,17 @@ import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { fmtDate, statusColor } from "../../../lib/helpers";
+import { useAuth } from "../../../lib/AuthContext";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
+// Round 282 — audit log / requester attribution. No deadline field is
+// shown or edited on this list (only set once at creation, in
+// new/page.js) — nothing to hook logDeadlineChange onto here.
+import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 
 // Round 72 — a genuinely separate ticket type from Phụ Lục Publishing
 // (round 71 mistakenly conflated the two — reverted). Built the exact
@@ -38,6 +43,7 @@ function publishingStatus(r) {
 }
 
 export default function PublishingList() {
+  const { profile } = useAuth();
   const [tickets, setTickets] = useState([]);
   const [releases, setReleases] = useState({}); // id -> release
   const [profiles, setProfiles] = useState([]);
@@ -47,7 +53,10 @@ export default function PublishingList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "Legal"))); // round 78
+    // Round 290 — OPS added alongside Legal as an assignable executor
+    // team, per explicit request ("add ops team as executor beside
+    // legal"). filterProfilesByTeam already supports an array of teams.
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], ["Legal", "OPS"])));
   }, []);
 
   async function load() {
@@ -92,6 +101,8 @@ export default function PublishingList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id, after: profileId || null });
   }
 
   async function updateStatus(t, newStatus) {
@@ -107,6 +118,10 @@ export default function PublishingList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution. No tab row is loaded
+    // on this page (status options are the hardcoded list below), so
+    // statusOptions is left undefined.
+    logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus, statusOptions: undefined });
   }
 
   const visibleTickets = tickets.filter((t) => matchesQuery({ ...t, release: releases[t.data?.releaseId] }, query));
@@ -143,7 +158,7 @@ export default function PublishingList() {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>#</th><th>Ngày Order</th><th>Release</th><th>Giá Trị Publishing</th><th>Mã Publishing</th><th>PIC</th>
+                <th>#</th><th>Ngày Order</th><th>Release</th><th>Tỉ Lệ Sở Hữu</th><th>Mã Publishing</th><th>Composer</th><th>PIC</th>
                 <th>Status</th><th>Publishing Status</th><th>URL Publishing</th><th>Ngày Gửi</th><th>Ngày Ký</th>
               </tr>
             </thead>
@@ -167,6 +182,7 @@ export default function PublishingList() {
                     </td>
                     <td>{t.data?.giaTri || "—"}</td>
                     <td>{t.data?.maPL || "—"}</td>
+                    <td>{t.data?.composer || "—"}</td>
                     <td>
                       <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={t.pic_profile_id || ""} onChange={(e) => updatePic(t, e.target.value)}>
                         <option value="">— Unassigned —</option>

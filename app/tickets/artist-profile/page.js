@@ -14,6 +14,7 @@ import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import { requestTypeLabel, isLegacyTicket } from "../../../lib/artistProfileRequestTypes";
 import NewArtistProfileTicketPopup from "../../../lib/NewArtistProfileTicketPopup";
 import ArtistProfileEditPopup from "../../../lib/ArtistProfileEditPopup";
+import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 import styles from "../../shared.module.css";
 
 // Round 172 — bespoke (not the generic TicketListPage), same reason as
@@ -55,7 +56,7 @@ export default function ArtistProfileTicketList() {
     if (!statusFilter) setStatusFilter(tabRow.status_options[0]);
     const { data: tix } = await supabase
       .from("tickets")
-      .select("*, profiles(name)")
+      .select("*, profiles!tickets_pic_profile_id_fkey(name)")
       .eq("tab_id", tabRow.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -71,6 +72,7 @@ export default function ArtistProfileTicketList() {
 
   async function updatePic(t, profileId) {
     const patch = { pic_profile_id: profileId || null };
+    const prevStatus = t.status;
     if (profileId && t.status === tab.default_status) {
       const nextStatus = tab.status_options[1];
       if (nextStatus) { patch.status = nextStatus; patch.status_log = { ...t.status_log, [nextStatus]: new Date().toISOString() }; }
@@ -78,6 +80,11 @@ export default function ArtistProfileTicketList() {
     const pic = profiles.find((p) => p.id === profileId);
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch, profiles: pic ? { name: pic.name } : null } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id || null, after: patch.pic_profile_id });
+    if (patch.status) {
+      logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus, newStatus: patch.status, statusOptions: tab?.status_options });
+    }
   }
 
   async function updateStatus(t, newStatus) {
@@ -92,6 +99,8 @@ export default function ArtistProfileTicketList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus, statusOptions: tab?.status_options });
   }
 
   const visibleTickets = isExecutorView ? tickets.filter((t) => t.status === statusFilter) : tickets;

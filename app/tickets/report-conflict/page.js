@@ -62,6 +62,8 @@ import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import { useIsMobile } from "../../../lib/useIsMobile";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import styles from "../../shared.module.css";
+// Round 282 — audit log / requester attribution
+import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 
 const REQUESTER_TEAM = "AR";
 const EXECUTOR_TEAM = "OPS";
@@ -222,10 +224,12 @@ export default function ReportConflictPage() {
     if (!tabRow) { setLoading(false); return; }
     setTab(tabRow);
     if (!statusFilter) setStatusFilter(VISIBLE_STATUSES[0]);
-    // Round 145 — profiles(name) join restored alongside PIC.
+    // Round 145 — profiles(name) join restored alongside PIC. Round 283 —
+    // explicit FK hint added (tickets now has a second FK to profiles via
+    // requester_profile_id, so the bare embed became ambiguous).
     const { data } = await supabase
       .from("tickets")
-      .select("*, profiles(name)")
+      .select("*, profiles!tickets_pic_profile_id_fkey(name)")
       .eq("tab_id", tabRow.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -251,6 +255,8 @@ export default function ReportConflictPage() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus, statusOptions: VISIBLE_STATUSES });
   }
 
   // Round 145 — restored, same behavior the generic engine had: picking a
@@ -269,6 +275,9 @@ export default function ReportConflictPage() {
     const pic = profiles.find((p) => p.id === profileId);
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch, profiles: pic ? { name: pic.name } : null } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id || null, after: profileId || null });
+    if (patch.status) logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus: patch.status, statusOptions: VISIBLE_STATUSES });
   }
 
   const visibleTickets = useMemo(() => {

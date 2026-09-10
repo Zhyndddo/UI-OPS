@@ -5,16 +5,21 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../../../lib/supabaseClient";
+import { useAuth } from "../../../../lib/AuthContext";
 import styles from "../../../shared.module.css";
+// Round 282 — audit log / requester attribution
+import { logTicketCreate } from "../../../../lib/auditLog";
 
 export default function NewPublishingTicket() {
   const router = useRouter();
+  const { profile } = useAuth();
   const [releases, setReleases] = useState([]);
   const [releaseId, setReleaseId] = useState("");
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [giaTri, setGiaTri] = useState("");
   const [maPL, setMaPL] = useState("");
+  const [composer, setComposer] = useState(""); // Round 290 — free text for now
   const [vcpmc, setVcpmc] = useState(false);
   const [deadline, setDeadline] = useState("");
   const [error, setError] = useState(null);
@@ -48,7 +53,7 @@ export default function NewPublishingTicket() {
     e.preventDefault();
     setError(null);
     if (!releaseId || !giaTri.trim()) {
-      setError("Release and Giá Trị Publishing are required.");
+      setError("Release and Tỉ Lệ Sở Hữu are required.");
       return;
     }
     setSubmitting(true);
@@ -70,14 +75,22 @@ export default function NewPublishingTicket() {
       setError("A Publishing ticket for this release already exists — only one is allowed per release.");
       return;
     }
-    const { error: insertErr } = await supabase.from("tickets").insert({
+    const { data: newTicket, error: insertErr } = await supabase.from("tickets").insert({
       tab_id: tab.id,
-      data: { releaseId, giaTri, maPL, vcpmcDocQuyen: vcpmc },
+      data: { releaseId, giaTri, maPL, vcpmcDocQuyen: vcpmc, composer: composer.trim() || null },
       deadline: deadline || null,
-    });
+      // Round 282 — audit log / requester attribution. No requester_segment/
+      // requester_name were ever set on this bespoke form — only adding the
+      // new additive column here, leaving that gap as-is.
+      requester_profile_id: profile?.id || null,
+    }).select("id").single();
     setSubmitting(false);
     if (insertErr) setError(insertErr.message);
-    else router.push("/tickets/publishing");
+    else {
+      // Round 282 — audit log / requester attribution
+      logTicketCreate({ actor: profile?.id, ticketId: newTicket?.id });
+      router.push("/tickets/publishing");
+    }
   }
 
   return (
@@ -124,7 +137,7 @@ export default function NewPublishingTicket() {
 
           <div className={styles.grid2}>
             <div className={styles.field}>
-              <label className={styles.fieldLabel}>Giá Trị Publishing <span className={styles.required}>*</span></label>
+              <label className={styles.fieldLabel}>Tỉ Lệ Sở Hữu <span className={styles.required}>*</span></label>
               <input className={styles.input} value={giaTri} onChange={(e) => setGiaTri(e.target.value)} />
             </div>
             <div className={styles.field}>
@@ -134,6 +147,16 @@ export default function NewPublishingTicket() {
             <div className={styles.field}>
               <label className={styles.fieldLabel}>Deadline</label>
               <input type="date" className={styles.input} value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+            </div>
+            {/* Round 290 — Composer, per explicit request, free text for
+                now. Mirrors the release detail page's own gate_publishing
+                popup, which now collects the same field (see
+                lib/GateFields.js's TEXT_GATE_FIELDS) — this manual-create
+                form gets its own independent input into the same
+                data.composer slot. */}
+            <div className={styles.field}>
+              <label className={styles.fieldLabel}>Composer</label>
+              <input className={styles.input} value={composer} onChange={(e) => setComposer(e.target.value)} />
             </div>
           </div>
 

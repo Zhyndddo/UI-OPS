@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
+import { useAuth } from "../../../lib/AuthContext";
 import { fmtDate, uploadPercent } from "../../../lib/helpers";
 import SonyPublishLockRow from "../../../lib/SonyPublishLockRow";
 import { useSonyPublishDids } from "../../../lib/useSonyPublishDids";
@@ -11,8 +12,10 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import LinkLbmSourceBadge from "../../../lib/LinkLbmSourceBadge";
 import StatusCounter from "../../../lib/StatusCounter";
-import { sortByReleaseDateDesc, isThisWeekOrNext, filterProfilesByTeam } from "../../../lib/workstationHelpers";
-import { rowHighlightColor } from "../../../lib/releaseDateHighlight";
+import { sortByReleaseDateDesc, isThisWeekOrNext, filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/workstationHelpers";
+import { logPicReassign } from "../../../lib/auditLog";
+import { rowHighlightColor, DATE_HIGHLIGHT_LEGEND } from "../../../lib/releaseDateHighlight";
+import ColorLegend from "../../../lib/ColorLegend";
 import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { usePagination } from "../../../lib/usePagination";
@@ -51,6 +54,7 @@ export default function UploadWorkstation() {
   // on the ticket itself is the actual source of truth.
   const [priorityDids, setPriorityDids] = useState(new Set());
   const sonyPublishDids = useSonyPublishDids();
+  const { profile } = useAuth();
 
   useEffect(() => {
     if (!supabase) return;
@@ -93,6 +97,31 @@ export default function UploadWorkstation() {
     setDefaultPic(def);
     setAssignments(map);
 
+    // Round 281 — auto-assign unassigned rows to team lead/admin, see
+    // lib/workstationHelpers.js. Fire-and-forget after load, not awaited
+    // here — don't block the page's first render on it. Only releases with
+    // no per-release row (not in `map`) are genuinely unassigned; the
+    // workstation-wide default (`def`) is a display fallback only, not a
+    // real per-release assignment (see app/task-table/page.js's counting
+    // logic), so it doesn't count as "already assigned" here.
+    const scopedProfs = filterProfilesByTeam(profs || [], "OPS");
+    Promise.all(
+      (rels || [])
+        .filter((r) => map[r.id] == null)
+        .map((r) =>
+          autoAssignUnassigned({
+            profiles: scopedProfs,
+            segment: "OPS",
+            entity: "workstation_assignment",
+            entityId: `upload:${r.id}`,
+            write: async (profileId) => {
+              await supabase.from("workstation_assignments").insert({ workstation: "upload", column_key: "all", release_id: r.id, pic_profile_id: profileId });
+              setAssignments((prev) => (prev[r.id] != null ? prev : { ...prev, [r.id]: profileId }));
+            },
+          })
+        )
+    );
+
     // Round 274 — Priority Pitching dids, for UploadRow's Apple ID field.
     // t.data.releaseId is (despite the name) the release's `did`, same
     // field the Pitching workstation itself matches on.
@@ -122,7 +151,11 @@ export default function UploadWorkstation() {
   }
 
   async function updatePic(release, profileId) {
+    const before = assignments[release.id] ?? null;
     setAssignments((prev) => ({ ...prev, [release.id]: profileId || undefined }));
+    // Round 281 — manual PIC reassignment audit trail (separate from the
+    // auto-assign case above, which logs itself via autoAssignUnassigned).
+    logPicReassign({ actor: profile?.id, entity: "workstation_assignment", entityId: release.id, before, after: profileId || null });
     if (!profileId) {
       await supabase.from("workstation_assignments").delete().eq("workstation", "upload").eq("release_id", release.id);
       return;
@@ -186,7 +219,15 @@ export default function UploadWorkstation() {
           >
             {showDone ? "Hide done rows" : `Show done rows (${counts.done})`}
           </button>
-          <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
+            <ColorLegend
+              entries={[
+                ...DATE_HIGHLIGHT_LEGEND,
+                { color: "var(--missing-highlight)", label: "Still-empty required field (UPC/Apple ID/Link Drive/Link LBM/Link Share/Smartlink)" },
+              ]}
+            />
+          </div>
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
@@ -357,6 +398,14 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, dateHighligh
         <Link href={`/releases/${release.id}`} className={styles.rowLink} style={linkColor ? { color: linkColor } : undefined}>{release.title}</Link>
         {highlight && <span style={{ marginLeft: 6, fontSize: 9, color: "var(--accent)", fontWeight: 700 }}>THIS/NEXT WEEK</span>}
         <div style={{ fontSize: 11, color: faintColor }}>{release.main_artist} · {release.did} · {fmtDate(release.release_date)} {release.release_time}</div>
+        {/* Round 280 — second entry point for creating a Bổ Sung DATA
+            ticket, per explicit spec ("ticket create button have two
+            place, one on the ticket page, another on the new release
+            setup workstation"). Pre-fills the release so OPS doesn't have
+            to search for it again right after looking at this row. */}
+        <Link href={`/tickets/bo-sung-data/new?releaseId=${encodeURIComponent(release.did)}`} className={styles.btnSmall} style={{ display: "inline-block", marginTop: 4, fontSize: 10, textDecoration: "none" }}>
+          + Bổ Sung DATA
+        </Link>
       </td>
       <td style={{ minWidth: 180, ...missingHighlightStyle(drafts.link_lbm) }}>
         <UrlField styles={styles} value={drafts.link_lbm} onChange={(v) => setDrafts((d) => ({ ...d, link_lbm: v }))} onBlur={() => onUpdateField(release, "link_lbm", drafts.link_lbm)} />

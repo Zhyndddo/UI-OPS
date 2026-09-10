@@ -9,6 +9,8 @@ import { useAuth } from "../../../../lib/AuthContext";
 import ReleasePicker from "../../../../lib/ReleasePicker";
 import { fmtDate } from "../../../../lib/helpers";
 import styles from "../../../shared.module.css";
+// Round 282 — audit log / requester attribution
+import { logTicketCreate } from "../../../../lib/auditLog";
 
 // Bespoke manual-creation form per explicit spec — "only have 5 fields
 // DID (search-able, auto fill the others), url LBM, name of product,
@@ -72,17 +74,23 @@ export default function DiscoveryModeSpotifyNewTicket() {
     if (linkLbm.trim()) {
       await supabase.from("releases").update({ link_lbm: linkLbm.trim() }).eq("id", release.id);
     }
-    const { error: insertErr } = await supabase.from("tickets").insert({
+    const { data: newTicket, error: insertErr } = await supabase.from("tickets").insert({
       tab_id: tab.id,
       data: { releaseId: release.did },
       status: tab.default_status,
       status_log: { [tab.default_status]: new Date().toISOString() },
       requester_segment: profile?.segment || null,
       requester_name: profile?.name || null,
-    });
+      // Round 282 — audit log / requester attribution
+      requester_profile_id: profile?.id || null,
+    }).select("id").single();
     setSubmitting(false);
     if (insertErr) setError(insertErr.message);
-    else router.push("/tickets/discovery-mode-spotify");
+    else {
+      // Round 282 — audit log / requester attribution
+      logTicketCreate({ actor: profile?.id, ticketId: newTicket?.id });
+      router.push("/tickets/discovery-mode-spotify");
+    }
   }
 
   return (

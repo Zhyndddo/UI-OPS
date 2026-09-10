@@ -4,18 +4,21 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
+import { useAuth } from "../../../lib/AuthContext";
 import { fmtDate } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import StatusCounter from "../../../lib/StatusCounter";
-import { sortByReleaseDateDesc, filterProfilesByTeam } from "../../../lib/workstationHelpers";
+import { sortByReleaseDateDesc, filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/workstationHelpers";
+import { logPicReassign } from "../../../lib/auditLog";
 import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import { MV_TYPE_OPTIONS } from "../../../lib/pickerOptions";
-import { rowHighlightColor } from "../../../lib/releaseDateHighlight";
+import { rowHighlightColor, DATE_HIGHLIGHT_LEGEND } from "../../../lib/releaseDateHighlight";
+import ColorLegend from "../../../lib/ColorLegend";
 import SonyPublishLockRow from "../../../lib/SonyPublishLockRow";
 import { useSonyPublishDids } from "../../../lib/useSonyPublishDids";
 import styles from "../../shared.module.css";
@@ -79,6 +82,7 @@ export default function PreReleaseWorkstation() {
   const [showDone, setShowDone] = useState(false);
   const [query, setQuery] = useState(""); // round 76 — quick index search box
   const sonyPublishDids = useSonyPublishDids();
+  const { profile } = useAuth();
 
   useEffect(() => {
     if (!supabase) return;
@@ -115,6 +119,27 @@ export default function PreReleaseWorkstation() {
     setDefaultPic(def);
     setAssignments(map);
 
+    // Round 281 — auto-assign unassigned rows to team lead/admin, see
+    // lib/workstationHelpers.js. Fire-and-forget, not awaited here — don't
+    // block the page's first render on it.
+    const scopedProfs = filterProfilesByTeam(profs || [], "OPS");
+    Promise.all(
+      (rels || [])
+        .filter((r) => map[r.id] == null)
+        .map((r) =>
+          autoAssignUnassigned({
+            profiles: scopedProfs,
+            segment: "OPS",
+            entity: "workstation_assignment",
+            entityId: `pre_release:${r.id}`,
+            write: async (profileId) => {
+              await supabase.from("workstation_assignments").insert({ workstation: "pre_release", column_key: "all", release_id: r.id, pic_profile_id: profileId });
+              setAssignments((prev) => (prev[r.id] != null ? prev : { ...prev, [r.id]: profileId }));
+            },
+          })
+        )
+    );
+
     setLoading(false);
   }
 
@@ -124,7 +149,11 @@ export default function PreReleaseWorkstation() {
   }
 
   async function updatePic(releaseId, profileId) {
+    const before = assignments[releaseId] ?? null;
     setAssignments((prev) => ({ ...prev, [releaseId]: profileId || undefined }));
+    // Round 281 — manual PIC reassignment audit trail (separate from the
+    // auto-assign case above, which logs itself via autoAssignUnassigned).
+    logPicReassign({ actor: profile?.id, entity: "workstation_assignment", entityId: releaseId, before, after: profileId || null });
     if (!profileId) {
       await supabase.from("workstation_assignments").delete().eq("workstation", "pre_release").eq("release_id", releaseId);
       return;
@@ -168,7 +197,15 @@ export default function PreReleaseWorkstation() {
           <button onClick={() => setShowDone((s) => !s)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
             {showDone ? "Hide done rows" : `Show done rows (${counts.done})`}
           </button>
-          <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
+            <ColorLegend
+              entries={[
+                ...DATE_HIGHLIGHT_LEGEND,
+                { color: "var(--missing-highlight)", label: "Still-empty required field (Canva MV/Canva/Musixmatch/MM Link/NCT Lyric/Zing Lyric)" },
+              ]}
+            />
+          </div>
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>

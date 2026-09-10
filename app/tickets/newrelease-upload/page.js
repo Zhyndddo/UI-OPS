@@ -6,14 +6,20 @@ import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { fmtDate, statusColor } from "../../../lib/helpers";
+import { useAuth } from "../../../lib/AuthContext";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import NotePopup from "../../../lib/ReleaseNotePopup";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import styles from "../../shared.module.css";
+// Round 282 — audit log / requester attribution. No deadline-change log
+// here — this list only ever displays t.deadline (fmtDate), it's never
+// edited from this page (only set once at creation, in new/page.js).
+import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 
 export default function NewreleaseUploadList() {
+  const { profile } = useAuth();
   const [tickets, setTickets] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [releasesByDid, setReleasesByDid] = useState({});
@@ -66,6 +72,11 @@ export default function NewreleaseUploadList() {
     if (newStatus === "REFUND") patch.pic_profile_id = null;
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution. No tab row is loaded
+    // on this page (status options are the hardcoded list below), so
+    // statusOptions is left undefined — logTicketStatusChange falls back
+    // to a plain "status_change" classification per its own doc comment.
+    logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus, statusOptions: undefined });
   }
 
   async function updatePic(t, profileId) {
@@ -76,6 +87,8 @@ export default function NewreleaseUploadList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id, after: profileId || null });
   }
 
   const visibleTickets = tickets.filter((t) => matchesQuery({ ...t, release: releasesByDid[t.data?.releaseId] }, query));

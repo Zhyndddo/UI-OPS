@@ -5,12 +5,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../../../lib/supabaseClient";
+import { useAuth } from "../../../../lib/AuthContext";
 import styles from "../../../shared.module.css";
+// Round 282 — audit log / requester attribution
+import { logTicketCreate } from "../../../../lib/auditLog";
 
 const EMPTY = { releaseId: "", upc: "", label: "", project: "", artist: "", featureArtist: "", drive: "", note: "" };
 
 export default function NewNewreleaseUploadTicket() {
   const router = useRouter();
+  const { profile } = useAuth();
   const [form, setForm] = useState(EMPTY);
   const [deadline, setDeadline] = useState("");
   const [error, setError] = useState(null);
@@ -34,14 +38,22 @@ export default function NewNewreleaseUploadTicket() {
       setError("Couldn't find the Newrelease Upload ticket type — did schema.sql get redeployed?");
       return;
     }
-    const { error: insertErr } = await supabase.from("tickets").insert({
+    const { data: newTicket, error: insertErr } = await supabase.from("tickets").insert({
       tab_id: tab.id,
       data: form,
       deadline: deadline || null,
-    });
+      // Round 282 — audit log / requester attribution. No requester_segment/
+      // requester_name were ever set on this bespoke form — only adding the
+      // new additive column here, leaving that gap as-is.
+      requester_profile_id: profile?.id || null,
+    }).select("id").single();
     setSubmitting(false);
     if (insertErr) setError(insertErr.message);
-    else router.push("/tickets/newrelease-upload");
+    else {
+      // Round 282 — audit log / requester attribution
+      logTicketCreate({ actor: profile?.id, ticketId: newTicket?.id });
+      router.push("/tickets/newrelease-upload");
+    }
   }
 
   return (

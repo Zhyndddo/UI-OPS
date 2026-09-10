@@ -15,6 +15,7 @@ import {
   DEFAULT_DESIGN_NOTIFICATION_TEMPLATES,
 } from "../../../../lib/designFlow";
 import { resolveProfilesByRole } from "../../../../lib/pingNotification";
+import { logTicketCreate } from "../../../../lib/auditLog"; // Round 282 — audit log / requester attribution
 import styles from "../../../shared.module.css";
 
 const REQUEST_TYPES = ["New Design", "Revision", "Resize"];
@@ -129,12 +130,19 @@ export default function NewDesignTicket() {
       status_log: { [status]: new Date().toISOString() },
       requester_segment: requestedByProfile?.segment || profile?.segment || null,
       requester_name: requestedByProfile?.name || null,
+      // Round 282 — audit log / requester attribution. Additive alongside
+      // the existing free-text requester_segment/requester_name above
+      // (untouched, still driven by the "Requested By" picker) — this is
+      // the id of whoever actually submitted this form, per profiles.id.
+      requester_profile_id: profile?.id || null,
     }).select().single();
     setSubmitting(false);
     if (insertErr || !created) {
       setError(insertErr?.message || "Couldn't create the request.");
       return;
     }
+    // Round 282 — audit log / requester attribution
+    logTicketCreate({ actor: profile?.id, ticketId: created.id });
     // Urgent creation notice to dev — the generic ticket-insert DB trigger
     // already fans a plain "new Design ticket" notice out to the Design
     // team (ticket_tabs.executor_team='Design'); this is the ADDITIONAL

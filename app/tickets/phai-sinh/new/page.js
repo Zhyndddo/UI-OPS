@@ -14,6 +14,8 @@ import { PHAI_SINH_TYPE_OPTIONS, isKhoNhacType } from "../../../../lib/phaiSinhT
 import CopyrightChecklistFields from "../../../../lib/CopyrightChecklistFields";
 import { emptyCopyrightChecklist, mushCopyrightChecklistToText } from "../../../../lib/copyrightChecklist";
 import styles from "../../../shared.module.css";
+// Round 282 — audit log / requester attribution
+import { logTicketCreate } from "../../../../lib/auditLog";
 
 // Round 41 — Phái Sinh and Phái Sinh (Batch) merged into one ticket type,
 // one form. Type now drives which flow renders: "Phái sinh" is the
@@ -137,6 +139,8 @@ export default function PhaiSinhNewTicket() {
           status_log: { [tab.default_status]: new Date().toISOString() },
           requester_segment: profile?.segment || null,
           requester_name: profile?.name || null,
+          // Round 282 — audit log / requester attribution
+          requester_profile_id: profile?.id || null,
         })
         .select()
         .single();
@@ -145,6 +149,8 @@ export default function PhaiSinhNewTicket() {
         setError(insertErr?.message || "Couldn't create the ticket.");
         return;
       }
+      // Round 282 — audit log / requester attribution
+      logTicketCreate({ actor: profile?.id, ticketId: created.id });
       const { error: itemsErr } = await supabase.from("phai_sinh_batch_items").insert(
         importedRows.map((r) => ({ ...r, batch_ticket_id: created.id }))
       );
@@ -191,7 +197,7 @@ export default function PhaiSinhNewTicket() {
     if (lyricist.trim()) data.lyricist = lyricist;
     if (mixer.trim()) data.mixer = mixer;
 
-    const { error: insertErr } = await supabase.from("tickets").insert({
+    const { data: created, error: insertErr } = await supabase.from("tickets").insert({
       tab_id: tab.id,
       data,
       deadline: deadline || null,
@@ -199,10 +205,16 @@ export default function PhaiSinhNewTicket() {
       status_log: { [tab.default_status]: new Date().toISOString() },
       requester_segment: profile?.segment || null,
       requester_name: profile?.name || null,
-    });
+      // Round 282 — audit log / requester attribution
+      requester_profile_id: profile?.id || null,
+    }).select().single();
     setSubmitting(false);
     if (insertErr) setError(insertErr.message);
-    else router.push("/tickets/phai-sinh");
+    else {
+      // Round 282 — audit log / requester attribution
+      if (created) logTicketCreate({ actor: profile?.id, ticketId: created.id });
+      router.push("/tickets/phai-sinh");
+    }
   }
 
   // Shared between the batch form and the single-song form below — same

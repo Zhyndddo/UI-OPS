@@ -150,9 +150,18 @@ function adsAllViewStatus(release, bookedFor, entries, categoryIdByName) {
       const booked = bookedFor(release, "Ads", brand, metric, null);
       if (booked == null || booked <= 0) return; // no target — doesn't count either way
       anyTarget = true;
-      const added = entries
-        .filter((e) => e.release_id === release.id && e.category_id === categoryId && (e.channel_name || "") === brand && (e.platform || "") === metric)
-        .reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
+      const matchingEntries = entries.filter((e) => e.release_id === release.id && e.category_id === categoryId && (e.channel_name || "") === brand && (e.platform || "") === metric);
+      // Round 286 — a metric shown "Cancel" (forced status, see AdsCell's
+      // locked branch — the YouTube Ads column when "Có Trong Net YouTube"
+      // isn't ticked, but any Ads metric can end up here if that same
+      // status is ever set another way) never gets a real result number —
+      // nothing more is coming for it — so it used to sit as permanently
+      // "not done" and drag the whole release's Ads status down forever
+      // even though there's nothing left to do. Per explicit request:
+      // count a canceled metric as satisfied, same as one that hit its
+      // target.
+      if (matchingEntries.some((e) => e.status === "Cancel")) { anyDone = true; return; }
+      const added = matchingEntries.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
       if (added >= booked) anyDone = true;
       else allDoneOrUntargeted = false;
     });
@@ -841,6 +850,23 @@ export default function BookingBoard() {
       if (c.categoryName === "Ads" && c.brand === null) {
         return adsAllViewStatus(r, bookedFor, roundEntries, categoryIdByName) === true;
       }
+      // Round 286 — same "Cancel" fix as adsAllViewStatus, for a specific
+      // Ads brand's own columns (drilled in, not the "All" aggregate
+      // above): a canceled metric never gets a real result number, so it
+      // used to hold the release as permanently "not done." Counts as
+      // satisfied instead, same as hitting the target.
+      if (c.categoryName === "Ads") {
+        const categoryId = categoryIdByName[c.categoryName];
+        const canceled = roundEntries.some((e) =>
+          e.release_id === r.id &&
+          e.category_id === categoryId &&
+          (c.brand === null || (e.channel_name || "") === (c.brand || "")) &&
+          (c.platform == null || (e.platform || "") === c.platform) &&
+          (c.subchannelType == null || (e.subchannel_type || "") === c.subchannelType) &&
+          e.status === "Cancel"
+        );
+        if (canceled) return true;
+      }
       const booked = bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType);
       const added = addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries);
       return added >= booked;
@@ -927,25 +953,55 @@ export default function BookingBoard() {
 
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(filteredReleases);
 
-  // Per-round release counts (INT / Đợt 1 / Đợt 2) — replaces the old
-  // Done/Đang Booking/Chưa Booking status counters, per explicit request.
-  // Mirrors roundFilteredReleases' own membership rules exactly, but
-  // computed for all three rounds at once (not just the currently-picked
-  // one) so all four stat cards can show simultaneously. INT and Đợt 1 are
-  // mutually exclusive (same isIntType branching as roundFilteredReleases);
-  // Đợt 2 membership is independent (dot2ReleaseIds), so a release can
-  // count toward both Đợt 1 and Đợt 2 at once, same as before.
+  // Per-round release counts (INT / Đợt 1 / Đợt 2), scoped to whatever's
+  // currently in view. Round 286 — used to run off the raw unfiltered
+  // `releases` array (every release ever, ignoring every filter on the
+  // board), per explicit request that was wrong: "the counter change from
+  // count from everything to count only what is filtering." Now sources
+  // filteredReleases — the exact same set the table/cards below are
+  // showing — so these 4 numbers always describe what's actually on
+  // screen (search/month/Type/Label/Hạng Mục+brand drill-down/Round tab/
+  // Done-Not Done, all of it). Classification logic itself (isIntType,
+  // the Đợt 1 rule, dot2ReleaseIds membership) is unchanged — only the
+  // source array moved. Since filteredReleases already only contains one
+  // Round tab's releases (roundFilteredReleases upstream), int/dot1 now
+  // naturally collapse toward whichever Round is picked instead of always
+  // showing all three at once — that's the intended behavior of "count
+  // only what is filtering," not a regression.
   const stats = useMemo(() => {
-    const total = releases.length;
+    const total = filteredReleases.length;
     let int = 0, dot1 = 0, dot2 = 0;
-    releases.forEach((r) => {
+    filteredReleases.forEach((r) => {
       const isIntType = !!r.project_type && /int\s*media/i.test(r.project_type);
       if (isIntType) int++;
       else if (!!r.project_type && r.project_type !== "Chỉ Phát Hành") dot1++;
       if (dot2ReleaseIds.has(r.id)) dot2++;
     });
     return { total, int, dot1, dot2 };
-  }, [releases, dot2ReleaseIds]);
+  }, [filteredReleases, dot2ReleaseIds]);
+
+  // Round 286 — small always-visible summary of which filters are active,
+  // shown right under the 4 stat cards so it's clear at a glance why the
+  // numbers above aren't the board's full totals, without having to
+  // reverse-engineer it from the filter row itself. Only the filters that
+  // actually narrow the view are listed; empty when nothing's active (all
+  // releases, All Hạng Mục, no Done/Not Done pick) — same "only show what's
+  // really on" restraint the Clear button next to it already uses.
+  const activeFilterSummary = useMemo(() => {
+    const parts = [`Round: ${round}`];
+    if (search.trim()) parts.push(`Search "${search.trim()}"`);
+    if (month) parts.push(`Month: ${month}`);
+    if (typeFilter) parts.push(`Type: ${typeFilter}`);
+    if (labelFilter) parts.push(`Label: ${labelFilter}`);
+    if (hangMucFilter !== "All") {
+      let hm = `Hạng Mục: ${hangMucFilter}`;
+      if (subFilter) hm += ` › ${subfilterLabel(hangMucFilter, subFilter)}`;
+      if (hangMucFilter === "TikTok Channel" && tiktokBrandFilter) hm += ` › ${tiktokBrandFilter}`;
+      parts.push(hm);
+    }
+    if (doneFilter) parts.push(doneFilter === "done" ? "✓ Done only" : "Not Done only");
+    return parts.join("  ·  ");
+  }, [round, search, month, typeFilter, labelFilter, hangMucFilter, subFilter, tiktokBrandFilter, doneFilter]);
 
   // Every added link counts toward "already added" regardless of status —
   // status (Chưa Booking / Đã Gửi / Done) is tracked per link but doesn't
@@ -1176,6 +1232,17 @@ export default function BookingBoard() {
           </div>
         </div>
 
+        {/* Round 286 — what the 4 numbers above are actually counting,
+            since they now track the active filters instead of the board's
+            full totals. title= repeats it so a truncated line on a narrow
+            screen is still readable on hover. */}
+        <div
+          style={{ fontSize: 11, color: "var(--text-faint)", marginTop: -6, marginBottom: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+          title={activeFilterSummary}
+        >
+          Counting: {activeFilterSummary}
+        </div>
+
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
           <input
             className={styles.input}
@@ -1368,6 +1435,15 @@ export default function BookingBoard() {
                     Note above — stays put regardless of which Hạng Mục
                     filter/subfilter is active ("in all filter page"). */}
                 <th style={{ borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>Media Report</th>
+                {/* Round 286 — its own column now, per explicit request
+                    ("instead of the current promotion package url [inline
+                    under the release name] like current, the guys want an
+                    entirely new column"). Same field (releases.promotion_
+                    package_url), same read-only truncated-link rendering —
+                    just moved out from under the Release title into a
+                    fixed column of its own, same spot in the fixed-column
+                    run as Note/Media Report. */}
+                <th style={{ borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>Ads Perform</th>
                 {columns.map((c, i) => {
                   const prev = columns[i - 1];
                   const isGroupStart = prev && prev.categoryName !== c.categoryName;
@@ -1410,18 +1486,9 @@ export default function BookingBoard() {
                         clickable 3rd row, same pattern as Pitching
                         ticket's link_lbm row. */}
                     <LinkUgcLines value={r.link_ugc} color={releasingToday ? "var(--highlight-text-faint)" : "var(--accent-soft)"} />
-                    {/* Round 149 — Promotion Package URL as a clickable
-                        4th row (3rd added row, after link_ugc) — display
-                        text truncated to ~22 chars so a long URL can't
-                        widen the column or wrap the row onto extra lines;
-                        the link itself still points at the full URL. */}
-                    {r.promotion_package_url && (
-                      <div title={r.promotion_package_url}>
-                        <a href={r.promotion_package_url} target="_blank" rel="noopener noreferrer" style={{ color: releasingToday ? "var(--highlight-text-faint)" : "var(--accent-soft)", fontSize: 11 }}>
-                          {truncateUrlDisplay(r.promotion_package_url)}
-                        </a>
-                      </div>
-                    )}
+                    {/* Round 286 — Promotion Package URL moved out to its
+                        own "Ads Perform" column (see the <th>/<td> further
+                        down) — no longer shown inline here. */}
                     {hangMucFilter === "TikTok Channel" && subFilter === "Partner" && (
                       <span
                         className={styles.statusBadge}
@@ -1452,6 +1519,17 @@ export default function BookingBoard() {
                   </td>
                   <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>
                     <MediaReportCell release={r} onConvert={convertMediaReport} />
+                  </td>
+                  <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>
+                    {r.promotion_package_url ? (
+                      <div title={r.promotion_package_url}>
+                        <a href={r.promotion_package_url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-soft)", fontSize: 12 }}>
+                          {truncateUrlDisplay(r.promotion_package_url)}
+                        </a>
+                      </div>
+                    ) : (
+                      <span style={{ color: "var(--text-faint)", fontSize: 12 }}>—</span>
+                    )}
                   </td>
                   {columns.map((c, i) => {
                     const prev = columns[i - 1];
@@ -1598,16 +1676,9 @@ function BookingBoardCards({
             <div style={{ marginTop: 2 }}>
               <LinkUgcLines value={r.link_ugc} color={releasingToday ? "var(--highlight-text-faint)" : "var(--accent-soft)"} />
             </div>
-            {/* Round 149 — Promotion Package URL as a clickable row, same
-                pattern as the table view above (truncated display text,
-                full URL still linked). */}
-            {r.promotion_package_url && (
-              <div style={{ marginTop: 2 }} title={r.promotion_package_url}>
-                <a href={r.promotion_package_url} target="_blank" rel="noopener noreferrer" style={{ color: releasingToday ? "var(--highlight-text-faint)" : "var(--accent-soft)", fontSize: 11 }}>
-                  {truncateUrlDisplay(r.promotion_package_url)}
-                </a>
-              </div>
-            )}
+            {/* Round 286 — Promotion Package URL moved out to its own
+                "Ads Perform" block below (see the desktop table's matching
+                column comment) — no longer shown inline here. */}
             {hangMucFilter === "TikTok Channel" && subFilter === "Partner" && (
               <span
                 className={styles.statusBadge}
@@ -1646,6 +1717,17 @@ function BookingBoardCards({
             <div style={{ marginTop: 12 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Note</div>
               <NoteCell release={r} onSave={updateReleaseNote} />
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Ads Perform</div>
+              {r.promotion_package_url ? (
+                <a href={r.promotion_package_url} target="_blank" rel="noopener noreferrer" title={r.promotion_package_url} style={{ color: "var(--accent-soft)", fontSize: 12 }}>
+                  {truncateUrlDisplay(r.promotion_package_url)}
+                </a>
+              ) : (
+                <span style={{ color: "var(--text-faint)", fontSize: 12 }}>—</span>
+              )}
             </div>
 
             {groups.map((group) => (

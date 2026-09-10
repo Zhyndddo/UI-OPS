@@ -11,6 +11,11 @@
      instead of under it or with a gap above it. Keep in sync with
      TopBar.js's own minHeight if that bar's padding/font ever changes. */
   --topbar-height: 44px;
+  /* Round 284 — height of the new fixed BottomBar (lib/BottomBar.js),
+     same "reserve the space in the content column" idiom as
+     --topbar-height above (see AppShell.js's paddingBottom). Keep in sync
+     with BottomBar.js's own minHeight. */
+  --bottombar-height: 46px;
   --bg: #0a0a0a;
   --bg-body: #0b0b0b;
   --bg-card: #121212;
@@ -58,6 +63,23 @@
      alert color regardless of page theme. */
   --missing-highlight: #9d00ff;
   --missing-highlight-bg: rgba(157, 0, 255, 0.12);
+}
+
+/* Round 284 follow-up — on phones the bottom bar switches to a stacked
+   two-row layout (logo on top, pagination controls below — see
+   BottomBar.js's isMobile branch) because the single-row desktop layout's
+   pagination controls (page-size select + Prev + "Page X / Y" + Next) need
+   ~320px on their own and don't fit beside the count text and logo in a
+   375px-wide bar; that used to leave the select and Prev button clipped
+   off-screen by the row's overflow:hidden, unreachable on mobile. Same
+   breakpoint useIsMobile() uses (768px), so this stays in lockstep with
+   BottomBar.js's own isMobile switch instead of drifting out of sync with
+   it. AppShell's paddingBottom and Sidebar's mobile-drawer bottom offset
+   both read this same var, so the extra reserved space follows for free. */
+@media (max-width: 768px) {
+  :root {
+    --bottombar-height: 78px;
+  }
 }
 
 [data-theme="light"] {

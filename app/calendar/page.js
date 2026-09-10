@@ -7,6 +7,7 @@ import { supabase } from "../../lib/supabaseClient";
 import { fmtDate, uploadPercent } from "../../lib/helpers";
 import { MARKETING_CHECKLIST_FIELDS } from "../../lib/GateFields";
 import { localDateStr } from "../../lib/releaseDateHighlight";
+import SearchBox, { matchesQuery } from "../../lib/SearchBox";
 import styles from "../shared.module.css";
 
 // Round 172 item 3 — new sidebar entry, per explicit request: "make me a
@@ -222,6 +223,8 @@ export default function CalendarPage() {
   // release id (booking) / release did (pitching + phụ lục, matching the
   // same key those tickets are stored against everywhere else in the app).
   const [teamJoins, setTeamJoins] = useState({ bookingByRelease: {}, pitchingByDid: {}, phuLucByDid: {} });
+  // Round 278 — quick index search, same box/behavior as every ticket list.
+  const [query, setQuery] = useState("");
 
   const weeks = useMemo(() => {
     const thisStart = startOfWeek(new Date());
@@ -313,7 +316,7 @@ export default function CalendarPage() {
       if (!r.release_date) return false;
       const d = new Date(r.release_date);
       return d >= week.start && d <= week.end;
-    });
+    }).filter((r) => matchesQuery(r, query));
   }
 
   function laneGroups(weekReleases) {
@@ -335,6 +338,8 @@ export default function CalendarPage() {
           <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -16, marginBottom: 24 }}>
             Releases by release date — last, this, and next week, grouped by pipeline stage.
           </p>
+
+          {!loading && <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />}
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>

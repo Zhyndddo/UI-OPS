@@ -20,6 +20,8 @@ import { canEditLockedDeadline } from "../../../lib/permissions";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import { useIsMobile } from "../../../lib/useIsMobile";
 import styles from "../../shared.module.css";
+// Round 282 — audit log / requester attribution
+import { logTicketStatusChange, logPicReassign, logDeadlineChange } from "../../../lib/auditLog";
 
 // Rebuilt bespoke to match v1's real Phái Sinh table exactly — it shows
 // every real column continuously (not capped at a short preview), with
@@ -36,6 +38,18 @@ import styles from "../../shared.module.css";
 // phai_sinh_batch_items children.
 const REFUND_LIKE = ["REFUND"];
 
+// Round 276 — buffered server-side pagination, same pattern as Round 275's
+// pilot in lib/TicketListPage.js (see
+// claude/server-side-pagination-pitch.md for the full writeup). Executor
+// view only — the requester view has no status dimension to scope a query
+// by and stays exactly as it was, fetching everything on every load.
+const SMALL_RESULT_THRESHOLD = 200;
+const BUFFER_PAGE_MULTIPLIER = 5;
+function computeAnchorPage(targetPage) {
+  const half = Math.floor(BUFFER_PAGE_MULTIPLIER / 2);
+  return Math.max(1, targetPage - half);
+}
+
 export default function PhaiSinhList() {
   const { profile } = useAuth();
   const isMobile = useIsMobile();
@@ -45,6 +59,7 @@ export default function PhaiSinhList() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
   const [query, setQuery] = useState(""); // round 76 — quick index search box
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [relatedReleases, setRelatedReleases] = useState({}); // did -> release (gate_split_share/gate_phu_luc_publishing only)
   const [itemsByBatch, setItemsByBatch] = useState({}); // ticket id -> phai_sinh_batch_items rows, Kho Nhạc-family only
   // Round 226 — ticket id -> phai_sinh_smartlinks rows already tracked
@@ -55,66 +70,173 @@ export default function PhaiSinhList() {
   // offering the button, per explicit request.
   const [smartlinksByTicket, setSmartlinksByTicket] = useState({});
 
+  // Round 276 — buffer-mode bookkeeping, same shape as lib/TicketListPage.js.
+  const [bufferMode, setBufferMode] = useState(false);
+  const [bufferAnchorPage, setBufferAnchorPage] = useState(1);
+  const [bufferTotalRows, setBufferTotalRows] = useState(0);
+  const [bufferLoading, setBufferLoading] = useState(false);
+  const [bufPage, setBufPage] = useState(1);
+  const [bufPageSize, setBufPageSize] = useState(50);
+
   const canEditDeadline = canEditLockedDeadline(profile); // round 57 — teamlead+
 
   const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
+  const hasActiveSearch = debouncedQuery.length > 0;
 
   useEffect(() => {
     if (!supabase) return;
-    load();
+    loadTab();
     supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
   }, []);
 
-  async function load() {
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => clearTimeout(id);
+  }, [query]);
+
+  async function loadTab() {
     setLoading(true);
     const { data: tabRow } = await supabase.from("ticket_tabs").select("*").eq("key", "phai_sinh").single();
     if (!tabRow) { setLoading(false); return; }
     setTab(tabRow);
     if (!statusFilter) setStatusFilter(tabRow.status_options[0]);
-    const { data } = await supabase.from("tickets").select("*, profiles(name)").eq("tab_id", tabRow.id).is("deleted_at", null).order("created_at", { ascending: false });
-    setTickets(data || []);
+    else await loadRows(tabRow, statusFilter, hasActiveSearch);
+  }
 
-    // Round 226 — one batched query (not one per row) for which of these
-    // tickets already have a phai_sinh_smartlinks row, same table the
-    // Confirm/Re-Check workstation's "Phái Sinh Smartlinks" section reads
-    // from — this is the single source of truth per round 213's "one
-    // workstation" design, so a row here IS a row visible there.
+  useEffect(() => {
+    if (!tab || !statusFilter) return;
+    loadRows(tab, statusFilter, hasActiveSearch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, statusFilter, isExecutorView, hasActiveSearch]);
+
+  // Round 41/226's secondary lookups (smartlinks, related-DID gate fields,
+  // batch children) — scoped to whatever `data` set loadRows just fetched,
+  // whether that's every ticket in the tab (requester view / small tab /
+  // active search) or just the current buffer chunk. Merges into the
+  // existing maps rather than replacing, so entries resolved by an earlier
+  // buffer aren't forgotten when paging moves the window.
+  async function loadSecondaryData(data) {
     const ticketIds = (data || []).map((t) => t.id);
     if (ticketIds.length > 0) {
       const { data: links } = await supabase.from("phai_sinh_smartlinks").select("id, source_ticket_id, smartlink").in("source_ticket_id", ticketIds);
       const byTicket = {};
       (links || []).forEach((l) => { (byTicket[l.source_ticket_id] = byTicket[l.source_ticket_id] || []).push(l); });
-      setSmartlinksByTicket(byTicket);
-    } else {
-      setSmartlinksByTicket({});
+      setSmartlinksByTicket((prev) => ({ ...prev, ...byTicket }));
     }
 
-    // Related DID's own product — looked up so the Publishing/Splitshare
-    // pill tags under Type can reflect that release's own gate fields
-    // (gate_phu_luc_publishing / gate_split_share), per explicit request.
     const relatedDids = [...new Set((data || []).map((t) => t.data?.relatedDid).filter(Boolean))];
     if (relatedDids.length > 0) {
       const { data: rels } = await supabase.from("releases").select("did, gate_split_share, gate_phu_luc_publishing").in("did", relatedDids);
-      const map = {};
-      (rels || []).forEach((r) => (map[r.did] = r));
-      setRelatedReleases(map);
-    } else {
-      setRelatedReleases({});
+      if (rels && rels.length > 0) {
+        setRelatedReleases((prev) => {
+          const map = { ...prev };
+          rels.forEach((r) => (map[r.did] = r));
+          return map;
+        });
+      }
     }
 
-    // Round 41 — Kho Nhạc-family tickets' mini counter dashboard is
-    // computed from their children, same source table Batch Phái Sinh's
-    // list page already grouped (app/tickets/batch-phai-sinh/page.js).
     const batchTicketIds = (data || []).filter((t) => isKhoNhacType(t.data?.typeRequest)).map((t) => t.id);
     if (batchTicketIds.length > 0) {
       const { data: items } = await supabase.from("phai_sinh_batch_items").select("*").in("batch_ticket_id", batchTicketIds).is("deleted_at", null);
       const grouped = {};
       (items || []).forEach((i) => { (grouped[i.batch_ticket_id] = grouped[i.batch_ticket_id] || []).push(i); });
-      setItemsByBatch(grouped);
-    } else {
-      setItemsByBatch({});
+      setItemsByBatch((prev) => ({ ...prev, ...grouped }));
     }
+  }
+
+  async function fetchBuffer(tabRow, status, anchorPage, size) {
+    const bufferSize = size * BUFFER_PAGE_MULTIPLIER;
+    const from = (anchorPage - 1) * size;
+    const to = from + bufferSize - 1;
+    const { data } = await supabase
+      .from("tickets")
+      .select("*, profiles!tickets_pic_profile_id_fkey(name), requesterProfile:profiles!tickets_requester_profile_id_fkey(name)")
+      .eq("tab_id", tabRow.id)
+      .is("deleted_at", null)
+      .eq("status", status)
+      .order("created_at", { ascending: false })
+      .range(from, to);
+    return data || [];
+  }
+
+  async function loadRows(tabRow, status, hasSearch) {
+    setLoading(true);
+    setBufferMode(false);
+
+    if (!isExecutorView) {
+      // Requester view — unchanged: fetch everything for this tab, no
+      // status scoping.
+      const { data } = await supabase.from("tickets").select("*, profiles!tickets_pic_profile_id_fkey(name), requesterProfile:profiles!tickets_requester_profile_id_fkey(name)").eq("tab_id", tabRow.id).is("deleted_at", null).order("created_at", { ascending: false });
+      setTickets(data || []);
+      await loadSecondaryData(data);
+      setLoading(false);
+      return;
+    }
+
+    const { count } = await supabase
+      .from("tickets")
+      .select("id", { count: "exact", head: true })
+      .eq("tab_id", tabRow.id)
+      .is("deleted_at", null)
+      .eq("status", status);
+    const total = count ?? 0;
+
+    if (total <= SMALL_RESULT_THRESHOLD || hasSearch) {
+      const { data } = await supabase
+        .from("tickets")
+        .select("*, profiles!tickets_pic_profile_id_fkey(name), requesterProfile:profiles!tickets_requester_profile_id_fkey(name)")
+        .eq("tab_id", tabRow.id)
+        .is("deleted_at", null)
+        .eq("status", status)
+        .order("created_at", { ascending: false });
+      setTickets(data || []);
+      await loadSecondaryData(data);
+      setBufPage(1);
+      setLoading(false);
+      return;
+    }
+
+    const anchor = computeAnchorPage(1);
+    const rows = await fetchBuffer(tabRow, status, anchor, bufPageSize);
+    setTickets(rows);
+    await loadSecondaryData(rows);
+    setBufferMode(true);
+    setBufferAnchorPage(anchor);
+    setBufferTotalRows(total);
+    setBufPage(1);
     setLoading(false);
+  }
+
+  async function gotoBufferPage(nextPageOrUpdater) {
+    const target = typeof nextPageOrUpdater === "function" ? nextPageOrUpdater(bufPage) : nextPageOrUpdater;
+    const bufferPages = Math.max(1, Math.ceil((tickets.length || 1) / bufPageSize));
+    const withinBuffer = target >= bufferAnchorPage && target < bufferAnchorPage + bufferPages;
+    if (withinBuffer) {
+      setBufPage(target);
+      return;
+    }
+    setBufferLoading(true);
+    const anchor = computeAnchorPage(target);
+    const rows = await fetchBuffer(tab, statusFilter, anchor, bufPageSize);
+    setTickets(rows);
+    await loadSecondaryData(rows);
+    setBufferAnchorPage(anchor);
+    setBufPage(target);
+    setBufferLoading(false);
+  }
+
+  async function changeBufferPageSize(nextSizeOrUpdater) {
+    const target = typeof nextSizeOrUpdater === "function" ? nextSizeOrUpdater(bufPageSize) : nextSizeOrUpdater;
+    setBufferLoading(true);
+    setBufPageSize(target);
+    const anchor = computeAnchorPage(1);
+    const rows = await fetchBuffer(tab, statusFilter, anchor, target);
+    setTickets(rows);
+    await loadSecondaryData(rows);
+    setBufferAnchorPage(anchor);
+    setBufPage(1);
+    setBufferLoading(false);
   }
 
   // Round 226 — replaces the popup's old no-op onSaved. Drops the newly
@@ -130,6 +252,8 @@ export default function PhaiSinhList() {
     const patch = { deadline: value || null };
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logDeadlineChange({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.deadline || null, after: patch.deadline });
   }
 
   // typeRequest/label/tenBai/relatedDid used to be locked read-only text
@@ -172,6 +296,11 @@ export default function PhaiSinhList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id || null, after: patch.pic_profile_id });
+    if (patch.status) {
+      logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus: patch.status, statusOptions: tab?.status_options });
+    }
   }
 
   async function updateStatus(t, newStatus) {
@@ -187,6 +316,11 @@ export default function PhaiSinhList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus, statusOptions: tab?.status_options });
+    if (REFUND_LIKE.includes(newStatus) && t.pic_profile_id) {
+      logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id, after: null });
+    }
   }
 
   const visibleTickets = (isExecutorView
@@ -194,7 +328,20 @@ export default function PhaiSinhList() {
     : [...tickets].sort((a, b) => (REFUND_LIKE.includes(a.status) ? 0 : 1) - (REFUND_LIKE.includes(b.status) ? 0 : 1))
   ).filter((t) => matchesQuery(t, query));
 
-  const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
+  // Round 276 — same dual-path pagination as lib/TicketListPage.js: the
+  // plain client-side usePagination stays in charge for requester view, a
+  // small tab, or an active search (all of which hand it the complete
+  // relevant row set); buffer mode has its own page/pageSize state instead.
+  const clientPagination = usePagination(visibleTickets, { defaultPageSize: bufPageSize });
+  const page = bufferMode ? bufPage : clientPagination.page;
+  const pageSize = bufferMode ? bufPageSize : clientPagination.pageSize;
+  const setPage = bufferMode ? gotoBufferPage : clientPagination.setPage;
+  const setPageSize = bufferMode ? changeBufferPageSize : clientPagination.setPageSize;
+  const totalPages = bufferMode ? Math.max(1, Math.ceil(bufferTotalRows / bufPageSize)) : clientPagination.totalPages;
+  const totalRows = bufferMode ? bufferTotalRows : clientPagination.totalRows;
+  const pagedTickets = bufferMode
+    ? visibleTickets.slice((bufPage - bufferAnchorPage) * bufPageSize, (bufPage - bufferAnchorPage + 1) * bufPageSize)
+    : clientPagination.pageRows;
 
   return (
     <AppShell>
@@ -284,6 +431,11 @@ export default function PhaiSinhList() {
                       double the URL column's width, matching that request. */}
                   <th style={{ minWidth: 140, maxWidth: 180 }}>LBM url</th>
                   <th style={{ minWidth: 130 }}>Hạn Cuối</th>
+                  {/* Round 283 — "phái sinh request view show requester,
+                      counting toward requester personal task table." Shown
+                      in both views (not just the requester/AR side) so OPS
+                      can see at a glance who to follow up with too. */}
+                  <th style={{ minWidth: 140 }}>Requester</th>
                   <th style={{ minWidth: 180 }}>PIC</th>
                   <th>Status</th>
                   <th style={{ minWidth: 220 }}>Kho Nhạc Progress</th>
@@ -508,6 +660,20 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
     <span style={{ fontSize: 12 }}>{ticket.profiles?.name || "—"}</span>
   );
 
+  // Round 283 — "requester view show requester, counting toward requester
+  // personal task table." Display-only (no picker — requester is set at
+  // creation, see phai-sinh/new/page.js's requester_profile_id, and Task
+  // Table's requester counting already reads that column directly, no UI
+  // wiring needed there). requesterProfile comes from the explicit
+  // profiles!tickets_requester_profile_id_fkey embed added this round;
+  // falls back to the legacy free-text requester_name/requester_segment for
+  // any ticket created before requester_profile_id existed.
+  const requesterBody = (
+    <span style={{ fontSize: 12 }}>
+      {ticket.requesterProfile?.name || ticket.requester_name || ticket.requester_segment || "—"}
+    </span>
+  );
+
   const statusBody = statusEditable ? (
     <select value={ticket.status} onChange={(e) => onUpdateStatus(ticket, e.target.value)} style={{ background: color.bg, color: color.fg, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>
       {statusOptions.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -610,6 +776,10 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
               {picBody}
             </div>
           </div>
+          <div>
+            <div style={phaiSinhFieldLabelStyle}>Requester</div>
+            {requesterBody}
+          </div>
           {isBatch && (
             <div>
               <div style={phaiSinhFieldLabelStyle}>Kho Nhạc Progress</div>
@@ -667,6 +837,7 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
           role per explicit request ("lock for exc role") — only dev/admin
           can edit, same lock pattern as Batch Phái Sinh's item deadline. */}
       <td style={{ verticalAlign: "top" }}>{deadlineBody}</td>
+      <td style={{ verticalAlign: "top" }}>{requesterBody}</td>
       <td style={{ verticalAlign: "top" }}>{picBody}</td>
       {/* Round 80 — hover reveals the reason folded into data.note by
           statusNoteGate for refund/cancel-like status moves. */}

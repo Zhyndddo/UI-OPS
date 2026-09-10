@@ -62,11 +62,35 @@ const META_CHECKLIST = [
 // convention for this placeholder ever changes, update it here.
 const DUMMY_RELEASE_DATE = "2026-12-31";
 
+// Round 283 — per explicit request: "no old song, just new song this month
+// and last month." Missing Data used to list every release ever missing a
+// checklist item regardless of age, which meant old back-catalog releases
+// nobody's actively working on kept cluttering the email indefinitely.
+// Scoped to a rolling 2-calendar-month window (last month's 1st through the
+// end of this month) by release_date — same UTC-calendar-date convention
+// this whole route already uses (todayUTC/dayStart/dayEnd above), not the
+// GMT+7 localDateStr the client pages use, since this runs server-side with
+// no "local" timezone of its own; the route already fires once/day so a
+// same-day UTC/GMT+7 boundary mismatch here is a non-issue in practice.
+function missingDataMonthWindow() {
+  const now = new Date();
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth(); // 0-indexed
+  const toStr = (d) => d.toISOString().slice(0, 10);
+  return {
+    from: toStr(new Date(Date.UTC(y, m - 1, 1))), // 1st of last month
+    to: toStr(new Date(Date.UTC(y, m + 1, 1))), // 1st of next month (exclusive)
+  };
+}
+
 async function buildMissingDataRows(supabase) {
+  const { from, to } = missingDataMonthWindow();
   const { data: releases } = await supabase
     .from("releases")
     .select("id, did, title, main_artist, release_date, meta_audio, meta_artwork, meta_working_files, meta_lyric, meta_mv, meta_doc")
-    .neq("release_date", DUMMY_RELEASE_DATE);
+    .neq("release_date", DUMMY_RELEASE_DATE)
+    .gte("release_date", from)
+    .lt("release_date", to);
 
   const today = todayUTC();
   const rows = [];

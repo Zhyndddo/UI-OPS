@@ -21,7 +21,16 @@ import {
 } from "../../../lib/pitchingDomesticServices";
 import { PITCHING_PIC_LIST_KEY, parsePitchingPicList, applyPitchingPicList } from "../../../lib/pitchingPicList";
 import { buildZingPitchNote } from "../../../lib/zingPitchNote";
-import { rowHighlightColor } from "../../../lib/releaseDateHighlight";
+import { rowHighlightColor, DATE_HIGHLIGHT_LEGEND } from "../../../lib/releaseDateHighlight";
+import ColorLegend from "../../../lib/ColorLegend";
+import { useAuth } from "../../../lib/AuthContext";
+// Round 282 — audit log. Pitching has its own real per-platform PIC
+// (pitching_pic_* release columns, not a plain ticket's pic_profile_id)
+// and its own per-platform status columns, plus a derived ticket.status
+// recompute — all genuinely separate writes from the underlying ticket,
+// per Round 281's research, so all 3 get logged here directly rather than
+// relying on whatever wires the Pitching ticket list itself.
+import { logAudit, logTicketStatusChange } from "../../../lib/auditLog";
 import styles from "../../shared.module.css";
 
 const STATUS_OPTS = ["", "Chưa thực hiện", "Đang thực hiện", "Đã pitching", "Không thực hiện"];
@@ -185,6 +194,7 @@ function computeTicketStatus(ticket, release) {
 // do that work in one place — clicking a row opens the popup now,
 // instead of expanding inline, so each platform gets its own clean tab.
 export default function PitchingWorkstation() {
+  const { profile } = useAuth();
   const [rows, setRows] = useState([]); // { ticket, release }
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -229,13 +239,14 @@ export default function PitchingWorkstation() {
       (rels || []).forEach((r) => (releaseMap[r.did] = r));
     }
     let allRows = (tickets || []).map((t) => ({ ticket: t, release: releaseMap[t.data?.releaseId] || null }));
-    // Round 274 — show rule widened from "has UPC" to "has UPC AND Apple
-    // ID", per explicit request. Apple ID now also gets filled in earlier
-    // (New Release Setup, for Priority Pitching rows — see
-    // app/workstation/upload/page.js), so this workstation waiting on it
-    // too keeps rows from showing up here before they're actually ready
-    // to pitch.
-    allRows = allRows.filter((row) => row.release?.upc && row.release?.apple_id);
+    // Round 274 briefly widened this to "has UPC AND Apple ID" — reverted
+    // in Round 276 (explicit correction: "that wasn't the case... it
+    // should just check for UPC, apple ID is a plus not a must"). Apple ID
+    // is still filled in earlier for Priority Pitching rows (New Release
+    // Setup — see app/workstation/upload/page.js) and still shown/editable
+    // in the Priority tab below, it's just no longer required to show up
+    // here at all.
+    allRows = allRows.filter((row) => row.release?.upc);
 
     // Auto-sync each DSP's status column from the ticket's requested-flags
     // + overall status (see autoTargetFor above) — same "auto-sync on
@@ -320,8 +331,23 @@ export default function PitchingWorkstation() {
   }
 
   async function updateRelease(release, field, value) {
+    const prevValue = release?.[field];
     setRows((prev) => prev.map((row) => (row.release?.id === release.id ? { ...row, release: { ...row.release, [field]: value } } : row)));
     await supabase.from("releases").update({ [field]: value }).eq("id", release.id);
+
+    // Round 282 — this workstation's own real per-platform PIC/status
+    // columns (release-level, not the ticket's pic_profile_id/status) —
+    // per Round 281's research these are genuinely separate writes, so
+    // log them directly against the release rather than the ticket.
+    if (Object.values(PIC_COLUMNS).includes(field)) {
+      if (prevValue !== value) {
+        logAudit({ actor: profile?.id || null, action: "reassign", entity: "release", entityId: release.id, field, before: prevValue ?? null, after: value ?? null });
+      }
+    } else if (Object.values(DSP_COLUMNS).includes(field)) {
+      if (prevValue !== value) {
+        logAudit({ actor: profile?.id || null, action: "status_change", entity: "release", entityId: release.id, field, before: prevValue ?? null, after: value ?? null });
+      }
+    }
 
     // Round 79 — a status-field edit can change what the ticket's overall
     // Status computes to; PIC edits and Note edits never do, so this only
@@ -335,6 +361,8 @@ export default function PitchingWorkstation() {
       const nextLog = { ...row.ticket.status_log, [nextStatus]: new Date().toISOString() };
       await supabase.from("tickets").update({ status: nextStatus, status_log: nextLog }).eq("id", row.ticket.id);
       setRows((prev) => prev.map((r) => (r.release?.id === release.id ? { ...r, ticket: { ...r.ticket, status: nextStatus, status_log: nextLog } } : r)));
+      // Round 282 — audit log for the derived ticket status recompute.
+      logTicketStatusChange({ actor: profile?.id || null, ticketId: row.ticket.id, prevStatus: row.ticket.status, newStatus: nextStatus });
     }
   }
 
@@ -429,7 +457,10 @@ export default function PitchingWorkstation() {
           <button onClick={() => setShowDone((s) => !s)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
             {showDone ? "Hide done rows" : `Show done rows (${counts.done})`}
           </button>
-          <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
+            <ColorLegend entries={DATE_HIGHLIGHT_LEGEND} />
+          </div>
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>

@@ -5,8 +5,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import AppShell from "../../../../lib/AppShell";
 import { supabase } from "../../../../lib/supabaseClient";
+import { useAuth } from "../../../../lib/AuthContext";
 import ReleasePicker from "../../../../lib/ReleasePicker";
 import styles from "../../../shared.module.css";
+// Round 281 — audit log / requester attribution
+import { logTicketCreate } from "../../../../lib/auditLog";
 
 const TEMPLATES = ["Độc Quyền Vĩnh Viễn", "Độc Quyền 5 năm", "Độc Quyền 2 năm"];
 
@@ -17,6 +20,7 @@ const TEMPLATES = ["Độc Quyền Vĩnh Viễn", "Độc Quyền 5 năm", "Đ�
 // "Send Package Ticket" button instead of this manual form.
 export default function NewMediaBookingTicket() {
   const router = useRouter();
+  const { profile } = useAuth();
   const [releaseId, setReleaseId] = useState("");
   const [releaseLabel, setReleaseLabel] = useState("");
   const [proposedPackage, setProposedPackage] = useState("");
@@ -73,17 +77,21 @@ export default function NewMediaBookingTicket() {
       return;
     }
 
-    const { error: insertErr } = await supabase.from("tickets").insert({
+    const { data: newTicket, error: insertErr } = await supabase.from("tickets").insert({
       tab_id: tab.id,
       data: { releaseId, proposedPackage: proposedPackage || null },
       status: tab.default_status,
       status_log: { [tab.default_status]: new Date().toISOString() },
-    });
+      // Round 281 — audit log / requester attribution
+      requester_profile_id: profile?.id || null,
+    }).select().single();
     setSubmitting(false);
     if (insertErr) {
       // Most likely the DB trigger catching a race the check above missed.
       setError(insertErr.message.includes("only one is allowed per release") ? "A Media Booking ticket for this release already exists — only one is allowed per release." : insertErr.message);
     } else {
+      // Round 281 — audit log / requester attribution
+      logTicketCreate({ actor: profile?.id, ticketId: newTicket?.id });
       router.push("/tickets/media-booking");
     }
   }

@@ -16,6 +16,12 @@ import { CHILD_ITEM_STATUSES } from "../../../../lib/phaiSinhTypes";
 import BatchFileImport from "../../../../lib/BatchFileImport";
 import { canEditLockedDeadline } from "../../../../lib/permissions";
 import styles from "../../../shared.module.css";
+// Round 282 — audit log / requester attribution. Batch items live in
+// phai_sinh_batch_items, a different table from tickets, so item-level
+// writes use logAudit/logPicReassign/logDeadlineChange directly with
+// entity "phai_sinh_batch_item" rather than the ticket-specific
+// logTicketStatusChange wrapper.
+import { logAudit, logPicReassign, logDeadlineChange } from "../../../../lib/auditLog";
 
 // Round 41 — extended with the Kho Nhạc workflow's own stages
 // (UPLOADING/DELIVERY/RECHECKING), see lib/phaiSinhTypes.js.
@@ -71,13 +77,28 @@ export default function BatchPhaiSinhDetail() {
     else if (item.status === "COMPLETE") patch.ngay_hoan_thanh = null;
     setItems((prev) => prev.map((x) => (x.id === item.id ? { ...x, ...patch } : x)));
     await supabase.from("phai_sinh_batch_items").update(patch).eq("id", item.id);
-    await recomputeBatchStatus(id);
+    // Round 282 — audit log / requester attribution. This is the per-item
+    // status write (phai_sinh_batch_items), distinct from the parent batch
+    // ticket's own status recomputed just below.
+    logAudit({ actor: profile?.id, action: "status_change", entity: "phai_sinh_batch_item", entityId: item.id, field: "status", before: item.status, after: newStatus });
+    // Round 282 — pass the viewing profile through so the parent batch
+    // ticket's own status-change log entry (see lib/batchPhaiSinhStatus.js)
+    // gets a real actor instead of null.
+    await recomputeBatchStatus(id, profile?.id);
     const { data: t } = await supabase.from("tickets").select("*").eq("id", id).single();
     setTicket(t || null);
   }
 
   async function updatePic(item, profileId) {
+    // Round 282 — audit log / requester attribution
+    logPicReassign({ actor: profile?.id, entity: "phai_sinh_batch_item", entityId: item.id, before: item.pic_profile_id || null, after: profileId || null });
     await updateItem(item, { pic_profile_id: profileId || null });
+  }
+
+  async function updateItemDeadline(item, value) {
+    // Round 282 — audit log / requester attribution
+    logDeadlineChange({ actor: profile?.id, entity: "phai_sinh_batch_item", entityId: item.id, before: item.deadline || null, after: value || null });
+    await updateItem(item, { deadline: value || null });
   }
 
   async function pingItem(item) {
@@ -301,7 +322,7 @@ export default function BatchPhaiSinhDetail() {
                               defaultValue={item.deadline || ""}
                               disabled={deadlineLocked}
                               title={deadlineLocked ? "Deadline is locked once work has moved past Requested — only dev/admin can change it now." : undefined}
-                              onBlur={(e) => updateItem(item, { deadline: e.target.value || null })}
+                              onBlur={(e) => updateItemDeadline(item, e.target.value)}
                             />
                           );
                         })()}

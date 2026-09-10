@@ -14,6 +14,8 @@ import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
+// Round 282 — audit log / requester attribution
+import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 
 // Bespoke (not the generic TicketListPage) per explicit request — Teaser/
 // Official/Short (a period, not a point in time) each need their own
@@ -48,7 +50,7 @@ export default function CoTrongNetYoutubeTicketList() {
     if (!statusFilter) setStatusFilter(tabRow.status_options[0]);
     const { data: tix } = await supabase
       .from("tickets")
-      .select("*, profiles(name)")
+      .select("*, profiles!tickets_pic_profile_id_fkey(name)")
       .eq("tab_id", tabRow.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -77,6 +79,9 @@ export default function CoTrongNetYoutubeTicketList() {
     const pic = profiles.find((p) => p.id === profileId);
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch, profiles: pic ? { name: pic.name } : null } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id || null, after: profileId || null });
+    if (patch.status) logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus: patch.status, statusOptions: tab?.status_options });
   }
 
   async function updateStatus(t, newStatus) {
@@ -91,6 +96,8 @@ export default function CoTrongNetYoutubeTicketList() {
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution
+    logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus, statusOptions: tab?.status_options });
   }
 
   const visibleTickets = isExecutorView ? tickets.filter((t) => t.status === statusFilter) : tickets;

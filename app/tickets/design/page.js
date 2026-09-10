@@ -21,6 +21,8 @@ import {
 } from "../../../lib/designFlow";
 import { resolveProfilesByEmail } from "../../../lib/pingNotification";
 import { canEditLockedDeadline } from "../../../lib/permissions";
+// Round 282 — audit log / requester attribution
+import { logAudit, logTicketStatusChange, logPicReassign, logDeadlineChange } from "../../../lib/auditLog";
 import styles from "../../shared.module.css";
 
 const OVERLOAD_EMAIL = "anh.duong@vieent.vn";
@@ -122,10 +124,14 @@ export default function DesignList() {
   async function updatePic(t, profileId) {
     const patch = { pic_profile_id: profileId || null };
     await patchTicket(t, patch);
+    // Round 282 — audit log / requester attribution
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id || null, after: profileId || null });
   }
 
   async function updateDeadline(t, deadline) {
     await patchTicket(t, { deadline });
+    // Round 282 — audit log / requester attribution
+    logDeadlineChange({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.deadline || null, after: deadline || null });
   }
 
   // Checks the "design team Status" counter (PROCESS + REVISE) after a
@@ -157,6 +163,13 @@ export default function DesignList() {
       return next;
     });
     await supabase.from("tickets").update(patch).eq("id", t.id);
+    // Round 282 — audit log / requester attribution. Design's status
+    // vocabulary (REQUEST/PROCESS/PENDING/REVISE/COMPLETE/CANCEL) is its
+    // own — classifyStatusChange only knows "moving earlier in
+    // statusOptions = reopen", so pass tab.status_options (this tab's own
+    // order) rather than assuming the generic REQUESTED/PROCESS/COMPLETE
+    // vocabulary other ticket types use.
+    logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus, statusOptions: tab?.status_options });
   }
 
   // Central "what happens when the status dropdown changes" handler — the
@@ -206,10 +219,30 @@ export default function DesignList() {
     });
     await supabase.from("tickets").update(patch).eq("id", ticket.id);
     setProcessModal(null);
+    // Round 282 — audit log / requester attribution. This modal bundles a
+    // status move (REQUEST -> PROCESS) with a PIC assignment and a
+    // deadline confirmation in one save, unlike the plain dropdown/field
+    // edits elsewhere on this page — log all three since none of them go
+    // through updateStatus/updatePic/updateDeadline here.
+    logTicketStatusChange({ actor: profile?.id, ticketId: ticket.id, prevStatus: ticket.status, newStatus: "PROCESS", statusOptions: tab?.status_options });
+    if (picId !== (ticket.pic_profile_id || "")) {
+      logPicReassign({ actor: profile?.id, entity: "ticket", entityId: ticket.id, before: ticket.pic_profile_id || null, after: picId || null });
+    }
+    if (deadline !== (ticket.deadline ? ticket.deadline.slice(0, 10) : "")) {
+      logDeadlineChange({ actor: profile?.id, entity: "ticket", entityId: ticket.id, before: ticket.deadline || null, after: deadline || null });
+    }
   }
 
   async function confirmUrgent(t) {
     await updateData(t, { urgentConfirmed: true });
+    // Round 282 — audit log / requester attribution. Not a status write
+    // (statusLocked/statusEditable read data.urgentConfirmed directly, the
+    // ticket's `status` column itself doesn't move here) but it IS a real
+    // gating state transition specific to Design — dev confirming a
+    // deadline-triggered Urgent flag, which unlocks the status dropdown
+    // for that row. logAudit directly with a design-specific field name
+    // rather than forcing it through logTicketStatusChange.
+    logAudit({ actor: profile?.id, action: "confirm_urgent", entity: "ticket", entityId: t.id, field: "urgent_confirmed", before: false, after: true });
   }
 
   const visibleTickets = useMemo(() => {

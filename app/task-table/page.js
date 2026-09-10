@@ -11,6 +11,7 @@ import {
   TEAM_TICKET_TYPES, TEAM_WORKSTATION_TYPES, resolveTeamKey, isOpsTeam,
 } from "../../lib/teamTypes";
 import { TASK_PHASES, phaseForColumn } from "../../lib/taskPhases";
+import SearchBox from "../../lib/SearchBox";
 import styles from "../shared.module.css";
 
 // Round 172 — rebuilt per explicit request: "update the task table to fit
@@ -61,6 +62,16 @@ import styles from "../shared.module.css";
 // the small vocab constants are duplicated here rather than modifying a
 // shared, cache-wrapped module just to add a second return shape. Keep the
 // two in sync if either changes.
+//
+// Round 281 — added a second, additive attribution: each ticket's
+// requester_profile_id (not just its PIC/executor) now shows up too, in its
+// own "Requested by You" section on the personal "My Tasks" view — see
+// claude/audit-log-and-requester-attribution.md, loadTicketCounts's
+// requesterMap param, and RequestedSection near the bottom of this file.
+// Deliberately NOT folded into the executor TeamSection/columnsForTeam
+// machinery above: a ticket's requester team and executor team are often
+// different teams by design, so scoping requester counts by team ownership
+// would hide exactly the cross-team requests this exists to surface.
 //
 // Per-member attribution needs an actual PIC field to attribute a row to.
 // Every ticket type has tickets.pic_profile_id. Among workstations, only
@@ -139,15 +150,46 @@ function bumpItem(map, memberKey, colId, item) {
   map[key][colId].push(item);
 }
 
-async function loadTicketCounts(map) {
+// Round 281 — requester-side attribution alongside the existing PIC/executor
+// one, see claude/audit-log-and-requester-attribution.md. requesterMap is
+// shaped exactly like the existing executor `map` (reuses bumpItem/countOf
+// as-is) but keyed by requester_profile_id instead of PIC, and under TWO
+// columns per ticket type instead of one — `ticket:<key>:open` / `:done` —
+// since "requested by you" is framed around checking whether it got DONE
+// (per the ask), not just outstanding count like the executor side.
+function requesterColKey(tabKey, done) {
+  return `ticket:${tabKey}:${done ? "done" : "open"}`;
+}
+
+async function loadTicketCounts(map, requesterMap) {
   const { data: tabs } = await supabase.from("ticket_tabs").select("id, key").in("key", TICKET_KEYS);
   if (!tabs) return;
   for (const tab of tabs) {
-    const { data: tickets } = await supabase.from("tickets").select("id, status, pic_profile_id, data").eq("tab_id", tab.id).is("deleted_at", null);
+    const { data: tickets } = await supabase.from("tickets").select("id, status, pic_profile_id, pic_profile_ids, requester_profile_id, data").eq("tab_id", tab.id).is("deleted_at", null);
     (tickets || []).forEach((t) => {
-      if (isTicketUndone(tab.key, t.status)) {
-        bumpItem(map, t.pic_profile_id, `ticket:${tab.key}`, { id: t.id, label: pickTicketLabel(t.data, t.id), href: TICKET_ROUTES[tab.key] });
+      // Round 281 — requester side, ALL tickets (not just undone ones —
+      // done ones still count, just under the "done" column instead of
+      // "open"). requester_profile_id is additive/nullable: legacy
+      // tickets and any ticket type not yet wired this round are null,
+      // and there's no sensible free-text fallback (requester_segment/
+      // requester_name aren't profile-linkable) — skip those entirely
+      // rather than bumping a null key.
+      if (t.requester_profile_id) {
+        const item = { id: t.id, label: pickTicketLabel(t.data, t.id), href: TICKET_ROUTES[tab.key] };
+        bumpItem(requesterMap, t.requester_profile_id, requesterColKey(tab.key, !isTicketUndone(tab.key, t.status)), item);
       }
+
+      if (!isTicketUndone(tab.key, t.status)) return;
+      // Round 279 — PIC is now a tag list on pages converted to the tag
+      // UI (pic_profile_ids); a ticket tagged with several people counts
+      // toward EACH of them here, not just the first. Falls back to the
+      // legacy single pic_profile_id for any ticket type not yet
+      // converted (pic_profile_ids stays null there) — unchanged
+      // attribution for those.
+      const picIds = t.pic_profile_ids && t.pic_profile_ids.length > 0 ? t.pic_profile_ids : [t.pic_profile_id];
+      picIds.forEach((picId) => {
+        bumpItem(map, picId, `ticket:${tab.key}`, { id: t.id, label: pickTicketLabel(t.data, t.id), href: TICKET_ROUTES[tab.key] });
+      });
     });
   }
 }
@@ -238,6 +280,33 @@ function groupColumnsByPhase(columns) {
 
 function countOf(memberItems, memberId, colId) {
   return (memberItems[memberId || UNASSIGNED]?.[colId] || []).length;
+}
+
+// Round 281 — which ticket-type columns to show in a person's "Requested by
+// You" section. Deliberately NOT columnsForTeam(profile.segment) — a
+// requester's own team and the team that executes their ticket is often a
+// different team by design (that's the whole point of the requester/
+// executor split, e.g. an AR member requesting a Bổ Sung DATA ticket that
+// OPS/AR executes), so gating this by the viewer's team-ownership list would
+// hide exactly the cross-team requests this section exists to surface.
+// Instead: scan every ticket type this profile has ANY requester-side entry
+// for (open or done) and only show those — keeps the table from listing all
+// ~20 ticket types with a wall of zeros for types this person never
+// requests anything in.
+function requesterColumnsWithData(requesterItems, profileId) {
+  const perColumn = requesterItems[profileId] || {};
+  const keysWithData = new Set();
+  Object.keys(perColumn).forEach((colId) => {
+    const m = colId.match(/^ticket:(.+):(open|done)$/);
+    if (m && perColumn[colId]?.length > 0) keysWithData.add(m[1]);
+  });
+  return TICKET_KEYS.filter((k) => keysWithData.has(k)).map((k) => ({
+    id: k,
+    name: TICKET_TYPE_LABELS[k] || k,
+    href: TICKET_ROUTES[k],
+    open: countOf(requesterItems, profileId, requesterColKey(k, false)),
+    done: countOf(requesterItems, profileId, requesterColKey(k, true)),
+  }));
 }
 
 // ---- Old-style org-wide section (dev/admin/teamlead's whole view, and the
@@ -418,16 +487,123 @@ function MyTasksView({ profile, memberItems, activeItemTab, setActiveItemTab }) 
   );
 }
 
+// Round 281 — requester-side attribution, additive alongside the executor
+// view above: "note the task for requester in the task table (they have the
+// responsibility to check if the tickets were done)." Same table/drill-down
+// visual pattern as the executor side (columns + a click-to-open detail
+// list below), but split Open vs. Done per ticket type instead of just an
+// outstanding count — the whole point here is checking completion, not
+// workload. See requesterColumnsWithData's comment for why this is NOT
+// scoped by columnsForTeam(profile.segment) like the executor side is.
+function RequestedSection({ profile, requesterItems }) {
+  const [activeTab, setActiveTab] = useState(null); // { colId, bucket: "open"|"done" }
+  const columns = requesterColumnsWithData(requesterItems, profile.id);
+  const totalOpen = columns.reduce((sum, c) => sum + c.open, 0);
+  const totalDone = columns.reduce((sum, c) => sum + c.done, 0);
+
+  const active = activeTab && columns.find((c) => c.id === activeTab.colId);
+  const activeItems = active ? (requesterItems[profile.id]?.[requesterColKey(active.id, activeTab.bucket === "done")] || []) : [];
+
+  return (
+    <div style={{ marginTop: 32, paddingTop: 24, borderTop: "1px solid var(--border)" }}>
+      <h3 style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>Requested by You</h3>
+      <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 12 }}>
+        Tickets you requested (any team) — check these got done, regardless of who executed them.
+      </div>
+
+      {columns.length === 0 ? (
+        <div style={{ color: "var(--text-faint)", fontSize: 12 }}>You haven't requested any tracked tickets yet.</div>
+      ) : (
+        <>
+          <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Ticket Type</th>
+                  <th>Open</th>
+                  <th>Done</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {columns.map((c) => (
+                  <tr key={c.id}>
+                    <td>{c.name}</td>
+                    <td>
+                      {c.open ? (
+                        <button
+                          onClick={() => setActiveTab({ colId: c.id, bucket: "open" })}
+                          className={styles.rowLink}
+                          style={{ background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit", color: "var(--accent)" }}
+                        >
+                          {c.open}
+                        </button>
+                      ) : <span style={{ color: "var(--text-faint)" }}>0</span>}
+                    </td>
+                    <td>
+                      {c.done ? (
+                        <button
+                          onClick={() => setActiveTab({ colId: c.id, bucket: "done" })}
+                          className={styles.rowLink}
+                          style={{ background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit", color: "var(--accent)" }}
+                        >
+                          {c.done}
+                        </button>
+                      ) : <span style={{ color: "var(--text-faint)" }}>0</span>}
+                    </td>
+                    <td style={{ fontWeight: 700 }}>{c.open + c.done}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td style={{ fontWeight: 700 }}>Total</td>
+                  <td style={{ fontWeight: 700 }}>{totalOpen}</td>
+                  <td style={{ fontWeight: 700 }}>{totalDone}</td>
+                  <td style={{ fontWeight: 700 }}>{totalOpen + totalDone}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {active && (
+            <div style={{ marginTop: 12 }}>
+              <h4 style={{ fontSize: 13, marginBottom: 8 }}>{active.name} — {activeTab.bucket === "done" ? "Done" : "Open"} ({activeItems.length})</h4>
+              <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+                <table className={styles.table}>
+                  <tbody>
+                    {activeItems.map((item) => (
+                      <tr key={item.id}>
+                        <td><Link href={item.href} className={styles.rowLink}>{item.label}</Link></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function TaskTablePage() {
   const { profile } = useAuth();
   const [profiles, setProfiles] = useState([]);
   const [memberItems, setMemberItems] = useState({});
+  // Round 281 — requester-side attribution, kept as its own state/map
+  // (loadTicketCounts fills both in one pass over the same ticket rows) —
+  // see RequestedSection/requesterColumnsWithData below.
+  const [requesterItems, setRequesterItems] = useState({});
   const [loading, setLoading] = useState(true);
 
   // "mine" | "team" — only meaningful for role "exc"; dev/admin/teamlead
   // never see these tabs at all (see the Round 250 comment block up top).
   const [mainTab, setMainTab] = useState("mine");
   const [activeItemTab, setActiveItemTab] = useState(null);
+  // Round 278 — filters the member rows shown in "My Team"/the full-org
+  // breakdown by name; has no effect on "My Tasks" (a single person's own
+  // view, nothing to search over there).
+  const [memberQuery, setMemberQuery] = useState("");
 
   // Restore whichever tab was open last time, before the very first paint
   // that would otherwise default to "mine"/nothing — same "read once on
@@ -447,8 +623,10 @@ export default function TaskTablePage() {
       const [{ data: profs }] = await Promise.all([supabase.from("profiles").select("id, name, segment, role").order("name")]);
       setProfiles(profs || []);
       const map = {};
-      await Promise.all([loadTicketCounts(map), loadWorkstationCounts(map)]);
+      const reqMap = {};
+      await Promise.all([loadTicketCounts(map, reqMap), loadWorkstationCounts(map)]);
       setMemberItems(map);
+      setRequesterItems(reqMap);
       setLoading(false);
     })();
   }, []);
@@ -514,17 +692,27 @@ export default function TaskTablePage() {
             </div>
           )}
 
+          {!loading && (hasPersonalView ? mainTab === "team" : true) && (
+            <SearchBox value={memberQuery} onChange={setMemberQuery} placeholder="Search member name…" />
+          )}
+
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
           ) : hasPersonalView ? (
             mainTab === "mine" ? (
-              <MyTasksView profile={profile} memberItems={memberItems} activeItemTab={activeItemTab} setActiveItemTab={setActiveItemTab} />
+              <>
+                <MyTasksView profile={profile} memberItems={memberItems} activeItemTab={activeItemTab} setActiveItemTab={setActiveItemTab} />
+                {/* Round 281 — additive, not gated by columnsForTeam/segment
+                    like MyTasksView above it: a requester's team and the
+                    executing team are often different by design. */}
+                <RequestedSection profile={profile} requesterItems={requesterItems} />
+              </>
             ) : (
               myTeamSegments.map((segment) => (
                 <TeamSection
                   key={segment}
                   segment={isOpsAdminSplit ? "OPS" : segment}
-                  members={profiles.filter((p) => (isOpsAdminSplit ? p.segment === "OPS" && p.subteam === segment : p.segment === segment))}
+                  members={profiles.filter((p) => (isOpsAdminSplit ? p.segment === "OPS" && p.subteam === segment : p.segment === segment) && p.name.toLowerCase().includes(memberQuery.trim().toLowerCase()))}
                   memberItems={memberItems}
                   title={segment}
                 />
@@ -533,9 +721,11 @@ export default function TaskTablePage() {
           ) : (
             <>
               {sections.map((segment) => (
-                <TeamSection key={segment} segment={segment} members={profiles.filter((p) => p.segment === segment)} memberItems={memberItems} />
+                <TeamSection key={segment} segment={segment} members={profiles.filter((p) => p.segment === segment && p.name.toLowerCase().includes(memberQuery.trim().toLowerCase()))} memberItems={memberItems} />
               ))}
-              {noSegmentProfiles.length > 0 && <TeamSection segment="No Team" members={noSegmentProfiles} memberItems={memberItems} title="No Team" />}
+              {noSegmentProfiles.filter((p) => p.name.toLowerCase().includes(memberQuery.trim().toLowerCase())).length > 0 && (
+                <TeamSection segment="No Team" members={noSegmentProfiles.filter((p) => p.name.toLowerCase().includes(memberQuery.trim().toLowerCase()))} memberItems={memberItems} title="No Team" />
+              )}
             </>
           )}
         </div>
