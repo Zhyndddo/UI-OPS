@@ -132,12 +132,29 @@ function ConfirmWorkstationInner() {
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
 
-    const { data: assigns } = await supabase.from("workstation_assignments").select("workstation, release_id, pic_profile_id").in("workstation", ["confirm_phase1", "confirm_phase2"]);
+    const { data: assigns } = await supabase.from("workstation_assignments").select("workstation, release_id, pic_profile_id, auto_assigned").in("workstation", ["confirm_phase1", "confirm_phase2"]);
     const defs = {}, rows = { confirm_phase1: {}, confirm_phase2: {} };
+    const autoAssignedIds = { confirm_phase1: [], confirm_phase2: [] };
     (assigns || []).forEach((a) => {
       if (a.release_id === null) defs[a.workstation] = a.pic_profile_id;
-      else rows[a.workstation][a.release_id] = a.pic_profile_id;
+      else {
+        rows[a.workstation][a.release_id] = a.pic_profile_id;
+        if (a.auto_assigned) autoAssignedIds[a.workstation].push(a.release_id);
+      }
     });
+
+    // Round 296 — self-healing cleanup, same as the other 2 wired
+    // workstations' own comment: each phase independently reclaims any
+    // release its OWN past auto-assign wrote (auto_assigned=true) once
+    // that phase gets a config default. A manual pick (auto_assigned=
+    // false, see updatePic) is never touched.
+    for (const ph of ["confirm_phase1", "confirm_phase2"]) {
+      if (defs[ph] != null && autoAssignedIds[ph].length > 0) {
+        await supabase.from("workstation_assignments").delete().eq("workstation", ph).in("release_id", autoAssignedIds[ph]);
+        autoAssignedIds[ph].forEach((rid) => { delete rows[ph][rid]; });
+      }
+    }
+
     setDefaultPics(defs);
     setAssignments(rows);
 
@@ -146,10 +163,17 @@ function ConfirmWorkstationInner() {
     // own `workstation` key ("confirm_phase1"/"confirm_phase2") — a release
     // can be unassigned on one phase and assigned on the other, so each
     // phase is checked independently. Fire-and-forget, not awaited here.
+    //
+    // Round 295 — precedence fix, same as the other 2 wired workstations'
+    // own comment: each phase only auto-assigns when THAT phase has no
+    // config default (`defs[ph]`) set, so Config → PIC Defaults overrides
+    // this auto-assign per-phase rather than getting silently overwritten
+    // by it. A real MANUAL per-release row still wins over both — only
+    // auto_assigned rows get reclaimed by the cleanup above.
     const scopedProfs = filterProfilesByTeam(profs || [], "OPS");
     ["confirm_phase1", "confirm_phase2"].forEach((ph) => {
       Promise.all(
-        (rels || [])
+        (defs[ph] == null ? (rels || []) : [])
           .filter((r) => rows[ph][r.id] == null)
           .map((r) =>
             autoAssignUnassigned({
@@ -158,7 +182,7 @@ function ConfirmWorkstationInner() {
               entity: "workstation_assignment",
               entityId: `${ph}:${r.id}`,
               write: async (profileId) => {
-                await supabase.from("workstation_assignments").insert({ workstation: ph, column_key: "all", release_id: r.id, pic_profile_id: profileId });
+                await supabase.from("workstation_assignments").insert({ workstation: ph, column_key: "all", release_id: r.id, pic_profile_id: profileId, auto_assigned: true });
                 setAssignments((prev) => (prev[ph]?.[r.id] != null ? prev : { ...prev, [ph]: { ...prev[ph], [r.id]: profileId } }));
               },
             })
@@ -206,9 +230,11 @@ function ConfirmWorkstationInner() {
       await supabase.from("workstation_assignments").delete().eq("workstation", phase).eq("release_id", releaseId);
       return;
     }
+    // Round 296 — a manual pick always clears auto_assigned, see
+    // app/workstation/upload/page.js's own comment.
     const { data: existing } = await supabase.from("workstation_assignments").select("id").eq("workstation", phase).eq("column_key", "all").eq("release_id", releaseId).maybeSingle();
-    if (existing) await supabase.from("workstation_assignments").update({ pic_profile_id: profileId }).eq("id", existing.id);
-    else await supabase.from("workstation_assignments").insert({ workstation: phase, column_key: "all", release_id: releaseId, pic_profile_id: profileId });
+    if (existing) await supabase.from("workstation_assignments").update({ pic_profile_id: profileId, auto_assigned: false }).eq("id", existing.id);
+    else await supabase.from("workstation_assignments").insert({ workstation: phase, column_key: "all", release_id: releaseId, pic_profile_id: profileId, auto_assigned: false });
   }
 
   function dspAllChecked(r) {

@@ -109,22 +109,44 @@ export default function PreReleaseWorkstation() {
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
 
-    const { data: assigns } = await supabase.from("workstation_assignments").select("release_id, pic_profile_id").eq("workstation", "pre_release");
+    const { data: assigns } = await supabase.from("workstation_assignments").select("release_id, pic_profile_id, auto_assigned").eq("workstation", "pre_release");
     const map = {};
     let def = null;
+    const autoAssignedIds = [];
     (assigns || []).forEach((a) => {
       if (a.release_id === null) def = a.pic_profile_id;
-      else map[a.release_id] = a.pic_profile_id;
+      else {
+        map[a.release_id] = a.pic_profile_id;
+        if (a.auto_assigned) autoAssignedIds.push(a.release_id);
+      }
     });
+
+    // Round 296 — self-healing cleanup, same as app/workstation/upload/
+    // page.js's own comment: a config default now reclaims any release
+    // this page's past auto-assign wrote (auto_assigned=true), not just
+    // future ones. A manual pick (auto_assigned=false, see updatePic) is
+    // never touched.
+    if (def != null && autoAssignedIds.length > 0) {
+      await supabase.from("workstation_assignments").delete().eq("workstation", "pre_release").in("release_id", autoAssignedIds);
+      autoAssignedIds.forEach((rid) => { delete map[rid]; });
+    }
+
     setDefaultPic(def);
     setAssignments(map);
 
     // Round 281 — auto-assign unassigned rows to team lead/admin, see
     // lib/workstationHelpers.js. Fire-and-forget, not awaited here — don't
     // block the page's first render on it.
+    //
+    // Round 295 — precedence fix, same as app/workstation/upload/page.js's
+    // own comment: only runs when no config default (`def`) is set for
+    // this workstation, so Config → PIC Defaults now overrides this
+    // auto-assign rather than getting silently overwritten by it. A real
+    // MANUAL per-release row still wins over both — only auto_assigned
+    // rows get reclaimed by the cleanup above.
     const scopedProfs = filterProfilesByTeam(profs || [], "OPS");
     Promise.all(
-      (rels || [])
+      (def == null ? (rels || []) : [])
         .filter((r) => map[r.id] == null)
         .map((r) =>
           autoAssignUnassigned({
@@ -133,7 +155,7 @@ export default function PreReleaseWorkstation() {
             entity: "workstation_assignment",
             entityId: `pre_release:${r.id}`,
             write: async (profileId) => {
-              await supabase.from("workstation_assignments").insert({ workstation: "pre_release", column_key: "all", release_id: r.id, pic_profile_id: profileId });
+              await supabase.from("workstation_assignments").insert({ workstation: "pre_release", column_key: "all", release_id: r.id, pic_profile_id: profileId, auto_assigned: true });
               setAssignments((prev) => (prev[r.id] != null ? prev : { ...prev, [r.id]: profileId }));
             },
           })
@@ -158,9 +180,11 @@ export default function PreReleaseWorkstation() {
       await supabase.from("workstation_assignments").delete().eq("workstation", "pre_release").eq("release_id", releaseId);
       return;
     }
+    // Round 296 — a manual pick always clears auto_assigned, see
+    // app/workstation/upload/page.js's own comment.
     const { data: existing } = await supabase.from("workstation_assignments").select("id").eq("workstation", "pre_release").eq("column_key", "all").eq("release_id", releaseId).maybeSingle();
-    if (existing) await supabase.from("workstation_assignments").update({ pic_profile_id: profileId }).eq("id", existing.id);
-    else await supabase.from("workstation_assignments").insert({ workstation: "pre_release", column_key: "all", release_id: releaseId, pic_profile_id: profileId });
+    if (existing) await supabase.from("workstation_assignments").update({ pic_profile_id: profileId, auto_assigned: false }).eq("id", existing.id);
+    else await supabase.from("workstation_assignments").insert({ workstation: "pre_release", column_key: "all", release_id: releaseId, pic_profile_id: profileId, auto_assigned: false });
   }
 
   // Round 158 — artist_pick_status dropped from this rule (moved to

@@ -80,7 +80,7 @@ export default function UploadWorkstation() {
         )
         .eq("requested", true),
       supabase.from("profiles").select("id, name, segment, role").order("name"),
-      supabase.from("workstation_assignments").select("release_id, pic_profile_id").eq("workstation", "upload"),
+      supabase.from("workstation_assignments").select("release_id, pic_profile_id, auto_assigned").eq("workstation", "upload"),
       // Round 274 — same tab lookup app/workstation/pitching/page.js does,
       // run alongside the 3 queries above instead of after them.
       supabase.from("ticket_tabs").select("id").eq("key", "pitching").single(),
@@ -90,23 +90,54 @@ export default function UploadWorkstation() {
 
     const map = {};
     let def = null;
+    const autoAssignedIds = [];
     (assigns || []).forEach((a) => {
       if (a.release_id === null) def = a.pic_profile_id;
-      else map[a.release_id] = a.pic_profile_id;
+      else {
+        map[a.release_id] = a.pic_profile_id;
+        if (a.auto_assigned) autoAssignedIds.push(a.release_id);
+      }
     });
+
+    // Round 296 — follow-up to Round 295: a config default only blocked
+    // FUTURE auto-assigns, it couldn't un-stick a release the auto-assign
+    // had already claimed before the default existed ("would it still fix
+    // it until they manually do the other thing?" — no, so this fixes
+    // that too). If a config default is now set, any existing row this
+    // page's own past auto-assign wrote (auto_assigned=true — a human's
+    // own pick is never flagged this way, see updatePic) is deleted here,
+    // so the release falls back to showing the config default again. Runs
+    // every load, so it's self-healing going forward too, not just a
+    // one-time fix for the current backlog.
+    if (def != null && autoAssignedIds.length > 0) {
+      await supabase.from("workstation_assignments").delete().eq("workstation", "upload").in("release_id", autoAssignedIds);
+      autoAssignedIds.forEach((rid) => { delete map[rid]; });
+    }
+
     setDefaultPic(def);
     setAssignments(map);
 
     // Round 281 — auto-assign unassigned rows to team lead/admin, see
     // lib/workstationHelpers.js. Fire-and-forget after load, not awaited
     // here — don't block the page's first render on it. Only releases with
-    // no per-release row (not in `map`) are genuinely unassigned; the
-    // workstation-wide default (`def`) is a display fallback only, not a
-    // real per-release assignment (see app/task-table/page.js's counting
-    // logic), so it doesn't count as "already assigned" here.
+    // no per-release row (not in `map`) are genuinely unassigned.
+    //
+    // Round 295 — precedence fix, per explicit request ("i want to make
+    // the config override the other rules, but manual input override
+    // everything else"). Used to fire unconditionally the moment a
+    // release had no per-release row, ignoring whether a config default
+    // (`def`) was already set — so this auto-assign would silently win
+    // over an admin's own Config → PIC Defaults choice the instant the
+    // page loaded. Now it only runs when NO config default exists for
+    // this workstation (`def == null`); when a default IS set, that
+    // config value is left as the shown (but still unwritten) fallback
+    // indefinitely — see the PIC <select>'s own `assignments[r.id] ??
+    // defaultPic` below, unchanged. A real MANUAL per-release row still
+    // always wins over both, since `map` is checked first either way —
+    // only auto_assigned rows get reclaimed by the cleanup above.
     const scopedProfs = filterProfilesByTeam(profs || [], "OPS");
     Promise.all(
-      (rels || [])
+      (def == null ? (rels || []) : [])
         .filter((r) => map[r.id] == null)
         .map((r) =>
           autoAssignUnassigned({
@@ -115,7 +146,7 @@ export default function UploadWorkstation() {
             entity: "workstation_assignment",
             entityId: `upload:${r.id}`,
             write: async (profileId) => {
-              await supabase.from("workstation_assignments").insert({ workstation: "upload", column_key: "all", release_id: r.id, pic_profile_id: profileId });
+              await supabase.from("workstation_assignments").insert({ workstation: "upload", column_key: "all", release_id: r.id, pic_profile_id: profileId, auto_assigned: true });
               setAssignments((prev) => (prev[r.id] != null ? prev : { ...prev, [r.id]: profileId }));
             },
           })
@@ -167,10 +198,14 @@ export default function UploadWorkstation() {
       .eq("column_key", "all")
       .eq("release_id", release.id)
       .maybeSingle();
+    // Round 296 — a manual pick always clears auto_assigned, even if it's
+    // overwriting a row this page's own auto-assign wrote earlier. Once a
+    // human has touched it, it's a real manual assignment — never again
+    // eligible to be reclaimed by a later-set config default.
     if (existing) {
-      await supabase.from("workstation_assignments").update({ pic_profile_id: profileId }).eq("id", existing.id);
+      await supabase.from("workstation_assignments").update({ pic_profile_id: profileId, auto_assigned: false }).eq("id", existing.id);
     } else {
-      await supabase.from("workstation_assignments").insert({ workstation: "upload", column_key: "all", release_id: release.id, pic_profile_id: profileId });
+      await supabase.from("workstation_assignments").insert({ workstation: "upload", column_key: "all", release_id: release.id, pic_profile_id: profileId, auto_assigned: false });
     }
   }
 
