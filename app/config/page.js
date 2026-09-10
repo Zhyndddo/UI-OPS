@@ -1275,7 +1275,15 @@ function PitchingSettingsSection() {
       setNctExtraServices(parsePitchingNctExtraServices(settingsByKey[PITCHING_NCT_EXTRA_SERVICES_KEY]));
       setZingExtraServices(parsePitchingZingExtraServices(settingsByKey[PITCHING_ZING_EXTRA_SERVICES_KEY]));
       setPicListIds(parsePitchingPicList(settingsByKey[PITCHING_PIC_LIST_KEY]));
-      setProfiles(filterProfilesByTeam(profs || [], "OPS"));
+      // Round 301 — was filterProfilesByTeam(profs, "OPS"), which only ever
+      // showed OPS-segment profiles as checkboxes here. Round 274's commit
+      // message claimed this screen "already lets dev tick anyone
+      // regardless of team," but that was never actually true — the one
+      // non-OPS person in the list (anh.lan) got there via a direct SQL
+      // migration, not through this checkbox UI. Fixed for real: every
+      // non-dev profile is now shown (dev is excluded everywhere PIC lists
+      // are built — see filterProfilesByTeam's own Round 78 comment).
+      setProfiles(filterProfilesByTeam(profs || [], null));
       setLoading(false);
     })();
   }, []);
@@ -1359,10 +1367,15 @@ function PitchingSettingsSection() {
       <div>
         <div className={styles.subheading} style={{ marginTop: 0 }}>Pitching PIC List</div>
         <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16, maxWidth: 640 }}>
-          Restricts who shows up in the Pitching Workstation's PIC dropdowns (Priority, Priority Apple, Spotify
-          Banner, Spotify S4A, Domestic) — useful since multiple teams touch this workstation but not every
-          member should be pickable. Blank means unrestricted (falls back to the whole OPS team) — check
-          whoever should actually be selectable.
+          Restricts who shows up in the Pitching Workstation's Priority Apple and Spotify Banner PIC dropdowns
+          — useful since multiple teams touch this workstation but not every member should be pickable. Blank
+          means unrestricted (falls back to the whole OPS+AR team).
+          {/* Round 301 — Priority, Spotify S4A, and Domestic now each have
+              their own separate allowed list + default PIC (configured via
+              SQL for now, see lib/pitchingPicTabs.js) — this flat list
+              below only still governs Priority Apple and Spotify Banner,
+              and is also what those 3 tabs fall back to if their own
+              per-tab list is ever unset. */}
           {savedPicList && <span style={{ color: "var(--success-fg)", fontWeight: 700, marginLeft: 8 }}>Saved</span>}
         </p>
         <div style={{ display: "grid", gap: 6, maxWidth: 420 }}>

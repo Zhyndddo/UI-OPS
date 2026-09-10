@@ -20,6 +20,7 @@ import {
   PITCHING_ZING_EXTRA_SERVICES_KEY, DEFAULT_PITCHING_ZING_EXTRA_SERVICES, parsePitchingZingExtraServices,
 } from "../../../lib/pitchingDomesticServices";
 import { PITCHING_PIC_LIST_KEY, parsePitchingPicList, applyPitchingPicList } from "../../../lib/pitchingPicList";
+import { PITCHING_PIC_TABS_KEY, PITCHING_PIC_SCOPED_TABS, parsePitchingPicTabs, applyPitchingPicTab, pitchingPicTabDefault } from "../../../lib/pitchingPicTabs";
 import { buildZingPitchNote } from "../../../lib/zingPitchNote";
 import { rowHighlightColor, DATE_HIGHLIGHT_LEGEND } from "../../../lib/releaseDateHighlight";
 import ColorLegend from "../../../lib/ColorLegend";
@@ -196,7 +197,11 @@ function computeTicketStatus(ticket, release) {
 export default function PitchingWorkstation() {
   const { profile } = useAuth();
   const [rows, setRows] = useState([]); // { ticket, release }
-  const [profiles, setProfiles] = useState([]);
+  // Round 301 — was a single flat `profiles` list shared by every PIC
+  // dropdown; now one array per PIC_COLUMNS key (see load()'s
+  // profilesByKey block), since priority/spotify/domestic each have their
+  // own eligible-member list.
+  const [profilesByKey, setProfilesByKey] = useState({});
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
   const [query, setQuery] = useState(""); // round 76 — quick index search box
@@ -219,6 +224,48 @@ export default function PitchingWorkstation() {
     const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "pitching").single();
     if (!tab) { setLoading(false); return; }
     const { data: tickets } = await supabase.from("tickets").select("*").eq("tab_id", tab.id).is("deleted_at", null);
+
+    // Round 301 — profiles + settings fetched up front now (used to be
+    // fetched at the very end of load()), so tabsConfig is available in
+    // time for the default-auto-fill patch loop below, same "auto-sync on
+    // load" spot as the DSP-status/ticket-status patches right after it.
+    const [{ data: profs }, { data: settingsRows }] = await Promise.all([
+      supabase.from("profiles").select("id, name, segment, role").order("name"),
+      supabase.from("global_settings").select("key, value").in("key", [PITCHING_DOMESTIC_SERVICES_KEY, PITCHING_NCT_EXTRA_SERVICES_KEY, PITCHING_ZING_EXTRA_SERVICES_KEY, PITCHING_PIC_LIST_KEY, PITCHING_PIC_TABS_KEY]),
+    ]);
+    const settingsByKey = {};
+    (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
+    setDomesticServiceItems(parsePitchingDomesticServices(settingsByKey[PITCHING_DOMESTIC_SERVICES_KEY]));
+    setNctExtraServiceItems(parsePitchingNctExtraServices(settingsByKey[PITCHING_NCT_EXTRA_SERVICES_KEY]));
+    setZingExtraServiceItems(parsePitchingZingExtraServices(settingsByKey[PITCHING_ZING_EXTRA_SERVICES_KEY]));
+    const picList = parsePitchingPicList(settingsByKey[PITCHING_PIC_LIST_KEY]);
+    const picTabsConfig = parsePitchingPicTabs(settingsByKey[PITCHING_PIC_TABS_KEY]);
+    // Round 159 — AR added as a 2nd executor team here (was OPS-only), per
+    // explicit "add pitching workstation for AR team as executor" request.
+    // filterProfilesByTeam now accepts an array of teams for exactly this
+    // case (see its own comment) — falls back, same as before, to whatever
+    // the Pitching PIC List (Config → Pitching) narrows it down to.
+    //
+    // Round 274 tried to make the flat Pitching PIC List apply to anyone
+    // once configured, not just OPS/AR — but only fixed the read side
+    // here; Config's own checkbox picker (app/config/page.js's
+    // PitchingSettingsSection) was never actually updated to show
+    // non-OPS profiles, so there was no way to configure anyone outside
+    // OPS/AR through the UI in the first place. Fixed for real in Round
+    // 301 (see that file).
+    const oldFlatListFallback = picList.length > 0 ? applyPitchingPicList(profs || [], picList) : filterProfilesByTeam(profs || [], ["OPS", "AR"]);
+    // Round 301 — per-tab scoping for priority/spotify(S4A)/domestic (see
+    // lib/pitchingPicTabs.js). A tab with its own configured allowed list
+    // uses ONLY that list; any tab not yet configured (including apple and
+    // spotifyBanner, which this mechanism deliberately never applies to)
+    // falls back to the old flat-list/OPS+AR behavior above, unchanged.
+    const profilesByKey = {};
+    Object.keys(PIC_COLUMNS).forEach((key) => {
+      const scoped = PITCHING_PIC_SCOPED_TABS.includes(key) ? applyPitchingPicTab(profs || [], picTabsConfig, key) : null;
+      profilesByKey[key] = scoped || oldFlatListFallback;
+    });
+    setProfilesByKey(profilesByKey);
+
     const dids = [...new Set((tickets || []).map((t) => t.data?.releaseId).filter(Boolean))];
     let releaseMap = {};
     if (dids.length > 0) {
@@ -291,42 +338,41 @@ export default function PitchingWorkstation() {
       });
     }
 
+    // Round 301 — default-PIC auto-fill for the 3 scoped tabs. Same
+    // "auto-sync on load" spot as the two patch loops above: for any row
+    // whose platform is actually requested (isTypeRequested) and whose
+    // PIC column is still empty, fills it with that tab's configured
+    // default (if one is set) — written straight onto the release, same
+    // as every other Pitching PIC write. Logged as a system auto-assign
+    // (actor: null), matching Round 281's workstation_assignments
+    // auto-assign convention.
+    const picDefaultPatches = [];
+    allRows.forEach((row) => {
+      if (!row.release) return;
+      const patch = {};
+      PITCHING_PIC_SCOPED_TABS.forEach((key) => {
+        if (!isTypeRequested(row.ticket, key)) return;
+        const col = PIC_COLUMNS[key];
+        if (row.release[col]) return; // already assigned — never overwrite
+        const def = pitchingPicTabDefault(picTabsConfig, key);
+        if (def) patch[col] = def;
+      });
+      if (Object.keys(patch).length > 0) picDefaultPatches.push({ id: row.release.id, patch });
+    });
+    if (picDefaultPatches.length > 0) {
+      await Promise.all(picDefaultPatches.map(({ id, patch }) => {
+        Object.entries(patch).forEach(([col, val]) => {
+          logAudit({ actor: null, action: "auto_assign", entity: "release", entityId: id, field: col, before: null, after: val });
+        });
+        return supabase.from("releases").update(patch).eq("id", id);
+      }));
+      allRows = allRows.map((row) => {
+        const found = picDefaultPatches.find((p) => p.id === row.release?.id);
+        return found ? { ...row, release: { ...row.release, ...found.patch } } : row;
+      });
+    }
+
     setRows(allRows);
-
-    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
-    // Round 106 item 5 — "make a new pic list just for this one since
-    // there is multiple team join in but not all member": Config →
-    // Pitching → PIC List (blank by default) restricts who shows up as
-    // PIC here instead of the usual whole-OPS-team filter. Falls back to
-    // the normal OPS filter until an admin actually sets the list.
-    const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", [PITCHING_DOMESTIC_SERVICES_KEY, PITCHING_NCT_EXTRA_SERVICES_KEY, PITCHING_ZING_EXTRA_SERVICES_KEY, PITCHING_PIC_LIST_KEY]);
-    const settingsByKey = {};
-    (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
-    setDomesticServiceItems(parsePitchingDomesticServices(settingsByKey[PITCHING_DOMESTIC_SERVICES_KEY]));
-    setNctExtraServiceItems(parsePitchingNctExtraServices(settingsByKey[PITCHING_NCT_EXTRA_SERVICES_KEY]));
-    setZingExtraServiceItems(parsePitchingZingExtraServices(settingsByKey[PITCHING_ZING_EXTRA_SERVICES_KEY]));
-    const picList = parsePitchingPicList(settingsByKey[PITCHING_PIC_LIST_KEY]);
-    // Round 159 — AR added as a 2nd executor team here (was OPS-only), per
-    // explicit "add pitching workstation for AR team as executor" request.
-    // filterProfilesByTeam now accepts an array of teams for exactly this
-    // case (see its own comment) — falls back, same as before, to whatever
-    // the Pitching PIC List (Config → Pitching) narrows it down to.
-    //
-    // Round 274 — per explicit request ("PIC default configs, expand the
-    // list to everyone, so dev can add any PIC to a task regardless"):
-    // once the PIC List is actually configured (picList.length > 0), it
-    // is now applied to EVERY profile, not just OPS/AR — Config's own PIC
-    // List picker (app/config/page.js's PitchingPicListSection) already
-    // lets dev tick anyone regardless of team, but this OPS/AR
-    // pre-filter used to silently drop that pick again right here before
-    // it ever reached the dropdown. The OPS/AR filter now only applies as
-    // the FALLBACK, same as before, while the list is still blank/unset.
-    setProfiles(
-      picList.length > 0
-        ? applyPitchingPicList(profs || [], picList)
-        : filterProfilesByTeam(profs || [], ["OPS", "AR"])
-    );
-
     setLoading(false);
   }
 
@@ -574,7 +620,7 @@ export default function PitchingWorkstation() {
       {openRow && (
         <PitchingPopup
           row={openRow}
-          profiles={profiles}
+          profilesByKey={profilesByKey}
           onClose={() => setOpenTicketId(null)}
           onUpdateRelease={updateRelease}
           domesticServiceItems={domesticServiceItems}
@@ -594,18 +640,19 @@ function PitchingLbmCell({ release, onUpdate }) {
   return <UrlField styles={styles} value={draft} onChange={setDraft} onBlur={() => onUpdate(release, "link_lbm", draft)} />;
 }
 
-function PitchingPopup({ row, profiles, onClose, onUpdateRelease, domesticServiceItems, nctExtraServiceItems, zingExtraServiceItems }) {
+function PitchingPopup({ row, profilesByKey, onClose, onUpdateRelease, domesticServiceItems, nctExtraServiceItems, zingExtraServiceItems }) {
   const types = TYPE_TABS.filter(([key]) => isTypeRequested(row.ticket, key));
   const [activeType, setActiveType] = useState(types[0]?.[0]);
   const release = row.release;
 
   function PicField({ tabKey }) {
     const col = PIC_COLUMNS[tabKey];
+    const options = profilesByKey[tabKey] || [];
     return (
       <Field label="PIC">
         <select className={styles.select} value={release?.[col] || ""} onChange={(e) => onUpdateRelease(release, col, e.target.value || null)}>
           <option value="">— Unassigned —</option>
-          {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          {options.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </Field>
     );

@@ -21,13 +21,15 @@ import { TICKET_TYPE_LABELS, TEAMS, REPORTING_TEAMS } from "../../../lib/teamTyp
 import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import { useAuth } from "../../../lib/AuthContext";
 // Round 281 — audit log / requester attribution. Only logTicketCreate and
-// logTicketStatusChange are actually used on this page — this file has no
-// deleted_at soft-delete writes and no pic_profile_id/deadline field
-// updates to hang logTicketDelete/logPicReassign/logDeadlineChange off of
-// (checked via grep across the whole file before writing this round).
-import { logTicketCreate, logTicketStatusChange } from "../../../lib/auditLog";
+// logTicketStatusChange were used on this page at the time — this file had
+// no deleted_at soft-delete writes and no pic_profile_id/deadline field
+// updates to hang logTicketDelete/logPicReassign/logDeadlineChange off of.
+// Round 300 added the first one — see updateUploadPic below — so
+// logPicReassign is now imported too.
+import { logTicketCreate, logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 import { isDev, isAdminOrAbove, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewProjectRightsType, canEditProjectRightsType } from "../../../lib/permissions";
 import ProjectRightsTypeTag from "../../../lib/ProjectRightsTypeTag";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { subteamTagPillClass, MARKETING_SUBTEAM_TAGS } from "../../../lib/projectTags";
 import { runOne } from "../../../lib/packageSimulator";
 import { fetchProductTagSets, ProductTagPills } from "../../../lib/productTags";
@@ -230,6 +232,65 @@ export default function ReleaseDetailPage() {
     if (!supabase) return;
     fetchProductTagSets(supabase).then(setProductTagSets);
   }, []);
+
+  // Round 300 — PIC field on the detail page, per explicit request ("we
+  // have the auto PIC for the product dashboard [New Release Setup, i.e.
+  // the "upload" workstation], the team want to add a PIC field in the
+  // detail page so they can change the name in case someone may take over
+  // a product"). Same underlying data as that dashboard's own PIC column
+  // (workstation_assignments, workstation="upload") — this is just a
+  // second, reachable-from-the-product-page editing surface for the exact
+  // same value, not a separate field. Fetches the OPS picker list, this
+  // release's own override row (if any), and the workstation's config
+  // default (release_id null) so the shown value matches what the
+  // dashboard would show for this release (override, else default, else
+  // Unassigned) — same 3-tier precedence as Round 296.
+  const [uploadPicProfiles, setUploadPicProfiles] = useState([]);
+  const [uploadPicAssignment, setUploadPicAssignment] = useState(null); // { id, pic_profile_id } | null
+  const [uploadPicDefault, setUploadPicDefault] = useState(null); // profile id | null
+  useEffect(() => {
+    if (!supabase || !id) return;
+    supabase.from("profiles").select("id, name, email, segment, role").order("name").then(({ data }) => {
+      setUploadPicProfiles(filterProfilesByTeam(data || [], "OPS"));
+    });
+    supabase
+      .from("workstation_assignments")
+      .select("id, release_id, pic_profile_id")
+      .eq("workstation", "upload")
+      .or(`release_id.eq.${id},release_id.is.null`)
+      .then(({ data }) => {
+        const rows = data || [];
+        setUploadPicAssignment(rows.find((r) => r.release_id === id) || null);
+        setUploadPicDefault(rows.find((r) => r.release_id === null)?.pic_profile_id || null);
+      });
+  }, [id]);
+
+  // Same write shape as app/workstation/upload/page.js's own updatePic —
+  // this MUST stay in sync with that: a manual pick here always clears
+  // auto_assigned (a human touched it, so it's never reclaimed by a later
+  // config-default change — see Round 296), and an empty pick deletes the
+  // override row entirely so the release falls back to showing the config
+  // default again, same as clearing the dropdown on the dashboard would.
+  async function updateUploadPic(profileId) {
+    const before = uploadPicAssignment?.pic_profile_id ?? null;
+    logPicReassign({ actor: profile?.id, entity: "workstation_assignment", entityId: id, before, after: profileId || null });
+    if (!profileId) {
+      await supabase.from("workstation_assignments").delete().eq("workstation", "upload").eq("release_id", id);
+      setUploadPicAssignment(null);
+      return;
+    }
+    if (uploadPicAssignment) {
+      await supabase.from("workstation_assignments").update({ pic_profile_id: profileId, auto_assigned: false }).eq("id", uploadPicAssignment.id);
+      setUploadPicAssignment((a) => ({ ...a, pic_profile_id: profileId }));
+    } else {
+      const { data: inserted } = await supabase
+        .from("workstation_assignments")
+        .insert({ workstation: "upload", column_key: "all", release_id: id, pic_profile_id: profileId, auto_assigned: false })
+        .select("id, release_id, pic_profile_id")
+        .single();
+      setUploadPicAssignment(inserted || { release_id: id, pic_profile_id: profileId });
+    }
+  }
 
   // Round 262 follow-up — Marketing's 4 tag names are a hardcoded
   // constant (lib/projectTags.js's MARKETING_SUBTEAM_TAGS), not read
@@ -1576,6 +1637,21 @@ export default function ReleaseDetailPage() {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
                 <div className={styles.eyebrow} style={{ marginBottom: 0 }}>{form.did || "—"}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {/* Round 300 — Upload workstation PIC, reachable straight
+                    from the product page (same underlying
+                    workstation_assignments row the "New Release Setup"
+                    dashboard's own PIC column edits — see updateUploadPic
+                    above). Anyone can see it; only OPS/dev/admin can change
+                    it, since that's who the dashboard's own picker is
+                    scoped to (filterProfilesByTeam(..., "OPS")). */}
+                <PicHeaderField
+                  styles={styles}
+                  value={uploadPicAssignment?.pic_profile_id ?? uploadPicDefault ?? ""}
+                  isOverride={uploadPicAssignment != null}
+                  profiles={uploadPicProfiles}
+                  canEdit={isDev(profile) || isAdminOrAbove(profile) || profile?.segment === "OPS"}
+                  onChange={updateUploadPic}
+                />
                 {/* Round 294 — project rights-type tag, AR/OPS only. Same
                     small pill + popup as the index page — see
                     lib/ProjectRightsTypeTag.js. Rendered here in the
@@ -2079,6 +2155,36 @@ function ReleaseNotePanel({ form, update, team, setTeam }) {
         placeholder="Tình trạng data, xác nhận gói HTTT..."
       />
     </div>
+  );
+}
+
+// Round 300 — small header PIC pill/select, same idea as the New Release
+// Setup dashboard's own PIC column but for one release from its own detail
+// page. Read-only pill (name, or "Unassigned") when canEdit is false;
+// otherwise an inline <select> that writes immediately, no Save needed —
+// same "don't wait for Save" idiom as togglePackageLock/toggleSubteamTag
+// elsewhere on this page. title matches the dashboard's own
+// override-vs-default distinction.
+function PicHeaderField({ styles, value, isOverride, profiles, canEdit, onChange }) {
+  const name = profiles.find((p) => p.id === value)?.name;
+  if (!canEdit) {
+    return (
+      <span className={styles.pill} title="Upload PIC">
+        PIC: {name || "Unassigned"}
+      </span>
+    );
+  }
+  return (
+    <select
+      className={styles.select}
+      style={{ fontSize: 12, minWidth: "14ch" }}
+      value={value || ""}
+      title={isOverride ? "Upload PIC — row override" : "Upload PIC — workstation default"}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">PIC: Unassigned</option>
+      {profiles.map((p) => <option key={p.id} value={p.id}>PIC: {p.name}</option>)}
+    </select>
   );
 }
 
