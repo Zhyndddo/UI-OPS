@@ -23,6 +23,8 @@ import { didPreview, didPrefixFor } from "../../lib/didHelpers";
 import { emptyCopyrightChecklist } from "../../lib/copyrightChecklist";
 import CopyrightChecklistFields from "../../lib/CopyrightChecklistFields";
 import NewReleaseTemplateTools from "../../lib/NewReleaseTemplateTools";
+import { canEditProjectRightsType } from "../../lib/permissions";
+import ProjectRightsTypeTag from "../../lib/ProjectRightsTypeTag";
 import styles from "./styles.module.css";
 
 const EMPTY_FORM = {
@@ -100,6 +102,9 @@ const EMPTY_FORM = {
   // Round 88 — Copyright Checklist (Master/Vocal/Author rights) — see
   // lib/copyrightChecklist.js for the shape.
   copyright_checklist: emptyCopyrightChecklist(),
+  // Round 294 — project rights-type tag (PRJ_INHOUSE/LICENSED/OWNED),
+  // AR/OPS only — see lib/projectRightsType.js. Optional, no default.
+  project_rights_type: null,
 };
 
 // Round 106 item 5 — 4 merged top-level keys (was 5) — see
@@ -1229,6 +1234,28 @@ export default function NewReleasePage() {
               alone up here and Artist Info/Artist Photo left below. */}
           <div className={styles.subheading}>Marketing Checklist</div>
           <GateGrid styles={styles} fields={MARKETING_CHECKLIST_FIELDS} form={form} update={update} />
+
+          {/* Round 294 — project rights-type tag, AR/OPS only, per
+              explicit request ("also add this info into new release set
+              up workstation too"). Living directly above Copyright
+              Checklist since the two are related — which rights-type a
+              project is decides what paperwork the Copyright Checklist
+              below actually needs. Hidden entirely for anyone who isn't
+              AR/OPS (or dev), same gate as everywhere else this tag
+              shows. */}
+          {canEditProjectRightsType(profile) && (
+            <>
+              <div className={styles.subheading}>Loại Dự Án</div>
+              <div style={{ marginBottom: 16 }}>
+                <ProjectRightsTypeTag
+                  styles={styles}
+                  value={form.project_rights_type}
+                  canEdit
+                  onChange={(code) => update("project_rights_type", code)}
+                />
+              </div>
+            </>
+          )}
 
           {/* Round 88 — Copyright Checklist, living directly above Data
               Request (the first group inside <GateFields> below), per

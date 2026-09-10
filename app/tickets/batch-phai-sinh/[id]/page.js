@@ -14,7 +14,8 @@ import { recomputeBatchStatus, batchProgress } from "../../../../lib/batchPhaiSi
 import { sendPing, resolvePingTargets } from "../../../../lib/pingNotification";
 import { CHILD_ITEM_STATUSES } from "../../../../lib/phaiSinhTypes";
 import BatchFileImport from "../../../../lib/BatchFileImport";
-import { canEditLockedDeadline } from "../../../../lib/permissions";
+import { canEditLockedDeadline, canViewProjectRightsType, canEditProjectRightsType } from "../../../../lib/permissions";
+import ProjectRightsTypeTag from "../../../../lib/ProjectRightsTypeTag";
 import styles from "../../../shared.module.css";
 // Round 282 — audit log / requester attribution. Batch items live in
 // phai_sinh_batch_items, a different table from tickets, so item-level
@@ -36,6 +37,9 @@ const ITEM_STATUSES = CHILD_ITEM_STATUSES;
 export default function BatchPhaiSinhDetail() {
   const { id } = useParams();
   const { profile } = useAuth();
+  // Round 294 — project rights-type tag, AR/OPS only.
+  const showProjectRightsTypeColumn = canViewProjectRightsType(profile);
+  const canEditProjectRightsTypeHere = canEditProjectRightsType(profile);
   const [ticket, setTicket] = useState(null);
   const [items, setItems] = useState([]);
   const [profiles, setProfiles] = useState([]);
@@ -251,6 +255,8 @@ export default function BatchPhaiSinhDetail() {
                   <th style={{ minWidth: 130 }}>Tác Quyền Q1 (Bản ghi)</th>
                   <th style={{ minWidth: 130 }}>Tác Quyền Q2 (Người biểu diễn)</th>
                   <th style={{ minWidth: 130 }}>Tác Quyền Q3 (Tác giả)</th>
+                  {/* Round 294 — project rights-type tag, AR/OPS only. */}
+                  {showProjectRightsTypeColumn && <th style={{ minWidth: 160 }}>Loại Dự Án</th>}
                   <th style={{ minWidth: 100 }}>Type</th>
                   <th style={{ minWidth: 140 }}>Note</th>
                   <th style={{ minWidth: 160 }}>Link Labelmaster</th>
@@ -293,6 +299,16 @@ export default function BatchPhaiSinhDetail() {
                       <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.tac_quyen_master || ""} onBlur={(e) => updateItem(item, { tac_quyen_master: e.target.value })} /></td>
                       <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.tac_quyen_vocal || ""} onBlur={(e) => updateItem(item, { tac_quyen_vocal: e.target.value })} /></td>
                       <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.tac_quyen_author || ""} onBlur={(e) => updateItem(item, { tac_quyen_author: e.target.value })} /></td>
+                      {showProjectRightsTypeColumn && (
+                        <td>
+                          <ProjectRightsTypeTag
+                            styles={styles}
+                            value={item.project_rights_type}
+                            canEdit={canEditProjectRightsTypeHere}
+                            onChange={(code) => updateItem(item, { project_rights_type: code })}
+                          />
+                        </td>
+                      )}
                       <td>
                         <select className={styles.select} style={{ padding: "4px 6px", fontSize: 11 }} value={item.type_request || "Phái Sinh"} onChange={(e) => updateItem(item, { type_request: e.target.value })}>
                           <option value="Phái Sinh">Phái Sinh</option>

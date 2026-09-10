@@ -12,8 +12,9 @@ import { fetchProductTagSets, ProductTagPills } from "../../lib/productTags";
 import { copyrightChecklistSummary } from "../../lib/copyrightChecklist";
 import DateRangeFilter, { matchesDateRange } from "../../lib/DateRangeFilter";
 import { useAuth } from "../../lib/AuthContext";
-import { visibleSubteamsFor, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM } from "../../lib/permissions";
+import { visibleSubteamsFor, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewProjectRightsType, canEditProjectRightsType } from "../../lib/permissions";
 import { subteamTagPillClass, MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
+import ProjectRightsTypeTag from "../../lib/ProjectRightsTypeTag";
 import styles from "../shared.module.css";
 
 const CHANNELS = ["VIEENT", "ENVI"];
@@ -119,6 +120,9 @@ const RELEASE_COLUMNS = [
   // INDIE/VPOP/ENVI/VIEENT values are now just 4 subteam_tags entries,
   // same shape as any other team's subteam tag.
   "subteam_tags", "subteam_tags_locked",
+  // Round 294 — project rights-type tag (PRJ_INHOUSE/LICENSED/OWNED),
+  // AR/OPS-only.
+  "project_rights_type",
 ].join(", ");
 
 // Mirrors app/workstation/pitching/page.js's DONE_VALUE/CANCEL_VALUES so the
@@ -348,6 +352,12 @@ export default function ReleasesDashboard() {
   // Marketing's subteams (view-only popup) instead of per-subteam
   // columns.
   const showAdminSummaryColumn = canViewSubteamSummaryColumn(profile, SUBTEAM_TAG_TEAM);
+  // Round 294 — project rights-type tag, AR/OPS only. Its own column,
+  // furthest left (left of even the subteam columns above), per explicit
+  // spec. View and edit share the same gate here (unlike Marketing's
+  // subteam mechanism), so one flag covers both.
+  const showProjectRightsTypeColumn = canViewProjectRightsType(profile);
+  const canEditProjectRightsTypeHere = canEditProjectRightsType(profile);
 
   const [sort, setSort] = useState(null); // null = default (release date desc) | { key, dir }
   const [page, setPage] = useState(1);
@@ -589,6 +599,16 @@ export default function ReleasesDashboard() {
     setSavingChannel(null);
   }
 
+  // Round 294 — project rights-type tag. Single-select, no confirm needed
+  // (unlike toggleSubteamTag below — this isn't an on/off flag someone
+  // could "accidentally unflag", it's just picking a different one of 3).
+  async function updateProjectRightsType(release, code) {
+    const { error: err } = await supabase.from("releases").update({ project_rights_type: code }).eq("id", release.id);
+    if (!err) {
+      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, project_rights_type: code } : r)));
+    }
+  }
+
   // Round 261 — per-subteam tag toggle, left-most columns. Plain on/off —
   // per explicit spec, turning it OFF still confirms first ("in case they
   // incorrectly unflag"). Round 262 — also sets subteam_tags_locked for
@@ -695,6 +715,12 @@ export default function ReleasesDashboard() {
           <table className={styles.table}>
             <thead>
               <tr>
+                {/* Round 294 — project rights-type tag, AR/OPS only.
+                    Furthest-left column, left of even the subteam columns
+                    below, per explicit spec. */}
+                {showProjectRightsTypeColumn && (
+                  <th title="Loại Dự Án — PRJ_INHOUSE / PRJ_LICENSED / PRJ_OWNED">Loại Dự Án</th>
+                )}
                 {/* Round 261 — per-subteam tag column(s), left-most per
                     explicit spec. Round 291 — widened from team-lead-only
                     to anyone on that subteam. Zero columns for anyone
@@ -743,6 +769,16 @@ export default function ReleasesDashboard() {
                 const pitching = pitchingSummary(r, pitchingData[r.did]);
                 return (
                   <tr key={r.id}>
+                    {showProjectRightsTypeColumn && (
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <ProjectRightsTypeTag
+                          styles={styles}
+                          value={r.project_rights_type}
+                          canEdit={canEditProjectRightsTypeHere}
+                          onChange={(code) => updateProjectRightsType(r, code)}
+                        />
+                      </td>
+                    )}
                     {/* Round 261 — per-subteam toggle(s), left-most. Same
                         flag-icon switch visual as the project tag's, but
                         plain on/off (no cycling) — confirms only when

@@ -26,7 +26,8 @@ import { useAuth } from "../../../lib/AuthContext";
 // updates to hang logTicketDelete/logPicReassign/logDeadlineChange off of
 // (checked via grep across the whole file before writing this round).
 import { logTicketCreate, logTicketStatusChange } from "../../../lib/auditLog";
-import { isDev, isAdminOrAbove, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM } from "../../../lib/permissions";
+import { isDev, isAdminOrAbove, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewProjectRightsType, canEditProjectRightsType } from "../../../lib/permissions";
+import ProjectRightsTypeTag from "../../../lib/ProjectRightsTypeTag";
 import { subteamTagPillClass, MARKETING_SUBTEAM_TAGS } from "../../../lib/projectTags";
 import { runOne } from "../../../lib/packageSimulator";
 import { fetchProductTagSets, ProductTagPills } from "../../../lib/productTags";
@@ -1411,6 +1412,15 @@ export default function ReleaseDetailPage() {
     setRelease((r) => ({ ...r, package_locked: newVal }));
   }
 
+  // Round 294 — project rights-type tag. Single-select, writes
+  // immediately (same "don't wait for Save" idiom as the subteam toggle
+  // right below).
+  async function updateProjectRightsType(code) {
+    setForm((f) => ({ ...f, project_rights_type: code }));
+    setRelease((r) => ({ ...r, project_rights_type: code }));
+    await supabase.from("releases").update({ project_rights_type: code }).eq("id", id);
+  }
+
   // Round 261/262 — per-subteam tag toggle, header switch. Same "write
   // immediately, don't wait for Save" idiom as togglePackageLock right
   // above. Round 262 retired the Round 258/260 single-cycling project_tag
@@ -1565,6 +1575,19 @@ export default function ReleaseDetailPage() {
             <div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
                 <div className={styles.eyebrow} style={{ marginBottom: 0 }}>{form.did || "—"}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {/* Round 294 — project rights-type tag, AR/OPS only. Same
+                    small pill + popup as the index page — see
+                    lib/ProjectRightsTypeTag.js. Rendered here in the
+                    header, next to the subteam tag switch below. */}
+                {canViewProjectRightsType(profile) && (
+                  <ProjectRightsTypeTag
+                    styles={styles}
+                    value={form.project_rights_type}
+                    canEdit={canEditProjectRightsType(profile)}
+                    onChange={updateProjectRightsType}
+                  />
+                )}
                 {/* Round 261/262 — per-subteam tag switch, header. The
                     Round 258/260 single-cycling project_tag switch this
                     used to be is retired; each subteam is now its own
@@ -1610,6 +1633,7 @@ export default function ReleaseDetailPage() {
                     </div>
                   )
                 )}
+                </div>
               </div>
               {firstUrl(form.link_lbm) ? (
                 <a

@@ -16,7 +16,9 @@ import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import NoteCell from "../../../lib/NoteCell";
 import { PHAI_SINH_TYPE_OPTIONS, isKhoNhacType, isMetadataConfirmed, CHILD_STATUS_COUNTERS } from "../../../lib/phaiSinhTypes";
-import { canEditLockedDeadline } from "../../../lib/permissions";
+import { canEditLockedDeadline, canViewProjectRightsType, canEditProjectRightsType } from "../../../lib/permissions";
+import ProjectRightsTypeTag from "../../../lib/ProjectRightsTypeTag";
+import { projectRightsTypeInfo, projectRightsTypePillClass } from "../../../lib/projectRightsType";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import { useIsMobile } from "../../../lib/useIsMobile";
 import styles from "../../shared.module.css";
@@ -53,6 +55,9 @@ function computeAnchorPage(targetPage) {
 export default function PhaiSinhList() {
   const { profile } = useAuth();
   const isMobile = useIsMobile();
+  // Round 294 — project rights-type tag, AR/OPS only.
+  const showProjectRightsTypeColumn = canViewProjectRightsType(profile);
+  const canEditProjectRightsTypeHere = canEditProjectRightsType(profile);
   const [tab, setTab] = useState(null);
   const [tickets, setTickets] = useState([]);
   const [profiles, setProfiles] = useState([]);
@@ -388,6 +393,8 @@ export default function PhaiSinhList() {
                     batchItems={itemsByBatch[t.id] || []}
                     smartlinks={smartlinksByTicket[t.id] || []}
                     canEditDeadline={canEditDeadline}
+                    showProjectRightsTypeColumn={showProjectRightsTypeColumn}
+                    canEditProjectRightsTypeHere={canEditProjectRightsTypeHere}
                     onUpdateField={updateField}
                     onUpdateStatus={updateStatus}
                     onUpdatePic={updatePic}
@@ -402,6 +409,9 @@ export default function PhaiSinhList() {
             <table className={styles.table} style={{ minWidth: 2000 }}>
               <thead>
                 <tr>
+                  {/* Round 294 — project rights-type tag, AR/OPS only,
+                      left-most. */}
+                  {showProjectRightsTypeColumn && <th style={{ minWidth: 150 }}>Loại Dự Án</th>}
                   {/* Related DID no longer has its own column — moved into
                       the Tên Bài cell (see PhaiSinhRow) since each row is
                       already several lines tall, freeing up a column for
@@ -453,6 +463,8 @@ export default function PhaiSinhList() {
                     batchItems={itemsByBatch[t.id] || []}
                     smartlinks={smartlinksByTicket[t.id] || []}
                     canEditDeadline={canEditDeadline}
+                    showProjectRightsTypeColumn={showProjectRightsTypeColumn}
+                    canEditProjectRightsTypeHere={canEditProjectRightsTypeHere}
                     onUpdateField={updateField}
                     onUpdateStatus={updateStatus}
                     onUpdatePic={updatePic}
@@ -481,7 +493,7 @@ export default function PhaiSinhList() {
 // drift from desktop's behavior.
 const phaiSinhFieldLabelStyle = { fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 };
 
-function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, batchItems, smartlinks = [], canEditDeadline, onUpdateField, onUpdateStatus, onUpdatePic, onAcknowledgeEdit, onUpdateDeadline, onSmartlinkSaved, mobile = false }) {
+function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, batchItems, smartlinks = [], canEditDeadline, showProjectRightsTypeColumn, canEditProjectRightsTypeHere, onUpdateField, onUpdateStatus, onUpdatePic, onAcknowledgeEdit, onUpdateDeadline, onSmartlinkSaved, mobile = false }) {
   const d = ticket.data || {};
   // Round 213 — item 2: "Track Smartlink" opens the same popup the
   // Re-Check workstation's "+ Add Smartlink" button does
@@ -701,6 +713,41 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
     <span style={{ color: "var(--text-faint)" }}>—</span>
   );
 
+  // Round 294 — project rights-type tag, AR/OPS only. A plain "Phái sinh"
+  // row has one value of its own (ticket.data.projectRightsType, editable
+  // right here via the small popup). A Kho Nhạc-family row has NO single
+  // value of its own — each child item in phai_sinh_batch_items carries
+  // its own tag (see the batch grid's own column) — so this shows a
+  // read-only rollup instead: every distinct code present across the
+  // batch's items, as plain pills, no click. Editing a batch's items
+  // happens in the batch grid, not here.
+  const projectRightsTypeBody = !showProjectRightsTypeColumn ? null : isBatch ? (
+    (() => {
+      const codes = [...new Set(batchItems.map((i) => i.project_rights_type).filter(Boolean))];
+      if (codes.length === 0) return <span style={{ color: "var(--text-faint)", fontSize: 11 }}>—</span>;
+      return (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {codes.map((code) => {
+            const info = projectRightsTypeInfo(code);
+            const count = batchItems.filter((i) => i.project_rights_type === code).length;
+            return (
+              <span key={code} className={`${styles.pill} ${projectRightsTypePillClass(styles, code)}`} title={info?.requirement}>
+                {info?.short || code}{count > 1 ? ` ×${count}` : ""}
+              </span>
+            );
+          })}
+        </div>
+      );
+    })()
+  ) : (
+    <ProjectRightsTypeTag
+      styles={styles}
+      value={d.projectRightsType}
+      canEdit={canEditProjectRightsTypeHere}
+      onChange={(code) => onUpdateField(ticket, "projectRightsType", code, !isExecutorView)}
+    />
+  );
+
   const editedBadge = showEditedHighlight && (
     <div
       title={`Edited by ${d.__requesterEditedBy || "requester"} — tap to clear`}
@@ -722,6 +769,13 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
           </div>
           <div title={ticket.data?.note || undefined}>{statusBody}</div>
         </div>
+
+        {showProjectRightsTypeColumn && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={phaiSinhFieldLabelStyle}>Loại Dự Án</div>
+            {projectRightsTypeBody}
+          </div>
+        )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div>
@@ -805,6 +859,7 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
   // hidden content.
   return (
     <tr style={showEditedHighlight ? { boxShadow: "inset 3px 0 0 var(--accent)", background: "rgba(255,107,26,0.06)" } : undefined}>
+      {showProjectRightsTypeColumn && <td style={{ verticalAlign: "top" }}>{projectRightsTypeBody}</td>}
       <td style={{ verticalAlign: "top" }}>
         {typeBody}
         {editedBadge}
