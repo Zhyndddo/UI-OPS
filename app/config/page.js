@@ -2143,16 +2143,32 @@ function SidebarLabelSection() {
 //
 // Round 273 — the Delete button here was removed entirely, per explicit
 // request ("no delete message for secret message from there, incase
-// someone do some shady stuff") — a dev who wanted to cover their tracks
-// on a message they shouldn't have sent could previously just delete it
-// (soft delete, but still self-service and immediate). Every message sent
-// is now a permanent, un-deletable record in this table; there's no UI
-// path left to hide one. `deleted_at`/`describeTarget`'s "Deleted" case
-// stays supported for reading — messages soft-deleted before this round
-// still render greyed out below — this just stops any NEW deletion from
-// happening. Recipients still only ever see undeleted messages
-// (loadMyActiveSecretMessages filters deleted_at IS NULL), which for any
-// message sent from now on is permanently true.
+// someone do some shady stuff"). NOTE this concern was really about a dev
+// making a message hard to prove was ever sent — but `deleted_at` was
+// never actually wired to remove a row from THIS list; it only ever
+// controlled whether the RECIPIENT still sees it (see
+// loadMyActiveSecretMessages's `.is("deleted_at", null)` filter). Dev's own
+// table here has always rendered every row unconditionally, deleted or
+// not (see the `(Deleted)` tag below) — so soft-deleting a message never
+// actually let a dev hide it from other devs, only from its recipient.
+//
+// Round 298 briefly shipped a different, unrelated mechanism (a new
+// `archived_at` column that hid rows from THIS dev list by default) — that
+// was a misread of the ask and has been reverted; it's superseded by this
+// comment and the code below. Never applied to the DB (the migration was
+// delivered but not run), so nothing to clean up there.
+//
+// Round 299 — corrected per explicit clarification: "dev-side => change so
+// that instead of it hide the text from dev side, it hide from recipient
+// just like above [Round 297's recipient Hide], but never delete/hide
+// from dev view so other [devs] can see it too." That's exactly what
+// `deleted_at` already does and always did — so this brings back a button
+// for it, deliberately NOT labeled "Delete" to keep the framing honest:
+// "Clear for recipient" sets `deleted_at` (recipient stops seeing it,
+// dev's list keeps showing it forever, greyed + tagged, exactly like
+// every other row) and "Restore" clears it back. No row is ever removed
+// or hidden from this table — every dev can always see every message ever
+// sent, cleared or not.
 function SecretMessagesSection({ profile }) {
   const [messages, setMessages] = useState([]);
   const [profiles, setProfiles] = useState([]);
@@ -2177,6 +2193,14 @@ function SecretMessagesSection({ profile }) {
     setMessages(msgs || []);
     setProfiles(profs || []);
     setLoading(false);
+  }
+
+  async function toggleClearedForRecipient(m) {
+    const { error: err } = await supabase
+      .from("secret_messages")
+      .update({ deleted_at: m.deleted_at ? null : new Date().toISOString() })
+      .eq("id", m.id);
+    if (!err) load();
   }
 
   const subteamChoices = Object.entries(SUBTEAM_OPTIONS).flatMap(([team, names]) => names.map((n) => ({ team, name: n })));
@@ -2218,8 +2242,10 @@ function SecretMessagesSection({ profile }) {
     <div>
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
         Sends a message that only shows up for its target — one person, a whole team, a subteam, a role, or
-        everyone. It sits on their sidebar and a dedicated page permanently — there's no delete here, by
-        design, so this list below doubles as a permanent record of what was sent.
+        everyone. It sits on their sidebar and a dedicated page until you clear it. This list below is a
+        permanent record — every message ever sent stays visible here to every dev, forever — but once
+        everyone's moved on you can "Clear for recipient" so it drops off their sidebar/list, without ever
+        touching the text or hiding the row from this table. Always reversible with "Restore".
       </p>
 
       <form onSubmit={send} style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 480, marginBottom: 28 }}>
@@ -2286,14 +2312,25 @@ function SecretMessagesSection({ profile }) {
         <div className={styles.emptyState}>No secret messages sent yet.</div>
       ) : (
         <table className={styles.table}>
-          <thead><tr><th>Sent</th><th>To</th><th>Message</th><th>From</th></tr></thead>
+          <thead><tr><th>Sent</th><th>To</th><th>Message</th><th>From</th><th></th></tr></thead>
           <tbody>
             {messages.map((m) => (
               <tr key={m.id} style={m.deleted_at ? { opacity: 0.45 } : undefined}>
                 <td style={{ whiteSpace: "nowrap", fontSize: 11 }}>{new Date(m.created_at).toLocaleString()}</td>
                 <td style={{ fontSize: 12 }}>{recipientLabel(m)}</td>
-                <td style={{ fontSize: 12, maxWidth: 320 }}>{m.message}{m.deleted_at && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-faint)" }}>(Deleted)</span>}</td>
+                <td style={{ fontSize: 12, maxWidth: 320 }}>
+                  {m.message}
+                  {m.deleted_at && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--text-faint)" }}>(Cleared for recipient)</span>}
+                </td>
                 <td style={{ fontSize: 12 }}>{m.sender?.name || "—"}</td>
+                <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                  <button
+                    onClick={() => toggleClearedForRecipient(m)}
+                    style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 6, padding: "3px 10px", color: "var(--text-faint)", cursor: "pointer", fontSize: 11 }}
+                  >
+                    {m.deleted_at ? "Restore" : "Clear for recipient"}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
