@@ -15,10 +15,34 @@ function editStateFor(c) {
     platform: c.platform || "TikTok",
     channel_type: c.channel_type || "Direct",
     brand: c.brand || "",
+    // Round 311 — channel_group: the reference sheet's own row-header
+    // grouping (e.g. "VPOP - COMMUNITY", "VIEENT - SOCIAL"), finer-grained
+    // than brand (brand alone can't tell "VPOP - COMMUNITY" apart from
+    // "VPOP - TIKTOK" — both are brand 'VPOP'). Free-text like brand, not
+    // a fixed dropdown — new groups may come up later.
+    channel_group: c.channel_group || "",
     url: c.url || "",
     follower_count: c.follower_count != null ? String(c.follower_count) : "",
     note: c.note || "",
   };
+}
+
+// Round 311 — Group totals: count + follower sum per channel_group, per
+// explicit request. Computed off whatever's currently on screen
+// (visibleChannels — respects the search box and Direct/Partner filter),
+// same "numbers match what's visible" convention as the Direct/Partner
+// StatCards above. A channel with no follower_count (e.g. the
+// Distribution Support compilation link) still counts toward the group's
+// channel count, just not its follower sum.
+function groupTotals(visibleChannels) {
+  const byGroup = {};
+  visibleChannels.forEach((c) => {
+    const g = c.channel_group || "— No Group —";
+    if (!byGroup[g]) byGroup[g] = { count: 0, followers: 0 };
+    byGroup[g].count += 1;
+    byGroup[g].followers += c.follower_count || 0;
+  });
+  return Object.entries(byGroup).sort(([a], [b]) => (a === "— No Group —" ? 1 : b === "— No Group —" ? -1 : a.localeCompare(b)));
 }
 
 export default function BookingChannelsPage() {
@@ -100,7 +124,7 @@ export default function BookingChannelsPage() {
   // sheet) made this list too long to scan by eye — filters by name,
   // brand, or note, same as the Add Link popup's own search.
   const searchedChannels = search.trim()
-    ? channels.filter((c) => `${c.name} ${c.brand || ""} ${c.note || ""}`.toLowerCase().includes(search.trim().toLowerCase()))
+    ? channels.filter((c) => `${c.name} ${c.brand || ""} ${c.channel_group || ""} ${c.note || ""}`.toLowerCase().includes(search.trim().toLowerCase()))
     : channels;
 
   // Hạng Mục counter/filter row — same click-to-filter pattern as the New
@@ -123,9 +147,9 @@ export default function BookingChannelsPage() {
   // exported as "Hạng Mục" to match the relabeled UI, even though the
   // underlying field/column is still channel_type.
   function exportCsv() {
-    const rows = [["Platform", "Hạng Mục", "Brand", "Name", "URL", "Follower Count", "Note"]];
+    const rows = [["Platform", "Hạng Mục", "Brand", "Group", "Name", "URL", "Follower Count", "Note"]];
     visibleChannels.forEach((c) => {
-      rows.push([c.platform || "", c.channel_type || "", c.brand || "", c.name || "", c.url || "", c.follower_count != null ? c.follower_count : "", c.note || ""]);
+      rows.push([c.platform || "", c.channel_type || "", c.brand || "", c.channel_group || "", c.name || "", c.url || "", c.follower_count != null ? c.follower_count : "", c.note || ""]);
     });
     const csv = rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" }); // BOM so Excel opens Vietnamese text correctly
@@ -137,15 +161,34 @@ export default function BookingChannelsPage() {
     URL.revokeObjectURL(url);
   }
 
-  // Round 305 — mints a new row in channel_reference_share_links and
-  // builds its URL off window.location.origin (not a hardcoded domain) so
-  // this works unchanged whether it's clicked on the production app or a
-  // Vercel preview deploy — see preview-setup.md's branch→preview-URL
-  // flow, which this should follow the same "don't hardcode ui-ops.vercel.app"
-  // convention as everywhere else that could run on either.
+  // Round 305 originally minted a brand-new row on every click — Round
+  // 311 correction, per explicit request ("locked the url channel list
+  // token, 1 token for this lifetime cycle or until i specifically tell
+  // you to change"): this is now get-or-create. It looks for the oldest
+  // still-active (non-revoked) token first and reuses it; only inserts a
+  // new row when none exists yet. Repeat clicks now return the SAME link
+  // every time instead of minting a fresh one — "revoke this one, get a
+  // new one" still works exactly as before (a plain `update ... set
+  // revoked_at = now()` in the SQL editor), it just isn't the default
+  // click behavior anymore. Builds the URL off window.location.origin
+  // (not a hardcoded domain) so this works unchanged whether it's clicked
+  // on the production app or a Vercel preview deploy — see
+  // preview-setup.md's branch→preview-URL flow.
   async function mintShareLink() {
     setMintingLink(true);
     setMintedLinkUrl(null);
+    const { data: existing } = await supabase
+      .from("channel_reference_share_links")
+      .select("*")
+      .is("revoked_at", null)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      setMintingLink(false);
+      setMintedLinkUrl(`${window.location.origin}/channels/${existing.token}`);
+      return;
+    }
     const { data, error } = await supabase
       .from("channel_reference_share_links")
       .insert({ created_by: profile?.email || profile?.name || null })
@@ -192,6 +235,7 @@ export default function BookingChannelsPage() {
       platform: editValues.platform,
       channel_type: editValues.channel_type,
       brand: editValues.brand.trim() || null,
+      channel_group: editValues.channel_group.trim() || null,
       url: editValues.url.trim() || null,
       follower_count: followerCount,
       note: editValues.note.trim() || null,
@@ -291,7 +335,7 @@ export default function BookingChannelsPage() {
             className={styles.btnSecondary}
             onClick={mintShareLink}
             disabled={mintingLink}
-            title="Read-only public link showing the TikTok channel list (VPOP/INDIE/MIỀN TÂY-BOLERO) — no login needed to view it."
+            title="Read-only public link showing the channel list grouped by section — one stable link, reused on every click (see this button's onClick comment)."
           >
             {mintingLink ? "Creating…" : "🔗 Share Link"}
           </button>
@@ -299,7 +343,7 @@ export default function BookingChannelsPage() {
 
         {mintedLinkUrl && (
           <div className={styles.errorBox} style={{ marginBottom: 16, background: "var(--bg-hover)", borderColor: "var(--border-strong)", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span>New link:</span>
+            <span>Share link:</span>
             <a href={mintedLinkUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>{mintedLinkUrl}</a>
             <button
               type="button"
@@ -325,6 +369,24 @@ export default function BookingChannelsPage() {
               </>
             )}
             <button type="button" onClick={() => setRefreshResult(null)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", marginLeft: 10, textDecoration: "underline", fontSize: 11 }}>Dismiss</button>
+          </div>
+        )}
+
+        {/* Round 311 — Group totals, per explicit request ("for each
+            group, count up the quantity of channel, and sum for the
+            followers of all channels in the group"). Off visibleChannels
+            so it tracks the search box / Direct/Partner filter above. */}
+        {!loading && visibleChannels.length > 0 && (
+          <div style={{ marginBottom: 24, display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {groupTotals(visibleChannels).map(([group, t]) => (
+              <div
+                key={group}
+                style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "6px 12px", fontSize: 12, color: "var(--text-muted)", background: "var(--bg-card)" }}
+              >
+                <span style={{ fontWeight: 700, color: "var(--text)" }}>{group}</span>
+                {" — "}{t.count} channel{t.count === 1 ? "" : "s"} · {t.followers.toLocaleString()} followers
+              </div>
+            ))}
           </div>
         )}
 
@@ -383,6 +445,10 @@ export default function BookingChannelsPage() {
                               <label className={styles.fieldLabel}>Brand</label>
                               <input className={styles.input} value={editValues.brand} onChange={(e) => updateEditField("brand", e.target.value)} placeholder="e.g. VPOP" />
                             </div>
+                            <div className={styles.field} style={{ marginBottom: 0, minWidth: 180 }}>
+                              <label className={styles.fieldLabel}>Group</label>
+                              <input className={styles.input} value={editValues.channel_group} onChange={(e) => updateEditField("channel_group", e.target.value)} placeholder="e.g. VPOP - COMMUNITY" />
+                            </div>
                           </div>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                             <div className={styles.field} style={{ marginBottom: 0, minWidth: 260, flex: 1 }}>
@@ -410,7 +476,7 @@ export default function BookingChannelsPage() {
                       <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 14px", gap: 10 }}>
                         <div style={{ overflow: "hidden" }}>
                           <div>
-                            {c.name} <span style={{ color: "var(--text-faint)", fontSize: 11 }}>({c.channel_type}{c.brand ? ` · ${c.brand}` : ""})</span>
+                            {c.name} <span style={{ color: "var(--text-faint)", fontSize: 11 }}>({c.channel_type}{c.brand ? ` · ${c.brand}` : ""}{c.channel_group ? ` · ${c.channel_group}` : ""})</span>
                           </div>
                           <div style={{ fontSize: 11, color: "var(--text-faint)", display: "flex", gap: 10, marginTop: 2 }}>
                             {c.follower_count != null && (

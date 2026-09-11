@@ -174,10 +174,24 @@ function SendSecretMessageSection({ profile }) {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [targetType, setTargetType] = useState(targetTypes[0]);
-  const [targetValue, setTargetValue] = useState("");
+  // Round 310 — per explicit request, individual/team/subteam targeting is
+  // now multi-select: one message can go out to 2-3 (or more — no
+  // hardcoded cap) people, teams, or subteams at once, each still checked
+  // against this sender's own scope exactly the way a single target
+  // always was. Role and "all" stay single-value — a message either goes
+  // to one role or to everyone, multi-select adds nothing there. The
+  // underlying table is still one row per (message, target_type,
+  // target_value) — a multi-target send is just several inserts sharing
+  // the same message text and created_by, not a schema change (see send()
+  // below).
+  const [targetValues, setTargetValues] = useState([]);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
+
+  function toggleTargetValue(v) {
+    setTargetValues((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
+  }
 
   useEffect(() => {
     if (!supabase) return;
@@ -219,28 +233,30 @@ function SendSecretMessageSection({ profile }) {
     if (!message.trim()) return;
     // A scoped admin's "segment" target is always their own team — there's
     // only one valid value, so it's set automatically rather than shown as
-    // a single-option dropdown (see the targetType === "segment" branch
-    // below).
-    const value = targetType === "segment" && !unrestricted ? profile.segment : targetValue;
-    if (targetType !== "all" && !value) {
-      setError("Pick a target first.");
+    // a checkbox list (see the targetType === "segment" branch below).
+    const values = targetType === "segment" && !unrestricted ? [profile.segment] : targetValues;
+    if (targetType !== "all" && values.length === 0) {
+      setError(targetType === "role" ? "Pick a role first." : "Pick at least one target first.");
       return;
     }
     setSending(true);
     setError(null);
-    const { error: err } = await supabase.from("secret_messages").insert({
-      created_by: profile.id,
-      target_type: targetType,
-      target_value: targetType === "all" ? null : value,
-      message: message.trim(),
-    });
+    // Round 310 — one row per selected target, all sharing this same
+    // message text/sender — a multi-target send is N independent
+    // secret_messages rows, not a new "multi" target_type. Each recipient
+    // (and this section's own history list/scoping) keeps treating every
+    // row exactly as it always has; nothing downstream needed to change.
+    const rows = targetType === "all"
+      ? [{ created_by: profile.id, target_type: "all", target_value: null, message: message.trim() }]
+      : values.map((v) => ({ created_by: profile.id, target_type: targetType, target_value: v, message: message.trim() }));
+    const { error: err } = await supabase.from("secret_messages").insert(rows);
     setSending(false);
     if (err) {
       setError(err.message);
       return;
     }
     setMessage("");
-    setTargetValue("");
+    setTargetValues([]);
     load();
   }
 
@@ -262,6 +278,8 @@ function SendSecretMessageSection({ profile }) {
         {unrestricted
           ? " You can reach anyone — any person, team, subteam, role, or everyone."
           : ` You can reach people, subteams, and the team on your own team (${profile?.segment || "your team"}) only.`}
+        {" "}Person/Team/Subteam let you check off more than one at a time — one message, several recipients, each
+        still sent as its own record below.
         {" "}The history below is a permanent record — "Clear for recipient" drops a message off their
         sidebar/list without ever touching the text or removing the row. Always reversible with "Restore".
       </p>
@@ -272,7 +290,7 @@ function SendSecretMessageSection({ profile }) {
             <button
               type="button"
               key={key}
-              onClick={() => { setTargetType(key); setTargetValue(""); }}
+              onClick={() => { setTargetType(key); setTargetValues([]); }}
               className={`${styles.tabBtn} ${targetType === key ? styles.tabBtnActive : ""}`}
               style={{ border: targetType === key ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: targetType === key ? "rgba(255,107,26,0.1)" : "transparent", fontSize: 12 }}
             >
@@ -281,32 +299,42 @@ function SendSecretMessageSection({ profile }) {
           ))}
         </div>
 
+        {/* Round 310 — Person/Subteam (and Team, for an unrestricted
+            sender) are checkbox lists instead of a single-choice dropdown,
+            so one message can target 2-3 (or more) at once. Each option
+            still comes from the exact same already-scoped list
+            (allProfiles/subteamChoices/TEAMS) a single-select dropdown
+            used — multi-select widens how many you can pick, not who's
+            eligible to be picked. */}
         {targetType === "individual" && (
-          <select className={styles.select} value={targetValue} onChange={(e) => setTargetValue(e.target.value)}>
-            <option value="">— choose a person —</option>
-            {allProfiles.map((p) => (
-              <option key={p.id} value={p.id}>{p.name || p.email}</option>
-            ))}
-          </select>
+          <CheckboxList
+            options={allProfiles.map((p) => ({ value: p.id, label: p.name || p.email }))}
+            selected={targetValues}
+            onToggle={toggleTargetValue}
+            emptyText="No one eligible to message yet."
+          />
         )}
         {targetType === "segment" && (
           unrestricted ? (
-            <select className={styles.select} value={targetValue} onChange={(e) => setTargetValue(e.target.value)}>
-              <option value="">— choose a team —</option>
-              {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            <CheckboxList
+              options={TEAMS.map((t) => ({ value: t, label: t }))}
+              selected={targetValues}
+              onToggle={toggleTargetValue}
+            />
           ) : (
             <div style={{ fontSize: 12, color: "var(--text-faint)" }}>Your whole team: {profile?.segment || "—"}.</div>
           )
         )}
         {targetType === "subteam" && (
-          <select className={styles.select} value={targetValue} onChange={(e) => setTargetValue(e.target.value)}>
-            <option value="">— choose a subteam —</option>
-            {subteamChoices.map((s) => <option key={`${s.team}::${s.name}`} value={s.name}>{s.name}{unrestricted ? ` (${s.team})` : ""}</option>)}
-          </select>
+          <CheckboxList
+            options={subteamChoices.map((s) => ({ value: s.name, label: `${s.name}${unrestricted ? ` (${s.team})` : ""}` }))}
+            selected={targetValues}
+            onToggle={toggleTargetValue}
+            emptyText="No subteams to pick from."
+          />
         )}
         {targetType === "role" && (
-          <select className={styles.select} value={targetValue} onChange={(e) => setTargetValue(e.target.value)}>
+          <select className={styles.select} value={targetValues[0] || ""} onChange={(e) => setTargetValues(e.target.value ? [e.target.value] : [])}>
             <option value="">— choose a role —</option>
             {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>)}
           </select>
@@ -323,8 +351,16 @@ function SendSecretMessageSection({ profile }) {
           onChange={(e) => setMessage(e.target.value)}
         />
         {error && <div style={{ color: "var(--error-fg)", fontSize: 12 }}>{error}</div>}
-        <button className={styles.btnPrimary} type="submit" disabled={sending || !message.trim()}>
-          {sending ? "Sending…" : "Send"}
+        <button
+          className={styles.btnPrimary}
+          type="submit"
+          disabled={sending || !message.trim() || (targetType !== "all" && targetType !== "segment" && targetValues.length === 0) || (targetType === "segment" && unrestricted && targetValues.length === 0)}
+        >
+          {sending
+            ? "Sending…"
+            : targetValues.length > 1
+            ? `Send to ${targetValues.length} targets`
+            : "Send"}
         </button>
       </form>
 
@@ -357,6 +393,52 @@ function SendSecretMessageSection({ profile }) {
             ))}
           </tbody>
         </table>
+      )}
+    </div>
+  );
+}
+
+// Round 310 — scrollable checkbox list backing Person/Team/Subteam
+// multi-select in the form above. Deliberately not a native <select
+// multiple> (ctrl/cmd-click to multi-pick is a discoverability trap, and
+// it renders inconsistently across browsers) — plain checkboxes in a
+// bordered, scrollable box read unambiguously as "pick any number of
+// these", matching this app's existing checkbox idiom elsewhere (e.g.
+// app/labels/page.js's simulateMode toggle) rather than introducing a new
+// widget pattern. `options` is `{value, label}[]`; `selected` is the
+// array of currently-picked values; `onToggle(value)` flips one.
+function CheckboxList({ options, selected, onToggle, emptyText }) {
+  if (options.length === 0) {
+    return <div style={{ fontSize: 12, color: "var(--text-faint)" }}>{emptyText || "Nothing to pick from."}</div>;
+  }
+  return (
+    <div>
+      <div
+        style={{
+          maxHeight: 180,
+          overflowY: "auto",
+          border: "1px solid var(--border)",
+          borderRadius: 6,
+          padding: 8,
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+        }}
+      >
+        {options.map((o) => (
+          <label
+            key={o.value}
+            style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, cursor: "pointer", padding: "2px 4px" }}
+          >
+            <input type="checkbox" checked={selected.includes(o.value)} onChange={() => onToggle(o.value)} />
+            {o.label}
+          </label>
+        ))}
+      </div>
+      {selected.length > 0 && (
+        <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 4 }}>
+          {selected.length} selected
+        </div>
       )}
     </div>
   );

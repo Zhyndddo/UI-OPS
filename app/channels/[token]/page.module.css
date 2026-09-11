@@ -31,6 +31,22 @@
   font-size: 13px;
   letter-spacing: 0.3px;
   color: #0a0a0a;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Round 311 — count + follower-sum subtitle under the group title.
+   Slightly lighter/smaller and not bold, so it reads as metadata rather
+   than competing with the group name above it. Inherits the header's
+   dark text color (blockHeader is always painted with a light accent
+   background) rather than a var(--text-*) token, since this block sits
+   on an arbitrary accent color, not the page surface. */
+.blockHeaderMeta {
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  opacity: 0.72;
 }
 
 .blockBody {

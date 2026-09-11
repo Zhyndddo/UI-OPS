@@ -7,28 +7,41 @@ import { readMagicLinkThemeLock } from "../../../lib/magicLinkThemeLock";
 import styles from "../../shared.module.css";
 import pageStyles from "./page.module.css";
 
-// Round 305 — public, no-login magic link for the TikTok channel
-// reference list, per explicit request ("generate a vercel magiclink for
-// the table... use the layout from picture 1"). Same standalone-page
-// convention as app/pick-package/[token] and app/performance-report/[token]
-// (no AppShell, no auth) — gated by sql/pending/add-round305-channel-
+// Round 305 — public, no-login magic link for the channel reference list,
+// per explicit request ("generate a vercel magiclink for the table...
+// use the layout from picture 1"). Same standalone-page convention as
+// app/pick-package/[token] and app/performance-report/[token] (no
+// AppShell, no auth) — gated by sql/pending/add-round305-channel-
 // reference-share-links.sql's channel_reference_share_links table, NOT
 // magic_links (see that migration's header for why this needed its own
 // table). Read-only: view the list, click a link to open it — no other
 // interactivity, per explicit request.
 //
-// Content is the 3 blocks pictured (VPOP-TIKTOK / INDIE-TIKTOK / TIKTOK
-// MIỀN TÂY-BOLERO), sourced live from booking_channels filtered to
-// platform='TikTok' and brand in ('VPOP','INDIE','ENVI - MIỀN TÂY/BOLERO')
-// — the same 3 brand values Round 304's reference-sheet import tagged
-// these channels with. Not a snapshot: adding/editing a TikTok channel on
-// /booking-channels shows up here on next load, same "live query, not a
-// point-in-time copy" contract as the Performance magic link.
-const BLOCKS = [
-  { brand: "VPOP", title: "VPOP - TIKTOK", accent: "#ff9d1a", accentBg: "rgba(255, 157, 26, 0.12)" },
-  { brand: "INDIE", title: "INDIE - TIKTOK", accent: "#5fd68a", accentBg: "rgba(95, 214, 138, 0.12)" },
-  { brand: "ENVI - MIỀN TÂY/BOLERO", title: "TIKTOK MIỀN TÂY/BOLERO", accent: "#c46bff", accentBg: "rgba(196, 107, 255, 0.14)" },
+// Round 311 — rebuilt from 3 hardcoded TikTok-only brand blocks into
+// however many groups booking_channels.channel_group actually has, each
+// spanning every platform (not just TikTok) — per explicit request to
+// group the list the way the reference sheet itself does (e.g.
+// "VIEENT - SOCIAL" is 5 different platforms, one channel each) and to
+// show each group's channel count + follower sum in its header. Order and
+// color are still a fixed lookup (GROUP_META) rather than derived from
+// the data, same reasoning the original 3-block version had: a stable,
+// intentional reading order beats whatever order a live query happens to
+// return, and a group not in this list (something added later without
+// updating this page) still renders — just in encounter order, appended
+// after the ones this page knows about, with a neutral color, so a new
+// group is never silently dropped.
+const GROUP_META = [
+  { group: "VIEENT - SOCIAL", accent: "#5b9dff", accentBg: "rgba(91, 157, 255, 0.12)" },
+  { group: "VPOP - COMMUNITY", accent: "#ff9d1a", accentBg: "rgba(255, 157, 26, 0.12)" },
+  { group: "VPOP - TIKTOK", accent: "#ff9d1a", accentBg: "rgba(255, 157, 26, 0.12)" },
+  { group: "INDIE - COMMUNITY", accent: "#5fd68a", accentBg: "rgba(95, 214, 138, 0.12)" },
+  { group: "INDIE - TIKTOK", accent: "#5fd68a", accentBg: "rgba(95, 214, 138, 0.12)" },
+  { group: "ENVI", accent: "#c46bff", accentBg: "rgba(196, 107, 255, 0.14)" },
+  { group: "MIỀN TÂY/BOLERO - COMMUNITY", accent: "#c46bff", accentBg: "rgba(196, 107, 255, 0.14)" },
+  { group: "TIKTOK MIỀN TÂY/BOLERO", accent: "#c46bff", accentBg: "rgba(196, 107, 255, 0.14)" },
+  { group: "Distribution Support - MEDIA BOOKING CHANNEL", accent: "#9a9a9a", accentBg: "rgba(154, 154, 154, 0.14)" },
 ];
+const DEFAULT_GROUP_META = { accent: "#9a9a9a", accentBg: "rgba(154, 154, 154, 0.14)" };
 
 // Best-effort color mapping for the sheet's "Type" tag, matching picture
 // 1's palette as closely as a fixed small set reasonably can. A note value
@@ -53,7 +66,8 @@ export default function ChannelReferenceSharePage() {
   const { token } = useParams();
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [channelsByBrand, setChannelsByBrand] = useState({});
+  const [channelsByGroup, setChannelsByGroup] = useState({});
+  const [groupOrder, setGroupOrder] = useState([]);
 
   const [themeLock, setThemeLock] = useState(null);
   useEffect(() => {
@@ -92,21 +106,30 @@ export default function ChannelReferenceSharePage() {
       .eq("id", link.id)
       .then(() => {});
 
-    const brands = BLOCKS.map((b) => b.brand);
+    // Round 311 — every platform now, not just TikTok (channel_group
+    // spans platforms, e.g. VIEENT - SOCIAL is TikTok+YouTube+Facebook+
+    // Instagram+Thread) — only still excludes rows with no group set at
+    // all, so an ungrouped channel doesn't silently show up here.
     const { data: rows } = await supabase
       .from("booking_channels")
-      .select("id, name, platform, brand, url, follower_count, note")
-      .eq("platform", "TikTok")
-      .in("brand", brands)
+      .select("id, name, platform, channel_group, url, follower_count, note")
+      .not("channel_group", "is", null)
       .order("follower_count", { ascending: false, nullsFirst: false });
     const grouped = {};
-    brands.forEach((b) => { grouped[b] = []; });
-    (rows || []).forEach((r) => { if (grouped[r.brand]) grouped[r.brand].push(r); });
-    setChannelsByBrand(grouped);
+    (rows || []).forEach((r) => {
+      (grouped[r.channel_group] = grouped[r.channel_group] || []).push(r);
+    });
+    // Known groups first, in GROUP_META's fixed order; anything else
+    // (a group not yet added to GROUP_META) appended after, alphabetical,
+    // so it's still visible rather than dropped.
+    const known = GROUP_META.map((m) => m.group).filter((g) => grouped[g]?.length > 0);
+    const unknown = Object.keys(grouped).filter((g) => !known.includes(g)).sort();
+    setGroupOrder([...known, ...unknown]);
+    setChannelsByGroup(grouped);
     setLoading(false);
   }
 
-  useEffect(() => { document.title = "Channel Reference — TikTok"; }, []);
+  useEffect(() => { document.title = "Channel Reference"; }, []);
 
   if (loading) {
     return <div className={styles.page} data-theme={themeLock || undefined}><div className={styles.container} style={{ maxWidth: 1200 }}>Loading…</div></div>;
@@ -126,42 +149,57 @@ export default function ChannelReferenceSharePage() {
       <div className={styles.container} style={{ maxWidth: 1200 }}>
         <div style={{ marginBottom: 20 }}>
           <div className={styles.eyebrow}>// Channel Reference</div>
-          <h1 className={styles.title} style={{ marginBottom: 0 }}>TikTok Channel List</h1>
+          <h1 className={styles.title} style={{ marginBottom: 0 }}>Channel List</h1>
         </div>
         <div className={pageStyles.grid}>
-          {BLOCKS.map((block) => (
-            <div key={block.brand} className={pageStyles.block}>
-              <div className={pageStyles.blockHeader} style={{ background: block.accent }}>{block.title}</div>
-              <div className={pageStyles.blockBody}>
-                {(channelsByBrand[block.brand] || []).length === 0 ? (
-                  <div style={{ color: "var(--text-faint)", fontSize: 13, padding: "12px 4px" }}>No channels yet.</div>
-                ) : (
-                  channelsByBrand[block.brand].map((c) => {
-                    const noteColor = NOTE_COLORS[c.note] || DEFAULT_NOTE_COLOR;
-                    return (
-                      <a
-                        key={c.id}
-                        href={c.url || undefined}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={pageStyles.row}
-                        style={!c.url ? { pointerEvents: "none", opacity: 0.6 } : undefined}
-                      >
-                        <span className={pageStyles.rowPlatform}>TIKTOK</span>
-                        <span className={pageStyles.rowFollowers}>{formatFollowers(c.follower_count)}</span>
-                        <span className={pageStyles.rowName}>{c.name}</span>
-                        {c.note && (
-                          <span className={pageStyles.rowNote} style={{ background: noteColor.bg, color: noteColor.fg }}>
-                            {c.note}
-                          </span>
-                        )}
-                      </a>
-                    );
-                  })
-                )}
+          {groupOrder.map((group) => {
+            const meta = GROUP_META.find((m) => m.group === group) || DEFAULT_GROUP_META;
+            const rows = channelsByGroup[group] || [];
+            const followerSum = rows.reduce((sum, c) => sum + (c.follower_count || 0), 0);
+            return (
+              <div key={group} className={pageStyles.block}>
+                <div className={pageStyles.blockHeader} style={{ background: meta.accent }}>
+                  <div>{group}</div>
+                  {/* Round 311 — per-group count + follower sum, per
+                      explicit request. followerSum is 0 (shown as "0
+                      followers", not hidden) for a group like Distribution
+                      Support whose one row has no follower_count at all —
+                      that's still an accurate total, not a bug. */}
+                  <div className={pageStyles.blockHeaderMeta}>
+                    {rows.length} channel{rows.length === 1 ? "" : "s"} · {formatFollowers(followerSum)} followers
+                  </div>
+                </div>
+                <div className={pageStyles.blockBody}>
+                  {rows.length === 0 ? (
+                    <div style={{ color: "var(--text-faint)", fontSize: 13, padding: "12px 4px" }}>No channels yet.</div>
+                  ) : (
+                    rows.map((c) => {
+                      const noteColor = NOTE_COLORS[c.note] || DEFAULT_NOTE_COLOR;
+                      return (
+                        <a
+                          key={c.id}
+                          href={c.url || undefined}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={pageStyles.row}
+                          style={!c.url ? { pointerEvents: "none", opacity: 0.6 } : undefined}
+                        >
+                          <span className={pageStyles.rowPlatform}>{(c.platform || "").toUpperCase()}</span>
+                          <span className={pageStyles.rowFollowers}>{formatFollowers(c.follower_count)}</span>
+                          <span className={pageStyles.rowName}>{c.name}</span>
+                          {c.note && (
+                            <span className={pageStyles.rowNote} style={{ background: noteColor.bg, color: noteColor.fg }}>
+                              {c.note}
+                            </span>
+                          )}
+                        </a>
+                      );
+                    })
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
