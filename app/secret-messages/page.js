@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import AppShell from "../../lib/AppShell";
+import PillSwitch from "../../lib/PillSwitch";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
 import {
@@ -398,15 +399,17 @@ function SendSecretMessageSection({ profile }) {
   );
 }
 
-// Round 310 — scrollable checkbox list backing Person/Team/Subteam
-// multi-select in the form above. Deliberately not a native <select
-// multiple> (ctrl/cmd-click to multi-pick is a discoverability trap, and
-// it renders inconsistently across browsers) — plain checkboxes in a
-// bordered, scrollable box read unambiguously as "pick any number of
-// these", matching this app's existing checkbox idiom elsewhere (e.g.
-// app/labels/page.js's simulateMode toggle) rather than introducing a new
-// widget pattern. `options` is `{value, label}[]`; `selected` is the
-// array of currently-picked values; `onToggle(value)` flips one.
+// Round 310 — scrollable list backing Person/Team/Subteam multi-select
+// in the form above. Deliberately not a native <select multiple>
+// (ctrl/cmd-click to multi-pick is a discoverability trap, and it
+// renders inconsistently across browsers) — a bordered, scrollable box
+// of per-row toggles reads unambiguously as "pick any number of these".
+// `options` is `{value, label}[]`; `selected` is the array of
+// currently-picked values; `onToggle(value)` flips one.
+//
+// Round 312 — each row's raw checkbox swapped for the shared PillSwitch
+// component (lib/PillSwitch.js), per explicit request to standardize on
+// the pill/dot toggle look for this kind of control going forward.
 function CheckboxList({ options, selected, onToggle, emptyText }) {
   if (options.length === 0) {
     return <div style={{ fontSize: 12, color: "var(--text-faint)" }}>{emptyText || "Nothing to pick from."}</div>;
@@ -426,13 +429,17 @@ function CheckboxList({ options, selected, onToggle, emptyText }) {
         }}
       >
         {options.map((o) => (
-          <label
+          <div
             key={o.value}
-            style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, cursor: "pointer", padding: "2px 4px" }}
+            style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 4px" }}
           >
-            <input type="checkbox" checked={selected.includes(o.value)} onChange={() => onToggle(o.value)} />
-            {o.label}
-          </label>
+            <PillSwitch
+              size="sm"
+              checked={selected.includes(o.value)}
+              onChange={() => onToggle(o.value)}
+              label={<span style={{ fontSize: 12, color: "var(--text)" }}>{o.label}</span>}
+            />
+          </div>
         ))}
       </div>
       {selected.length > 0 && (
