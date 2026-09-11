@@ -4,7 +4,13 @@
    has no other client-side layout logic that needs the JS hook and a CSS
    breakpoint avoids the "desktop layout flashes on first paint" trade-off
    useIsMobile's own comment already documents. 768px matches the rest of
-   the app's mobile breakpoint (lib/useIsMobile.js's default). */
+   the app's mobile breakpoint (lib/useIsMobile.js's default).
+   Round 311 briefly made this a flat auto-flowing grid of every group;
+   Round 313 restores the fixed 3-super-column layout (an explicit
+   COLUMN_META in page.js decides which groups land in which column,
+   not CSS auto-flow), so .grid is now just the 3 (or 4, if an unknown
+   group needs a trailing "Other" column) outer columns, each a
+   .column of stacked .block group cards. */
 .grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -16,6 +22,35 @@
   .grid {
     grid-template-columns: 1fr;
   }
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Plain, uncolored — this is a column heading, not a channel group, so it
+   deliberately doesn't borrow a .blockHeader accent color. */
+.columnTitle {
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted, #999);
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border-color, #2a2a2a);
+}
+
+/* Round 313 — Distribution Support rides along in the VPOP - MANSTREAM
+   column but per explicit request ("still in the column, but can you
+   make it not in the group") isn't part of that group visually: extra
+   top margin plus a dashed rule sets it apart from the VIEENT/VPOP
+   blocks above it rather than reading as one continuous group list. */
+.blockSetApart {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border-color, #2a2a2a);
 }
 
 .block {

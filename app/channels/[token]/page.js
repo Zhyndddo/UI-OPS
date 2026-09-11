@@ -30,6 +30,15 @@ import pageStyles from "./page.module.css";
 // updating this page) still renders — just in encounter order, appended
 // after the ones this page knows about, with a neutral color, so a new
 // group is never silently dropped.
+//
+// Round 313 — Round 311's flat 3-column CSS grid (groups auto-flowing
+// into whichever column they happened to land in) is replaced with 3
+// fixed super-columns per explicit request: VPOP - MANSTREAM (VIEENT -
+// SOCIAL + VPOP - COMMUNITY + VPOP - TIKTOK, with Distribution Support
+// riding along in the same column but set visually apart, not folded
+// into that group), INDIE (INDIE - COMMUNITY + INDIE - TIKTOK), and
+// MIỀN TÂY - BOLERO (ENVI + MIỀN TÂY/BOLERO - COMMUNITY + TIKTOK MIỀN
+// TÂY/BOLERO). See COLUMN_META below for the exact assignment.
 const GROUP_META = [
   { group: "VIEENT - SOCIAL", accent: "#5b9dff", accentBg: "rgba(91, 157, 255, 0.12)" },
   { group: "VPOP - COMMUNITY", accent: "#ff9d1a", accentBg: "rgba(255, 157, 26, 0.12)" },
@@ -42,6 +51,34 @@ const GROUP_META = [
   { group: "Distribution Support - MEDIA BOOKING CHANNEL", accent: "#9a9a9a", accentBg: "rgba(154, 154, 154, 0.14)" },
 ];
 const DEFAULT_GROUP_META = { accent: "#9a9a9a", accentBg: "rgba(154, 154, 154, 0.14)" };
+
+// Round 313 — per explicit request, the page's already-existing groups
+// (Round 311's GROUP_META, unchanged) get bundled under 3 super-columns
+// instead of auto-flowing into whichever of the 3 CSS grid columns they
+// happen to land in. Each entry's `groups` are stacked top-to-bottom in
+// that column, in that order; `setApart` names a group that still lives
+// in this column but should read as visually separate from the rest
+// (Distribution Support rides along in VPOP - MANSTREAM but "not in the
+// group" — see the .blockSetApart CSS rule). Any GROUP_META group not
+// listed in any column here — or a channel_group value this page has
+// never heard of at all — still isn't dropped: it falls into a trailing
+// "Other" column, same never-silently-drop guarantee Round 311 had.
+const COLUMN_META = [
+  {
+    label: "VPOP - MANSTREAM",
+    groups: ["VIEENT - SOCIAL", "VPOP - COMMUNITY", "VPOP - TIKTOK", "Distribution Support - MEDIA BOOKING CHANNEL"],
+    setApart: ["Distribution Support - MEDIA BOOKING CHANNEL"],
+  },
+  {
+    label: "INDIE",
+    groups: ["INDIE - COMMUNITY", "INDIE - TIKTOK"],
+  },
+  {
+    label: "MIỀN TÂY - BOLERO",
+    groups: ["ENVI", "MIỀN TÂY/BOLERO - COMMUNITY", "TIKTOK MIỀN TÂY/BOLERO"],
+  },
+];
+const COLUMN_ASSIGNED_GROUPS = new Set(COLUMN_META.flatMap((c) => c.groups));
 
 // Best-effort color mapping for the sheet's "Type" tag, matching picture
 // 1's palette as closely as a fixed small set reasonably can. A note value
@@ -144,6 +181,69 @@ export default function ChannelReferenceSharePage() {
     );
   }
 
+  // Round 313 — render one group's block (extracted out of the old flat
+  // map so both the 3 fixed super-columns and the trailing "Other"
+  // column can share it). `setApart` adds the dashed-divider spacing
+  // (see .blockSetApart in the CSS) for a group that rides along in a
+  // column without being visually folded into the ones above it.
+  function renderGroupBlock(group, { setApart } = {}) {
+    const meta = GROUP_META.find((m) => m.group === group) || DEFAULT_GROUP_META;
+    const rows = channelsByGroup[group] || [];
+    const followerSum = rows.reduce((sum, c) => sum + (c.follower_count || 0), 0);
+    return (
+      <div
+        key={group}
+        className={setApart ? `${pageStyles.block} ${pageStyles.blockSetApart}` : pageStyles.block}
+      >
+        <div className={pageStyles.blockHeader} style={{ background: meta.accent }}>
+          <div>{group}</div>
+          {/* Round 311 — per-group count + follower sum, per explicit
+              request. followerSum is 0 (shown as "0 followers", not
+              hidden) for a group like Distribution Support whose one
+              row has no follower_count at all — that's still an
+              accurate total, not a bug. */}
+          <div className={pageStyles.blockHeaderMeta}>
+            {rows.length} channel{rows.length === 1 ? "" : "s"} · {formatFollowers(followerSum)} followers
+          </div>
+        </div>
+        <div className={pageStyles.blockBody}>
+          {rows.length === 0 ? (
+            <div style={{ color: "var(--text-faint)", fontSize: 13, padding: "12px 4px" }}>No channels yet.</div>
+          ) : (
+            rows.map((c) => {
+              const noteColor = NOTE_COLORS[c.note] || DEFAULT_NOTE_COLOR;
+              return (
+                <a
+                  key={c.id}
+                  href={c.url || undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={pageStyles.row}
+                  style={!c.url ? { pointerEvents: "none", opacity: 0.6 } : undefined}
+                >
+                  <span className={pageStyles.rowPlatform}>{(c.platform || "").toUpperCase()}</span>
+                  <span className={pageStyles.rowFollowers}>{formatFollowers(c.follower_count)}</span>
+                  <span className={pageStyles.rowName}>{c.name}</span>
+                  {c.note && (
+                    <span className={pageStyles.rowNote} style={{ background: noteColor.bg, color: noteColor.fg }}>
+                      {c.note}
+                    </span>
+                  )}
+                </a>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Groups this page has data for but that aren't claimed by any of the
+  // 3 fixed columns above — an unrecognized channel_group value. Still
+  // rendered, just appended as a trailing "Other" column rather than
+  // silently dropped.
+  const otherGroups = groupOrder.filter((g) => !COLUMN_ASSIGNED_GROUPS.has(g));
+
   return (
     <div className={styles.page} data-theme={themeLock || undefined}>
       <div className={styles.container} style={{ maxWidth: 1200 }}>
@@ -152,54 +252,22 @@ export default function ChannelReferenceSharePage() {
           <h1 className={styles.title} style={{ marginBottom: 0 }}>Channel List</h1>
         </div>
         <div className={pageStyles.grid}>
-          {groupOrder.map((group) => {
-            const meta = GROUP_META.find((m) => m.group === group) || DEFAULT_GROUP_META;
-            const rows = channelsByGroup[group] || [];
-            const followerSum = rows.reduce((sum, c) => sum + (c.follower_count || 0), 0);
+          {COLUMN_META.map((col) => {
+            const colGroups = col.groups.filter((g) => (channelsByGroup[g]?.length || 0) > 0);
+            if (colGroups.length === 0) return null;
             return (
-              <div key={group} className={pageStyles.block}>
-                <div className={pageStyles.blockHeader} style={{ background: meta.accent }}>
-                  <div>{group}</div>
-                  {/* Round 311 — per-group count + follower sum, per
-                      explicit request. followerSum is 0 (shown as "0
-                      followers", not hidden) for a group like Distribution
-                      Support whose one row has no follower_count at all —
-                      that's still an accurate total, not a bug. */}
-                  <div className={pageStyles.blockHeaderMeta}>
-                    {rows.length} channel{rows.length === 1 ? "" : "s"} · {formatFollowers(followerSum)} followers
-                  </div>
-                </div>
-                <div className={pageStyles.blockBody}>
-                  {rows.length === 0 ? (
-                    <div style={{ color: "var(--text-faint)", fontSize: 13, padding: "12px 4px" }}>No channels yet.</div>
-                  ) : (
-                    rows.map((c) => {
-                      const noteColor = NOTE_COLORS[c.note] || DEFAULT_NOTE_COLOR;
-                      return (
-                        <a
-                          key={c.id}
-                          href={c.url || undefined}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={pageStyles.row}
-                          style={!c.url ? { pointerEvents: "none", opacity: 0.6 } : undefined}
-                        >
-                          <span className={pageStyles.rowPlatform}>{(c.platform || "").toUpperCase()}</span>
-                          <span className={pageStyles.rowFollowers}>{formatFollowers(c.follower_count)}</span>
-                          <span className={pageStyles.rowName}>{c.name}</span>
-                          {c.note && (
-                            <span className={pageStyles.rowNote} style={{ background: noteColor.bg, color: noteColor.fg }}>
-                              {c.note}
-                            </span>
-                          )}
-                        </a>
-                      );
-                    })
-                  )}
-                </div>
+              <div key={col.label} className={pageStyles.column}>
+                <div className={pageStyles.columnTitle}>{col.label}</div>
+                {colGroups.map((group) => renderGroupBlock(group, { setApart: col.setApart?.includes(group) }))}
               </div>
             );
           })}
+          {otherGroups.length > 0 && (
+            <div className={pageStyles.column}>
+              <div className={pageStyles.columnTitle}>Other</div>
+              {otherGroups.map((group) => renderGroupBlock(group))}
+            </div>
+          )}
         </div>
       </div>
     </div>
