@@ -67,7 +67,16 @@ function LinkUgcLines({ value, color }) {
 
 // brand constants in app/tickets/media-booking/page.js (BRANDS,
 // COMMUNITY_BRANDS, TIKTOK_GROUPS, ADS_BRANDS).
-const CATEGORY_SUBFILTERS = {
+//
+// Round 315 — CATEGORY_SUBFILTERS, TIKTOK_CHANNEL_GROUPS,
+// TIKTOK_SUBCHANNELS, ADS_METRICS, buildPackageByRelease, and
+// makeBookedFor below are now exported (this file's default export is
+// still the /booking page itself — a page.js file can carry extra named
+// exports without affecting routing) so app/workstation/cost-mkt/page.js
+// can reuse the EXACT same vocabulary/booked-target logic instead of a
+// second hand-copied version that could quietly drift out of sync. If
+// you rename/reshape any of these, the cost report reads them too.
+export const CATEGORY_SUBFILTERS = {
   "Social": ["VIEENT", "ENVI"],
   "Community": ["PAGE BOLERO / MT", "PAGE VPOP", "PAGE INDIE"],
   "Ads": ["Facebook Ads", "YouTube Ads", "TikTok Ads", "Spotify Ads"],
@@ -83,7 +92,7 @@ function subfilterLabel(categoryName, value) {
 // TikTok Channel: layer 1 picks the group, layer 2 picks the group's real
 // brand — same grouping/brand lists as TIKTOK_GROUPS in the media-booking
 // ticket.
-const TIKTOK_CHANNEL_GROUPS = {
+export const TIKTOK_CHANNEL_GROUPS = {
   "In-house": ["TIKTOK BOLERO / MT", "TIKTOK VPOP", "TIKTOK INDIE", "CAPCUT"],
   "Partner": ["EXT TIKTOK - BK MUSIC", "EXT TIKTOK - DUCTH", "EXT TIKTOK - BK GROUP", "EXT TIKTOK - CTV MẪU"],
 };
@@ -97,7 +106,7 @@ const TIKTOK_CHANNEL_GROUPS = {
 // so the one they care more actually go first") — was TIKTOK NEWS, TIKTOK
 // CAPCUT, MẪU CAPCUT, TIKTOK REUP MV, TIKTOK LYRICS. MUST stay in sync
 // with the equivalent copy in app/tickets/media-booking/page.js.
-const TIKTOK_SUBCHANNELS = ["TIKTOK CAPCUT", "TIKTOK LYRICS", "MẪU CAPCUT", "TIKTOK NEWS", "TIKTOK REUP MV"];
+export const TIKTOK_SUBCHANNELS = ["TIKTOK CAPCUT", "TIKTOK LYRICS", "MẪU CAPCUT", "TIKTOK NEWS", "TIKTOK REUP MV"];
 
 function tiktokGroupForBrand(brand) {
   if (TIKTOK_CHANNEL_GROUPS["In-house"].includes(brand)) return "In-house";
@@ -117,7 +126,7 @@ const PLATFORM_COLUMNS = ["Facebook", "Instagram", "TikTok", "YouTube", "Thread"
 // brand's own fixed metric list — same lists as ADS_METRICS in the
 // media-booking ticket (the metric name doubles as media_booking_entries'
 // "platform" value here, same as it doubles as the entry-row label there).
-const ADS_METRICS = {
+export const ADS_METRICS = {
   "Facebook Ads": ["Lượt tiếp cận", "Lượt tương tác", "Lượt truy cập (Link click)"],
   "YouTube Ads": ["Thruplay (Views)"],
   "TikTok Ads": ["Lượt tiếp cận", "Lượt xem video", "Lượt theo dõi", "Lượt truy cập (Link click)"],
@@ -258,7 +267,7 @@ const RELEASE_COLUMNS =
 // same as how the magic-link confirm flow sets it. Only real built
 // packages (incl. INT MEDIA) have lines; the simple options (Chỉ Phát
 // Hành, Không Độc Quyền) never got a row here.
-function buildPackageByRelease(releasesList, packagesList) {
+export function buildPackageByRelease(releasesList, packagesList) {
   const map = {};
   packagesList.forEach((p) => {
     if (!map[p.release_id]) map[p.release_id] = [];
@@ -280,7 +289,7 @@ function buildPackageByRelease(releasesList, packagesList) {
 // server-side mirror used to compute Done-ness/has-a-target across every
 // matching release; this JS version is still what every rendered cell and
 // the CSV export read their own "Added/Booked" numbers from.
-function makeBookedFor(packageByRelease, categoryIdByName) {
+export function makeBookedFor(packageByRelease, categoryIdByName) {
   function packageLineColumnTarget(release, categoryName, brand, platform, subchannelType) {
     const pkg = packageByRelease[release.id];
     if (!pkg) return null;

@@ -19,6 +19,7 @@ const NOTES = {
   stream: "Today Check, Monthly, Bổ Sung — real per-platform stream metrics",
   milestone: "Chart rank tracking — IN/REMAIN/RETURN/OUT + streaks",
   package_price: "Not built yet",
+  cost_mkt: "TikTok/Ads booking cost tracking, Vieent Trả vs Artist Trả",
 };
 
 export default function WorkstationIndex() {
