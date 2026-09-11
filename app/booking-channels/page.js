@@ -3,6 +3,7 @@
 import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
+import { useAuth } from "../../lib/AuthContext";
 import styles from "../shared.module.css";
 
 const BOOKING_PLATFORMS = ["TikTok", "Facebook", "Instagram", "YouTube", "Thread"];
@@ -21,6 +22,7 @@ function editStateFor(c) {
 }
 
 export default function BookingChannelsPage() {
+  const { profile } = useAuth();
   const [channels, setChannels] = useState([]);
   const [name, setName] = useState("");
   const [platform, setPlatform] = useState("TikTok");
@@ -34,6 +36,16 @@ export default function BookingChannelsPage() {
   const [typeFilter, setTypeFilter] = useState(null); // "Direct" | "Partner" | null
   const [refreshing, setRefreshing] = useState(null); // null | "all" | a channel id
   const [refreshResult, setRefreshResult] = useState(null);
+  // Round 305 — self-service token minting for the public TikTok channel
+  // reference magic link (app/channels/[token]) — see
+  // sql/pending/add-round305-channel-reference-share-links.sql for why
+  // this is its own table rather than a magic_links row. Keeps every
+  // token ever minted (no delete here) so "who has a working link" stays
+  // answerable later; revoking one (not built into this UI yet — a plain
+  // `update ... set revoked_at = now()` in the SQL editor works today) is
+  // the way to kill a leaked link without a code deploy.
+  const [mintingLink, setMintingLink] = useState(false);
+  const [mintedLinkUrl, setMintedLinkUrl] = useState(null);
 
   useEffect(() => { if (supabase) load(); }, []);
 
@@ -123,6 +135,28 @@ export default function BookingChannelsPage() {
     a.download = "booking-channels.csv";
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  // Round 305 — mints a new row in channel_reference_share_links and
+  // builds its URL off window.location.origin (not a hardcoded domain) so
+  // this works unchanged whether it's clicked on the production app or a
+  // Vercel preview deploy — see preview-setup.md's branch→preview-URL
+  // flow, which this should follow the same "don't hardcode ui-ops.vercel.app"
+  // convention as everywhere else that could run on either.
+  async function mintShareLink() {
+    setMintingLink(true);
+    setMintedLinkUrl(null);
+    const { data, error } = await supabase
+      .from("channel_reference_share_links")
+      .insert({ created_by: profile?.email || profile?.name || null })
+      .select()
+      .single();
+    setMintingLink(false);
+    if (error || !data) {
+      setRefreshResult({ error: "Couldn't create a share link — try again." });
+      return;
+    }
+    setMintedLinkUrl(`${window.location.origin}/channels/${data.token}`);
   }
 
   function startEdit(c) {
@@ -252,7 +286,31 @@ export default function BookingChannelsPage() {
           >
             {refreshing === "all" ? "Refreshing…" : "↻ Refresh YouTube Stats"}
           </button>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            onClick={mintShareLink}
+            disabled={mintingLink}
+            title="Read-only public link showing the TikTok channel list (VPOP/INDIE/MIỀN TÂY-BOLERO) — no login needed to view it."
+          >
+            {mintingLink ? "Creating…" : "🔗 Share Link"}
+          </button>
         </div>
+
+        {mintedLinkUrl && (
+          <div className={styles.errorBox} style={{ marginBottom: 16, background: "var(--bg-hover)", borderColor: "var(--border-strong)", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span>New link:</span>
+            <a href={mintedLinkUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>{mintedLinkUrl}</a>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={() => navigator.clipboard?.writeText(mintedLinkUrl)}
+              style={{ padding: "2px 10px", fontSize: 12 }}
+            >
+              Copy
+            </button>
+          </div>
+        )}
 
         {refreshResult && (
           <div className={styles.errorBox} style={{ marginBottom: 16, background: refreshResult.error ? undefined : "var(--bg-hover)", borderColor: refreshResult.error ? undefined : "var(--border-strong)", color: refreshResult.error ? undefined : "var(--text-muted)" }}>

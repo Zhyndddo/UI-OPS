@@ -1,0 +1,112 @@
+/* Round 305 — 3-column desktop layout (picture 1), single column on
+   mobile per explicit request ("just drop them to vertical on mobile") —
+   plain CSS media query rather than useIsMobile, since this public page
+   has no other client-side layout logic that needs the JS hook and a CSS
+   breakpoint avoids the "desktop layout flashes on first paint" trade-off
+   useIsMobile's own comment already documents. 768px matches the rest of
+   the app's mobile breakpoint (lib/useIsMobile.js's default). */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.block {
+  border: 1px solid var(--border-color, #2a2a2a);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-card, #141414);
+}
+
+.blockHeader {
+  padding: 12px 14px;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.3px;
+  color: #0a0a0a;
+}
+
+.blockBody {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px;
+  border-radius: 6px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.row:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.04));
+}
+
+/* Rows can get tight on a narrow phone (platform badge + follower count +
+   name + note pill all in one line) — let the name wrap onto its own
+   line under the badge/count rather than truncating or overflowing. */
+@media (max-width: 480px) {
+  .row {
+    grid-template-columns: auto auto auto;
+    grid-template-areas:
+      "platform followers note"
+      "name name name";
+  }
+  .rowName {
+    grid-area: name;
+  }
+}
+
+.rowPlatform {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #1c1c1c;
+  color: #ddd;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+
+.rowFollowers {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted, #999);
+  white-space: nowrap;
+  min-width: 44px;
+}
+
+.rowName {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row:hover .rowName {
+  text-decoration: underline;
+}
+
+.rowNote {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
