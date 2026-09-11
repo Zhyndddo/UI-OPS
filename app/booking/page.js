@@ -7,7 +7,6 @@ import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import { fmtDate, formatDetailText, fetchAllRows } from "../../lib/helpers";
 import TypeSwitcher from "../../lib/TypeSwitcher";
-import { usePagination } from "../../lib/usePagination";
 import Pagination from "../../lib/Pagination";
 import { useIsMobile } from "../../lib/useIsMobile";
 import { ARTIST_PROFILE_LINKS_SETTING_KEY, DEFAULT_LINKFIRE_URL } from "../../lib/externalTools";
@@ -214,35 +213,143 @@ function brandsLikelyMatch(a, b) {
   return false;
 }
 
-// Round 265 — stale-while-revalidate cache for load()'s big fetch, per
-// reported symptom: "slow the first time, and slow again coming back —
-// after that it's smooth." That's exactly the signature of a page that
-// refetches everything from scratch on every mount with no memory of the
-// last visit — React unmounts this component's state entirely when you
-// navigate away, so a return visit pays the full ~8-query cost again even
-// though nothing may have changed. Module-level (survives unmount, unlike
-// component state) — holds the last successful load()'s full result set.
-// On mount, if this is populated: paint it immediately (zero spinner,
-// feels instant), then still kick off a real fetch in the background to
-// catch up on anything changed since — updates state again (and this
-// cache) once it resolves, silently. First-ever visit this session still
-// shows the normal loading state, since there's nothing to paint yet.
-// Same idea as Round 150's getNotDoneCount cache (lib/notDoneCounts.js),
-// applied to a full page's dataset instead of one count — deliberately
-// NOT time-limited (no TTL) since this is a stale-while-revalidate
-// pattern, not a "skip the fetch entirely for N seconds" one: the
-// background refetch always runs, so data is never more than one
-// round-trip stale, just never blocks the paint waiting for it.
-let bookingBoardCache = null;
+// Round 303 — replaced Round 265's stale-while-revalidate full-dataset
+// cache. That cache assumed load() always pulled EVERY release + the
+// ENTIRE media_booking_entries table ("797 releases' worth" per the old
+// comment on that query below) — the single heaviest, most-frequently-hit
+// query surface in the app, and a real driver of the Supabase egress grace
+// period notice. Booking Board now fetches real server-side pages instead
+// (see loadPage()/BOOKING_PAGE_SIZE below and
+// sql/pending/add-round303-booking-board-pagination.sql for the SQL side):
+// releases/entries/packages are only ever fetched for the release ids
+// actually being displayed, with Done/Not-Done + the Tổng/INT/Đợt 1/Đợt 2
+// stat counts computed server-side across every matching release (not just
+// the current page) via the new booking_board_page() RPC. A per-page,
+// per-filter-combo cache would need its own invalidation story on top of
+// that (which filter combos are still fresh, for how long); given the
+// point of this round is cutting the egress those combos already cost,
+// deliberately not re-adding a cache layer here — every page/filter change
+// is a real (now much smaller) fetch.
+//
+// IMPORTANT — see the SQL file's header before trusting the Done/Not-Done
+// numbers this produces: I have no live database access in this
+// environment, so booking_board_page()'s SQL port of bookedFor/addedFor/
+// isReleaseDone/adsAllViewStatus could not be verified against real data
+// before shipping. Spot-check known releases after deploying.
+const BOOKING_PAGE_SIZE = 50;
+
+// Same column list load() always selected off `releases` — pulled out so
+// the page fetch (loadPage) and the CSV export fetch (exportCsv, which
+// needs the full matching set, not just the current page) share one
+// definition instead of drifting apart.
+const RELEASE_COLUMNS =
+  "id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status, gate_co_trong_net_youtube, youtube_ads_url, youtube_ads_booking_note, pseudo_package_parent_did, link_ugc, promotion_package_url";
+
+// Round 303 — pulled out of the component (was a plain useMemo) so
+// exportCsv can build the exact same map over its own export-only release/
+// package set instead of the render's page-scoped one. The package
+// actually locked in for a release — matched by name to release.project_type,
+// same as how the magic-link confirm flow sets it. Only real built
+// packages (incl. INT MEDIA) have lines; the simple options (Chỉ Phát
+// Hành, Không Độc Quyền) never got a row here.
+function buildPackageByRelease(releasesList, packagesList) {
+  const map = {};
+  packagesList.forEach((p) => {
+    if (!map[p.release_id]) map[p.release_id] = [];
+    map[p.release_id].push(p);
+  });
+  const resolved = {};
+  releasesList.forEach((r) => {
+    resolved[r.id] = (map[r.id] || []).find((p) => p.name === r.project_type) || null;
+  });
+  return resolved;
+}
+
+// Round 303 — bookedFor/packageLineColumnTarget pulled out of the
+// component and curried on (packageByRelease, categoryIdByName) so both
+// the render's memoized instance AND exportCsv's export-only instance
+// share one definition. Unchanged logic — see the SQL port of this exact
+// function (booking_booked_for) in
+// sql/pending/add-round303-booking-board-pagination.sql for the
+// server-side mirror used to compute Done-ness/has-a-target across every
+// matching release; this JS version is still what every rendered cell and
+// the CSV export read their own "Added/Booked" numbers from.
+function makeBookedFor(packageByRelease, categoryIdByName) {
+  function packageLineColumnTarget(release, categoryName, brand, platform, subchannelType) {
+    const pkg = packageByRelease[release.id];
+    if (!pkg) return null;
+    const categoryId = categoryIdByName[categoryName];
+    const lines = pkg.media_booking_package_lines || [];
+    const line = lines.find((l) => l.category_id === categoryId && (l.brand || "") === "");
+    if (!line || !line.brand_column_quantities) return null;
+    const columnKey = categoryName === "TikTok Channel" ? subchannelType : (platform ?? subchannelType);
+    const qty = line.brand_column_quantities[`${brand || ""}::${columnKey || ""}`];
+    return qty != null ? qty : null;
+  }
+
+  return function bookedFor(release, categoryName, brand, platform, subchannelType) {
+    const pkg = packageByRelease[release.id];
+    if (!pkg) return null; // nothing locked in yet — no target to compare against
+    const categoryId = categoryIdByName[categoryName];
+    const lines = pkg.media_booking_package_lines || [];
+    if (brand === null) {
+      const matching = lines.filter((l) => l.category_id === categoryId); // "All" aggregate — every brand in this category
+      if (matching.length === 0) return null;
+      return matching.reduce((sum, l) => {
+        if (l.quantity != null) return sum + l.quantity;
+        if (l.metric_quantities) return sum + Object.values(l.metric_quantities).reduce((s, v) => s + (v || 0), 0);
+        return sum;
+      }, 0);
+    }
+    if (categoryName === "Ads" && platform && (ADS_METRICS[brand] || []).length > 1) {
+      const brandMatching = lines.filter((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
+      if (brandMatching.length === 0) return null;
+      let total = 0;
+      let any = false;
+      brandMatching.forEach((l) => {
+        const v = l.metric_quantities?.[platform];
+        if (v != null) { total += v; any = true; }
+      });
+      return any ? total : null;
+    }
+    if (categoryName === "TikTok Channel" && subchannelType) {
+      return packageLineColumnTarget(release, categoryName, brand, platform, subchannelType);
+    }
+    if (categoryName === "Social" || categoryName === "Community") {
+      return packageLineColumnTarget(release, categoryName, brand, platform, subchannelType);
+    }
+    const brandMatching = lines.filter((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
+    if (brandMatching.length === 0) return null;
+    return brandMatching.reduce((sum, l) => sum + (l.quantity || 0), 0);
+  };
+}
+
+// Round 303 — addedFor pulled out of the component the same way, curried
+// on categoryIdByName so exportCsv can reuse it too. Ads sums the
+// quantity number(s); everything else counts rows.
+function makeAddedFor(categoryIdByName) {
+  return function addedFor(release, categoryName, brand, platform, subchannelType, entryPool) {
+    const categoryId = categoryIdByName[categoryName];
+    const matching = entryPool.filter((e) =>
+      e.release_id === release.id &&
+      e.category_id === categoryId &&
+      (brand === null || (e.channel_name || "") === (brand || "")) &&
+      (platform == null || (e.platform || "") === platform) &&
+      (subchannelType == null || (e.subchannel_type || "") === subchannelType)
+    );
+    if (categoryName === "Ads") return matching.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
+    return matching.length;
+  };
+}
 
 export default function BookingBoard() {
   const [releases, setReleases] = useState([]);
   const [entries, setEntries] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [packages, setPackages] = useState([]); // media_booking_packages + their lines, for every release
-  const [dot2ReleaseIds, setDot2ReleaseIds] = useState(new Set()); // releases with a Đợt 2 targets row
+  const [packages, setPackages] = useState([]); // media_booking_packages + their lines, scoped to the CURRENT PAGE's releases only (Round 303)
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState(""); // Round 303 — same 350ms debounce pattern as app/releases/page.js, since search is now a real server round trip instead of a client-side .filter()
   const [month, setMonth] = useState("");
   const [round, setRound] = useState("Đợt 1"); // 'INT' | 'Đợt 1' | 'Đợt 2' — now a RELEASE-level (row) filter, see roundFilteredReleases
   const [hangMucFilter, setHangMucFilter] = useState("All"); // 'All' | a category name — determines the columns
@@ -257,6 +364,22 @@ export default function BookingBoard() {
   // target on any shown column doesn't count as done (nothing to finish).
   // null = no filter, just show the two counts.
   const [doneFilter, setDoneFilter] = useState(null); // null | 'done' | 'not_done'
+  // Round 303 — real server-side pagination. page/pageSize now drive an
+  // actual .range()-equivalent fetch (booking_board_page's LIMIT/OFFSET)
+  // instead of usePagination's client-side slice of an already-fully-
+  // downloaded array. doneCounts/stats used to be useMemo'd off the full
+  // local dataset (recomputed instantly on any local edit); now they come
+  // straight from booking_board_page()'s response, computed server-side
+  // across EVERY matching release (not just this page) — see that
+  // function's SQL for why this couldn't just be a client-side count of
+  // what's currently rendered. Kept as state (not a memo) since nothing
+  // client-side can derive them anymore; loadPage()/refreshCounts() below
+  // are what update them.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(BOOKING_PAGE_SIZE);
+  const [totalRows, setTotalRows] = useState(0);
+  const [doneCounts, setDoneCounts] = useState({ done: 0, notDone: 0 });
+  const [stats, setStats] = useState({ total: 0, int: 0, dot1: 0, dot2: 0 });
   const [expandedCell, setExpandedCell] = useState(null); // `${releaseId}:${categoryName}:${brand}` or null
   const [packagePreview, setPackagePreview] = useState(null); // release being previewed, or null
   const [bookingChannels, setBookingChannels] = useState([]); // booking_channels reference table — see BrandCell's Add Link popup
@@ -302,149 +425,162 @@ export default function BookingBoard() {
     }
   }, [hangMucFilter, subFilter]);
 
+  // Round 303 — search is now a real server round trip (see loadPage
+  // below), so debounce it the same way app/releases/page.js already
+  // does its own server-side search, instead of firing an RPC per
+  // keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Round 303 — the reference/lookup data that ISN'T scoped to any filter
+  // (package_categories drives `columns` below; booking_channels feeds the
+  // Add Link popup's suggestions; the Linkfire URL setting) loads once on
+  // mount, same as before. The actual release/entry/package data used to
+  // load here too (see the old bookingBoardCache comment above) — that's
+  // now loadPage(), triggered by the effect right after the `columns`
+  // useMemo further down, since it needs `columns` as an RPC input.
   useEffect(() => {
     if (!supabase) return;
-    if (bookingBoardCache) {
-      // Round 265 — instant paint from last visit's data, no spinner,
-      // while a real fetch runs quietly underneath to catch up on
-      // anything changed since (by this user or anyone else).
-      hydrateFromCache(bookingBoardCache);
-      setLoading(false);
-      load({ silent: true });
-    } else {
-      load();
-    }
+    (async () => {
+      const [{ data: cats }, { data: chans }, { data: extLinks }] = await Promise.all([
+        supabase.from("package_categories").select("id, name").order("sort_order"),
+        supabase.from("booking_channels").select("id, platform, name, brand, note, follower_count, url"),
+        supabase.from("app_settings").select("value").eq("key", ARTIST_PROFILE_LINKS_SETTING_KEY).maybeSingle(),
+      ]);
+      setCategories(cats || []);
+      setBookingChannels(chans || []);
+      if (extLinks?.value?.linkfire) setLinkfireUrl(extLinks.value.linkfire);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function hydrateFromCache(c) {
-    setReleases(c.releases);
-    setEntries(c.entries);
-    setCategories(c.categories);
-    setPackages(c.packages);
-    setDot2ReleaseIds(c.dot2ReleaseIds);
-    setBookingChannels(c.bookingChannels);
-    setLinkfireUrl(c.linkfireUrl);
-    setChannelStatuses(c.channelStatuses);
-  }
-
-  async function load({ silent = false } = {}) {
-    // Round 265 — `silent` skips the loading spinner for the background
-    // revalidation pass so a cached return-visit never flashes
-    // "Loading…" even briefly; a true cold load (no cache yet) still
-    // shows it as before.
+  // Round 303 — fetches ONE server-computed page: which release ids belong
+  // on this page (already filtered + Done/Not-Done-filtered + ordered by
+  // release_date desc, via the booking_board_page() RPC — see
+  // sql/pending/add-round303-booking-board-pagination.sql), the Done/
+  // Not-Done counts and Tổng/INT/Đợt 1/Đợt 2 stats across EVERY matching
+  // release (not just this page), and then — only for those page-worth of
+  // release ids — the actual release rows plus their entries/packages/
+  // channel statuses needed to render the cells. Replaces the old load()'s
+  // single "pull all 8 tables in full" pass.
+  async function loadPage({ silent = false } = {}) {
+    if (!supabase) return;
     if (!silent) setLoading(true);
-    // Round 150 — load-reduction pass, item "Booking Board still feels
-    // heavy". These 8 queries are all independent — none reads a result
-    // from another — but were previously awaited one at a time in series,
-    // so total wait time was the SUM of all 8 round trips. Switched to
-    // Promise.all so they all fire concurrently instead; total wait time
-    // becomes roughly the SLOWEST single query rather than the sum of all
-    // of them. No query, column, or pagination behavior changed — same
-    // fetchAllRows pagination on media_booking_entries as before (Round
-    // 142), same column lists, same filters. See project doc
-    // "load-reduction-additional-ideas.md" for the fuller writeup.
-    const [
-      { data: rels },
-      { data: ents },
-      { data: cats },
-      { data: pkgs },
-      { data: targets },
-      { data: chans },
-      { data: extLinks },
-      { data: chanStatuses },
-    ] = await Promise.all([
+    const { data: rpcResult, error: rpcError } = await supabase.rpc("booking_board_page", {
+      p_search: debouncedSearch || null,
+      p_month: month || null,
+      p_type: typeFilter || null,
+      p_label: labelFilter || null,
+      p_round: round,
+      p_hang_muc: hangMucFilter,
+      p_sub_filter: subFilter,
+      p_tiktok_brand: tiktokBrandFilter,
+      p_columns: columns,
+      p_done_filter: doneFilter,
+      p_page: page,
+      p_page_size: pageSize,
+    });
+    if (rpcError) {
+      // Round 303 — surfaced loudly on purpose: a silent failure here
+      // would just show an empty/stale board with no indication why,
+      // right after a change this risky. See the SQL file's header.
+      console.error("booking_board_page RPC failed:", rpcError);
+      setLoading(false);
+      return;
+    }
+    setDoneCounts({ done: rpcResult?.done_count || 0, notDone: rpcResult?.not_done_count || 0 });
+    setStats({
+      total: rpcResult?.final_total || 0,
+      int: rpcResult?.int_count || 0,
+      dot1: rpcResult?.dot1_count || 0,
+      dot2: rpcResult?.dot2_count || 0,
+    });
+    setTotalRows(rpcResult?.final_total || 0);
+
+    const ids = rpcResult?.release_ids || [];
+    if (ids.length === 0) {
+      setReleases([]);
+      setEntries([]);
+      setPackages([]);
+      setChannelStatuses({});
+      setLoading(false);
+      return;
+    }
+
+    const [{ data: rels }, { data: pkgs }, { data: ents }, { data: chanStatuses }] = await Promise.all([
+      supabase.from("releases").select(RELEASE_COLUMNS).in("id", ids),
       supabase
-        .from("releases")
-        // Round 77 — gate_co_trong_net_youtube added: locks the YouTube Ads
-        // Ads-brand column when the release hasn't opted into Có Trong Net
-        // YouTube on its detail page (see AdsCell's ctnLocked prop below).
-        // Round 92 — youtube_ads_url/youtube_ads_booking_note added: shown
-        // (and editable) inside the YouTube Ads column's own popup, see
-        // AdsCell's showYoutubeAdsFields prop below.
-        // Round 146 — link_ugc added: shown as a clickable 3rd row under
-        // the Release column's title/artist/DID line (both table and card
-        // views), same pattern as Pitching ticket's link_lbm row.
-        // Round 149 — promotion_package_url added, same pattern, one more
-        // row below link_ugc.
-        .select("id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status, gate_co_trong_net_youtube, youtube_ads_url, youtube_ads_booking_note, pseudo_package_parent_did, link_ugc, promotion_package_url")
-        .order("release_date", { ascending: false }),
-      // Round 142 — item 1: PostgREST caps a plain select() at 1000 rows and
-      // truncates silently, no error (see lib/helpers.js's fetchAllRows
-      // comment / DATA_FIXES.md round 59-60 for the original discovery of
-      // this bug class elsewhere in the app). This table easily blows past
-      // 1000 rows across 797 releases' worth of Social/Community/Ads/TikTok
-      // Channel links, and with no explicit .order() the DB was free to
-      // return rows in whatever order it liked — including one that could
-      // cut off freshly-inserted rows entirely. That's exactly the reported
-      // symptom: bulk-add a batch of links, "DONE" shows immediately off the
-      // optimistic local state, but a refresh re-runs this same truncated
-      // query and the newly added rows (never actually lost — still sitting
-      // in the DB) just don't come back in the first 1000. Paginates through
-      // every row instead, ordered by `id` for stable .range() paging.
-      // Round 150 — load-reduction pass, further column pruning: was
-      // select("*"), now pruned to exactly the columns this file reads off
-      // an entry row (verified by an exhaustive grep of every e./entry./
-      // cellEntries/matchingEntries/roundEntries field access, including
-      // insert-payload keys since inserted rows flow straight into this
-      // same `entries` state). `channel_type` is write-only in this file
-      // today (set on insert, never read back here) but kept in the select
-      // since inserted rows carry it into state regardless.
+        .from("media_booking_packages")
+        .select("id, release_id, name, media_booking_package_lines(category_id, brand, quantity, metric_quantities, brand_column_quantities)")
+        .in("release_id", ids),
       fetchAllRows(() =>
         supabase
           .from("media_booking_entries")
           .select("id, release_id, category_id, channel_name, platform, subchannel_type, quantity, status, booking_round, link, channel_type")
+          .in("release_id", ids)
           .order("id")
       ),
-      supabase.from("package_categories").select("id, name").order("sort_order"),
-      // Round 114 — metric_quantities added: real per-metric Ads targets
-      // (Facebook/TikTok/Spotify Ads), read by bookedFor() below instead of
-      // always returning null for these brands' subchannel columns.
-      // Round 120 — brand_column_quantities added: the real per-brand
-      // per-platform/per-subchannel breakdown for Social/Community/TikTok
-      // Channel's mushed line, snapshotted at Summarize time (see
-      // packageLineColumnTarget below).
-      supabase.from("media_booking_packages").select("id, release_id, name, media_booking_package_lines(category_id, brand, quantity, metric_quantities, brand_column_quantities)"),
-      supabase.from("media_booking_dot2_targets").select("release_id"),
-      // Reference channel list (see /booking-channels) — lets the Add Link
-      // popup below suggest a real channel + URL instead of OPS typing both
-      // from scratch every time. Missing table/no rows just means no
-      // suggestions show up; the popup still works exactly as before.
-      // Round 150 — pruned from select("*") to the columns this file
-      // actually reads off a reference-channel row (id, platform, name,
-      // brand, note, follower_count, url — verified by grep).
-      supabase.from("booking_channels").select("id, platform, name, brand, note, follower_count, url"),
-      supabase.from("app_settings").select("value").eq("key", ARTIST_PROFILE_LINKS_SETTING_KEY).maybeSingle(),
-      // Round 125 — item 1: TikTok Channel Partner columns' status coloring.
-      // Round 150 — pruned from select("*"): this query's result is only
-      // ever destructured into (release_id, category_id, brand, column_key,
-      // status) a few lines below, immediately after the fetch, before
-      // being discarded — narrowed the select to match.
-      supabase.from("media_booking_channel_status").select("release_id, category_id, brand, column_key, status"),
+      supabase.from("media_booking_channel_status").select("release_id, category_id, brand, column_key, status").in("release_id", ids),
     ]);
-    // Round 79 — pseudo-package tracks (releases linked to a parent EP/Album
-    // via pseudo_package_parent_did) skip the whole booking process and
-    // never appear on the Booking board at all.
-    const filteredRels = (rels || []).filter((r) => !r.pseudo_package_parent_did);
+    // .in("id", ids) doesn't guarantee row order matches `ids` — re-order
+    // to the RPC's release_date-desc order rather than whatever order
+    // Postgres happened to return them in.
+    const byId = {};
+    (rels || []).forEach((r) => { byId[r.id] = r; });
+    const orderedRels = ids.map((id) => byId[id]).filter(Boolean);
+
+    setReleases(orderedRels);
+    setPackages(pkgs || []);
+    setEntries(ents || []);
     const statusMap = {};
     (chanStatuses || []).forEach((s) => {
       statusMap[`${s.release_id}:${s.category_id}:${s.brand}:${s.column_key}`] = s.status;
     });
-    // Round 265 — build the fresh snapshot once, use it both to update
-    // this render AND as the cache the next mount hydrates from.
-    const fresh = {
-      releases: filteredRels,
-      entries: ents || [],
-      categories: cats || [],
-      packages: pkgs || [],
-      dot2ReleaseIds: new Set((targets || []).map((t) => t.release_id)),
-      bookingChannels: chans || [],
-      linkfireUrl: extLinks?.value?.linkfire || linkfireUrl,
-      channelStatuses: statusMap,
-    };
-    bookingBoardCache = fresh;
-    hydrateFromCache(fresh);
+    setChannelStatuses(statusMap);
     setLoading(false);
+  }
+
+  // Round 303 — a local edit (add/delete a link, change an Ads quantity or
+  // status) can flip a release's Done-ness or move it in/out of the
+  // current Done/Not-Done filter, but doneCounts/stats now live server-
+  // side (see loadPage above) instead of being recomputed for free from
+  // local state. Re-runs the same RPC (page/pageSize unchanged, so this
+  // doesn't refetch releases/entries/packages, just the counts) after any
+  // mutation that could change added/booked ratios or an entry's status —
+  // see the addEntry/deleteEntry/saveAdsQuantity/updateEntry call sites
+  // below. Deliberately not awaited by its callers — the local optimistic
+  // state update already reflects the edit instantly, this just catches
+  // the header numbers up shortly after.
+  function refreshCounts() {
+    if (!supabase) return;
+    supabase
+      .rpc("booking_board_page", {
+        p_search: debouncedSearch || null,
+        p_month: month || null,
+        p_type: typeFilter || null,
+        p_label: labelFilter || null,
+        p_round: round,
+        p_hang_muc: hangMucFilter,
+        p_sub_filter: subFilter,
+        p_tiktok_brand: tiktokBrandFilter,
+        p_columns: columns,
+        p_done_filter: doneFilter,
+        p_page: page,
+        p_page_size: pageSize,
+      })
+      .then(({ data: rpcResult, error: rpcError }) => {
+        if (rpcError) { console.error("booking_board_page refresh failed:", rpcError); return; }
+        setDoneCounts({ done: rpcResult?.done_count || 0, notDone: rpcResult?.not_done_count || 0 });
+        setStats({
+          total: rpcResult?.final_total || 0,
+          int: rpcResult?.int_count || 0,
+          dot1: rpcResult?.dot1_count || 0,
+          dot2: rpcResult?.dot2_count || 0,
+        });
+        setTotalRows(rpcResult?.final_total || 0);
+      });
   }
 
   // Round 125 — item 1: save a TikTok Channel Partner column's status,
@@ -512,215 +648,25 @@ export default function BookingBoard() {
     return map;
   }, [categories]);
 
-  // The package that's actually locked in for a release — matched by name
-  // to release.project_type, same as how the magic-link confirm flow sets
-  // it. Only real built packages (incl. INT MEDIA) have lines; the simple
-  // options (Chỉ Phát Hành, Không Độc Quyền) never got a row here.
-  const packageByRelease = useMemo(() => {
-    const map = {};
-    packages.forEach((p) => {
-      if (!map[p.release_id]) map[p.release_id] = [];
-      map[p.release_id].push(p);
-    });
-    const resolved = {};
-    releases.forEach((r) => {
-      resolved[r.id] = (map[r.id] || []).find((p) => p.name === r.project_type) || null;
-    });
-    return resolved;
-  }, [packages, releases]);
+  // Round 303 — buildPackageByRelease pulled to module scope so exportCsv
+  // can build the same map over its own export-only dataset; see its
+  // definition above.
+  const packageByRelease = useMemo(() => buildPackageByRelease(releases, packages), [packages, releases]);
 
-  // Round 103 — added `platform`, optional (every existing call site that
-  // doesn't care still works unchanged). Fixes a second, related instance
-  // of the same "shows a number that isn't really that column's" family of
-  // bug Round 96 already fixed one layer up: every Ads brand EXCEPT
-  // YouTube Ads mushes several metrics into ONE combined package line with
-  // a single lump `quantity` (see syncPackageLine in the Media Booking
-  // ticket — `qty` is only ever real for YouTube Ads, null for every other
-  // Ads brand's line) — there is no structured per-metric number stored
-  // anywhere. The Booking Board's drilled-into-Ads columns are per-metric
-  // (Lượt tiếp cận / Lượt tương tác / Lượt truy cập, each its own column),
-  // but every one of those columns shares the exact same (categoryName,
-  // brand) pair — before this fix, bookedFor() ignored platform entirely,
-  // so all 3 sibling metric columns for a brand showed the exact SAME
-  // number the instant ANY of them had one (e.g. a real Facebook Ads
-  // Lượt tiếp cận of 5000 was also shown, wrongly, under Lượt tương tác and
-  // Lượt truy cập for that same release). Per explicit request ("no fall
-  // back... show null correctly" if a column doesn't really have a
-  // number): a platform-specific column on a multi-metric Ads brand now
-  // always reads as no-target, full stop — regardless of what the brand's
-  // combined line's `quantity` happens to be, since that figure was never
-  // that specific metric's number to begin with.
-  // Round 108 — same "ghost number" fix as Round 96/103/104's Ads case,
-  // now also applied to TikTok Channel: media_booking_package_lines has
-  // exactly ONE quantity per (category, brand) — never split per
-  // subchannel — so a real target of e.g. 15 for "TikTok Channel —
-  // TIKTOK BOLERO/MT" was showing as 15 under EVERY one of that brand's 5
-  // subchannel columns (TikTok News/CapCut/Mẫu CapCut/Reup MV/Lyrics), not
-  // just the one(s) that actually have 15 booked. Per the same explicit
-  // "no fall back... show null correctly" rule: a subchannel-drilled
-  // TikTok Channel column now always reads as no-target — the real
-  // brand-level total is still visible in the package popup and the "All"
-  // Hạng Mục aggregate rollup, just not fabricated across all 5 siblings.
-  // Round 119 (superseded by Round 120 below) briefly read this live off
-  // media_booking_content_entries — reverted per explicit follow-up
-  // request: pin to the last Summarize instead of showing whatever's
-  // currently typed into the ticket's grid before anyone's re-Summarized.
-  //
-  // Round 120 — real per-brand/per-column targets for the 3 Hạng Mục whose
-  // package line is always mushed to brand "" (Social, Community, TikTok
-  // Channel — see the Round 118 comments above for the root cause). Reads
-  // media_booking_package_lines.brand_column_quantities — a jsonb map
-  // keyed "brand::column" (e.g. "SOCIAL VIENT::Facebook") — which the
-  // Media Booking ticket now writes on every Summarize (see
-  // syncPackageLine/groupSummarizedRows there), same "recompute in full
-  // from the latest rollup rows" treatment quantity/amount already get.
-  // This is deliberately a SNAPSHOT, not live: it only updates the next
-  // time someone (re-)Summarizes that Hạng Mục, same staleness contract as
-  // every other number this board already shows (quantity, metric_quantities).
-  // A package still has to be chosen/locked for the release first — see
-  // bookedFor's own `if (!pkg) return null` gate above this, unchanged.
-  //
-  // Community's column identity is carried on `subchannelType` (not
-  // `platform` — see the columns useMemo's Round-108-era comment on why),
-  // but brand_column_quantities' keys always use whatever column name
-  // Summarize itself used (Community's own `platform` field, same
-  // PLATFORM_COLUMNS vocabulary) — so this matches against whichever of
-  // the two the caller actually passed.
-  function packageLineColumnTarget(release, categoryName, brand, platform, subchannelType) {
-    const pkg = packageByRelease[release.id];
-    if (!pkg) return null;
-    const categoryId = categoryIdByName[categoryName];
-    const lines = pkg.media_booking_package_lines || [];
-    const line = lines.find((l) => l.category_id === categoryId && (l.brand || "") === "");
-    if (!line || !line.brand_column_quantities) return null;
-    const columnKey = categoryName === "TikTok Channel" ? subchannelType : (platform ?? subchannelType);
-    const qty = line.brand_column_quantities[`${brand || ""}::${columnKey || ""}`];
-    return qty != null ? qty : null;
-  }
-
-  function bookedFor(release, categoryName, brand, platform, subchannelType) {
-    const pkg = packageByRelease[release.id];
-    if (!pkg) return null; // nothing locked in yet — no target to compare against
-    const categoryId = categoryIdByName[categoryName];
-    const lines = pkg.media_booking_package_lines || [];
-    if (brand === null) {
-      const matching = lines.filter((l) => l.category_id === categoryId); // "All" aggregate — every brand in this category
-      if (matching.length === 0) return null;
-      // Round 114 — a multi-metric Ads brand's line has quantity: null
-      // (see above), so before this it silently contributed 0 to the "All"
-      // aggregate even when it had real per-metric numbers. Fall back to
-      // summing metric_quantities' values when quantity itself is null.
-      return matching.reduce((sum, l) => {
-        if (l.quantity != null) return sum + l.quantity;
-        if (l.metric_quantities) return sum + Object.values(l.metric_quantities).reduce((s, v) => s + (v || 0), 0);
-        return sum;
-      }, 0);
-    }
-    if (categoryName === "Ads" && platform && (ADS_METRICS[brand] || []).length > 1) {
-      // Round 114 — this used to always return null: every multi-metric
-      // Ads brand's combined line only ever had one lump `quantity`, never
-      // a real per-metric number (see the long comment above). That's
-      // fixed at the source now — media_booking_package_lines.metric_quantities
-      // carries the real { metric: count } map from Summarize (Round 114's
-      // SQL + app/tickets/media-booking/page.js changes) — so read that
-      // instead of fabricating (Round 96/103's fix) or silently staying
-      // blank forever (the gap this closes). Still returns null (no
-      // target) when a brand's line exists but this particular metric was
-      // never filled in — same "no fall back, show null correctly" rule
-      // as everywhere else in this function.
-      const brandMatching = lines.filter((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
-      if (brandMatching.length === 0) return null;
-      let total = 0;
-      let any = false;
-      brandMatching.forEach((l) => {
-        const v = l.metric_quantities?.[platform];
-        if (v != null) { total += v; any = true; }
-      });
-      return any ? total : null;
-    }
-    if (categoryName === "TikTok Channel" && subchannelType) {
-      // Round 120 — used to unconditionally return null here (see the
-      // long Round 108 comment above: the package line has no real
-      // per-subchannel breakdown in its plain `quantity` field). Now reads
-      // the real number from the line's brand_column_quantities snapshot
-      // instead — see packageLineColumnTarget above.
-      return packageLineColumnTarget(release, categoryName, brand, platform, subchannelType);
-    }
-    if (categoryName === "Social" || categoryName === "Community") {
-      // Round 120 — same fix as TikTok Channel just above: these two also
-      // only ever have a mushed brand-"" package line (see Round 118's
-      // comments), so the generic exact-brand-match lookup below would
-      // always find nothing for a real brand. Read the brand_column_quantities
-      // snapshot instead, same as TikTok Channel.
-      return packageLineColumnTarget(release, categoryName, brand, platform, subchannelType);
-    }
-    // Round 96 — reverted Round 88 follow-up 3's fallback to the category's
-    // combined ("" brand) line. Per explicit request: that fallback made
-    // every specific-brand column show the same shared combined number
-    // whenever a real per-brand line didn't exist, which papered over
-    // exactly the cases (like the round 89 screenshot) that need to be
-    // caught and fixed one at a time via SQL instead of silently smoothed
-    // over here. Back to: no real brand-specific target line means no
-    // number for this brand's column, full stop — same as before round 88
-    // follow-up 3.
-    const brandMatching = lines.filter((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
-    if (brandMatching.length === 0) return null;
-    return brandMatching.reduce((sum, l) => sum + (l.quantity || 0), 0);
-  }
-
-  // Round 108 follow-up — the subchannel-null fix above means a release
-  // whose TikTok Channel brand DOES have a real lump target, but hasn't
-  // been split into any per-subchannel number, would silently disappear
-  // from the filtered list once drilled into that brand (every column's
-  // bookedFor reads null, so the "at least one column has a number" filter
-  // below excluded it) — per explicit follow-up request, that's wrong:
-  // the row should stay visible (with every subchannel column blank) so
-  // the team can SEE it has a target and go decide which subchannel to
-  // actually book it under, instead of the release just vanishing from
-  // view. This checks the brand-level line directly, bypassing the
-  // subchannel-forces-null rule — only used for the "should this row show
-  // at all" filter, never for what a column itself displays.
-  // Round 118 — Social, Community, and TikTok Channel package lines are
-  // ALWAYS stored mushed under brand: "" (see groupSummarizedRows in the
-  // Media Booking ticket — its group key for these 3 Hạng Mục is the
-  // category id alone, brand is never part of it; Ads is the one
-  // exception, keeping one real line per ad-platform brand on purpose).
-  // Before this fix, brandHasAnyTarget compared the mushed line's brand
-  // ("") against the caller's REAL brand string (e.g. "SOCIAL VIENT",
-  // "TIKTOK BOLERO/MT") — which can never match, so this fallback silently
-  // found nothing for a release that genuinely HAS a real, tool-built
-  // package, and the release vanished entirely ("Không tìm thấy") the
-  // instant the board was filtered into any specific brand under these 3
-  // categories — exactly the reported bug (package "Gửi H" showing correct
-  // 0/30 Social / 0/38 Community targets on the "All" tab, then empty once
-  // filtered to a real brand). Check the mushed "" line instead for these
-  // 3 categories — Ads is untouched, still checking the real brand as
-  // before, since it never mushes.
-  const MUSHED_BRAND_CATEGORIES = new Set(["Social", "Community", "TikTok Channel"]);
-  function brandHasAnyTarget(release, categoryName, brand) {
-    const pkg = packageByRelease[release.id];
-    if (!pkg) return false;
-    const categoryId = categoryIdByName[categoryName];
-    const lines = pkg.media_booking_package_lines || [];
-    const effectiveBrand = MUSHED_BRAND_CATEGORIES.has(categoryName) ? "" : brand;
-    return lines.some((l) => l.category_id === categoryId && (l.brand || "") === (effectiveBrand || ""));
-  }
-
-  function addedFor(release, categoryName, brand, platform, subchannelType, entryPool) {
-    const categoryId = categoryIdByName[categoryName];
-    const matching = entryPool.filter((e) =>
-      e.release_id === release.id &&
-      e.category_id === categoryId &&
-      (brand === null || (e.channel_name || "") === (brand || "")) &&
-      (platform == null || (e.platform || "") === platform) &&
-      (subchannelType == null || (e.subchannel_type || "") === subchannelType)
-    );
-    // Ads — sum the quantity number(s) instead of counting rows (there's
-    // normally exactly one row per brand/metric, but this sums cleanly
-    // either way, including the "All"/aggregate view where brand is null).
-    if (categoryName === "Ads") return matching.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
-    return matching.length;
-  }
+  // Round 303 — bookedFor/addedFor (and packageLineColumnTarget, folded
+  // inside makeBookedFor) moved to module scope as makeBookedFor/
+  // makeAddedFor above, so exportCsv can build its own instances over an
+  // export-only dataset instead of the render's page-scoped one. Every
+  // Round 88/96/103/108/114/118/119/120 fix described in this file's
+  // history lives on unchanged inside those factories — nothing about the
+  // actual booked/added computation changed, only where the functions are
+  // defined. brandHasAnyTarget (the old "keep a release visible even when
+  // its columns read null" helper) was removed outright: its only caller
+  // was preDoneFilteredReleases's anyFilled check, which is now
+  // booking_has_target() in the SQL file — see that function's own
+  // mirror of this same brandHasAnyTarget logic.
+  const bookedFor = useMemo(() => makeBookedFor(packageByRelease, categoryIdByName), [packageByRelease, categoryIdByName]);
+  const addedFor = useMemo(() => makeAddedFor(categoryIdByName), [categoryIdByName]);
 
   // Round is still an entry-level tag (which "phase" a given link belongs
   // to), so it still filters which entries count for "already added" —
@@ -729,25 +675,13 @@ export default function BookingBoard() {
     return entries.filter((e) => e.booking_round === round);
   }, [entries, round]);
 
-  // Row-level round filter: INT = an INT MEDIA package was chosen; Đợt 1 =
-  // any real chosen package that isn't INT MEDIA or the Chỉ Phát Hành-only
-  // pick; Đợt 2 = releases that actually have Đợt 2 targets set (TikTok
-  // Channel's Skip/summarize flow — see media-booking's Đợt 2 popup).
-  //
-  // isIntType matches loosely (contains "int media", case-insensitive)
-  // rather than an exact "INT MEDIA" string — legacy/imported releases can
-  // carry a slightly different label for the same thing (seen in practice:
-  // "INT Media Support"), and those were slipping into the Đợt 1 view
-  // instead of being excluded from it and only showing under INT.
-  const roundFilteredReleases = useMemo(() => {
-    return releases.filter((r) => {
-      const isIntType = !!r.project_type && /int\s*media/i.test(r.project_type);
-      if (round === "INT") return isIntType;
-      if (round === "Đợt 1") return !!r.project_type && r.project_type !== "Chỉ Phát Hành" && !isIntType;
-      if (round === "Đợt 2") return dot2ReleaseIds.has(r.id);
-      return true;
-    });
-  }, [releases, round, dot2ReleaseIds]);
+  // Round 303 — round/search/month/Type/Label/Hạng Mục+brand drill-down/
+  // Done-Not-Done filtering (previously roundFilteredReleases +
+  // preDoneFilteredReleases + filteredReleases below) now all happen
+  // server-side in booking_board_page() — `releases` state already IS the
+  // final, filtered, current page. See that SQL function's `base`/`filled`/
+  // `final` CTEs for the exact same isIntType/Đợt 1/Đợt 2/anyFilled rules
+  // that used to live here as client-side .filter() calls.
 
   // Columns: one per Hạng Mục when "All" is picked (aggregate ratio across
   // every brand in that category). Otherwise every Hạng Mục is a multi-
@@ -768,9 +702,8 @@ export default function BookingBoard() {
   //    to the one brand picked in subFilter.
   //  - Ads: columns = that ad brand's own fixed metric list (the metric
   //    name doubles as the "platform" value on media_booking_entries).
-  // Declared before filteredReleases below since the always-on
-  // "has a requested number" filter needs to know the current columns
-  // to check against.
+  // Declared before the loadPage-triggering effect below since it needs
+  // the current columns array as a booking_board_page() RPC input.
   const columns = useMemo(() => {
     if (hangMucFilter === "All") {
       return categories.map((c) => ({ key: c.name, label: c.name, categoryName: c.name, brand: null, platform: null, subchannelType: null }));
@@ -825,160 +758,52 @@ export default function BookingBoard() {
     return [];
   }, [hangMucFilter, categories, subFilter, tiktokBrandFilter]);
 
+  // Round 303 — the actual data fetch, triggered by any filter/column/page
+  // change. Lives here (after `columns`, not up by the other effects)
+  // since loadPage needs `columns` as an RPC input. Guarded on categories
+  // being loaded first — until then `columns` would read as [] for "All"
+  // mode (package_categories hasn't arrived yet), which would fire one
+  // wasted no-filter load before immediately re-firing once categories
+  // show up.
+  useEffect(() => {
+    if (categories.length === 0) return;
+    loadPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categories.length, debouncedSearch, month, typeFilter, labelFilter, round, hangMucFilter, subFilter, tiktokBrandFilter, columns, doneFilter, page, pageSize]);
+
+  // Any filter/search/round/drill-down/Done-filter change (not a page/
+  // pageSize change) snaps back to page 1 — same "narrower result set
+  // shouldn't leave you stranded on a now-out-of-range page" behavior
+  // usePagination's own effect used to give for free; now explicit since
+  // the page fetch and the filter change are independent round trips (same
+  // pattern as app/releases/page.js's firstFilterRunRef).
+  const firstFilterRunRef = useRef(true);
+  useEffect(() => {
+    if (firstFilterRunRef.current) { firstFilterRunRef.current = false; return; }
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, month, typeFilter, labelFilter, round, hangMucFilter, subFilter, tiktokBrandFilter, columns, doneFilter]);
+
   // Round 94 — whether EVERY currently-shown column with a real target is
   // fully booked (added >= booked). Columns with no target at all (booked
   // null or 0) don't count either way — nothing to compare against. A
   // release with no targeted column among those currently shown is never
   // "done" (there's nothing finished to report), which matches how such a
   // release already gets filtered out by the anyFilled check below anyway.
-  function isReleaseDone(r) {
-    // Round 168 — the "All" filter's own Ads column (categoryName "Ads",
-    // brand null — see the columns useMemo's hangMucFilter==="All"
-    // branch) is a special case: its target/done-ness comes from
-    // adsAllViewStatus's per-metric-column check, not the generic sum-
-    // based bookedFor/addedFor comparison every other column uses. See
-    // that function's comment for why.
-    const targeted = columns.filter((c) => {
-      if (c.categoryName === "Ads" && c.brand === null) {
-        return adsAllViewStatus(r, bookedFor, roundEntries, categoryIdByName) !== null;
-      }
-      const booked = bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType);
-      return booked != null && booked > 0;
-    });
-    if (targeted.length === 0) return false;
-    return targeted.every((c) => {
-      if (c.categoryName === "Ads" && c.brand === null) {
-        return adsAllViewStatus(r, bookedFor, roundEntries, categoryIdByName) === true;
-      }
-      // Round 286 — same "Cancel" fix as adsAllViewStatus, for a specific
-      // Ads brand's own columns (drilled in, not the "All" aggregate
-      // above): a canceled metric never gets a real result number, so it
-      // used to hold the release as permanently "not done." Counts as
-      // satisfied instead, same as hitting the target.
-      if (c.categoryName === "Ads") {
-        const categoryId = categoryIdByName[c.categoryName];
-        const canceled = roundEntries.some((e) =>
-          e.release_id === r.id &&
-          e.category_id === categoryId &&
-          (c.brand === null || (e.channel_name || "") === (c.brand || "")) &&
-          (c.platform == null || (e.platform || "") === c.platform) &&
-          (c.subchannelType == null || (e.subchannel_type || "") === c.subchannelType) &&
-          e.status === "Cancel"
-        );
-        if (canceled) return true;
-      }
-      const booked = bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType);
-      const added = addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries);
-      return added >= booked;
-    });
-  }
-
-  // Split in two: preDoneFilteredReleases is everything the board would
-  // show BEFORE the Done/Not Done toggle narrows it further — the counts
-  // on those two buttons are computed off this set, so the numbers stay
-  // accurate to "what's currently in view" regardless of which done state
-  // (if any) is picked.
-  const preDoneFilteredReleases = useMemo(() => {
-    return roundFilteredReleases.filter((r) => {
-      if (search.trim()) {
-        const q = search.trim().toLowerCase();
-        if (![r.title, r.main_artist, r.did].some((f) => (f || "").toLowerCase().includes(q))) return false;
-      }
-      if (month && r.release_date) {
-        if (!r.release_date.startsWith(month)) return false;
-      }
-      if (typeFilter && r.project_type !== typeFilter) return false;
-      if (labelFilter && r.label !== labelFilter) return false;
-      // Per the team's confirmed default: ALWAYS show only releases that
-      // actually have a requested/booked number for at least one of the
-      // columns currently shown — no toggle, this is just how the board
-      // works now. (Replaces the earlier "Chưa có yêu cầu" / "Đã có yêu
-      // cầu" toggle buttons.) This also applies on "All" — its columns are
-      // one aggregate-per-category entry (brand: null), so a release with
-      // no package/target anywhere (still sitting at BRIEF & DATA) has
-      // every one of those come back null and correctly gets filtered out
-      // there too, not just once you drill into a specific Hạng Mục/Brand.
-      if (columns.length > 0) {
-        let anyFilled = columns.some((c) => bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType) != null);
-        // Round 108 follow-up — TikTok Channel's subchannel columns always
-        // read null now (see bookedFor), so also count the brand's own
-        // lump target here — keeps a release visible (blank subchannel
-        // cells and all) as long as it has SOME real target for the
-        // brand, instead of it vanishing the moment you drill in.
-        if (!anyFilled && hangMucFilter === "TikTok Channel" && tiktokBrandFilter) {
-          anyFilled = brandHasAnyTarget(r, "TikTok Channel", tiktokBrandFilter);
-        }
-        // Round 108 follow-up 2 — same treatment for Ads, per explicit
-        // request to make this consistent: a multi-metric Ads brand's own
-        // per-metric columns always read null too (see bookedFor's Ads
-        // branch), so a release with only that brand's lump total used to
-        // disappear entirely once drilled into its metric columns. Now it
-        // stays visible (every metric column blank) so the team can see
-        // there's an unassigned number and go decide which metric it's
-        // really for — same reasoning, same fix shape as TikTok Channel
-        // above. YouTube Ads is unaffected either way — it always had a
-        // real per-metric quantity, so its column was never forced null.
-        if (!anyFilled && hangMucFilter === "Ads" && subFilter) {
-          anyFilled = brandHasAnyTarget(r, "Ads", subFilter);
-        }
-        // Round 118 — same treatment now for Social and Community: their
-        // columns are always exact-brand null too (bookedFor's generic
-        // exact-match branch, since these categories' lines only ever
-        // exist under brand ""), so without this a release with a real
-        // combined target used to disappear entirely once drilled into a
-        // specific real brand. See brandHasAnyTarget's Round 118 comment
-        // for the root cause (package lines mushed to brand "").
-        if (!anyFilled && hangMucFilter === "Social" && subFilter) {
-          anyFilled = brandHasAnyTarget(r, "Social", subFilter);
-        }
-        if (!anyFilled && hangMucFilter === "Community" && subFilter) {
-          anyFilled = brandHasAnyTarget(r, "Community", subFilter);
-        }
-        if (!anyFilled) return false;
-      }
-      return true;
-    });
-  }, [roundFilteredReleases, search, month, typeFilter, labelFilter, hangMucFilter, subFilter, tiktokBrandFilter, columns, packageByRelease]);
-
-  const doneCounts = useMemo(() => {
-    let done = 0;
-    preDoneFilteredReleases.forEach((r) => { if (isReleaseDone(r)) done++; });
-    return { done, notDone: preDoneFilteredReleases.length - done };
-  }, [preDoneFilteredReleases, columns, roundEntries, packageByRelease]);
-
-  const filteredReleases = useMemo(() => {
-    if (!doneFilter) return preDoneFilteredReleases;
-    return preDoneFilteredReleases.filter((r) => (doneFilter === "done" ? isReleaseDone(r) : !isReleaseDone(r)));
-  }, [preDoneFilteredReleases, doneFilter, columns, roundEntries, packageByRelease]);
-
-  const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(filteredReleases);
-
-  // Per-round release counts (INT / Đợt 1 / Đợt 2), scoped to whatever's
-  // currently in view. Round 286 — used to run off the raw unfiltered
-  // `releases` array (every release ever, ignoring every filter on the
-  // board), per explicit request that was wrong: "the counter change from
-  // count from everything to count only what is filtering." Now sources
-  // filteredReleases — the exact same set the table/cards below are
-  // showing — so these 4 numbers always describe what's actually on
-  // screen (search/month/Type/Label/Hạng Mục+brand drill-down/Round tab/
-  // Done-Not Done, all of it). Classification logic itself (isIntType,
-  // the Đợt 1 rule, dot2ReleaseIds membership) is unchanged — only the
-  // source array moved. Since filteredReleases already only contains one
-  // Round tab's releases (roundFilteredReleases upstream), int/dot1 now
-  // naturally collapse toward whichever Round is picked instead of always
-  // showing all three at once — that's the intended behavior of "count
-  // only what is filtering," not a regression.
-  const stats = useMemo(() => {
-    const total = filteredReleases.length;
-    let int = 0, dot1 = 0, dot2 = 0;
-    filteredReleases.forEach((r) => {
-      const isIntType = !!r.project_type && /int\s*media/i.test(r.project_type);
-      if (isIntType) int++;
-      else if (!!r.project_type && r.project_type !== "Chỉ Phát Hành") dot1++;
-      if (dot2ReleaseIds.has(r.id)) dot2++;
-    });
-    return { total, int, dot1, dot2 };
-  }, [filteredReleases, dot2ReleaseIds]);
+  // Round 303 — isReleaseDone/preDoneFilteredReleases/doneCounts/
+  // filteredReleases/stats all used to be client-side computations over
+  // the full local dataset (see the SQL file's header for why Done-ness
+  // can't just be "a stored column"). They're now booking_board_page()'s
+  // job — see loadPage()/refreshCounts() above and
+  // sql/pending/add-round303-booking-board-pagination.sql's
+  // booking_is_release_done/booking_has_target for the exact same rules,
+  // ported to SQL line-for-line. `releases` state is already this page's
+  // final, server-filtered set; `doneCounts`/`stats` are state, set from
+  // the RPC response. pagedReleases/totalPages are kept as names so the
+  // render code below (table/card views, Pagination component) didn't
+  // need to change.
+  const pagedReleases = releases;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
 
   // Round 286 — small always-visible summary of which filters are active,
   // shown right under the 4 stat cards so it's clear at a glance why the
@@ -1034,7 +859,10 @@ export default function BookingBoard() {
       })
       .select()
       .single();
-    if (!error && data) setEntries((prev) => [...prev, data]);
+    if (!error && data) {
+      setEntries((prev) => [...prev, data]);
+      refreshCounts(); // Round 303 — a new link can flip this release's Done-ness; see refreshCounts' comment above
+    }
   }
 
   // Same insert shape as addEntry, but for N rows at once — used by the
@@ -1062,7 +890,10 @@ export default function BookingBoard() {
       }));
     if (payload.length === 0) return { count: 0 };
     const { data, error } = await supabase.from("media_booking_entries").insert(payload).select();
-    if (!error && data) setEntries((prev) => [...prev, ...data]);
+    if (!error && data) {
+      setEntries((prev) => [...prev, ...data]);
+      refreshCounts(); // Round 303 — see addEntry's comment above
+    }
     return { count: error ? 0 : payload.length, error };
   }
 
@@ -1102,13 +933,19 @@ export default function BookingBoard() {
   // close that gap, used by BrandCell's new inline edit/delete UI.
   async function updateEntry(entry, patch) {
     const { error } = await supabase.from("media_booking_entries").update(patch).eq("id", entry.id);
-    if (!error) setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, ...patch } : e)));
+    if (!error) {
+      setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, ...patch } : e)));
+      refreshCounts(); // Round 303 — patch is arbitrary (could touch quantity/status); see addEntry's comment above
+    }
     return { error };
   }
 
   async function deleteEntry(entry) {
     const { error } = await supabase.from("media_booking_entries").delete().eq("id", entry.id);
-    if (!error) setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+    if (!error) {
+      setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+      refreshCounts(); // Round 303 — a removed link can flip this release's Done-ness; see addEntry's comment above
+    }
     return { error };
   }
 
@@ -1119,7 +956,10 @@ export default function BookingBoard() {
   async function saveAdsQuantity(releaseId, brand, platform, quantity, status, existingEntry) {
     if (existingEntry) {
       const { error } = await supabase.from("media_booking_entries").update({ quantity, status }).eq("id", existingEntry.id);
-      if (!error) setEntries((prev) => prev.map((e) => (e.id === existingEntry.id ? { ...e, quantity, status } : e)));
+      if (!error) {
+        setEntries((prev) => prev.map((e) => (e.id === existingEntry.id ? { ...e, quantity, status } : e)));
+        refreshCounts(); // Round 303 — an Ads quantity/status change can flip Done-ness; see addEntry's comment above
+      }
       return { error };
     }
     // Round 93 fix — this insert used to pass channel_type: null explicitly,
@@ -1138,20 +978,78 @@ export default function BookingBoard() {
       })
       .select()
       .single();
-    if (!error && data) setEntries((prev) => [...prev, data]);
+    if (!error && data) {
+      setEntries((prev) => [...prev, data]);
+      refreshCounts(); // Round 303 — see addEntry's comment above
+    }
     return { error };
   }
 
-  function exportCsv() {
-    const rows = [["DID", "Title", "Artist", ...columns.flatMap((c) => [`${c.label} Added`, `${c.label} Booked`])]];
-    filteredReleases.forEach((r) => {
-      const row = [r.did || "", r.title, r.main_artist];
-      columns.forEach((c) => {
-        row.push(addedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, roundEntries));
-        row.push(bookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType) ?? "—");
-      });
-      rows.push(row);
+  // Round 303 — CSV export needs EVERY matching release (not just the
+  // current page), which `releases` state no longer holds now that it's
+  // scoped to one server page. Exporting is an on-demand, user-triggered
+  // action rather than a page-load cost, so it's fine for it to pull the
+  // full matching set at that moment — same RPC as loadPage, just with a
+  // page size large enough to cover the whole filtered result in one call,
+  // then a scoped entries/packages fetch for exactly those release ids
+  // (same shape as loadPage's own follow-up fetch). Uses makeBookedFor/
+  // makeAddedFor (see their definitions above the component) against this
+  // export-only dataset rather than the render's own bookedFor/addedFor,
+  // which are memoized against the current PAGE's packageByRelease.
+  async function exportCsv() {
+    if (!supabase) return;
+    const { data: rpcResult, error: rpcError } = await supabase.rpc("booking_board_page", {
+      p_search: debouncedSearch || null,
+      p_month: month || null,
+      p_type: typeFilter || null,
+      p_label: labelFilter || null,
+      p_round: round,
+      p_hang_muc: hangMucFilter,
+      p_sub_filter: subFilter,
+      p_tiktok_brand: tiktokBrandFilter,
+      p_columns: columns,
+      p_done_filter: doneFilter,
+      p_page: 1,
+      p_page_size: 100000, // effectively "no limit" — every matching release in one page
     });
+    if (rpcError) {
+      window.alert("Export failed — could not load the matching releases. Please try again.");
+      console.error("exportCsv booking_board_page failed:", rpcError);
+      return;
+    }
+    const ids = rpcResult?.release_ids || [];
+    const rows = [["DID", "Title", "Artist", ...columns.flatMap((c) => [`${c.label} Added`, `${c.label} Booked`])]];
+    if (ids.length > 0) {
+      const [{ data: rels }, { data: pkgs }, { data: ents }] = await Promise.all([
+        supabase.from("releases").select(RELEASE_COLUMNS).in("id", ids),
+        supabase
+          .from("media_booking_packages")
+          .select("id, release_id, name, media_booking_package_lines(category_id, brand, quantity, metric_quantities, brand_column_quantities)")
+          .in("release_id", ids),
+        fetchAllRows(() =>
+          supabase
+            .from("media_booking_entries")
+            .select("id, release_id, category_id, channel_name, platform, subchannel_type, quantity, status, booking_round, link, channel_type")
+            .in("release_id", ids)
+            .order("id")
+        ),
+      ]);
+      const byId = {};
+      (rels || []).forEach((r) => { byId[r.id] = r; });
+      const orderedRels = ids.map((id) => byId[id]).filter(Boolean);
+      const exportPackageByRelease = buildPackageByRelease(orderedRels, pkgs || []);
+      const exportBookedFor = makeBookedFor(exportPackageByRelease, categoryIdByName);
+      const exportAddedFor = makeAddedFor(categoryIdByName);
+      const exportRoundEntries = (ents || []).filter((e) => e.booking_round === round);
+      orderedRels.forEach((r) => {
+        const row = [r.did || "", r.title, r.main_artist];
+        columns.forEach((c) => {
+          row.push(exportAddedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType, exportRoundEntries));
+          row.push(exportBookedFor(r, c.categoryName, c.brand, c.platform, c.subchannelType) ?? "—");
+        });
+        rows.push(row);
+      });
+    }
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -1375,7 +1273,7 @@ export default function BookingBoard() {
 
         {loading ? (
           <div className={styles.emptyState}>Loading…</div>
-        ) : filteredReleases.length === 0 ? (
+        ) : releases.length === 0 ? (
           <div style={{ textAlign: "center", padding: "80px 0" }}>
             <div style={{ fontSize: 48, fontWeight: 900, color: "#1c1c1c", letterSpacing: 4 }}>EMPTY</div>
             <div style={{ color: "var(--text-dim)", marginTop: -12 }}>Không tìm thấy</div>
