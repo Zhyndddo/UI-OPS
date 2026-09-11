@@ -1485,39 +1485,83 @@ export default function PickPackagePage() {
                     ) : (
                       <span style={{ color: "var(--text-faint)", fontSize: isMobile ? 22 : 13, fontWeight: isMobile ? 800 : 400 }}>{added} / —</span>
                     )}
+                    {/* Round 307 added Ads Perform (releases.ads_perform_url)
+                        here on the Ads card — "the table where the ads
+                        part lives" — as a field separate from Promotion
+                        Package. Round 308 correction: it's not a second
+                        field, it's a rename — Promotion Package
+                        (promotion_package_url) is retired and this is now
+                        the one and only url for the release, still shown
+                        only here on the Ads card (not duplicated
+                        elsewhere on this page — see the removed block
+                        right after this categories.map loop). Ads entries
+                        never carry a per-entry link (see linksFor/
+                        doneLinks above), so before Round 307 the Ads card
+                        had nothing to click through to at all — this is
+                        deliberately its own card-level link, not folded
+                        into doneLinks. */}
+                    {c.name === "Ads" && release?.ads_perform_url && (
+                      <div style={{ marginTop: 8 }}>
+                        <a
+                          href={release.ads_perform_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ fontSize: isMobile ? 13 : 12, color: "#ff6b1a", wordBreak: "break-all" }}
+                        >
+                          Ads Perform ↗
+                        </a>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
 
-            {/* Promotion Package link — right under the booking numbers,
-                same field/link shown on the release detail page's
-                Streaming & Milestone tab, surfaced here too so the
-                artist/label doesn't need internal access to reach it. */}
-            {release?.promotion_package_url && (
-              <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", textTransform: "uppercase" }}>Promotion Package</span>
-                <a
-                  href={release.promotion_package_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="Open Promotion Package link"
-                  style={{ fontSize: 18 }}
-                >
-                  🔗
-                </a>
-              </div>
-            )}
+            {/* Round 308 — the standalone "Promotion Package" link that
+                used to render right here (release.promotion_package_url)
+                is gone: per explicit correction that field was renamed to
+                Ads Perform, not kept as a second field, and now shows
+                exactly once — on the Ads category card above (see the
+                "Ads Perform ↗" link in the categories.map loop right
+                above this), which is where the team wanted it ("the table
+                where the ads part lives"), not as a separate line here. */}
           </div>
         )}
 
         {/* Streaming & Milestone — read-only, same data the internal
             Streaming workstation and the release detail page's Milestone
             section track, just surfaced here too so the artist/label can
-            see it without a separate report being sent. */}
-        {confirmed && (streamMetrics || milestones.length > 0) && (
+            see it without a separate report being sent.
+            Round 307/308/309 — Promotion Package and Ads Perform went
+            through a few corrections before landing here: they're two
+            genuinely separate urls (releases.promotion_package_url and
+            releases.ads_perform_url), and per explicit placement request
+            this page shows Promotion Package "among the milestone rows"
+            (right here) while Ads Perform stays on the Ads category card
+            above (see the categories.map loop's "Ads Perform ↗" link) —
+            same split the release detail page's URL tab keeps (both
+            fields, side by side) and the Booking Board keeps (Ads Perform
+            only, one url for the whole release). The section now also
+            renders whenever there's a Promotion Package link even with no
+            streaming/milestone data yet, so a fresh release with just
+            that link set doesn't have nowhere to show it. */}
+        {confirmed && (streamMetrics || milestones.length > 0 || release?.promotion_package_url) && (
           <div style={{ marginTop: 32 }}>
-            <div className={styles.subheading} style={{ marginTop: 0 }}>Streaming & Milestone</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 0 }}>
+              <div className={styles.subheading} style={{ marginTop: 0, marginBottom: 0 }}>Streaming & Milestone</div>
+              {release?.promotion_package_url && (
+                <a
+                  href={release.promotion_package_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open Promotion Package link"
+                  style={{ fontSize: 12, color: "#ff6b1a", display: "inline-flex", alignItems: "center", gap: 4 }}
+                >
+                  🔗 Promotion Package
+                </a>
+              )}
+            </div>
+            <div style={{ marginTop: 12 }} />
 
             {streamMetrics && Object.keys(STREAM_FIELD_LABELS).some((k) => streamMetrics[k]) ? (
               // Round 125 — item 3d: same horizontal->vertical treatment

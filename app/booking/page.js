@@ -28,10 +28,10 @@ function isReleasingToday(release) {
   return String(release.release_date).slice(0, 10) === todayStr;
 }
 
-// Round 149 — the Release column's info rows (link_ugc, and now
-// promotion_package_url below) are shown as full clickable URLs, which for
-// a long link either forces the fixed-width column wider or wraps onto
-// several lines, pushing every row's height up just for one long URL.
+// Round 149 — the Release column's info rows (link_ugc) are shown as full
+// clickable URLs, which for a long link either forces the fixed-width
+// column wider or wraps onto several lines, pushing every row's height up
+// just for one long URL.
 // Truncating the DISPLAYED text (the href/title stay the full real URL —
 // only the visible label is shortened) keeps every row a predictable
 // height regardless of link length.
@@ -47,8 +47,8 @@ function truncateUrlDisplay(url, max = 22) {
 // URL and render one <a href={r.link_ugc}>; a real multi-line value would
 // have produced one broken link with embedded newlines in its href.
 // Splits and renders one clickable link per line instead, stacked, same
-// truncated-display-text idiom as promotion_package_url right below it so
-// a long URL still can't stretch the row.
+// truncated-display-text idiom as truncateUrlDisplay above so a long URL
+// still can't stretch the row.
 function LinkUgcLines({ value, color }) {
   const urls = (value || "").split("\n").map((s) => s.trim()).filter(Boolean);
   if (urls.length === 0) return null;
@@ -243,7 +243,13 @@ const BOOKING_PAGE_SIZE = 50;
 // needs the full matching set, not just the current page) share one
 // definition instead of drifting apart.
 const RELEASE_COLUMNS =
-  "id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status, gate_co_trong_net_youtube, youtube_ads_url, youtube_ads_booking_note, pseudo_package_parent_did, link_ugc, promotion_package_url";
+  // Round 307 briefly added ads_perform_url as a field separate from
+  // promotion_package_url; Round 308 correction retired
+  // promotion_package_url entirely (renamed/backfilled into
+  // ads_perform_url — see sql/pending/add-round308-rename-promotion-
+  // package-to-ads-perform.sql) since it was always meant to be the same
+  // single url, just relabeled, not two columns.
+  "id, did, title, main_artist, release_date, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky, label, project_type, package_locked, booking_note, link_media_report, media_report_status, gate_co_trong_net_youtube, youtube_ads_url, youtube_ads_booking_note, pseudo_package_parent_did, link_ugc, ads_perform_url";
 
 // Round 303 — pulled out of the component (was a plain useMemo) so
 // exportCsv can build the exact same map over its own export-only release/
@@ -1333,15 +1339,22 @@ export default function BookingBoard() {
                     Note above — stays put regardless of which Hạng Mục
                     filter/subfilter is active ("in all filter page"). */}
                 <th style={{ borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>Media Report</th>
-                {/* Round 286 — its own column now, per explicit request
-                    ("instead of the current promotion package url [inline
-                    under the release name] like current, the guys want an
-                    entirely new column"). Same field (releases.promotion_
-                    package_url), same read-only truncated-link rendering —
-                    just moved out from under the Release title into a
-                    fixed column of its own, same spot in the fixed-column
-                    run as Note/Media Report. */}
-                <th style={{ borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>Ads Perform</th>
+                {/* Round 286 added a standalone "Ads Perform" column here
+                    (releases.promotion_package_url, read-only truncated
+                    link) — Round 306 hid it as a duplicate of the Media
+                    Report magic link's "Promotion Package" line (both read
+                    the same column). Round 307 briefly split it into two
+                    separate columns/fields; Round 308 correction settled
+                    it for good: exactly ONE url per release
+                    (releases.ads_perform_url — promotion_package_url is
+                    retired), renamed to "Ads Perform" everywhere it
+                    appears (this board's AdsCell popups, the release
+                    detail page's URL tab, and the Media Report magic
+                    link's Ads card), still hidden here on the board's own
+                    fixed column — it shows on the magic link's Ads card
+                    instead (app/pick-package/[token]/page.js), same "don't
+                    duplicate a link that already lives on the link
+                    everyone shares externally" reasoning as Round 306. */}
                 {columns.map((c, i) => {
                   const prev = columns[i - 1];
                   const isGroupStart = prev && prev.categoryName !== c.categoryName;
@@ -1384,9 +1397,12 @@ export default function BookingBoard() {
                         clickable 3rd row, same pattern as Pitching
                         ticket's link_lbm row. */}
                     <LinkUgcLines value={r.link_ugc} color={releasingToday ? "var(--highlight-text-faint)" : "var(--accent-soft)"} />
-                    {/* Round 286 — Promotion Package URL moved out to its
-                        own "Ads Perform" column (see the <th>/<td> further
-                        down) — no longer shown inline here. */}
+                    {/* Round 286 moved Promotion Package URL out to its own
+                        "Ads Perform" column; Round 306 removed that column
+                        from the board entirely (it duplicated the Media
+                        Report magic link's own "Promotion Package" block).
+                        Not shown inline here either — only editable inside
+                        the YouTube Ads cell now. */}
                     {hangMucFilter === "TikTok Channel" && subFilter === "Partner" && (
                       <span
                         className={styles.statusBadge}
@@ -1418,17 +1434,9 @@ export default function BookingBoard() {
                   <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>
                     <MediaReportCell release={r} onConvert={convertMediaReport} />
                   </td>
-                  <td style={{ verticalAlign: "top", borderRight: "2px solid var(--accent)", width: 150, minWidth: 150 }}>
-                    {r.promotion_package_url ? (
-                      <div title={r.promotion_package_url}>
-                        <a href={r.promotion_package_url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-soft)", fontSize: 12 }}>
-                          {truncateUrlDisplay(r.promotion_package_url)}
-                        </a>
-                      </div>
-                    ) : (
-                      <span style={{ color: "var(--text-faint)", fontSize: 12 }}>—</span>
-                    )}
-                  </td>
+                  {/* Round 306 — "Ads Perform" td removed (see the <th>
+                      comment above); ads_perform_url is still read here
+                      for the Ads AdsCell's own field below. */}
                   {columns.map((c, i) => {
                     const prev = columns[i - 1];
                     const isGroupStart = prev && prev.categoryName !== c.categoryName;
@@ -1464,8 +1472,8 @@ export default function BookingBoard() {
                           youtubeBookingNote={r.youtube_ads_booking_note}
                           onSaveYoutubeAdsUrl={(v) => updateYoutubeAdsField(r, "youtube_ads_url", v)}
                           onSaveYoutubeBookingNote={(v) => updateYoutubeAdsField(r, "youtube_ads_booking_note", v)}
-                          promotionPackageUrl={r.promotion_package_url}
-                          onSavePromotionPackageUrl={(v) => updateYoutubeAdsField(r, "promotion_package_url", v)}
+                          adsPerformUrl={r.ads_perform_url}
+                          onSaveAdsPerformUrl={(v) => updateYoutubeAdsField(r, "ads_perform_url", v)}
                           cellBorderLeft={isGroupStart ? "2px solid #555" : "1px solid var(--border)"}
                           onSave={(quantity, status) => saveAdsQuantity(r.id, c.brand, c.platform, quantity, status, cellEntries[0] || null)}
                         />
@@ -1574,9 +1582,11 @@ function BookingBoardCards({
             <div style={{ marginTop: 2 }}>
               <LinkUgcLines value={r.link_ugc} color={releasingToday ? "var(--highlight-text-faint)" : "var(--accent-soft)"} />
             </div>
-            {/* Round 286 — Promotion Package URL moved out to its own
-                "Ads Perform" block below (see the desktop table's matching
-                column comment) — no longer shown inline here. */}
+            {/* Round 286 moved Promotion Package URL out to its own "Ads
+                Perform" block; Round 306 removed that block entirely (see
+                the desktop table's matching column comment). Not shown
+                inline here either — only editable inside the YouTube Ads
+                cell now. */}
             {hangMucFilter === "TikTok Channel" && subFilter === "Partner" && (
               <span
                 className={styles.statusBadge}
@@ -1617,16 +1627,8 @@ function BookingBoardCards({
               <NoteCell release={r} onSave={updateReleaseNote} />
             </div>
 
-            <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>Ads Perform</div>
-              {r.promotion_package_url ? (
-                <a href={r.promotion_package_url} target="_blank" rel="noopener noreferrer" title={r.promotion_package_url} style={{ color: "var(--accent-soft)", fontSize: 12 }}>
-                  {truncateUrlDisplay(r.promotion_package_url)}
-                </a>
-              ) : (
-                <span style={{ color: "var(--text-faint)", fontSize: 12 }}>—</span>
-              )}
-            </div>
+            {/* Round 306 — "Ads Perform" block removed here too (see the
+                desktop table's matching <th> comment above). */}
 
             {groups.map((group) => (
               <div key={group.categoryName} style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
@@ -1663,8 +1665,8 @@ function BookingBoardCards({
                               youtubeBookingNote={r.youtube_ads_booking_note}
                               onSaveYoutubeAdsUrl={(v) => updateYoutubeAdsField(r, "youtube_ads_url", v)}
                               onSaveYoutubeBookingNote={(v) => updateYoutubeAdsField(r, "youtube_ads_booking_note", v)}
-                              promotionPackageUrl={r.promotion_package_url}
-                              onSavePromotionPackageUrl={(v) => updateYoutubeAdsField(r, "promotion_package_url", v)}
+                              adsPerformUrl={r.ads_perform_url}
+                              onSaveAdsPerformUrl={(v) => updateYoutubeAdsField(r, "ads_perform_url", v)}
                               cellBorderLeft="none"
                               onSave={(quantity, status) => saveAdsQuantity(r.id, c.brand, c.platform, quantity, status, cellEntries[0] || null)}
                             />
@@ -2532,7 +2534,7 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
 // number of different unit not number of url"). Click opens a small popup
 // with a "Số lượng" number field and a 4-way status switch; the main cell
 // shows the number itself colored by status (not the cell background).
-function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBorderLeft, onSave, showYoutubeAdsFields, youtubeAdsUrl, youtubeBookingNote, onSaveYoutubeAdsUrl, onSaveYoutubeBookingNote, promotionPackageUrl, onSavePromotionPackageUrl }) {
+function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBorderLeft, onSave, showYoutubeAdsFields, youtubeAdsUrl, youtubeBookingNote, onSaveYoutubeAdsUrl, onSaveYoutubeBookingNote, adsPerformUrl, onSaveAdsPerformUrl }) {
   const anchorRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [quantity, setQuantity] = useState(existingEntry?.quantity ?? "");
@@ -2616,24 +2618,29 @@ function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBo
               autoFocus
             />
           </div>
-          {/* Round 272 — Promotion Package URL, every Ads brand's popup
-              (Facebook/YouTube/TikTok/Spotify), per explicit request ("the
-              ads, every pop up have a promotion package url fields...
-              same one that already in the url tab of detail page, just
-              add another place for entry"). Same releases.promotion_package_url
-              column the URL tab (app/releases/[id]/page.js) and the
-              read-only link already shown elsewhere on this board's rows
-              both use — writes straight to the release, immediate save on
-              blur, same idiom as YoutubeAdsFields right below it. */}
+          {/* Round 272 originally added this as "URL Promotion Package"
+              (releases.promotion_package_url), every Ads brand's popup
+              (Facebook/YouTube/TikTok/Spotify). Round 307 briefly added a
+              second, separate "Ads Perform" field alongside it — Round 308
+              correction, per explicit clarification: there's supposed to
+              be exactly ONE url per release shared across every Ads
+              popup, just renamed/re-labeled to Ads Perform, not a second
+              field. This input now reads/writes releases.ads_perform_url
+              (promotion_package_url is retired — see
+              sql/pending/add-round308-rename-promotion-package-to-ads-perform.sql)
+              and shows on the Media Report magic link's Ads card
+              (app/pick-package/[token]/page.js), not here on the board
+              itself — same "hide the redundant board copy" call Round 306
+              made, now correctly pointed at the one real field. */}
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", display: "block", marginBottom: 3 }}>
-              URL Promotion Package
+              URL Ads Perform
             </label>
             <input
               className={styles.input}
               style={{ width: "100%", boxSizing: "border-box" }}
-              defaultValue={promotionPackageUrl || ""}
-              onBlur={(e) => onSavePromotionPackageUrl(e.target.value)}
+              defaultValue={adsPerformUrl || ""}
+              onBlur={(e) => onSaveAdsPerformUrl(e.target.value)}
               placeholder="https://…"
             />
           </div>
@@ -2723,17 +2730,19 @@ function AdsCell({ column, booked, added, existingEntry, canEdit, locked, cellBo
             ))}
           </div>
         </div>
-        {/* Round 272 — same Promotion Package URL field as the locked
-            popup above, see its comment for the full explanation. */}
+        {/* Round 308 — same single Ads Perform URL field as the locked
+            popup above, see its comment for the full explanation (this
+            used to also have a separate "URL Promotion Package" field
+            right here — retired, not kept alongside this one). */}
         <div style={{ marginBottom: 12 }}>
           <label style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", display: "block", marginBottom: 3 }}>
-            URL Promotion Package
+            URL Ads Perform
           </label>
           <input
             className={styles.input}
             style={{ width: "100%", boxSizing: "border-box" }}
-            defaultValue={promotionPackageUrl || ""}
-            onBlur={(e) => onSavePromotionPackageUrl(e.target.value)}
+            defaultValue={adsPerformUrl || ""}
+            onBlur={(e) => onSaveAdsPerformUrl(e.target.value)}
             placeholder="https://…"
           />
         </div>

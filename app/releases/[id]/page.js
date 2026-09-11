@@ -1727,6 +1727,16 @@ export default function ReleaseDetailPage() {
                     UI label only, doesn't touch what the link actually is. */}
                 <LinkPill label={form.media_report_status ? "Media Report" : "Package Offer"} href={magicLinkUrl} />
                 <span style={{ color: "#444" }}>|</span>
+                {/* Round 308 briefly renamed this pill to "Ads Perform"
+                    (form.ads_perform_url) — Round 309 correction, per
+                    explicit clarification: Promotion Package and Ads
+                    Perform are two separate urls after all. This pill
+                    stays Promotion Package as it always was; Ads Perform
+                    doesn't get a header pill of its own — it's edited from
+                    the Booking Board's Ads popups (one url for the whole
+                    release) and only needs quick-glance access there, not
+                    up here too. Both fields are still reachable from the
+                    URL tab below. */}
                 <LinkPill label="Promotion Package" href={firstUrl(form.promotion_package_url)} />
               </div>
             </div>
@@ -3183,7 +3193,16 @@ function UrlTab({ form, update, onSave, saving, did, releaseId }) {
     ["link_share", "Link Share"],
     ["link_preorder", "Link Pre-order"],
     ["link_ugc", "Link Sound TikTok"],
+    // Round 307 added ads_perform_url; Round 308 briefly renamed
+    // promotion_package_url to it (treating them as one field) — Round
+    // 309 correction, per explicit clarification: they're two separate
+    // urls, both kept here side by side. promotion_package_url is edited
+    // only here and shown among the Media Report magic link's Streaming &
+    // Milestone rows; ads_perform_url is edited from the Booking Board's
+    // Ads popups (one url for the whole release, not per-brand) and also
+    // editable here for convenience, shown on the magic link's Ads card.
     ["promotion_package_url", "URL Promotion Package"],
+    ["ads_perform_url", "URL Ads Perform"],
     ["artist_photo_url", "Artist Photo URL"],
     ["project_proposal_url", "Project Proposal URL"],
     ["drive_link", "Link Drive"],
@@ -3812,6 +3831,13 @@ function StreamingMilestoneTab({ form }) {
 
   return (
     <div>
+      {/* Round 308 briefly renamed this to "Ads Perform" — Round 309
+          correction restores it to Promotion Package (they're two
+          separate urls; this Streaming & Milestone tab is specifically
+          where Promotion Package lives, per explicit placement request —
+          Ads Perform belongs on the Booking Board's Ads popups instead,
+          see AdsCell). The Media Report magic link's own Streaming &
+          Milestone section mirrors this same placement. */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
         <span className={styles.fieldLabel}>Promotion Package</span>
         {form.promotion_package_url ? (
