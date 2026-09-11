@@ -45,6 +45,25 @@ function fmtCompactVnd(n) {
   return fmtVnd(n);
 }
 
+// Round 314 — Release Pipeline Health's period filter (Monthly/Quarterly)
+// works off release_date's "YYYY-MM" prefix. monthToQuarterKey folds a
+// month into its quarter ("2026-04" → "2026-Q2"); the two format
+// functions turn either key back into a short human label for the
+// dropdown and the filter's own "showing ___" line.
+function monthToQuarterKey(month) {
+  const [y, m] = month.split("-").map(Number);
+  return `${y}-Q${Math.ceil(m / 3)}`;
+}
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function formatMonthLabel(month) {
+  const [y, m] = month.split("-").map(Number);
+  return `${MONTH_NAMES[m - 1]} ${y}`;
+}
+function formatQuarterLabel(quarterKey) {
+  const [y, q] = quarterKey.split("-Q");
+  return `Q${q} ${y}`;
+}
+
 // Groups an array by keyFn, returns [{label, value}] sorted desc by value.
 // Buckets past `capAt` fold into a single "Other" bucket, per the
 // "a 9th series folds into Other" rule — a table/report shouldn't ever
@@ -299,13 +318,50 @@ function ReportPageInner() {
   }, []);
 
   // ── A. Release Pipeline Health ────────────────────────────────────────
-  const projectTypeChart = useMemo(() => groupCounts(releases, (r) => r.project_type), [releases]);
-  const statusChart = useMemo(() => groupCounts(releases, (r) => r.status), [releases]);
+  // Round 314 — per explicit request, this section gets its own period
+  // filter (independent of every other section on this tab, which stay
+  // all-time): All Time (unchanged default), Monthly, or Quarterly,
+  // narrowing to releases whose release_date falls in the picked month/
+  // quarter. availableMonths/availableQuarters list only periods that
+  // actually have a release, newest first, so the dropdown never offers
+  // an empty period.
+  const [pipelinePeriodMode, setPipelinePeriodMode] = useState("all");
+  const [pipelinePeriodValue, setPipelinePeriodValue] = useState("");
+  const availableMonths = useMemo(() => {
+    const months = new Set();
+    releases.forEach((r) => { if (r.release_date) months.add(r.release_date.slice(0, 7)); });
+    return [...months].sort().reverse();
+  }, [releases]);
+  const availableQuarters = useMemo(() => {
+    const quarters = new Set(availableMonths.map(monthToQuarterKey));
+    return [...quarters].sort().reverse();
+  }, [availableMonths]);
+  // Default (and re-default, if the current pick no longer has data) to
+  // the newest available period whenever mode or the option list changes
+  // — never leaves the dropdown pointed at a period with nothing in it.
+  useEffect(() => {
+    if (pipelinePeriodMode === "month" && !availableMonths.includes(pipelinePeriodValue)) {
+      setPipelinePeriodValue(availableMonths[0] || "");
+    } else if (pipelinePeriodMode === "quarter" && !availableQuarters.includes(pipelinePeriodValue)) {
+      setPipelinePeriodValue(availableQuarters[0] || "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelinePeriodMode, availableMonths, availableQuarters]);
+  const pipelineReleases = useMemo(() => {
+    if (pipelinePeriodMode === "all" || !pipelinePeriodValue) return releases;
+    return releases.filter((r) => {
+      if (!r.release_date) return false;
+      const month = r.release_date.slice(0, 7);
+      return pipelinePeriodMode === "month" ? month === pipelinePeriodValue : monthToQuarterKey(month) === pipelinePeriodValue;
+    });
+  }, [releases, pipelinePeriodMode, pipelinePeriodValue]);
+  const projectTypeChart = useMemo(() => groupCounts(pipelineReleases, (r) => r.project_type), [pipelineReleases]);
+  const statusChart = useMemo(() => groupCounts(pipelineReleases, (r) => r.status), [pipelineReleases]);
   const atRiskReleases = useMemo(() => {
-    return releases
+    return pipelineReleases
       .filter((r) => PIPELINE_TYPES.includes(r.project_type) && r.release_date && r.release_date < todayStr)
       .sort((a, b) => (a.release_date || "").localeCompare(b.release_date || ""));
-  }, [releases, todayStr]);
+  }, [pipelineReleases, todayStr]);
 
   // ── B. Booking Board Activity ───────────────────────────────────────
   const mediaReportChart = useMemo(() => {
@@ -480,7 +536,40 @@ function ReportPageInner() {
                 <KpiCard label="Total VIEENT Support" value={fmtCompactVnd(totalVieentSupport)} />
               </div>
 
-              <div className={styles.subheading}>A. Release Pipeline Health</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                <div className={styles.subheading} style={{ marginBottom: 0 }}>A. Release Pipeline Health</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  {[["all", "All Time"], ["month", "Monthly"], ["quarter", "Quarterly"]].map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => setPipelinePeriodMode(key)}
+                      className={`${styles.tabBtn} ${pipelinePeriodMode === key ? styles.tabBtnActive : ""}`}
+                      style={{ border: pipelinePeriodMode === key ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: pipelinePeriodMode === key ? "rgba(255,107,26,0.1)" : "transparent", fontSize: 12 }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  {pipelinePeriodMode !== "all" && (
+                    <select
+                      className={styles.select}
+                      style={{ fontSize: 12, padding: "4px 8px" }}
+                      value={pipelinePeriodValue}
+                      onChange={(e) => setPipelinePeriodValue(e.target.value)}
+                    >
+                      {(pipelinePeriodMode === "month" ? availableMonths : availableQuarters).map((v) => (
+                        <option key={v} value={v}>
+                          {pipelinePeriodMode === "month" ? formatMonthLabel(v) : formatQuarterLabel(v)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+              <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4, marginBottom: 12 }}>
+                {pipelinePeriodMode === "all"
+                  ? `All time — ${pipelineReleases.length} release${pipelineReleases.length === 1 ? "" : "s"}.`
+                  : `By release date, ${pipelinePeriodMode === "month" ? "monthly" : "quarterly"} — ${pipelineReleases.length} release${pipelineReleases.length === 1 ? "" : "s"} in ${pipelinePeriodMode === "month" ? formatMonthLabel(pipelinePeriodValue) : formatQuarterLabel(pipelinePeriodValue)}.`}
+              </p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 16 }}>
                 <SectionCard title="By Loại Dự Án (Project Type)">
                   <BarChart data={projectTypeChart} />
