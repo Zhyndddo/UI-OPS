@@ -12,9 +12,11 @@ import { fetchProductTagSets, ProductTagPills } from "../../lib/productTags";
 import { copyrightChecklistSummary } from "../../lib/copyrightChecklist";
 import DateRangeFilter, { matchesDateRange } from "../../lib/DateRangeFilter";
 import { useAuth } from "../../lib/AuthContext";
-import { visibleSubteamsFor, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewProjectRightsType, canEditProjectRightsType } from "../../lib/permissions";
+import { visibleSubteamsFor, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewProjectRightsType, canEditProjectRightsType, canViewReleaseArPic, canEditReleaseArPic } from "../../lib/permissions";
 import { subteamTagPillClass, MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
 import ProjectRightsTypeTag from "../../lib/ProjectRightsTypeTag";
+import { filterProfilesByTeam } from "../../lib/workstationHelpers";
+import { logPicReassign } from "../../lib/auditLog";
 import styles from "../shared.module.css";
 
 const CHANNELS = ["VIEENT", "ENVI"];
@@ -123,6 +125,9 @@ const RELEASE_COLUMNS = [
   // Round 294 — project rights-type tag (PRJ_INHOUSE/LICENSED/OWNED),
   // AR/OPS-only.
   "project_rights_type",
+  // Round 302 — the dashboard's own AR PIC, separate from the New Release
+  // Setup/Upload workstation's own OPS PIC (workstation_assignments).
+  "ar_pic_profile_id",
 ].join(", ");
 
 // Mirrors app/workstation/pitching/page.js's DONE_VALUE/CANCEL_VALUES so the
@@ -358,6 +363,26 @@ export default function ReleasesDashboard() {
   // subteam mechanism), so one flag covers both.
   const showProjectRightsTypeColumn = canViewProjectRightsType(profile);
   const canEditProjectRightsTypeHere = canEditProjectRightsType(profile);
+  // Round 302 — the dashboard's own AR PIC column, separate from the New
+  // Release Setup/Upload workstation's own OPS PIC. AR/dev/admin only,
+  // same "view and edit share one gate" shape as the tag above.
+  const showArPicColumn = canViewReleaseArPic(profile);
+  const canEditArPicHere = canEditReleaseArPic(profile);
+  const [arPicProfiles, setArPicProfiles] = useState([]);
+  useEffect(() => {
+    if (!supabase || !showArPicColumn) return;
+    supabase.from("profiles").select("id, name, email, segment, role").order("name").then(({ data }) => {
+      setArPicProfiles(filterProfilesByTeam(data || [], "AR"));
+    });
+  }, [showArPicColumn]);
+
+  async function updateArPic(release, profileId) {
+    logPicReassign({ actor: profile?.id, entity: "release", entityId: release.id, before: release.ar_pic_profile_id ?? null, after: profileId || null });
+    const { error: err } = await supabase.from("releases").update({ ar_pic_profile_id: profileId || null }).eq("id", release.id);
+    if (!err) {
+      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, ar_pic_profile_id: profileId || null } : r)));
+    }
+  }
 
   const [sort, setSort] = useState(null); // null = default (release date desc) | { key, dir }
   const [page, setPage] = useState(1);
@@ -721,6 +746,11 @@ export default function ReleasesDashboard() {
                 {showProjectRightsTypeColumn && (
                   <th title="Loại Dự Án — PRJ_INHOUSE / PRJ_LICENSED / PRJ_OWNED">Loại Dự Án</th>
                 )}
+                {/* Round 302 — AR PIC column, AR/dev/admin only. Separate
+                    from the New Release Setup/Upload workstation's own OPS
+                    PIC (workstation_assignments) — this is
+                    releases.ar_pic_profile_id, its own field. */}
+                {showArPicColumn && <th title="AR PIC">PIC</th>}
                 {/* Round 261 — per-subteam tag column(s), left-most per
                     explicit spec. Round 291 — widened from team-lead-only
                     to anyone on that subteam. Zero columns for anyone
@@ -777,6 +807,23 @@ export default function ReleasesDashboard() {
                           canEdit={canEditProjectRightsTypeHere}
                           onChange={(code) => updateProjectRightsType(r, code)}
                         />
+                      </td>
+                    )}
+                    {showArPicColumn && (
+                      <td onClick={(e) => e.stopPropagation()}>
+                        {canEditArPicHere ? (
+                          <select
+                            className={styles.select}
+                            style={{ fontSize: 12, minWidth: "12ch" }}
+                            value={r.ar_pic_profile_id || ""}
+                            onChange={(e) => updateArPic(r, e.target.value)}
+                          >
+                            <option value="">— Unassigned —</option>
+                            {arPicProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                        ) : (
+                          <span className={styles.pill}>{arPicProfiles.find((p) => p.id === r.ar_pic_profile_id)?.name || "Unassigned"}</span>
+                        )}
                       </td>
                     )}
                     {/* Round 261 — per-subteam toggle(s), left-most. Same
