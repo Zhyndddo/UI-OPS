@@ -7,7 +7,7 @@ import { supabase } from "../../../lib/supabaseClient";
 import { useAuth } from "../../../lib/AuthContext";
 import { fetchAllRows } from "../../../lib/helpers";
 import UrlField from "../../../lib/UrlField";
-import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS, buildPackageByRelease, makeBookedFor } from "../../booking/page";
+import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS, buildPackageByRelease, makeBookedFor, makeAddedFor } from "../../booking/page";
 import styles from "../../shared.module.css";
 
 // Round 315 — new Workstation item, per explicit request + the
@@ -74,6 +74,7 @@ export default function WorkstationCostMkt() {
   const [releases, setReleases] = useState([]);
   const [categories, setCategories] = useState([]);
   const [packages, setPackages] = useState([]);
+  const [entries, setEntries] = useState([]); // media_booking_entries — Round 316 fix, see below
   const [notInPackageTickets, setNotInPackageTickets] = useState([]);
   const [costEntries, setCostEntries] = useState({}); // costEntryKey -> row
 
@@ -90,7 +91,7 @@ export default function WorkstationCostMkt() {
 
   async function load() {
     setLoading(true);
-    const [{ data: rels }, { data: cats }, { data: tabRow }, { data: entries }] = await Promise.all([
+    const [{ data: rels }, { data: cats }, { data: tabRow }, { data: costEntryRows }] = await Promise.all([
       fetchAllRows(() =>
         supabase.from("releases").select("id, did, title, main_artist, release_date, project_type").order("release_date", { ascending: false })
       ),
@@ -102,23 +103,50 @@ export default function WorkstationCostMkt() {
     setReleases(releaseList);
     setCategories(cats || []);
 
+    // Round 316 fix — this used to only fetch media_booking_packages
+    // (the PLANNED/booked target, only present once a package is locked
+    // in on the release) and never media_booking_entries at all — the
+    // ACTUAL added links, which is what Booking Board's own cells mostly
+    // show and what exists for a release regardless of whether it ever
+    // got a locked package. That's why this page came up with nothing
+    // hooked to it even for releases with real activity on the board: a
+    // release with posted links but no locked package has bookedFor()
+    // returning null for everything, so totalPost was always 0. Now
+    // fetches entries too and reads added-vs-booked exactly the way
+    // Booking Board's own BrandCell does (see makeAddedFor/makeBookedFor
+    // in app/booking/page.js, both exported for this page to reuse).
+    // Scoped to just the TikTok Channel + Ads categories (the only two
+    // this page ever shows) instead of every release id, the same way
+    // Booking Board itself scopes to its current page's ids — avoids an
+    // .in() list of every release id in the system.
+    const tiktokAdsCategoryIds = (cats || []).filter((c) => c.name === "TikTok Channel" || c.name === "Ads").map((c) => c.id);
     const releaseIds = releaseList.map((r) => r.id);
-    const [{ data: pkgs }, ticketRows] = await Promise.all([
+    const [{ data: pkgs }, { data: ents }, ticketRows] = await Promise.all([
       releaseIds.length > 0
         ? supabase
             .from("media_booking_packages")
             .select("id, release_id, name, media_booking_package_lines(category_id, brand, quantity, metric_quantities, brand_column_quantities)")
             .in("release_id", releaseIds)
         : Promise.resolve({ data: [] }),
+      tiktokAdsCategoryIds.length > 0
+        ? fetchAllRows(() =>
+            supabase
+              .from("media_booking_entries")
+              .select("id, release_id, category_id, channel_name, platform, subchannel_type, quantity")
+              .in("category_id", tiktokAdsCategoryIds)
+              .order("id")
+          )
+        : Promise.resolve({ data: [] }),
       tabRow?.id
         ? fetchAllRows(() => supabase.from("tickets").select("id, data").eq("tab_id", tabRow.id).is("deleted_at", null))
         : Promise.resolve({ data: [] }),
     ]);
     setPackages(pkgs || []);
+    setEntries(ents || []);
     setNotInPackageTickets(ticketRows?.data || []);
 
     const byKey = {};
-    (entries || []).forEach((e) => { byKey[costEntryKey(e.release_id, e.funded_by, e.channel_kind, e.brand)] = e; });
+    (costEntryRows || []).forEach((e) => { byKey[costEntryKey(e.release_id, e.funded_by, e.channel_kind, e.brand)] = e; });
     setCostEntries(byKey);
     setLoading(false);
   }
@@ -130,6 +158,7 @@ export default function WorkstationCostMkt() {
   }, [categories]);
   const packageByRelease = useMemo(() => buildPackageByRelease(releases, packages), [releases, packages]);
   const bookedFor = useMemo(() => makeBookedFor(packageByRelease, categoryIdByName), [packageByRelease, categoryIdByName]);
+  const addedFor = useMemo(() => makeAddedFor(categoryIdByName), [categoryIdByName]);
 
   // Booking Không Trong Package tickets, indexed by the release DID they
   // point at (ticket.data.relatedDid — see lib/ticketConfigs.js's
@@ -161,25 +190,43 @@ export default function WorkstationCostMkt() {
   const categoryName = channelKind === "tiktok" ? "TikTok Channel" : "Ads";
 
   // One row per release, with its per-column values + whether it has
-  // anything at all worth showing (a real target/qty in any column, OR a
+  // anything at all worth showing (real activity in any column, OR a
   // cost entry already saved for it — so a manually-entered cost row
   // never disappears just because the underlying booking count changed).
+  //
+  // Round 316 fix — each column's value is now { added, booked }, read
+  // the exact same way Booking Board's own cells are (added = real
+  // posted links from media_booking_entries; booked = the package's
+  // target, null when no package is locked yet). Total Post sums ADDED
+  // (actual posts), not booked — matches "TOTAL POST" as a literal count
+  // of posts made, and means a release shows up here as soon as it has
+  // real activity on the board, whether or not it ever got a package
+  // locked. A release with only a booked target and 0 posts so far still
+  // shows (hasSomething also checks totalBooked), same visibility rule
+  // Booking Board itself uses.
   const rows = useMemo(() => {
     return releases
       .map((r) => {
-        const values = columns.map((col) =>
-          fundedBy === "vieent"
-            ? bookedFor(r, categoryName, brand, channelKind === "ads" ? col : null, channelKind === "tiktok" ? col : null)
-            : artistQty(r, brand, col)
-        );
-        const totalPost = values.reduce((sum, v) => sum + (v || 0), 0);
+        const values = columns.map((col) => {
+          const platform = channelKind === "ads" ? col : null;
+          const subchannelType = channelKind === "tiktok" ? col : null;
+          if (fundedBy === "vieent") {
+            return {
+              added: addedFor(r, categoryName, brand, platform, subchannelType, entries),
+              booked: bookedFor(r, categoryName, brand, platform, subchannelType),
+            };
+          }
+          return { added: artistQty(r, brand, col), booked: null };
+        });
+        const totalPost = values.reduce((sum, v) => sum + (v.added || 0), 0);
+        const totalBooked = values.reduce((sum, v) => sum + (v.booked || 0), 0);
         const entry = costEntries[costEntryKey(r.id, fundedBy, channelKind, brand)];
         const hasEntry = !!entry && Object.values(entry).some((v) => v !== null && v !== undefined && v !== "" && typeof v !== "object");
-        return { release: r, values, totalPost, entry, hasSomething: totalPost > 0 || hasEntry };
+        return { release: r, values, totalPost, entry, hasSomething: totalPost > 0 || totalBooked > 0 || hasEntry };
       })
       .filter((row) => row.hasSomething);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [releases, columns, fundedBy, channelKind, brand, bookedFor, costEntries, ticketsByDid]);
+  }, [releases, columns, fundedBy, channelKind, brand, bookedFor, addedFor, entries, costEntries, ticketsByDid]);
 
   async function saveField(release, field, value) {
     const key = costEntryKey(release.id, fundedBy, channelKind, brand);
@@ -316,7 +363,9 @@ export default function WorkstationCostMkt() {
                         <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release.main_artist}</div>
                       </td>
                       {values.map((v, i) => (
-                        <td key={i} style={{ textAlign: "center", fontSize: 12 }}>{v || "—"}</td>
+                        <td key={i} style={{ textAlign: "center", fontSize: 12 }} title="added / booked target">
+                          {v.added || v.booked != null ? `${v.added}${v.booked != null ? ` / ${v.booked}` : ""}` : "—"}
+                        </td>
                       ))}
                       {channelKind === "tiktok" && (
                         <td style={{ textAlign: "center", fontSize: 12, fontWeight: 700 }}>{totalPost || "—"}</td>

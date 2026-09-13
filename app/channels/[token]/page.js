@@ -1,11 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { readMagicLinkThemeLock } from "../../../lib/magicLinkThemeLock";
+import { readChannelReferenceIntro } from "../../../lib/channelReferenceIntro";
 import styles from "../../shared.module.css";
 import pageStyles from "./page.module.css";
+
+// Round 317 — fixed platform display order for the new per-platform
+// counter strip (item 1) — same order app/booking-channels/page.js's own
+// BOOKING_PLATFORMS uses, so this page's summary reads in the same order
+// the admin page's own filters do. A platform value outside this list
+// (shouldn't happen, but never silently drop data) is appended after,
+// alphabetical.
+const PLATFORM_ORDER = ["TikTok", "Facebook", "Instagram", "YouTube", "Thread"];
 
 // Round 305 — public, no-login magic link for the channel reference list,
 // per explicit request ("generate a vercel magiclink for the table...
@@ -112,6 +121,16 @@ export default function ChannelReferenceSharePage() {
     readMagicLinkThemeLock(supabase).then(setThemeLock);
   }, []);
 
+  // Round 317 — configurable intro text block, admin-edited from
+  // app/booking-channels/page.js, read here the same fail-open way
+  // themeLock is above (blank text/canvaUrl just means the block
+  // doesn't render — see the conditional in the JSX below).
+  const [intro, setIntro] = useState({ text: "", canvaUrl: "" });
+  useEffect(() => {
+    if (!supabase) return;
+    readChannelReferenceIntro(supabase).then(setIntro);
+  }, []);
+
   useEffect(() => {
     if (!supabase || !token) return;
     load();
@@ -167,6 +186,31 @@ export default function ChannelReferenceSharePage() {
   }
 
   useEffect(() => { document.title = "Channel Reference"; }, []);
+
+  // Round 317 — per-platform summary strip, per explicit request ("add a
+  // new counter for the channel magic link: per platform on top like a
+  // summarize"). Tallies every channel across every group (independent
+  // of which of the 3 columns it landed in), keyed by platform, ordered
+  // per PLATFORM_ORDER above — a platform value outside that fixed list
+  // still isn't dropped, it's appended after, alphabetical, same
+  // never-silently-drop convention GROUP_META/COLUMN_META use.
+  const platformTallies = useMemo(() => {
+    const byPlatform = {};
+    Object.values(channelsByGroup).forEach((rows) => {
+      (rows || []).forEach((c) => {
+        const p = c.platform || "Unknown";
+        if (!byPlatform[p]) byPlatform[p] = { platform: p, count: 0, followerSum: 0 };
+        byPlatform[p].count += 1;
+        byPlatform[p].followerSum += c.follower_count || 0;
+      });
+    });
+    const known = PLATFORM_ORDER.filter((p) => byPlatform[p]).map((p) => byPlatform[p]);
+    const unknown = Object.keys(byPlatform)
+      .filter((p) => !PLATFORM_ORDER.includes(p))
+      .sort()
+      .map((p) => byPlatform[p]);
+    return [...known, ...unknown];
+  }, [channelsByGroup]);
 
   if (loading) {
     return <div className={styles.page} data-theme={themeLock || undefined}><div className={styles.container} style={{ maxWidth: 1200 }}>Loading…</div></div>;
@@ -251,6 +295,30 @@ export default function ChannelReferenceSharePage() {
           <div className={styles.eyebrow}>// Channel Reference</div>
           <h1 className={styles.title} style={{ marginBottom: 0 }}>Channel List</h1>
         </div>
+
+        {platformTallies.length > 0 && (
+          <div className={pageStyles.platformStrip}>
+            {platformTallies.map((p) => (
+              <div key={p.platform} className={pageStyles.platformStripItem}>
+                <div className={pageStyles.platformStripPlatform}>{p.platform}</div>
+                <div className={pageStyles.platformStripCount}>{p.count} channel{p.count === 1 ? "" : "s"}</div>
+                <div className={pageStyles.platformStripFollowers}>{formatFollowers(p.followerSum)} followers</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {(intro.text || intro.canvaUrl) && (
+          <div className={pageStyles.introBlock}>
+            {intro.text && <div className={pageStyles.introText}>{intro.text}</div>}
+            {intro.canvaUrl && (
+              <a href={intro.canvaUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
+                View Canva reference →
+              </a>
+            )}
+          </div>
+        )}
+
         <div className={pageStyles.grid}>
           {COLUMN_META.map((col) => {
             const colGroups = col.groups.filter((g) => (channelsByGroup[g]?.length || 0) > 0);

@@ -39,7 +39,7 @@
   text-transform: uppercase;
   color: var(--text-muted, #999);
   padding-bottom: 2px;
-  border-bottom: 1px solid var(--border-color, #2a2a2a);
+  border-bottom: 1px solid var(--border);
 }
 
 /* Round 313 — Distribution Support rides along in the VPOP - MANSTREAM
@@ -50,14 +50,14 @@
 .blockSetApart {
   margin-top: 8px;
   padding-top: 16px;
-  border-top: 1px dashed var(--border-color, #2a2a2a);
+  border-top: 1px dashed var(--border);
 }
 
 .block {
-  border: 1px solid var(--border-color, #2a2a2a);
+  border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
-  background: var(--bg-card, #141414);
+  background: var(--bg-card);
 }
 
 .blockHeader {
@@ -121,13 +121,16 @@
   }
 }
 
+/* Round 317 — was hardcoded #1c1c1c/#ddd (dark-only, ignored the theme
+   lock entirely). Real theme-aware tokens so this badge actually flips
+   with the rest of the page under the light theme. */
 .rowPlatform {
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #1c1c1c;
-  color: #ddd;
+  background: var(--bg-hover);
+  color: var(--text-dim);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.4px;
@@ -160,4 +163,77 @@
   padding: 3px 9px;
   border-radius: 999px;
   white-space: nowrap;
+}
+
+/* Round 317 — per-platform summary strip ("a new counter for the channel
+   magic link: per platform on top like a summarize"). A row of compact
+   cards, one per platform, wrapping on narrow screens rather than
+   scrolling horizontally. */
+.platformStrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.platformStripItem {
+  flex: 1 1 140px;
+  min-width: 140px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  padding: 10px 14px;
+}
+
+.platformStripPlatform {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.platformStripCount {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.platformStripFollowers {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+/* Round 317 — configurable intro text block ("a configable text block,
+   config in the channel reference table") — a plain callout card above
+   the column grid, same surface/border language as .block so it reads
+   as part of this page rather than a bolted-on banner. */
+.introBlock {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+
+.introText {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.introCanvaLink {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.introCanvaLink:hover {
+  text-decoration: underline;
 }

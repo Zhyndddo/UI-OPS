@@ -4,6 +4,8 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
+import UrlField from "../../lib/UrlField";
+import { CHANNEL_REFERENCE_INTRO_KEY, readChannelReferenceIntro } from "../../lib/channelReferenceIntro";
 import styles from "../shared.module.css";
 
 const BOOKING_PLATFORMS = ["TikTok", "Facebook", "Instagram", "YouTube", "Thread"];
@@ -70,8 +72,21 @@ export default function BookingChannelsPage() {
   // the way to kill a leaked link without a code deploy.
   const [mintingLink, setMintingLink] = useState(false);
   const [mintedLinkUrl, setMintedLinkUrl] = useState(null);
+  // Round 317 — the magic link's configurable intro text block (see
+  // lib/channelReferenceIntro.js's header for why this is one shared
+  // global_settings row rather than a new table). `introDraft` holds the
+  // in-progress edit; `introSaved` is what's actually live on the magic
+  // link right now, so "Save" can be disabled when there's nothing new
+  // to push.
+  const [introDraft, setIntroDraft] = useState({ text: "", canvaUrl: "" });
+  const [introSaved, setIntroSaved] = useState({ text: "", canvaUrl: "" });
+  const [introSaving, setIntroSaving] = useState(false);
 
-  useEffect(() => { if (supabase) load(); }, []);
+  useEffect(() => {
+    if (!supabase) return;
+    load();
+    readChannelReferenceIntro(supabase).then((v) => { setIntroDraft(v); setIntroSaved(v); });
+  }, []);
 
   // Round 56 — item 3: pulls real subscriber counts from YouTube's
   // official Data API v3 (server-side route, needs YOUTUBE_API_KEY set in
@@ -200,6 +215,19 @@ export default function BookingChannelsPage() {
       return;
     }
     setMintedLinkUrl(`${window.location.origin}/channels/${data.token}`);
+  }
+
+  // Round 317 — saves the magic link's intro text block. Blank text AND
+  // blank canvaUrl both just clear the row's value rather than refusing
+  // to save — "remove it" is a legitimate edit, not an error.
+  async function saveIntro() {
+    setIntroSaving(true);
+    const value = { text: introDraft.text.trim(), canvaUrl: introDraft.canvaUrl.trim() };
+    const { error } = await supabase
+      .from("global_settings")
+      .upsert({ key: CHANNEL_REFERENCE_INTRO_KEY, value, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    setIntroSaving(false);
+    if (!error) setIntroSaved(value);
   }
 
   function startEdit(c) {
@@ -355,6 +383,50 @@ export default function BookingChannelsPage() {
             </button>
           </div>
         )}
+
+        {/* Round 317 — the magic link's intro text block, per explicit
+            team request. Only shown once a share link has ever been
+            minted (mintedLinkUrl OR a previously-saved value exists) —
+            editing this before there's a link to put it on is possible
+            too (nothing gates the save itself), but this keeps it out of
+            the way visually until it's relevant. */}
+        <details style={{ marginBottom: 16, border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px" }} open={!!(introSaved.text || introSaved.canvaUrl)}>
+          <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 700, color: "var(--text-muted)" }}>
+            Magic Link Intro Text {introSaved.text || introSaved.canvaUrl ? "" : "(not set)"}
+          </summary>
+          <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 8, marginBottom: 10 }}>
+            Shown at the top of the public Channel Reference link (/channels/…), above the channel groups. Leave
+            either field blank to leave that part off the link.
+          </p>
+          <div className={styles.field} style={{ marginBottom: 10 }}>
+            <label className={styles.fieldLabel}>Intro Text</label>
+            <textarea
+              className={styles.input}
+              style={{ minHeight: 90, resize: "vertical", width: "100%", boxSizing: "border-box" }}
+              placeholder="vd: Trực thuộc hệ sinh thái VIEENT, VSOUNDER sở hữu…"
+              value={introDraft.text}
+              onChange={(e) => setIntroDraft((prev) => ({ ...prev, text: e.target.value }))}
+            />
+          </div>
+          <div className={styles.field} style={{ marginBottom: 10, maxWidth: 420 }}>
+            <label className={styles.fieldLabel}>Related Canva URL</label>
+            <UrlField
+              value={introDraft.canvaUrl}
+              onChange={(v) => setIntroDraft((prev) => ({ ...prev, canvaUrl: v }))}
+              styles={styles}
+              placeholder="https://www.canva.com/design/…"
+              wide
+            />
+          </div>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            onClick={saveIntro}
+            disabled={introSaving || (introDraft.text === introSaved.text && introDraft.canvaUrl === introSaved.canvaUrl)}
+          >
+            {introSaving ? "Saving…" : "Save Intro Text"}
+          </button>
+        </details>
 
         {refreshResult && (
           <div className={styles.errorBox} style={{ marginBottom: 16, background: refreshResult.error ? undefined : "var(--bg-hover)", borderColor: refreshResult.error ? undefined : "var(--border-strong)", color: refreshResult.error ? undefined : "var(--text-muted)" }}>

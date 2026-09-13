@@ -342,7 +342,14 @@ export function makeBookedFor(packageByRelease, categoryIdByName) {
 // Round 303 — addedFor pulled out of the component the same way, curried
 // on categoryIdByName so exportCsv can reuse it too. Ads sums the
 // quantity number(s); everything else counts rows.
-function makeAddedFor(categoryIdByName) {
+// Round 315 follow-up — exported alongside makeBookedFor (see that
+// function's own Round 315 comment above) so Cost Marketing can show the
+// exact same added-vs-booked numbers this board does, not just the
+// booked/target half — a release with real posted links but no locked
+// package (bookedFor returns null with nothing to compare against) still
+// has real addedFor data, and was disappearing from Cost Marketing
+// entirely before this was wired in.
+export function makeAddedFor(categoryIdByName) {
   return function addedFor(release, categoryName, brand, platform, subchannelType, entryPool) {
     const categoryId = categoryIdByName[categoryName];
     const matching = entryPool.filter((e) =>
