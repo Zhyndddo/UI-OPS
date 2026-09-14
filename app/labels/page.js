@@ -8,7 +8,8 @@ import { LABEL_HOP_TAC_OPTIONS, LABEL_PHAN_LOAI_OPTIONS } from "../../lib/picker
 import { HOP_TAC_TICKET_TYPE, hopTacTagEntry, hopTacTagStatus, hopTacStatusColor, anyHopTacDone } from "../../lib/labelHopTacStatus";
 import { useAuth } from "../../lib/AuthContext";
 import { canViewReleaseTags, canEditReleaseTags } from "../../lib/permissions";
-import { RELEASE_TAG_CATEGORIES, ReleaseTagCategoryPicker } from "../../lib/releaseTags";
+import { RELEASE_TAG_CATEGORIES, ReleaseTagCategoryPicker, releaseTagPillClass } from "../../lib/releaseTags";
+import { LABEL_TYPE_DEFINITIONS_SETTING_KEY, DEFAULT_LABEL_TYPE_DEFINITIONS, parseLabelTypeDefinitions } from "../../lib/labelTypeDefinitions";
 import PickSelect from "../../lib/PickSelect";
 import NoteCell from "../../lib/NoteCell";
 import LinkOrEditCell from "../../lib/LinkOrEditCell";
@@ -66,6 +67,21 @@ export default function LabelsPage() {
   // real `tickets`/`labels` tables, just pre-filled and pre-resolved, so
   // it's gated the same way "View As" (also dev-only) already is.
   const [simulateMode, setSimulateMode] = useState(false);
+  // Round 324 — "LBL Tag" column header's definitions popup. Loaded lazily
+  // (on first open) rather than on page mount since most visits to this
+  // page never open it.
+  const [lblDefsPopupOpen, setLblDefsPopupOpen] = useState(false);
+  const [lblDefs, setLblDefs] = useState(DEFAULT_LABEL_TYPE_DEFINITIONS);
+  const [lblDefsLoaded, setLblDefsLoaded] = useState(false);
+
+  function openLblDefsPopup() {
+    setLblDefsPopupOpen(true);
+    if (lblDefsLoaded || !supabase) return;
+    supabase.from("app_settings").select("value").eq("key", LABEL_TYPE_DEFINITIONS_SETTING_KEY).maybeSingle().then(({ data }) => {
+      setLblDefs(parseLabelTypeDefinitions(data?.value));
+      setLblDefsLoaded(true);
+    });
+  }
 
   async function load() {
     const { data } = await supabase.from("labels").select("*").order("label_name");
@@ -477,7 +493,24 @@ export default function LabelsPage() {
                     for edit is reference table for label", per explicit
                     spec. Same OPS/AR/Marketing/Legal visibility as the
                     release-side tag. */}
-                {canViewReleaseTags(profile) && <th title="Default label relationship — falls back for any release that doesn't have its own LBL tag set">LBL Tag</th>}
+                {canViewReleaseTags(profile) && (
+                  <th title="Default label relationship — falls back for any release that doesn't have its own LBL tag set">
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      LBL Tag
+                      {/* Round 324 — "so anyone referencing know what that
+                          mean" — per-code definitions, config-editable via
+                          Config → Label Types (see lib/labelTypeDefinitions.js). */}
+                      <button
+                        type="button"
+                        onClick={openLblDefsPopup}
+                        title="What do these codes mean?"
+                        style={{ border: "1px solid var(--border)", borderRadius: "50%", width: 15, height: 15, lineHeight: "13px", fontSize: 10, fontWeight: 700, background: "transparent", color: "var(--text-faint)", cursor: "pointer", padding: 0 }}
+                      >
+                        ?
+                      </button>
+                    </span>
+                  </th>
+                )}
                 <th>Hợp Tác</th>
                 <th>Thời gian hoạt động gần nhất</th>
                 <th>Hợp Đồng</th>
@@ -610,7 +643,64 @@ export default function LabelsPage() {
         }
       />
     )}
+
+    {lblDefsPopupOpen && (
+      <LblTagDefinitionsPopup styles={styles} defs={lblDefs} loaded={lblDefsLoaded} onClose={() => setLblDefsPopupOpen(false)} />
+    )}
     </AppShell>
+  );
+}
+
+// Round 324 — "LBL Tag" header's "?" button. Read-only table of every LBL_
+// code's short label, group, name and self-ID blurb — text comes from
+// Config → Label Types (lib/labelTypeDefinitions.js), defaulting to the
+// team's THIẾT LẬP sheet content until anyone edits it there.
+function LblTagDefinitionsPopup({ styles, defs, loaded, onClose }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 20, width: "min(680px, 92vw)", maxHeight: "80vh", overflowY: "auto" }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 15 }}>What does each LBL Tag mean?</h3>
+          <button type="button" onClick={onClose} className={styles.btnSecondary}>Close</button>
+        </div>
+        {!loaded ? (
+          <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>
+        ) : (
+          <table className={styles.table} style={{ width: "100%" }}>
+            <thead>
+              <tr>
+                <th>Tag</th>
+                <th>Nhóm</th>
+                <th>Tên dùng chung</th>
+                <th>Câu khách tự nhận ra mình</th>
+              </tr>
+            </thead>
+            <tbody>
+              {LBL_CATEGORY?.options.map((opt) => {
+                const d = defs[opt.code] || {};
+                return (
+                  <tr key={opt.code}>
+                    <td><span className={releaseTagPillClass(styles, opt.code)}>{opt.short}</span></td>
+                    <td>{d.group || "—"}</td>
+                    <td>{d.name || "—"}</td>
+                    <td>{d.description || "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+        <p style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 12, marginBottom: 0 }}>
+          Editable at Config → Label Types.
+        </p>
+      </div>
+    </div>
   );
 }
 

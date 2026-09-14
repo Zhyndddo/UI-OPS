@@ -16,6 +16,8 @@ import {
 } from "../../lib/pitchingDomesticServices";
 import { PITCHING_PIC_LIST_KEY, DEFAULT_PITCHING_PIC_LIST, parsePitchingPicList } from "../../lib/pitchingPicList";
 import { MILESTONE_HIGHLIGHT_SETTING_KEY, DEFAULT_MILESTONE_HIGHLIGHT_CONFIG, parseMilestoneHighlightConfig } from "../../lib/milestoneHighlight";
+import { LABEL_TYPE_DEFINITIONS_SETTING_KEY, DEFAULT_LABEL_TYPE_DEFINITIONS, parseLabelTypeDefinitions } from "../../lib/labelTypeDefinitions";
+import { RELEASE_TAG_CATEGORIES } from "../../lib/releaseTags";
 import { MAGIC_LINK_THEME_LOCK_KEY, LOCKABLE_THEMES } from "../../lib/magicLinkThemeLock";
 import { MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
 import { TEAM_SUBTEAMS } from "../../lib/teamTypes";
@@ -82,6 +84,11 @@ export default function ConfigPage() {
       // admin-editable instead of hardcoded the way the real Google
       // Sheet system had it.
       ["milestoneSettings", "Milestone"],
+      // Round 324 — definitions for each LBL_ tag code (Label Relationship
+      // category), sourced from the team's "THIẾT LẬP" reference sheet,
+      // shown as a popup from the Labels page's LBL Tag column header. See
+      // lib/labelTypeDefinitions.js.
+      ["labelTypes", "Label Types"],
     ] : []),
     ...(isDev ? [["notifications", "Notifications"], ["magicLinkTheme", "Magic Link Theme"], ["designNotifications", "Design Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
     // Round 306 — Secret Messages moved out of Config entirely, onto its
@@ -138,6 +145,7 @@ export default function ConfigPage() {
               {section === "troGiaBooking" && <TroGiaBookingSection />}
               {section === "pitchingSettings" && <PitchingSettingsSection />}
               {section === "milestoneSettings" && <MilestoneHighlightSection />}
+              {section === "labelTypes" && <LabelTypeDefinitionsSection />}
               {section === "notifications" && isDev && <NotificationsSection />}
               {section === "magicLinkTheme" && isDev && <MagicLinkThemeSection />}
               {section === "designNotifications" && isDev && <DesignNotificationsSection />}
@@ -2030,6 +2038,90 @@ function MilestoneHighlightSection() {
         <textarea className={styles.textarea} rows={4} value={excludedChartsText} onChange={(e) => setExcludedChartsText(e.target.value)} style={{ width: "100%", boxSizing: "border-box" }} />
       </div>
       <button className={styles.btnPrimary} onClick={save} disabled={saving}>
+        {saving ? "Saving…" : "Save"}
+      </button>
+      {saved && <span style={{ marginLeft: 10, color: "var(--success-fg)", fontSize: 12 }}>Saved</span>}
+    </div>
+  );
+}
+
+// Round 324 — admin-editable text for the LBL_ tag definitions popup (see
+// lib/labelTypeDefinitions.js and its usage from app/labels/page.js). The
+// set of codes/short labels/pill colors is NOT editable here — that stays
+// owned by RELEASE_TAG_CATEGORIES (lib/releaseTags.js, a code change) —
+// only each code's Nhóm / Tên dùng chung / Câu khách text, so this list
+// can't drift out of sync with the codes that actually exist.
+const LBL_CATEGORY = RELEASE_TAG_CATEGORIES.find((c) => c.key === "LBL");
+
+function LabelTypeDefinitionsSection() {
+  const [values, setValues] = useState(DEFAULT_LABEL_TYPE_DEFINITIONS);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.from("app_settings").select("value").eq("key", LABEL_TYPE_DEFINITIONS_SETTING_KEY).maybeSingle().then(({ data }) => {
+      setValues(parseLabelTypeDefinitions(data?.value));
+      setLoading(false);
+    });
+  }, []);
+
+  function updateField(code, field, text) {
+    setValues((v) => ({ ...v, [code]: { ...v[code], [field]: text } }));
+  }
+
+  async function save() {
+    setSaving(true);
+    await supabase.from("app_settings").upsert({ key: LABEL_TYPE_DEFINITIONS_SETTING_KEY, value: values, updated_at: new Date().toISOString() });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  if (loading) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
+
+  return (
+    <div style={{ maxWidth: 720 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
+        What each Label Relationship (LBL_) tag actually means — shown as a popup from the Labels page's "LBL
+        Tag" column header, so anyone referencing it can check without asking. To add/remove a code itself,
+        that's a code change (RELEASE_TAG_CATEGORIES in lib/releaseTags.js) — this only edits each existing
+        code's text.
+      </p>
+      {LBL_CATEGORY?.options.map((opt) => (
+        <div key={opt.code} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 0", borderTop: "1px solid var(--border)" }}>
+          <div style={{ minWidth: 130, paddingTop: 6 }}>
+            <span className={`${styles.pill || ""}`} style={{ fontSize: 11, fontWeight: 700 }}>{opt.short}</span>
+          </div>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                className={styles.input}
+                style={{ flex: 1 }}
+                placeholder="Nhóm (e.g. Cá nhân)"
+                value={values[opt.code]?.group || ""}
+                onChange={(e) => updateField(opt.code, "group", e.target.value)}
+              />
+              <input
+                className={styles.input}
+                style={{ flex: 1 }}
+                placeholder="Tên dùng chung (e.g. Nghệ sĩ)"
+                value={values[opt.code]?.name || ""}
+                onChange={(e) => updateField(opt.code, "name", e.target.value)}
+              />
+            </div>
+            <textarea
+              className={styles.textarea}
+              style={{ minHeight: 36 }}
+              placeholder="Câu khách tự nhận ra mình"
+              value={values[opt.code]?.description || ""}
+              onChange={(e) => updateField(opt.code, "description", e.target.value)}
+            />
+          </div>
+        </div>
+      ))}
+      <button className={styles.btnPrimary} onClick={save} disabled={saving} style={{ marginTop: 12 }}>
         {saving ? "Saving…" : "Save"}
       </button>
       {saved && <span style={{ marginLeft: 10, color: "var(--success-fg)", fontSize: 12 }}>Saved</span>}
