@@ -15,7 +15,7 @@ import DateRangeFilter, { matchesDateRange } from "../../lib/DateRangeFilter";
 import { useAuth } from "../../lib/AuthContext";
 import { visibleSubteamsFor, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewReleaseTags, canViewReleaseArPic, canEditReleaseArPic } from "../../lib/permissions";
 import { subteamTagPillClass, MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
-import { effectiveReleaseTags, releaseTagInfo, releaseTagPillClass, displayTagsWithLblFallback, effectiveSubteamTags, toggledSubteamTags } from "../../lib/releaseTags";
+import { effectiveReleaseTags, releaseTagInfo, releaseTagPillClass, displayTagsWithLblFallback, getDisplayTags, getFreeTags, allCategoryTagOptions, effectiveSubteamTags, toggledSubteamTags } from "../../lib/releaseTags";
 import { filterProfilesByTeam } from "../../lib/workstationHelpers";
 import { logPicReassign } from "../../lib/auditLog";
 import styles from "../shared.module.css";
@@ -258,6 +258,22 @@ async function loadTypeOptions() {
   return [...new Set((data || []).map((r) => r.project_type).filter(Boolean))].sort();
 }
 
+// Round 323 — tag filter autocomplete source: every PRJ/PUB/LBL code
+// (always offered, regardless of whether any release currently carries
+// one — see allCategoryTagOptions()) plus every distinct freeform tag
+// actually in use (same "capped select, dedupe client-side, not a real
+// SELECT DISTINCT" practical stand-in as loadTypeOptions() above —
+// getDisplayTags/getFreeTags already exclude Marketing's subteam names
+// and the internal migration marker, so neither can leak into this
+// list or become filterable by a non-Marketing viewer).
+async function loadTagOptions() {
+  const { data } = await supabase.from("releases").select("tags").not("tags", "is", null).limit(5000);
+  const freeSet = new Set();
+  (data || []).forEach((r) => getFreeTags(r.tags).forEach((t) => freeSet.add(t)));
+  const freeOptions = [...freeSet].sort().map((t) => ({ value: t, label: t }));
+  return [...allCategoryTagOptions(), ...freeOptions];
+}
+
 // PostgREST's `.or()` filter syntax uses `,` to separate conditions and
 // `(`/`)` to group them — both are completely ordinary characters in real
 // release titles ("State Lines, Pt. 2", "Deluxe (2024)"), so the raw search
@@ -288,6 +304,13 @@ function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery
   if (filters.channelFilter) q = q.eq("requester_segment", filters.channelFilter);
   if (filters.typeFilter) q = q.eq("project_type", filters.typeFilter);
   if (filters.labelFilter) q = q.eq("label", filters.labelFilter);
+  // Round 323 — tag filter. Matches against the real `tags` array only
+  // (Postgres array-contains) — a release that hasn't been through the
+  // Round 319/321 SQL backfill yet (still on legacy project_rights_type/
+  // subteam_tags alone) won't match here until that backfill runs, same
+  // "tags is the going-forward source of truth" tradeoff the rest of
+  // this system already accepts.
+  if (filters.tagFilter) q = q.contains("tags", [filters.tagFilter]);
   if (filters.dateRangeStart) q = q.gte("release_date", filters.dateRangeStart);
   if (filters.dateRangeEnd) q = q.lte("release_date", filters.dateRangeEnd);
 
@@ -311,8 +334,8 @@ function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery
 // component) still needs a plain object shape to read/write — unchanged
 // from before other than dropping the fields that no longer exist
 // (nothing removed here, sort/page/filters are all still real state).
-function currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort }) {
-  return { search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort };
+function currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort }) {
+  return { search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort };
 }
 
 export default function ReleasesDashboard() {
@@ -335,6 +358,8 @@ export default function ReleasesDashboard() {
   const [channelFilter, setChannelFilter] = useState(null); // "VIEENT" | "ENVI" (from stat click or dropdown, same state)
   const [typeFilter, setTypeFilter] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
+  const [tagFilter, setTagFilter] = useState(""); // a tag code/value, e.g. "PUB_VCPMC" or a freeform tag string
+  const [tagOptions, setTagOptions] = useState([]); // [{value, label}] — autocomplete source, see loadTagOptions()
   const [search, setSearch] = useState(""); // regex tested server-side against main_artist, title, label
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [dateRangeStart, setDateRangeStart] = useState("");
@@ -451,8 +476,8 @@ export default function ReleasesDashboard() {
   }, [search]);
 
   const filters = useMemo(
-    () => ({ statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd }),
-    [statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd]
+    () => ({ statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd }),
+    [statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd]
   );
 
   // Fires the actual list query, with the invalid-regex fallback baked in.
@@ -570,6 +595,7 @@ export default function ReleasesDashboard() {
       if (saved.channelFilter) setChannelFilter(saved.channelFilter);
       if (saved.typeFilter) setTypeFilter(saved.typeFilter);
       if (saved.labelFilter) setLabelFilter(saved.labelFilter);
+      if (saved.tagFilter) setTagFilter(saved.tagFilter);
       if (saved.dateRangeStart) setDateRangeStart(saved.dateRangeStart);
       if (saved.dateRangeEnd) setDateRangeEnd(saved.dateRangeEnd);
       if (saved.page) setPage(saved.page);
@@ -579,10 +605,11 @@ export default function ReleasesDashboard() {
     }
     restoredRef.current = true;
     if (!supabase) return;
-    Promise.all([supabase.from("labels").select("label_name").order("label_name"), loadTypeOptions(), fetchProductTagSets(supabase), loadStats()]).then(
-      ([labelsResult, types, tagSets, statsResult]) => {
+    Promise.all([supabase.from("labels").select("label_name").order("label_name"), loadTypeOptions(), loadTagOptions(), fetchProductTagSets(supabase), loadStats()]).then(
+      ([labelsResult, types, tagOpts, tagSets, statsResult]) => {
         setLabels(labelsResult.data || []);
         setTypeOptions(types);
+        setTagOptions(tagOpts);
         setProductTagSets(tagSets);
         setStats(statsResult);
       }
@@ -598,6 +625,7 @@ export default function ReleasesDashboard() {
         channelFilter: restored?.channelFilter || null,
         typeFilter: restored?.typeFilter || "",
         labelFilter: restored?.labelFilter || "",
+        tagFilter: restored?.tagFilter || "",
         dateRangeStart: restored?.dateRangeStart || "",
         dateRangeEnd: restored?.dateRangeEnd || "",
       },
@@ -648,7 +676,7 @@ export default function ReleasesDashboard() {
   // empty dep array) always sees the CURRENT values instead of whatever
   // they were at mount.
   const latestDashboardStateRef = useRef(null);
-  latestDashboardStateRef.current = currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort });
+  latestDashboardStateRef.current = currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort });
   useEffect(() => {
     return () => {
       writeDashboardState({ ...latestDashboardStateRef.current, scrollY: window.scrollY });
@@ -754,7 +782,7 @@ export default function ReleasesDashboard() {
   function renderColumnCell(col, r, { pct, bpct, upct, pitching }) {
     switch (col.key) {
       case "tags": {
-        const rowTags = displayTagsWithLblFallback(effectiveReleaseTags(r), labelTagsByName[r.label]);
+        const rowTags = displayTagsWithLblFallback(getDisplayTags(effectiveReleaseTags(r)), labelTagsByName[r.label]);
         return (
           <td key="tags">
             {rowTags.length === 0 ? (
@@ -996,9 +1024,19 @@ export default function ReleasesDashboard() {
             <option value="">Label — all</option>
             {labels.map((l) => <option key={l.label_name} value={l.label_name}>{l.label_name}</option>)}
           </select>
-          {(typeFilter || labelFilter || search || dateRangeStart || dateRangeEnd || anyStatClickFilter) && (
+          {/* Round 323 — tag filter, per explicit request ("add a tag
+              list, auto complete kind of things"). Gated the same as the
+              Tags column itself (canViewReleaseTags) — no point offering
+              a filter over values this viewer can't otherwise see, and
+              Marketing's subteam tags are never in tagOptions to begin
+              with (loadTagOptions only ever surfaces PRJ/PUB/LBL codes +
+              real freeform tags — see that function's own comment). */}
+          {showReleaseTagsColumn && (
+            <TagFilterAutocomplete options={tagOptions} value={tagFilter} onChange={setTagFilter} />
+          )}
+          {(typeFilter || labelFilter || tagFilter || search || dateRangeStart || dateRangeEnd || anyStatClickFilter) && (
             <button
-              onClick={() => { setStatusFilter(null); setChannelFilter(null); setCreatedFilter(null); setTypeFilter(""); setLabelFilter(""); setSearch(""); setDateRangeStart(""); setDateRangeEnd(""); }}
+              onClick={() => { setStatusFilter(null); setChannelFilter(null); setCreatedFilter(null); setTypeFilter(""); setLabelFilter(""); setTagFilter(""); setSearch(""); setDateRangeStart(""); setDateRangeEnd(""); }}
               style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "6px 12px", fontSize: 11, color: "var(--text-faint)", cursor: "pointer" }}
             >
               ✕ Clear all filters
@@ -1187,6 +1225,82 @@ function SubteamToggle({ on, saving, onClick }) {
       <span style={{ fontSize: 13, lineHeight: 1 }}>{on ? "🚩" : "⚑"}</span>
       {on ? "ON" : "OFF"}
     </button>
+  );
+}
+
+// Round 323 — index Tags filter. `options` is [{value, label}] from
+// loadTagOptions() (every PRJ/PUB/LBL code, always offered, plus every
+// distinct freeform tag actually in use). Single-select, same shape as
+// the Type/Label dropdowns right next to it, but typeahead since the
+// freeform half of that list can grow to more entries than a plain
+// <select> comfortably browses. Once a tag is picked it collapses into
+// a labeled chip (with its own ✕) instead of leaving typed text sitting
+// in the box looking uncommitted.
+function TagFilterAutocomplete({ options, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const selected = value ? options.find((o) => o.value === value) : null;
+
+  const draftLower = draft.trim().toLowerCase();
+  const suggestions = draftLower
+    ? options.filter((o) => o.label.toLowerCase().includes(draftLower) || o.value.toLowerCase().includes(draftLower)).slice(0, 10)
+    : options.slice(0, 10);
+
+  if (selected) {
+    return (
+      <span
+        className={styles.pill}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "default" }}
+        title={selected.value}
+      >
+        Tag: {selected.label}
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          title="Clear tag filter"
+          style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0, fontSize: 12, lineHeight: 1, opacity: 0.7 }}
+        >
+          ✕
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <span style={{ position: "relative", display: "inline-block" }}>
+      <input
+        className={styles.input}
+        style={{ width: 180 }}
+        placeholder="Tag — search…"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && suggestions.length > 0 && (
+        <div
+          style={{
+            position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 450,
+            minWidth: 220, maxWidth: 320, maxHeight: 260, overflowY: "auto",
+            background: "var(--bg-card)", border: "1px solid var(--border-strong)",
+            borderRadius: 8, padding: 4, boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+          }}
+        >
+          {suggestions.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              // mousedown beats the input's onBlur close, same reasoning
+              // as ReleaseTagsRow's freeform-tag suggestion dropdown.
+              onMouseDown={(e) => { e.preventDefault(); onChange(o.value); setDraft(""); setOpen(false); }}
+              style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderRadius: 6, padding: "5px 8px", fontSize: 12, color: "var(--text)", cursor: "pointer" }}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
   );
 }
 

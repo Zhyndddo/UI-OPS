@@ -28,7 +28,7 @@ import { useAuth } from "../../../lib/AuthContext";
 // logPicReassign is now imported too.
 import { logTicketCreate, logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 import { isDev, isAdminOrAbove, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewReleaseTags, canEditReleaseTags, canViewReleaseArPic, canEditReleaseArPic } from "../../../lib/permissions";
-import { ReleaseTagsRow, effectiveReleaseTags, getCategoryTag, releaseTagInfo, releaseTagPillClass, resolveLblTag, effectiveSubteamTags, setSubteamTagValue, toggledSubteamTags } from "../../../lib/releaseTags";
+import { ReleaseTagsRow, effectiveReleaseTags, getCategoryTag, getFreeTags, releaseTagInfo, releaseTagPillClass, resolveLblTag, effectiveSubteamTags, setSubteamTagValue, toggledSubteamTags } from "../../../lib/releaseTags";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { subteamTagPillClass, MARKETING_SUBTEAM_TAGS } from "../../../lib/projectTags";
 import { runOne } from "../../../lib/packageSimulator";
@@ -280,6 +280,72 @@ export default function ReleaseDetailPage() {
   // from the SUBTEAM config table — see that file's header comment for
   // why. No fetch needed for the header's dev/admin popups anymore.
   const [tagPopupOpen, setTagPopupOpen] = useState(false);
+
+  // Round 323 — freeform tags already in use elsewhere, for
+  // ReleaseTagsRow's "+ tag" autocomplete (steers people toward reusing
+  // an existing tag instead of minting a near-duplicate). Same "select
+  // just the array column, capped, dedupe client-side" shape as the
+  // Releases index's loadTagOptions() — not a real SELECT DISTINCT, just
+  // a practical stand-in; see that function's own comment for why that's
+  // an acceptable tradeoff here.
+  const [freeTagOptions, setFreeTagOptions] = useState([]);
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.from("releases").select("tags").not("tags", "is", null).limit(5000).then(({ data }) => {
+      const set = new Set();
+      (data || []).forEach((r) => getFreeTags(r.tags).forEach((t) => set.add(t)));
+      setFreeTagOptions([...set].sort());
+    });
+  }, []);
+
+  // Round 323 — Marketing's per-subteam tag control, moved from its old
+  // separate eyebrow spot into the unified Tags row (ReleaseTagsRow's
+  // `children` slot) as one more "pick tag," per explicit request
+  // ("move the marketing tag to the tag row as one of the pick tag, not
+  // the free one"). Still renders differently by who's looking — dev
+  // (edits any subteam, small popup), anyone on Marketing with a
+  // subteam set (their own on/off toggle), an admin whose team has
+  // subteams (read-only summary popup) — but the old catch-all "anyone
+  // else sees read-only pills" branch is gone: per the system's own
+  // stated rule ("marketing is just there own thing, no show to
+  // others"), a non-Marketing/non-dev/non-admin-of-Marketing viewer now
+  // sees nothing here at all, same as they already see nothing for
+  // Marketing's subteam columns on the Releases index.
+  function renderSubteamTagControl() {
+    if (isDev(profile)) {
+      return (
+        <DevSubteamTagButton
+          form={form}
+          subteamNames={MARKETING_SUBTEAM_TAGS}
+          open={tagPopupOpen}
+          onToggleOpen={() => setTagPopupOpen((o) => !o)}
+          onClose={() => setTagPopupOpen(false)}
+          onToggleTag={toggleSubteamTag}
+        />
+      );
+    }
+    if (profile?.segment === SUBTEAM_TAG_TEAM && profile?.subteam) {
+      return (
+        <SubteamHeaderToggle
+          name={profile.subteam}
+          on={effectiveSubteamTags(form).includes(profile.subteam)}
+          onClick={() => toggleSubteamTag(profile.subteam)}
+        />
+      );
+    }
+    if (canViewSubteamSummaryColumn(profile, SUBTEAM_TAG_TEAM)) {
+      return (
+        <ReadOnlySubteamSummaryButton
+          form={form}
+          subteamNames={MARKETING_SUBTEAM_TAGS}
+          open={tagPopupOpen}
+          onToggleOpen={() => setTagPopupOpen((o) => !o)}
+          onClose={() => setTagPopupOpen(false)}
+        />
+      );
+    }
+    return null;
+  }
 
   // Round 105 — Send Upload's copyright gate, EP/Album half. Only fetches
   // when it's actually not a Single (no point querying release_tracks for
@@ -1658,51 +1724,6 @@ export default function ReleaseDetailPage() {
                     onChange={updateArPic}
                   />
                 )}
-                {/* Round 261/262 — per-subteam tag switch, header. The
-                    Round 258/260 single-cycling project_tag switch this
-                    used to be is retired; each subteam is now its own
-                    on/off flag, so this renders differently by who's
-                    looking: dev (edits any subteam, via a small popup —
-                    there's no single "their" subteam to show inline),
-                    anyone on Marketing with a subteam set — member or
-                    team lead, Round 291 widened this from team-lead-only
-                    (a single named on/off toggle, editable), an admin
-                    whose team has subteams defined (a read-only summary
-                    popup, same policy as the dashboard's collapsed admin
-                    column), or anyone else (plain read-only pills for
-                    whichever tags are already set). */}
-                {isDev(profile) ? (
-                  <DevSubteamTagButton
-                    form={form}
-                    subteamNames={MARKETING_SUBTEAM_TAGS}
-                    open={tagPopupOpen}
-                    onToggleOpen={() => setTagPopupOpen((o) => !o)}
-                    onClose={() => setTagPopupOpen(false)}
-                    onToggleTag={toggleSubteamTag}
-                  />
-                ) : profile?.segment === SUBTEAM_TAG_TEAM && profile?.subteam ? (
-                  <SubteamHeaderToggle
-                    name={profile.subteam}
-                    on={effectiveSubteamTags(form).includes(profile.subteam)}
-                    onClick={() => toggleSubteamTag(profile.subteam)}
-                  />
-                ) : canViewSubteamSummaryColumn(profile, SUBTEAM_TAG_TEAM) ? (
-                  <ReadOnlySubteamSummaryButton
-                    form={form}
-                    subteamNames={MARKETING_SUBTEAM_TAGS}
-                    open={tagPopupOpen}
-                    onToggleOpen={() => setTagPopupOpen((o) => !o)}
-                    onClose={() => setTagPopupOpen(false)}
-                  />
-                ) : (
-                  effectiveSubteamTags(form).length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                      {effectiveSubteamTags(form).map((name) => (
-                        <span key={name} className={`${styles.pill} ${subteamTagPillClass(styles, name)}`}>{name}</span>
-                      ))}
-                    </div>
-                  )
-                )}
                 </div>
               </div>
               {firstUrl(form.link_lbm) ? (
@@ -1758,7 +1779,10 @@ export default function ReleaseDetailPage() {
                     canEdit={canEditReleaseTags(profile)}
                     onChange={updateReleaseTags}
                     resolvedValues={{ LBL: resolveLblTag(effectiveReleaseTags(form), lblLabelRow) }}
-                  />
+                    freeTagSuggestions={freeTagOptions}
+                  >
+                    {renderSubteamTagControl()}
+                  </ReleaseTagsRow>
                 </div>
               )}
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
