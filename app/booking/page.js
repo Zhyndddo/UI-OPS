@@ -1463,6 +1463,30 @@ export default function BookingBoard() {
                       (c.platform == null || (e.platform || "") === c.platform) &&
                       (c.subchannelType == null || (e.subchannel_type || "") === c.subchannelType)
                     );
+                    if (c.categoryName === "Ads" && c.brand === null) {
+                      // Round 321 — "All" Hạng Mục's Ads column used to
+                      // render here too (brand === null), computed via the
+                      // naive bookedFor/addedFor blind-sum-everything
+                      // branch — the exact netting Round 168 already
+                      // retired for the Result column's own Ads dot
+                      // (adsAllViewStatus, per-metric completeness)
+                      // because it can print "DONE" from a release that's
+                      // over-delivered on one Ads brand while a totally
+                      // different metric (e.g. Spotify Ads) sits at 0 of
+                      // its own target — reported directly against a
+                      // release showing exactly that. This column never
+                      // had a meaningful single ratio for a multi-metric
+                      // category in the first place; the Result column
+                      // right beside it already shows the correct
+                      // per-metric dot, so this cell is now just a plain
+                      // placeholder under "All" instead of a second,
+                      // wrongly-computed number.
+                      return (
+                        <td key={c.key} style={{ verticalAlign: "top", minWidth: 130, borderLeft: isGroupStart ? "2px solid #555" : "1px solid var(--border)" }}>
+                          <span style={{ color: "var(--text-faint)", fontSize: 11 }} title="See the Result column for Ads' per-metric done status.">—</span>
+                        </td>
+                      );
+                    }
                     if (c.categoryName === "Ads") {
                       // Round 77 — item 3: YouTube Ads is locked (no
                       // interaction, forced "Cancel" display) on any
@@ -1666,7 +1690,16 @@ function BookingBoardCards({
                     return (
                       <div key={c.key}>
                         <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>{c.label}</div>
-                        {c.categoryName === "Ads" ? (() => {
+                        {c.categoryName === "Ads" && c.brand === null ? (
+                          // Round 321 — see the matching desktop-table
+                          // comment above: this used to be a second,
+                          // naively-netted AdsCell under "All" Hạng Mục,
+                          // which could print "DONE" while a real metric
+                          // (e.g. Spotify Ads) was still fully unfilled.
+                          // The Result card above already shows the
+                          // correct per-metric dot for Ads.
+                          <span style={{ color: "var(--text-faint)", fontSize: 11 }} title="See the Result section for Ads' per-metric done status.">—</span>
+                        ) : c.categoryName === "Ads" ? (() => {
                           const ctnLocked = c.brand === "YouTube Ads" && r.gate_co_trong_net_youtube !== "true";
                           return (
                             <AdsCell

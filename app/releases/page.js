@@ -7,14 +7,15 @@ import { supabase } from "../../lib/supabaseClient";
 import { fmtDate, metadataPercent, uploadPercent } from "../../lib/helpers";
 import { buildProductNote } from "../../lib/releaseNotes";
 import SortableTh, { ResetSortButton } from "../../lib/SortableTh";
+import ColumnVisibilityButton, { useColumnVisibility } from "../../lib/ColumnVisibility";
 import Pagination, { PAGE_SIZE_OPTIONS } from "../../lib/Pagination";
 import { fetchProductTagSets, ProductTagPills } from "../../lib/productTags";
 import { copyrightChecklistSummary } from "../../lib/copyrightChecklist";
 import DateRangeFilter, { matchesDateRange } from "../../lib/DateRangeFilter";
 import { useAuth } from "../../lib/AuthContext";
-import { visibleSubteamsFor, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewProjectRightsType, canEditProjectRightsType, canViewReleaseArPic, canEditReleaseArPic } from "../../lib/permissions";
+import { visibleSubteamsFor, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewReleaseTags, canViewReleaseArPic, canEditReleaseArPic } from "../../lib/permissions";
 import { subteamTagPillClass, MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
-import ProjectRightsTypeTag from "../../lib/ProjectRightsTypeTag";
+import { effectiveReleaseTags, releaseTagInfo, releaseTagPillClass, displayTagsWithLblFallback, effectiveSubteamTags, toggledSubteamTags } from "../../lib/releaseTags";
 import { filterProfilesByTeam } from "../../lib/workstationHelpers";
 import { logPicReassign } from "../../lib/auditLog";
 import styles from "../shared.module.css";
@@ -123,8 +124,10 @@ const RELEASE_COLUMNS = [
   // same shape as any other team's subteam tag.
   "subteam_tags", "subteam_tags_locked",
   // Round 294 — project rights-type tag (PRJ_INHOUSE/LICENSED/OWNED),
-  // AR/OPS-only.
-  "project_rights_type",
+  // kept as the legacy fallback source — see lib/releaseTags.js's
+  // effectiveReleaseTags(). Round 319 — the real, current tag storage,
+  // OPS/AR/Marketing/Legal-visible (see canViewReleaseTags).
+  "project_rights_type", "tags",
   // Round 302 — the dashboard's own AR PIC, separate from the New Release
   // Setup/Upload workstation's own OPS PIC (workstation_assignments).
   "ar_pic_profile_id",
@@ -318,6 +321,7 @@ export default function ReleasesDashboard() {
   const [bookingPct, setBookingPct] = useState({}); // release_id -> %, scoped to current page
   const [pitchingData, setPitchingData] = useState({}); // did -> pitching ticket's data, scoped to current page
   const [albumNameByDid, setAlbumNameByDid] = useState(new Map()); // scoped to current page's parent DIDs
+  const [labelTagsByName, setLabelTagsByName] = useState({}); // Round 320 — label_name -> { default_lbl_tag }, scoped to current page
   const [labels, setLabels] = useState([]);
   const [typeOptions, setTypeOptions] = useState([]);
   const [productTagSets, setProductTagSets] = useState({}); // small, unfiltered — see fetchProductTagSets
@@ -357,12 +361,12 @@ export default function ReleasesDashboard() {
   // Marketing's subteams (view-only popup) instead of per-subteam
   // columns.
   const showAdminSummaryColumn = canViewSubteamSummaryColumn(profile, SUBTEAM_TAG_TEAM);
-  // Round 294 — project rights-type tag, AR/OPS only. Its own column,
-  // furthest left (left of even the subteam columns above), per explicit
-  // spec. View and edit share the same gate here (unlike Marketing's
-  // subteam mechanism), so one flag covers both.
-  const showProjectRightsTypeColumn = canViewProjectRightsType(profile);
-  const canEditProjectRightsTypeHere = canEditProjectRightsType(profile);
+  // Round 319 — unified release tags column (PRJ/PUB/LBL + freeform —
+  // see lib/releaseTags.js), replacing the old PRJ-only column. Read-only
+  // here on the index per explicit spec ("index page, new tag column" —
+  // editing happens on the release detail page's header only); furthest
+  // left, same position the old PRJ-only column had.
+  const showReleaseTagsColumn = canViewReleaseTags(profile);
   // Round 302 — the dashboard's own AR PIC column, separate from the New
   // Release Setup/Upload workstation's own OPS PIC. AR/dev/admin only,
   // same "view and edit share one gate" shape as the tag above.
@@ -383,6 +387,40 @@ export default function ReleasesDashboard() {
       setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, ar_pic_profile_id: profileId || null } : r)));
     }
   }
+
+  // Round 318 — general-purpose column visibility/reorder picker (see
+  // lib/ColumnVisibility.js), first applied here. Column list mirrors
+  // this table's existing default header order exactly, so turning the
+  // feature on changes nothing visually until someone actually opens the
+  // picker. `did` and `name` are `required: true` — they're the two
+  // columns that link into the release detail page, so hiding both would
+  // leave a row with no way to click into it (still fully reorderable,
+  // just not hideable). Every other column here was already gated by
+  // permission above (showReleaseTagsColumn, showArPicColumn,
+  // visibleSubteams, showAdminSummaryColumn) — this list only ever
+  // contains columns the viewer is allowed to see in the first place;
+  // the picker adds a "do I want to see it right now" layer on top.
+  const releaseColumnDefs = useMemo(() => {
+    const cols = [];
+    if (showReleaseTagsColumn) cols.push({ key: "tags", label: "Tags" });
+    if (showArPicColumn) cols.push({ key: "arPic", label: "AR PIC" });
+    visibleSubteams.forEach((s) => cols.push({ key: `subteam:${s}`, label: `${s} tag` }));
+    if (showAdminSummaryColumn) cols.push({ key: "adminSummary", label: `${profile?.segment || "Team"} Tags (summary)` });
+    cols.push({ key: "did", label: "DID", required: true });
+    cols.push({ key: "channel", label: "Channel" });
+    cols.push({ key: "package", label: "Package" });
+    cols.push({ key: "label", label: "Label" });
+    cols.push({ key: "name", label: "Name", required: true });
+    cols.push({ key: "artist", label: "Artist" });
+    cols.push({ key: "release", label: "Release" });
+    cols.push({ key: "status", label: "Status" });
+    cols.push({ key: "statusPitching", label: "Status Pitching" });
+    cols.push({ key: "metadata", label: "Metadata" });
+    cols.push({ key: "booking", label: "Booking" });
+    cols.push({ key: "upload", label: "Upload" });
+    return cols;
+  }, [showReleaseTagsColumn, showArPicColumn, visibleSubteams, showAdminSummaryColumn, profile?.segment]);
+  const colVis = useColumnVisibility("releases-index", releaseColumnDefs, profile?.id);
 
   const [sort, setSort] = useState(null); // null = default (release date desc) | { key, dir }
   const [page, setPage] = useState(1);
@@ -439,15 +477,22 @@ export default function ReleasesDashboard() {
   // Booking %, pitching status, and parent-album title — scoped to just
   // the rows actually on screen, instead of the whole table (see the
   // Round 247 comment block above RELEASE_COLUMNS for why).
-  async function loadPageJoins(rows) {
+  async function loadPageJoins(rows, { includeLabelTags } = {}) {
     const releaseIds = rows.map((r) => r.id);
     const dids = rows.map((r) => r.did).filter(Boolean);
     const parentDids = [...new Set(rows.map((r) => r.pseudo_package_parent_did).filter(Boolean))];
+    // Round 320 — label names of just THIS page's rows, for the LBL
+    // reference-default fallback in the Tags column (see
+    // lib/releaseTags.js's displayTagsWithLblFallback). Skipped
+    // entirely for a viewer who can't see the Tags column at all
+    // (includeLabelTags is showReleaseTagsColumn from the caller).
+    const labelNames = includeLabelTags ? [...new Set(rows.map((r) => r.label).filter(Boolean))] : [];
 
-    const [bookingsResult, pitchTabResult, parentsResult] = await Promise.all([
+    const [bookingsResult, pitchTabResult, parentsResult, labelTagsResult] = await Promise.all([
       releaseIds.length ? supabase.from("media_booking_entries").select("release_id, status").in("release_id", releaseIds) : Promise.resolve({ data: [] }),
       supabase.from("ticket_tabs").select("id").eq("key", "pitching").single(),
       parentDids.length ? supabase.from("releases").select("did, title").in("did", parentDids) : Promise.resolve({ data: [] }),
+      labelNames.length ? supabase.from("labels").select("label_name, default_lbl_tag").in("label_name", labelNames) : Promise.resolve({ data: [] }),
     ]);
 
     const grouped = {};
@@ -477,18 +522,22 @@ export default function ReleasesDashboard() {
     const albumMap = new Map();
     (parentsResult.data || []).forEach((r) => { if (r.did) albumMap.set(r.did, r.title); });
 
-    return { bookingPct: pctMap, pitchingData: pitchingMap, albumNameByDid: albumMap };
+    const labelTagsMap = {};
+    (labelTagsResult.data || []).forEach((l) => { labelTagsMap[l.label_name] = l; });
+
+    return { bookingPct: pctMap, pitchingData: pitchingMap, albumNameByDid: albumMap, labelTagsByName: labelTagsMap };
   }
 
   async function runLoad({ page, pageSize, sort, filters, searchTerm, isRefresh } = {}) {
     try {
       const { rows, total } = await fetchListPage({ page, pageSize, sort, filters, searchTerm });
-      const joins = await loadPageJoins(rows);
+      const joins = await loadPageJoins(rows, { includeLabelTags: showReleaseTagsColumn });
       setReleases(rows);
       setTotalRows(total);
       setBookingPct(joins.bookingPct);
       setPitchingData(joins.pitchingData);
       setAlbumNameByDid(joins.albumNameByDid);
+      setLabelTagsByName(joins.labelTagsByName);
       // A filter/search narrowed things (or pageSize changed) while sitting
       // on a later page — snap back into range instead of an empty table
       // with no obvious way back. Same guard usePagination used to do
@@ -624,16 +673,6 @@ export default function ReleasesDashboard() {
     setSavingChannel(null);
   }
 
-  // Round 294 — project rights-type tag. Single-select, no confirm needed
-  // (unlike toggleSubteamTag below — this isn't an on/off flag someone
-  // could "accidentally unflag", it's just picking a different one of 3).
-  async function updateProjectRightsType(release, code) {
-    const { error: err } = await supabase.from("releases").update({ project_rights_type: code }).eq("id", release.id);
-    if (!err) {
-      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, project_rights_type: code } : r)));
-    }
-  }
-
   // Round 261 — per-subteam tag toggle, left-most columns. Plain on/off —
   // per explicit spec, turning it OFF still confirms first ("in case they
   // incorrectly unflag"). Round 262 — also sets subteam_tags_locked for
@@ -641,7 +680,7 @@ export default function ReleasesDashboard() {
   // automatic flag later (see app/releases/[id]/page.js's INDIE
   // auto-flag check, the one surviving consumer of that lock).
   async function toggleSubteamTag(release, subteamName) {
-    const current = !!(release.subteam_tags || {})[subteamName];
+    const current = effectiveSubteamTags(release).includes(subteamName);
     const next = !current;
     if (current && !next) {
       const ok = window.confirm(`Turn off the "${subteamName}" tag for "${release.title}"?`);
@@ -649,13 +688,261 @@ export default function ReleasesDashboard() {
     }
     const key = `${release.id}:${subteamName}`;
     setSavingSubteam(key);
-    const nextTags = { ...(release.subteam_tags || {}), [subteamName]: next };
+    // Round 321 — storage folded into releases.tags (see
+    // lib/releaseTags.js's toggledSubteamTags); subteam_tags_locked
+    // stays exactly as it was, unrelated to this fold.
+    const nextTags = toggledSubteamTags(release, subteamName);
     const nextLocked = { ...(release.subteam_tags_locked || {}), [subteamName]: true };
-    const { error: err } = await supabase.from("releases").update({ subteam_tags: nextTags, subteam_tags_locked: nextLocked }).eq("id", release.id);
+    const { error: err } = await supabase.from("releases").update({ tags: nextTags, subteam_tags_locked: nextLocked }).eq("id", release.id);
     if (!err) {
-      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, subteam_tags: nextTags, subteam_tags_locked: nextLocked } : r)));
+      setReleases((rows) => rows.map((r) => (r.id === release.id ? { ...r, tags: nextTags, subteam_tags_locked: nextLocked } : r)));
     }
     setSavingSubteam(null);
+  }
+
+  // Round 318 — one render function per column key, used by both the
+  // header row and the "reset to default" preview so the picker's order
+  // is the single source of truth for what actually renders. Each case
+  // reproduces exactly what that column's <th> looked like before this
+  // round's refactor — no visual change, just table-driven instead of
+  // hardcoded inline.
+  function renderColumnHeader(col) {
+    switch (col.key) {
+      case "tags":
+        return <th key="tags" title="PRJ/PUB/LBL + freeform tags — set on the release detail page">Tags</th>;
+      case "arPic":
+        return <th key="arPic" title="AR PIC">PIC</th>;
+      case "adminSummary":
+        return <th key="adminSummary" title={`${profile?.segment}'s subteam tags — view only`}>{profile?.segment} Tags</th>;
+      case "did":
+        return <SortableTh key="did" label="DID" sortKey="did" sort={sort} onToggle={toggleSort} />;
+      case "channel":
+        return <SortableTh key="channel" label="Channel" sortKey="requester_segment" sort={sort} onToggle={toggleSort} />;
+      case "package":
+        return <SortableTh key="package" label="Package" sortKey="release_category" sort={sort} onToggle={toggleSort} />;
+      case "label":
+        return <SortableTh key="label" label="Label" sortKey="label" sort={sort} onToggle={toggleSort} />;
+      case "name":
+        return <SortableTh key="name" label="Name" sortKey="title" sort={sort} onToggle={toggleSort} style={{ minWidth: 260 }} />;
+      case "artist":
+        return <SortableTh key="artist" label="Artist" sortKey="main_artist" sort={sort} onToggle={toggleSort} />;
+      case "release":
+        return <SortableTh key="release" label="Release" sortKey="release_date" sort={sort} onToggle={toggleSort} />;
+      case "status":
+        return <SortableTh key="status" label="Status" sortKey="status" sort={sort} onToggle={toggleSort} />;
+      case "statusPitching":
+        return <th key="statusPitching">Status Pitching</th>;
+      case "metadata":
+        return <th key="metadata">Metadata</th>;
+      case "booking":
+        return <th key="booking">Booking</th>;
+      case "upload":
+        return <th key="upload">Upload</th>;
+      default:
+        if (col.key.startsWith("subteam:")) {
+          const s = col.key.slice("subteam:".length);
+          return <th key={col.key} title={`${s} tag — only visible to ${s}'s team members`}>{s}</th>;
+        }
+        return null;
+    }
+  }
+
+  // Same "one function, one switch" shape as the header, given the
+  // current row plus the 4 values that used to be computed once per row
+  // right above the <tr> (pct/bpct/upct/pitching) — passed in rather than
+  // recomputed per cell.
+  function renderColumnCell(col, r, { pct, bpct, upct, pitching }) {
+    switch (col.key) {
+      case "tags": {
+        const rowTags = displayTagsWithLblFallback(effectiveReleaseTags(r), labelTagsByName[r.label]);
+        return (
+          <td key="tags">
+            {rowTags.length === 0 ? (
+              <span style={{ color: "var(--text-faint)", fontSize: 11 }}>—</span>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {rowTags.map((t) => {
+                  const info = releaseTagInfo(t);
+                  return (
+                    <span key={t} className={`${styles.pill} ${releaseTagPillClass(styles, t)}`} title={info.requirement || info.label} style={{ fontSize: 9 }}>
+                      {info.short}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </td>
+        );
+      }
+      case "arPic":
+        return (
+          <td key="arPic" onClick={(e) => e.stopPropagation()}>
+            {canEditArPicHere ? (
+              <select
+                className={styles.select}
+                style={{ fontSize: 12, minWidth: "12ch" }}
+                value={r.ar_pic_profile_id || ""}
+                onChange={(e) => updateArPic(r, e.target.value)}
+              >
+                <option value="">— Unassigned —</option>
+                {arPicProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            ) : (
+              <span className={styles.pill}>{arPicProfiles.find((p) => p.id === r.ar_pic_profile_id)?.name || "Unassigned"}</span>
+            )}
+          </td>
+        );
+      case "adminSummary":
+        return (
+          <td key="adminSummary" onClick={(e) => e.stopPropagation()} style={{ position: "relative" }}>
+            <AdminSubteamSummaryButton
+              release={r}
+              subteamNames={MARKETING_SUBTEAM_TAGS}
+              open={summaryPopupFor === r.id}
+              onToggleOpen={() => setSummaryPopupFor((cur) => (cur === r.id ? null : r.id))}
+              onClose={() => setSummaryPopupFor(null)}
+            />
+          </td>
+        );
+      case "did":
+        return (
+          <td
+            key="did"
+            onMouseEnter={(e) => { setHoverRelease(r); setHoverPos({ x: e.clientX, y: e.clientY }); }}
+            onMouseLeave={() => setHoverRelease(null)}
+          >
+            <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.did || "—"}</Link>
+          </td>
+        );
+      case "channel":
+        return (
+          <td key="channel" onClick={(e) => e.stopPropagation()}>
+            <select
+              className={styles.select}
+              style={{ minWidth: 100, opacity: savingChannel === r.id ? 0.5 : 1 }}
+              value={r.requester_segment || ""}
+              disabled={savingChannel === r.id}
+              onChange={(e) => updateChannel(r, e.target.value)}
+              title={
+                r.requester_segment && !CHANNELS.includes(r.requester_segment)
+                  ? `Imported value doesn't match VIEENT/ENVI exactly — pick one to fix it`
+                  : undefined
+              }
+            >
+              <option value="">—</option>
+              {CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
+              {r.requester_segment && !CHANNELS.includes(r.requester_segment) && (
+                <option value={r.requester_segment}>{r.requester_segment} (unrecognized — pick to fix)</option>
+              )}
+            </select>
+          </td>
+        );
+      case "package":
+        return (
+          <td key="package" style={{ maxWidth: 260 }}>
+            <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {r.release_category ? `${r.release_category} - ${r.project_type || "—"}` : (r.project_type || "—")}
+            </div>
+            {effectiveSubteamTags(r).length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                {effectiveSubteamTags(r).map((name) => (
+                  <span key={name} className={`${styles.pill} ${subteamTagPillClass(styles, name)}`} style={{ fontSize: 9 }}>{name}</span>
+                ))}
+              </div>
+            )}
+          </td>
+        );
+      case "label":
+        return <td key="label">{r.label || "—"}</td>;
+      case "name":
+        return (
+          <td
+            key="name"
+            onMouseEnter={(e) => { setHoverRelease(r); setHoverPos({ x: e.clientX, y: e.clientY }); }}
+            onMouseLeave={() => setHoverRelease(null)}
+          >
+            <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
+            {r.pseudo_package_parent_did && albumNameByDid.get(r.pseudo_package_parent_did) && (
+              <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>
+                {albumNameByDid.get(r.pseudo_package_parent_did)}
+              </div>
+            )}
+            <ProductTagPills styles={styles} release={r} tagSets={productTagSets} style={{ marginTop: 4 }} />
+            {copyrightChecklistSummary(r.copyright_checklist) && (
+              <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 4 }}>
+                {copyrightChecklistSummary(r.copyright_checklist)}
+              </div>
+            )}
+          </td>
+        );
+      case "artist":
+        return <td key="artist">{r.main_artist}</td>;
+      case "release":
+        return <td key="release">{fmtDate(r.release_date)}{r.release_time ? ` ${r.release_time}` : ""}</td>;
+      case "status":
+        return (
+          <td key="status">
+            <span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.12)", color: "#ff9d5c" }}>{r.status}</span>
+            {r.media_report_status && (
+              <span
+                className={styles.statusBadge}
+                style={{ display: "block", marginTop: 4, background: r.media_report_status === "sent" ? "rgba(126,230,168,0.14)" : "rgba(255,202,77,0.14)", color: r.media_report_status === "sent" ? "#7ee6a8" : "#ffca4d" }}
+              >
+                {r.media_report_status === "sent" ? "Media Report — Artist Sent" : "Đã có media report"}
+              </span>
+            )}
+          </td>
+        );
+      case "statusPitching":
+        return (
+          <td key="statusPitching">
+            <span
+              className={styles.statusBadge}
+              style={
+                pitching.tone === "orange"
+                  ? { background: "rgba(255,107,26,0.12)", color: "#ff9d5c" }
+                  : pitching.tone === "yellow"
+                  ? { background: "rgba(234,179,8,0.14)", color: "#eab308" }
+                  : { background: "rgba(148,163,184,0.14)", color: "var(--text-faint)" }
+              }
+            >
+              {pitching.label}
+            </span>
+          </td>
+        );
+      case "metadata":
+        return (
+          <td key="metadata">
+            <span className={`${styles.pill} ${pct > 0 ? styles.pillOrange : styles.pillGray}`}>{pct}%</span>
+          </td>
+        );
+      case "booking":
+        return (
+          <td key="booking">
+            <span className={`${styles.pill} ${bpct > 0 ? styles.pillOrange : styles.pillGray}`}>{bpct}%</span>
+          </td>
+        );
+      case "upload":
+        return (
+          <td key="upload">
+            <span className={`${styles.pill} ${upct > 0 ? styles.pillOrange : styles.pillGray}`}>{upct}%</span>
+          </td>
+        );
+      default:
+        if (col.key.startsWith("subteam:")) {
+          const s = col.key.slice("subteam:".length);
+          return (
+            <td key={col.key} onClick={(e) => e.stopPropagation()}>
+              <SubteamToggle
+                on={effectiveSubteamTags(r).includes(s)}
+                saving={savingSubteam === `${r.id}:${s}`}
+                onClick={() => toggleSubteamTag(r, s)}
+              />
+            </td>
+          );
+        }
+        return null;
+    }
   }
 
   return (
@@ -718,6 +1005,13 @@ export default function ReleasesDashboard() {
             </button>
           )}
           <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
+          <ColumnVisibilityButton
+            orderedColumns={colVis.orderedColumns}
+            isVisible={colVis.isVisible}
+            toggle={colVis.toggle}
+            move={colVis.move}
+            reset={colVis.reset}
+          />
           <button
             onClick={refresh}
             disabled={refreshing}
@@ -740,55 +1034,14 @@ export default function ReleasesDashboard() {
           <table className={styles.table}>
             <thead>
               <tr>
-                {/* Round 294 — project rights-type tag, AR/OPS only.
-                    Furthest-left column, left of even the subteam columns
-                    below, per explicit spec. */}
-                {showProjectRightsTypeColumn && (
-                  <th title="Loại Dự Án — PRJ_INHOUSE / PRJ_LICENSED / PRJ_OWNED">Loại Dự Án</th>
-                )}
-                {/* Round 302 — AR PIC column, AR/dev/admin only. Separate
-                    from the New Release Setup/Upload workstation's own OPS
-                    PIC (workstation_assignments) — this is
-                    releases.ar_pic_profile_id, its own field. */}
-                {showArPicColumn && <th title="AR PIC">PIC</th>}
-                {/* Round 261 — per-subteam tag column(s), left-most per
-                    explicit spec. Round 291 — widened from team-lead-only
-                    to anyone on that subteam. Zero columns for anyone
-                    without a matching Marketing subteam set (or dev) —
-                    see visibleSubteamsFor. */}
-                {visibleSubteams.map((s) => (
-                  <th key={`subteam-th-${s}`} title={`${s} tag — only visible to ${s}'s team members`}>{s}</th>
-                ))}
-                {/* Round 262 item 2 — admin's single collapsed column for
-                    their own team's subteams (view-only popup), instead
-                    of one column per subteam. */}
-                {showAdminSummaryColumn && (
-                  <th title={`${profile.segment}'s subteam tags — view only`}>{profile.segment} Tags</th>
-                )}
-                <SortableTh label="DID" sortKey="did" sort={sort} onToggle={toggleSort} />
-                <SortableTh label="Channel" sortKey="requester_segment" sort={sort} onToggle={toggleSort} />
-                <SortableTh label="Package" sortKey="release_category" sort={sort} onToggle={toggleSort} />
-                <SortableTh label="Label" sortKey="label" sort={sort} onToggle={toggleSort} />
-                {/* Round 86 follow-up items 1 & 2 — widened to ~1.5x its old
-                    natural (unset) width (item 2), now that both the
-                    product tag pills (item 5) and the Album Name subtitle
-                    (item 1 — see below) live in this column and need room.
-                    Album Name started as its own column (round 86 item 2)
-                    but per follow-up item 1 is now a subtitle line under
-                    the title instead, freeing up a column. */}
-                <SortableTh label="Name" sortKey="title" sort={sort} onToggle={toggleSort} style={{ minWidth: 260 }} />
-                <SortableTh label="Artist" sortKey="main_artist" sort={sort} onToggle={toggleSort} />
-                {/* Round 86 follow-up item 5 — merged Release Date +
-                    Release Time into one column per explicit request
-                    ("Merge into one 'Release' column"). Still sorts by
-                    release_date — release_time is just appended for
-                    display, not a separate sortable dimension anymore. */}
-                <SortableTh label="Release" sortKey="release_date" sort={sort} onToggle={toggleSort} />
-                <SortableTh label="Status" sortKey="status" sort={sort} onToggle={toggleSort} />
-                <th>Status Pitching</th>
-                <th>Metadata</th>
-                <th>Booking</th>
-                <th>Upload</th>
+                {/* Round 318 — every header cell now comes from the column
+                    visibility/reorder picker's own ordered+filtered list
+                    (colVis.visibleColumns) instead of one hardcoded JSX
+                    block per gate. Which columns are even IN that list is
+                    still entirely permission-gated (see releaseColumnDefs
+                    above) — the picker only controls order and show/hide
+                    among columns the viewer is already allowed to see. */}
+                {colVis.visibleColumns.map((col) => renderColumnHeader(col))}
               </tr>
             </thead>
             <tbody>
@@ -799,181 +1052,7 @@ export default function ReleasesDashboard() {
                 const pitching = pitchingSummary(r, pitchingData[r.did]);
                 return (
                   <tr key={r.id}>
-                    {showProjectRightsTypeColumn && (
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <ProjectRightsTypeTag
-                          styles={styles}
-                          value={r.project_rights_type}
-                          canEdit={canEditProjectRightsTypeHere}
-                          onChange={(code) => updateProjectRightsType(r, code)}
-                        />
-                      </td>
-                    )}
-                    {showArPicColumn && (
-                      <td onClick={(e) => e.stopPropagation()}>
-                        {canEditArPicHere ? (
-                          <select
-                            className={styles.select}
-                            style={{ fontSize: 12, minWidth: "12ch" }}
-                            value={r.ar_pic_profile_id || ""}
-                            onChange={(e) => updateArPic(r, e.target.value)}
-                          >
-                            <option value="">— Unassigned —</option>
-                            {arPicProfiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                          </select>
-                        ) : (
-                          <span className={styles.pill}>{arPicProfiles.find((p) => p.id === r.ar_pic_profile_id)?.name || "Unassigned"}</span>
-                        )}
-                      </td>
-                    )}
-                    {/* Round 261 — per-subteam toggle(s), left-most. Same
-                        flag-icon switch visual as the project tag's, but
-                        plain on/off (no cycling) — confirms only when
-                        turning OFF. */}
-                    {visibleSubteams.map((s) => (
-                      <td key={`subteam-td-${r.id}-${s}`} onClick={(e) => e.stopPropagation()}>
-                        <SubteamToggle
-                          on={!!(r.subteam_tags || {})[s]}
-                          saving={savingSubteam === `${r.id}:${s}`}
-                          onClick={() => toggleSubteamTag(r, s)}
-                        />
-                      </td>
-                    ))}
-                    {showAdminSummaryColumn && (
-                      <td onClick={(e) => e.stopPropagation()} style={{ position: "relative" }}>
-                        <AdminSubteamSummaryButton
-                          release={r}
-                          subteamNames={MARKETING_SUBTEAM_TAGS}
-                          open={summaryPopupFor === r.id}
-                          onToggleOpen={() => setSummaryPopupFor((cur) => (cur === r.id ? null : r.id))}
-                          onClose={() => setSummaryPopupFor(null)}
-                        />
-                      </td>
-                    )}
-                    <td
-                      onMouseEnter={(e) => { setHoverRelease(r); setHoverPos({ x: e.clientX, y: e.clientY }); }}
-                      onMouseLeave={() => setHoverRelease(null)}
-                    >
-                      <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.did || "—"}</Link>
-                    </td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <select
-                        className={styles.select}
-                        style={{ minWidth: 100, opacity: savingChannel === r.id ? 0.5 : 1 }}
-                        value={r.requester_segment || ""}
-                        disabled={savingChannel === r.id}
-                        onChange={(e) => updateChannel(r, e.target.value)}
-                        title={
-                          r.requester_segment && !CHANNELS.includes(r.requester_segment)
-                            ? `Imported value doesn't match VIEENT/ENVI exactly — pick one to fix it`
-                            : undefined
-                        }
-                      >
-                        <option value="">—</option>
-                        {CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
-                        {/* An imported/legacy value that isn't exactly "VIEENT" or "ENVI"
-                            (different casing, a typo, a different word entirely from the
-                            source sheet) used to just render blank here — the data was
-                            really in requester_segment, this <select> just had no <option>
-                            for it. Surfacing it as its own option instead of silently
-                            dropping it — see scripts/audit-release-channel.js to find every
-                            release affected this way. */}
-                        {r.requester_segment && !CHANNELS.includes(r.requester_segment) && (
-                          <option value={r.requester_segment}>{r.requester_segment} (unrecognized — pick to fix)</option>
-                        )}
-                      </select>
-                    </td>
-                    <td style={{ maxWidth: 260 }}>
-                      <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {r.release_category ? `${r.release_category} - ${r.project_type || "—"}` : (r.project_type || "—")}
-                      </div>
-                      {/* Round 261 item 2 — every flagged subteam shows here
-                          as a purely visual pill, for EVERYONE (no
-                          canViewSubteamColumn gate — that only governs the
-                          left-most toggle columns above, which control the
-                          data). This is read-only context, not a second
-                          place to edit the same field. */}
-                      {Object.entries(r.subteam_tags || {}).filter(([, v]) => v).length > 0 && (
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                          {Object.entries(r.subteam_tags || {})
-                            .filter(([, v]) => v)
-                            .map(([name]) => (
-                              <span key={name} className={`${styles.pill} ${subteamTagPillClass(styles, name)}`} style={{ fontSize: 9 }}>{name}</span>
-                            ))}
-                        </div>
-                      )}
-                    </td>
-                    <td>{r.label || "—"}</td>
-                    <td
-                      onMouseEnter={(e) => { setHoverRelease(r); setHoverPos({ x: e.clientX, y: e.clientY }); }}
-                      onMouseLeave={() => setHoverRelease(null)}
-                    >
-                      <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
-                      {/* Round 86 follow-up item 1 — Album Name as a
-                          subtitle line here instead of its own column
-                          (was a separate "Album Name" column in the first
-                          round-86 pass). */}
-                      {r.pseudo_package_parent_did && albumNameByDid.get(r.pseudo_package_parent_did) && (
-                        <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>
-                          {albumNameByDid.get(r.pseudo_package_parent_did)}
-                        </div>
-                      )}
-                      {/* Round 86 item 5 — product tag pills */}
-                      <ProductTagPills styles={styles} release={r} tagSets={productTagSets} style={{ marginTop: 4 }} />
-                      {/* Round 88 item 1d — Copyright Checklist compiled
-                          into one small subrow line ("Q1: Tự SX · Q2:
-                          HTĐQ · …"), layer-1 choice only per explicit
-                          spec. Hidden entirely once nothing's been filled
-                          in yet. */}
-                      {copyrightChecklistSummary(r.copyright_checklist) && (
-                        <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 4 }}>
-                          {copyrightChecklistSummary(r.copyright_checklist)}
-                        </div>
-                      )}
-                    </td>
-                    <td>{r.main_artist}</td>
-                    <td>{fmtDate(r.release_date)}{r.release_time ? ` ${r.release_time}` : ""}</td>
-                    <td>
-                      <span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.12)", color: "#ff9d5c" }}>{r.status}</span>
-                      {/* Round 54 — item B.1: surfaces the Booking Board's
-                          "Convert Media Report" state here on the New
-                          Release Dashboard too, per "add tab booking status
-                          (NEW RELEASE DASHBOARD): Đã có media report" — the
-                          board itself is where Convert/Send Artist actually
-                          happen (fixed "Media Report" column), this is just
-                          the read-only marker showing up here as well. */}
-                      {r.media_report_status && (
-                        <span
-                          className={styles.statusBadge}
-                          style={{ display: "block", marginTop: 4, background: r.media_report_status === "sent" ? "rgba(126,230,168,0.14)" : "rgba(255,202,77,0.14)", color: r.media_report_status === "sent" ? "#7ee6a8" : "#ffca4d" }}
-                        >
-                          {r.media_report_status === "sent" ? "Media Report — Artist Sent" : "Đã có media report"}
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <span
-                        className={styles.statusBadge}
-                        style={
-                          pitching.tone === "orange"
-                            ? { background: "rgba(255,107,26,0.12)", color: "#ff9d5c" }
-                            : pitching.tone === "yellow"
-                            ? { background: "rgba(234,179,8,0.14)", color: "#eab308" }
-                            : { background: "rgba(148,163,184,0.14)", color: "var(--text-faint)" }
-                        }
-                      >
-                        {pitching.label}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`${styles.pill} ${pct > 0 ? styles.pillOrange : styles.pillGray}`}>{pct}%</span>
-                    </td>
-                    <td>
-                      <span className={`${styles.pill} ${bpct > 0 ? styles.pillOrange : styles.pillGray}`}>{bpct}%</span>
-                    </td>
-                    <td>
-                      <span className={`${styles.pill} ${upct > 0 ? styles.pillOrange : styles.pillGray}`}>{upct}%</span>
-                    </td>
+                    {colVis.visibleColumns.map((col) => renderColumnCell(col, r, { pct, bpct, upct, pitching }))}
                   </tr>
                 );
               })}
@@ -1032,7 +1111,8 @@ export default function ReleasesDashboard() {
 // the "crowded admin view" reasoning that kept admin out of the per-
 // subteam columns in the first place).
 function AdminSubteamSummaryButton({ release, subteamNames, open, onToggleOpen, onClose }) {
-  const activeCount = subteamNames.filter((s) => !!(release.subteam_tags || {})[s]).length;
+  const active = effectiveSubteamTags(release);
+  const activeCount = subteamNames.filter((s) => active.includes(s)).length;
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
       <button
@@ -1060,7 +1140,7 @@ function AdminSubteamSummaryButton({ release, subteamNames, open, onToggleOpen, 
             }}
           >
             {subteamNames.map((s) => {
-              const on = !!(release.subteam_tags || {})[s];
+              const on = active.includes(s);
               return (
                 <div key={s} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
                   <span className={`${styles.pill} ${on ? subteamTagPillClass(styles, s) : styles.pillGray}`} style={{ opacity: on ? 1 : 0.5 }}>{s}</span>

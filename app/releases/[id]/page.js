@@ -27,8 +27,8 @@ import { useAuth } from "../../../lib/AuthContext";
 // Round 300/302 added the first one — see updateArPic below — so
 // logPicReassign is now imported too.
 import { logTicketCreate, logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
-import { isDev, isAdminOrAbove, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewProjectRightsType, canEditProjectRightsType, canViewReleaseArPic, canEditReleaseArPic } from "../../../lib/permissions";
-import ProjectRightsTypeTag from "../../../lib/ProjectRightsTypeTag";
+import { isDev, isAdminOrAbove, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewReleaseTags, canEditReleaseTags, canViewReleaseArPic, canEditReleaseArPic } from "../../../lib/permissions";
+import { ReleaseTagsRow, effectiveReleaseTags, getCategoryTag, releaseTagInfo, releaseTagPillClass, resolveLblTag, effectiveSubteamTags, setSubteamTagValue, toggledSubteamTags } from "../../../lib/releaseTags";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { subteamTagPillClass, MARKETING_SUBTEAM_TAGS } from "../../../lib/projectTags";
 import { runOne } from "../../../lib/packageSimulator";
@@ -88,6 +88,21 @@ export default function ReleaseDetailPage() {
   const canResetToDealing = isAdminOrAbove(profile);
   const [release, setRelease] = useState(null);
   const [form, setForm] = useState(null);
+
+  // Round 320 — this release's linked label row, just enough to
+  // resolve/seed the LBL reference default (labels.default_lbl_tag) from
+  // the header's Tags row edit — see resolveLblTag/updateReleaseTags.
+  // Separate, lighter fetch from OverviewTab's own labelRow (that one's
+  // scoped to the Hợp Tác display further down the page) since this
+  // needs to be reachable from up here, where the header Tags editor
+  // actually lives.
+  const [lblLabelRow, setLblLabelRow] = useState(null);
+  useEffect(() => {
+    if (!supabase || !form?.label) { setLblLabelRow(null); return; }
+    supabase.from("labels").select("id, default_lbl_tag").eq("label_name", form.label).maybeSingle()
+      .then(({ data }) => setLblLabelRow(data || null));
+  }, [form?.label]);
+
   // Round 162 — diff-based save. Tracks exactly which top-level `form` keys
   // the user has actually edited (via update()/updateArtistTags() below)
   // since the last successful save/load, so saveTab() can send ONLY those
@@ -323,11 +338,14 @@ export default function ReleaseDetailPage() {
             (pkg.media_booking_package_lines || []).some((l) => (l.brand || "").toLowerCase().includes("indie") && (l.quantity || 0) > 0)
           );
           if (hasIndieCategory || hasIndieLine) {
-            const nextTags = { ...(data.subteam_tags || {}), INDIE: true };
+            // Round 321 — storage folded into releases.tags (see
+            // lib/releaseTags.js's setSubteamTagValue); subteam_tags_locked
+            // stays exactly as it was, unrelated to this fold.
+            const nextTags = setSubteamTagValue(data, "INDIE", true);
             const nextLocked = { ...(data.subteam_tags_locked || {}), INDIE: true };
-            await supabase.from("releases").update({ subteam_tags: nextTags, subteam_tags_locked: nextLocked }).eq("id", id);
-            setForm((f) => ({ ...f, subteam_tags: nextTags, subteam_tags_locked: nextLocked }));
-            setRelease((r) => ({ ...r, subteam_tags: nextTags, subteam_tags_locked: nextLocked }));
+            await supabase.from("releases").update({ tags: nextTags, subteam_tags_locked: nextLocked }).eq("id", id);
+            setForm((f) => ({ ...f, tags: nextTags, subteam_tags_locked: nextLocked }));
+            setRelease((r) => ({ ...r, tags: nextTags, subteam_tags_locked: nextLocked }));
           }
         }
         // Round 151 — load-reduction pass, release detail page. This block
@@ -1441,13 +1459,30 @@ export default function ReleaseDetailPage() {
     setRelease((r) => ({ ...r, package_locked: newVal }));
   }
 
-  // Round 294 — project rights-type tag. Single-select, writes
-  // immediately (same "don't wait for Save" idiom as the subteam toggle
-  // right below).
-  async function updateProjectRightsType(code) {
-    setForm((f) => ({ ...f, project_rights_type: code }));
-    setRelease((r) => ({ ...r, project_rights_type: code }));
-    await supabase.from("releases").update({ project_rights_type: code }).eq("id", id);
+  // Round 319 — unified release tags (PRJ/PUB/LBL + freeform — see
+  // lib/releaseTags.js). Writes the whole array immediately, same
+  // "don't wait for Save" idiom the old PRJ-only picker used (and the
+  // subteam toggle right below). Replaces the old project_rights_type-
+  // only updateProjectRightsType — that column is still READ (as a
+  // fallback for releases not yet backfilled, see effectiveReleaseTags)
+  // but no longer written from here; new edits only ever go to `tags`.
+  async function updateReleaseTags(nextTags) {
+    const prevLbl = getCategoryTag(effectiveReleaseTags(form), "LBL");
+    const nextLbl = getCategoryTag(nextTags, "LBL");
+    setForm((f) => ({ ...f, tags: nextTags }));
+    setRelease((r) => ({ ...r, tags: nextTags }));
+    await supabase.from("releases").update({ tags: nextTags }).eq("id", id);
+    // Round 320 — seed the label's reference default the first time this
+    // release supplies a real LBL answer and the label didn't have one
+    // yet ("when someone fix via either side, it write to the tag (as
+    // info) and fix the reference table as well" — see
+    // sql/pending/add-round320-labels-default-lbl-tag.sql). Never
+    // overwrites an existing default — this is a one-time seed, not a
+    // standing sync.
+    if (nextLbl && nextLbl !== prevLbl && lblLabelRow && !lblLabelRow.default_lbl_tag) {
+      await supabase.from("labels").update({ default_lbl_tag: nextLbl }).eq("id", lblLabelRow.id);
+      setLblLabelRow((r) => (r ? { ...r, default_lbl_tag: nextLbl } : r));
+    }
   }
 
   // Round 261/262 — per-subteam tag toggle, header switch. Same "write
@@ -1461,17 +1496,20 @@ export default function ReleaseDetailPage() {
   // change locks that subteam so the automatic Indie-channel check above
   // never overwrites it again.
   async function toggleSubteamTag(subteamName) {
-    const current = !!(form.subteam_tags || {})[subteamName];
+    const current = effectiveSubteamTags(form).includes(subteamName);
     const next = !current;
     if (current && !next) {
       const ok = window.confirm(`Turn off the "${subteamName}" tag for this release?`);
       if (!ok) return;
     }
-    const nextTags = { ...(form.subteam_tags || {}), [subteamName]: next };
+    // Round 321 — storage folded into releases.tags (see
+    // lib/releaseTags.js's toggledSubteamTags); subteam_tags_locked
+    // stays exactly as it was, unrelated to this fold.
+    const nextTags = toggledSubteamTags(form, subteamName);
     const nextLocked = { ...(form.subteam_tags_locked || {}), [subteamName]: true };
-    setForm((f) => ({ ...f, subteam_tags: nextTags, subteam_tags_locked: nextLocked }));
-    await supabase.from("releases").update({ subteam_tags: nextTags, subteam_tags_locked: nextLocked }).eq("id", id);
-    setRelease((r) => ({ ...r, subteam_tags: nextTags, subteam_tags_locked: nextLocked }));
+    setForm((f) => ({ ...f, tags: nextTags, subteam_tags_locked: nextLocked }));
+    await supabase.from("releases").update({ tags: nextTags, subteam_tags_locked: nextLocked }).eq("id", id);
+    setRelease((r) => ({ ...r, tags: nextTags, subteam_tags_locked: nextLocked }));
   }
 
   // Round 121 — undoes a resolved package decision (INT MEDIA via SEND INT
@@ -1620,18 +1658,6 @@ export default function ReleaseDetailPage() {
                     onChange={updateArPic}
                   />
                 )}
-                {/* Round 294 — project rights-type tag, AR/OPS only. Same
-                    small pill + popup as the index page — see
-                    lib/ProjectRightsTypeTag.js. Rendered here in the
-                    header, next to the subteam tag switch below. */}
-                {canViewProjectRightsType(profile) && (
-                  <ProjectRightsTypeTag
-                    styles={styles}
-                    value={form.project_rights_type}
-                    canEdit={canEditProjectRightsType(profile)}
-                    onChange={updateProjectRightsType}
-                  />
-                )}
                 {/* Round 261/262 — per-subteam tag switch, header. The
                     Round 258/260 single-cycling project_tag switch this
                     used to be is retired; each subteam is now its own
@@ -1657,7 +1683,7 @@ export default function ReleaseDetailPage() {
                 ) : profile?.segment === SUBTEAM_TAG_TEAM && profile?.subteam ? (
                   <SubteamHeaderToggle
                     name={profile.subteam}
-                    on={!!(form.subteam_tags || {})[profile.subteam]}
+                    on={effectiveSubteamTags(form).includes(profile.subteam)}
                     onClick={() => toggleSubteamTag(profile.subteam)}
                   />
                 ) : canViewSubteamSummaryColumn(profile, SUBTEAM_TAG_TEAM) ? (
@@ -1669,9 +1695,9 @@ export default function ReleaseDetailPage() {
                     onClose={() => setTagPopupOpen(false)}
                   />
                 ) : (
-                  Object.entries(form.subteam_tags || {}).filter(([, v]) => v).length > 0 && (
+                  effectiveSubteamTags(form).length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                      {Object.entries(form.subteam_tags || {}).filter(([, v]) => v).map(([name]) => (
+                      {effectiveSubteamTags(form).map((name) => (
                         <span key={name} className={`${styles.pill} ${subteamTagPillClass(styles, name)}`}>{name}</span>
                       ))}
                     </div>
@@ -1714,6 +1740,25 @@ export default function ReleaseDetailPage() {
               {form.upc && (
                 <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 14 }}>
                   UPC: <span style={{ color: "var(--text-faint)" }}>{form.upc}</span>
+                </div>
+              )}
+              {/* Round 319 — unified release tags row ("in the detail
+                  page, header section, add a new row, label Tags, all tag
+                  can be added there by their category") — the one edit
+                  surface for PRJ/PUB/LBL + freeform tags (LBL also shows
+                  read-only down by the Label field — see below). Replaces
+                  the old PRJ-only pill that used to sit up in the eyebrow
+                  row next to the subteam switch. */}
+              {canViewReleaseTags(profile) && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+                  <span className={styles.fieldLabel} style={{ marginBottom: 0 }}>Tags</span>
+                  <ReleaseTagsRow
+                    styles={styles}
+                    tags={effectiveReleaseTags(form)}
+                    canEdit={canEditReleaseTags(profile)}
+                    onChange={updateReleaseTags}
+                    resolvedValues={{ LBL: resolveLblTag(effectiveReleaseTags(form), lblLabelRow) }}
+                  />
                 </div>
               )}
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -1812,6 +1857,8 @@ export default function ReleaseDetailPage() {
             onCopyrightChange={() => setCopyrightGateVersion((v) => v + 1)}
             copyrightGateOk={copyrightGateOk}
             onSendArtistMediaReport={sendArtistMediaReport}
+            showLblTag={canViewReleaseTags(profile)}
+            releaseTags={effectiveReleaseTags(form)}
           />
         )}
         {tab === "copyrights" && (
@@ -1931,7 +1978,8 @@ function SubteamHeaderToggle({ name, on, onClick }) {
 // hardcoded constant, see lib/projectTags.js) with its own editable
 // toggle.
 function DevSubteamTagButton({ form, subteamNames, open, onToggleOpen, onClose, onToggleTag }) {
-  const activeCount = Object.values(form.subteam_tags || {}).filter(Boolean).length;
+  const active = effectiveSubteamTags(form);
+  const activeCount = active.length;
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
       <button
@@ -1960,7 +2008,7 @@ function DevSubteamTagButton({ form, subteamNames, open, onToggleOpen, onClose, 
             }}
           >
             {subteamNames.map((name) => {
-              const on = !!(form.subteam_tags || {})[name];
+              const on = active.includes(name);
               return (
                 <button
                   key={name}
@@ -1985,7 +2033,8 @@ function DevSubteamTagButton({ form, subteamNames, open, onToggleOpen, onClose, 
 // (canViewSubteamSummaryColumn) — admin can look, only a team lead (or
 // dev) can change it.
 function ReadOnlySubteamSummaryButton({ form, subteamNames, open, onToggleOpen, onClose }) {
-  const activeCount = subteamNames.filter((s) => !!(form.subteam_tags || {})[s]).length;
+  const active = effectiveSubteamTags(form);
+  const activeCount = subteamNames.filter((s) => active.includes(s)).length;
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
       <button
@@ -2013,7 +2062,7 @@ function ReadOnlySubteamSummaryButton({ form, subteamNames, open, onToggleOpen, 
             }}
           >
             {subteamNames.map((s) => {
-              const on = !!(form.subteam_tags || {})[s];
+              const on = active.includes(s);
               return (
                 <div key={s} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: 12 }}>
                   <span className={`${styles.pill} ${on ? subteamTagPillClass(styles, s) : styles.pillGray}`} style={{ opacity: on ? 1 : 0.5 }}>{s}</span>
@@ -2331,7 +2380,7 @@ function SendUploadSourcePopup({ styles, onPick, onClose }) {
   );
 }
 
-function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntPackage, canSimulate, onSendOnlyPh, canResetToDealing, onResetToDealing, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, updateArtistTags, artistProfileArtistTags, artistProfileVerifySelected, onToggleArtistProfileArtist, artistProfileTicketByArtist, coTrongNetDraft, onCoTrongNetChange, onSendCoTrongNetYoutube, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError, onCopyrightChange, copyrightGateOk, onSendArtistMediaReport }) {
+function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntPackage, canSimulate, onSendOnlyPh, canResetToDealing, onResetToDealing, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, artistProfileTypesDraft, onArtistProfileToggle, updateArtistTags, artistProfileArtistTags, artistProfileVerifySelected, onToggleArtistProfileArtist, artistProfileTicketByArtist, coTrongNetDraft, onCoTrongNetChange, onSendCoTrongNetYoutube, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError, onCopyrightChange, copyrightGateOk, onSendArtistMediaReport, showLblTag, releaseTags }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -2362,7 +2411,11 @@ function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requir
   const [labelRow, setLabelRow] = useState(null);
   useEffect(() => {
     if (!supabase || !form.label) { setLabelRow(null); return; }
-    supabase.from("labels").select("hop_tac_status").eq("label_name", form.label).maybeSingle()
+    // Round 320 — default_lbl_tag added to this select so the LBL
+    // display right below (Label Relationship) can resolve through the
+    // label's reference default via resolveLblTag, same widened select
+    // reasoning as everything else already pulled here.
+    supabase.from("labels").select("hop_tac_status, default_lbl_tag").eq("label_name", form.label).maybeSingle()
       .then(({ data }) => setLabelRow(data || null));
   }, [form.label]);
 
@@ -2524,6 +2577,26 @@ function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requir
                     </span>
                   );
                 })}
+              </div>
+            </div>
+          )}
+          {/* Round 319/320 — this release's LBL tag (its relationship to
+              the label above — Songwriter/Producer/Record Label/etc.,
+              see lib/releaseTags.js), read-only here per explicit spec
+              ("the other spot is right under the label name in the
+              detail page") — the real edit surfaces are the Tags row up
+              in the header, and the label's own reference row on
+              /labels. Round 320 — resolves through the label's reference
+              default (resolveLblTag) when this release has no LBL tag of
+              its own, same "check the reference first" fallback the
+              header row uses. */}
+          {showLblTag && resolveLblTag(releaseTags, labelRow) && (
+            <div style={{ marginTop: -8, marginBottom: 16 }}>
+              <label className={styles.fieldLabel}>Label Relationship</label>
+              <div style={{ marginTop: 4 }}>
+                <span className={`${styles.pill} ${releaseTagPillClass(styles, resolveLblTag(releaseTags, labelRow))}`} title={releaseTagInfo(resolveLblTag(releaseTags, labelRow)).label}>
+                  {releaseTagInfo(resolveLblTag(releaseTags, labelRow)).short}
+                </span>
               </div>
             </div>
           )}

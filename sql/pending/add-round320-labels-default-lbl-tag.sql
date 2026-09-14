@@ -1,0 +1,16 @@
+-- Round 320 — the label-side "reference" default for the LBL tag
+-- category (see lib/releaseTags.js's resolveLblTag() and Round 319's
+-- add-round319-release-tags.sql, which added the LBL category itself).
+--
+-- A release's OWN LBL tag — in its `releases.tags` array — always wins
+-- once set. This new column is only the FALLBACK shown/used for a
+-- release that doesn't have its own LBL tag yet, and it's the seed
+-- value written the first time someone sets LBL from either edit
+-- surface (the release's own Tags row header, or this label's row on
+-- /labels) if the label didn't already have a default — per explicit
+-- spec: "it will check the reference first, if it's there, tag as so,
+-- if not, blank. Then when someone fix via either side, it write to the
+-- tag (as info) and fix the reference table as well."
+--
+-- Idempotent: safe to run more than once.
+alter table labels add column if not exists default_lbl_tag text;

@@ -7,6 +7,8 @@ import { withLabelPrefix, stripLabelPrefix, hasLabelPrefix, LABEL_PREFIX } from 
 import { LABEL_HOP_TAC_OPTIONS, LABEL_PHAN_LOAI_OPTIONS } from "../../lib/pickerOptions";
 import { HOP_TAC_TICKET_TYPE, hopTacTagEntry, hopTacTagStatus, hopTacStatusColor, anyHopTacDone } from "../../lib/labelHopTacStatus";
 import { useAuth } from "../../lib/AuthContext";
+import { canViewReleaseTags, canEditReleaseTags } from "../../lib/permissions";
+import { RELEASE_TAG_CATEGORIES, ReleaseTagCategoryPicker } from "../../lib/releaseTags";
 import PickSelect from "../../lib/PickSelect";
 import NoteCell from "../../lib/NoteCell";
 import LinkOrEditCell from "../../lib/LinkOrEditCell";
@@ -21,6 +23,10 @@ import styles from "../shared.module.css";
 // nothing else reading labels.hop_tac (e.g. the release detail page's
 // read-only display) breaks.
 const EMPTY = { label_name: "", hop_tac: [], hop_tac_status: {}, phan_loai: "", contract_signed: false };
+
+// Round 320 — the LBL category definition, pulled out once here so the
+// per-row picker below doesn't re-find() it on every render.
+const LBL_CATEGORY = RELEASE_TAG_CATEGORIES.find((c) => c.key === "LBL");
 
 const LABEL_SYNC_THROTTLE_KEY = "vieent_labels_sync_last_run";
 const LABEL_SYNC_THROTTLE_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -466,6 +472,12 @@ export default function LabelsPage() {
               <tr>
                 <th>Label Name</th>
                 <th>Contract</th>
+                {/* Round 320 — this label's default LBL tag (see
+                    lib/releaseTags.js's resolveLblTag) — "another spot
+                    for edit is reference table for label", per explicit
+                    spec. Same OPS/AR/Marketing/Legal visibility as the
+                    release-side tag. */}
+                {canViewReleaseTags(profile) && <th title="Default label relationship — falls back for any release that doesn't have its own LBL tag set">LBL Tag</th>}
                 <th>Hợp Tác</th>
                 <th>Thời gian hoạt động gần nhất</th>
                 <th>Hợp Đồng</th>
@@ -501,6 +513,17 @@ export default function LabelsPage() {
                       <button className={styles.btnSmall} onClick={() => signContract(l)}>Contract Signed</button>
                     )}
                   </td>
+                  {canViewReleaseTags(profile) && (
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <ReleaseTagCategoryPicker
+                        styles={styles}
+                        category={LBL_CATEGORY}
+                        value={l.default_lbl_tag || null}
+                        canEdit={canEditReleaseTags(profile)}
+                        onChange={(code) => updateField(l, "default_lbl_tag", code)}
+                      />
+                    </td>
+                  )}
                   <td style={{ minWidth: 200 }}>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       {LABEL_HOP_TAC_OPTIONS.map((tag) => {
