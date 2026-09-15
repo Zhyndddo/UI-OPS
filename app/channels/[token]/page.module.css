@@ -12,17 +12,16 @@
    group needs a trailing "Other" column) outer columns, each a
    .column of stacked .block group cards. */
 
-/* Round 333 — brand logos on the right of the title row. Wraps under the
-   title on mobile (the row above is `flex-wrap: wrap`) rather than
-   squeezing both down to illegible size, per the standing "go vertical on
-   mobile" convention this whole page follows. */
+/* Round 333 — brand logos next to the title. Round 334 — sits right after
+   the title text now (flex-start row in page.js), not stretched/pinned
+   to the row's far edge — so no flex-grow or justify-content here
+   anymore, just a plain inline group that wraps under the title as one
+   unit on narrow widths. */
 .brandLogos {
   display: flex;
   align-items: center;
   gap: 14px;
-  flex: 1 1 auto;
-  justify-content: flex-end;
-  min-width: 200px;
+  flex-wrap: wrap;
 }
 
 .brandIcon {
@@ -36,12 +35,6 @@
   width: auto;
   max-width: 100%;
   flex-shrink: 0;
-}
-
-@media (max-width: 480px) {
-  .brandLogos {
-    justify-content: flex-start;
-  }
 }
 
 .grid {

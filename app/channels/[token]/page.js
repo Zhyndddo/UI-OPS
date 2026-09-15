@@ -303,20 +303,18 @@ export default function ChannelReferenceSharePage() {
             Canva embed, then the existing channel list — each section its
             own full-width block so nothing needs horizontal scroll on
             mobile ("go vertical... stretch to fit the mobile size"). */}
-        {/* Round 333 — brand logos on the right of the title row, filling
-            the empty space next to it ("all of the picture, on the right
-            of the title (fill in the free space)"). The icon reuses the
-            same VIEENT circular mark already shipped at
-            /vieent-logo-watermark.png (see lib/BottomBar.js) rather than
-            waiting on a new file. The wordmark ("VSounder empowered by
-            VIEENT") doesn't exist as a repo asset yet — chat image
-            uploads weren't coming through as readable files this session
-            — so it's wired to /brand/vsounder-wordmark-{theme}.png (theme
-            per the earlier explicit request: "named file based on
-            theme") with a broken-image fallback that just hides it until
-            those 2 files are dropped in at that path (light + dark
-            variants) from a clone with push access. */}
-        <div style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+        {/* Round 333 — brand logos next to the title. Round 334 — per
+            follow-up ("not on the right most, more like next to the
+            vsounder text flexible"), no longer pinned to the row's far
+            edge (was justify-content: space-between) — now a single
+            flex-start row where the logos sit right after the title text
+            and wrap together underneath it on narrow widths, instead of
+            splitting to opposite corners.
+            The wordmark files (light/dark) are real now — dropped in via
+            the device bridge at public/brand/vsounder-wordmark-*.png
+            (union-cropped + downscaled from the two 12500×12500 originals
+            the user shared: VSOUNDER-Logo2026-{light,dark} theme.png). */}
+        <div style={{ marginBottom: 20, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
           <div>
             <div className={styles.eyebrow}>// Channel Reference</div>
             <h1 className={styles.title} style={{ marginBottom: 0 }}>{intro.title || "Channel List"}</h1>
