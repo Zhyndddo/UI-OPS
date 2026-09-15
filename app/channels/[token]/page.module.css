@@ -245,14 +245,24 @@
   text-decoration: underline;
 }
 
-/* Round 327 — live Canva embed, replacing the old link-out. 16:9-ish
-   wrapper via padding-top trick (no aspect-ratio fallback needed) so the
-   iframe scales responsively instead of a fixed pixel height. */
+/* Round 327 — live Canva embed, replacing the old link-out. Round 330 —
+   per the screenshot report ("can we delete the black badge here?"), the
+   16:9 landscape box was too short for this design: Canva's own
+   presentation player (what /view?embed actually renders) reserves a
+   roughly fixed amount of vertical chrome and, when the box is short,
+   shows the edges of the adjacent slide above/below the current one
+   (visible as solid black bars, since this deck's other slides are
+   black-background) — that's Canva's own player content inside a
+   cross-origin iframe, not something our CSS can reach into and strip.
+   The only lever on our side is the box's shape; switched from a fixed
+   16:9 (too short for this content) to a tall, capped box so a full
+   slide has room to render without the neighboring slide peeking in.
+   This is a best-effort guess from the screenshot, not a verified fix —
+   no live device to click through and confirm. */
 .canvaEmbedWrap {
-  position: relative;
   width: 100%;
-  max-width: 720px;
-  padding-top: 56.25%;
+  max-width: 480px;
+  height: min(80vh, 760px);
   margin-top: 10px;
   border-radius: 8px;
   overflow: hidden;
@@ -260,8 +270,6 @@
 }
 
 .canvaEmbedFrame {
-  position: absolute;
-  inset: 0;
   width: 100%;
   height: 100%;
   border: none;
