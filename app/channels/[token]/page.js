@@ -295,9 +295,17 @@ export default function ChannelReferenceSharePage() {
   return (
     <div className={styles.page} data-theme={themeLock || undefined}>
       <div className={styles.container} style={{ maxWidth: 1200 }}>
+        {/* Round 332 — rebuilt as one shell, per explicit spec: eyebrow +
+            title (title now comes from the admin-set intro.title, falling
+            back to "Channel List" when unset — was previously a separate
+            heading duplicated inside the intro card), counter strip, a
+            plain full-width intro paragraph (no more boxed card), the
+            Canva embed, then the existing channel list — each section its
+            own full-width block so nothing needs horizontal scroll on
+            mobile ("go vertical... stretch to fit the mobile size"). */}
         <div style={{ marginBottom: 20 }}>
           <div className={styles.eyebrow}>// Channel Reference</div>
-          <h1 className={styles.title} style={{ marginBottom: 0 }}>Channel List</h1>
+          <h1 className={styles.title} style={{ marginBottom: 0 }}>{intro.title || "Channel List"}</h1>
         </div>
 
         {platformTallies.length > 0 && (
@@ -312,27 +320,25 @@ export default function ChannelReferenceSharePage() {
           </div>
         )}
 
-        {(intro.title || intro.text || intro.canvaUrl) && (
-          <div className={pageStyles.introBlock}>
-            {intro.title && <div className={pageStyles.introTitle}>{intro.title}</div>}
-            {intro.text && <div className={pageStyles.introText}>{intro.text}</div>}
-            {intro.canvaUrl && (
-              canvaEmbedSrc ? (
-                <div className={pageStyles.canvaEmbedWrap}>
-                  <iframe
-                    src={canvaEmbedSrc}
-                    loading="lazy"
-                    allow="fullscreen"
-                    allowFullScreen
-                    className={pageStyles.canvaEmbedFrame}
-                    title={intro.title || "Canva reference"}
-                  />
-                </div>
-              ) : (
-                <a href={intro.canvaUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
-                  Open reference →
-                </a>
-              )
+        {intro.text && <div className={pageStyles.introText}>{intro.text}</div>}
+
+        {intro.canvaUrl && (
+          <div className={pageStyles.canvaEmbedSection}>
+            {canvaEmbedSrc ? (
+              <div className={pageStyles.canvaEmbedWrap}>
+                <iframe
+                  src={canvaEmbedSrc}
+                  loading="lazy"
+                  allow="fullscreen"
+                  allowFullScreen
+                  className={pageStyles.canvaEmbedFrame}
+                  title={intro.title || "Canva reference"}
+                />
+              </div>
+            ) : (
+              <a href={intro.canvaUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
+                Open reference →
+              </a>
             )}
           </div>
         )}

@@ -207,29 +207,25 @@
 }
 
 /* Round 317 — configurable intro text block ("a configable text block,
-   config in the channel reference table") — a plain callout card above
-   the column grid, same surface/border language as .block so it reads
-   as part of this page rather than a bolted-on banner. */
-.introBlock {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-card);
-  padding: 14px 16px;
+   config in the channel reference table"). Round 332 — per explicit spec
+   ("intro only a text paragraph that stretch full shell"), dropped the
+   boxed card in favor of a plain full-width paragraph — the title that
+   used to sit inside this card is now the page's own <h1> (see page.js).
+   Sizes up slightly at desktop widths so it doesn't look undersized next
+   to the wider Canva embed sitting right below it. */
+.introText {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  max-width: 100%;
   margin-bottom: 20px;
 }
 
-.introTitle {
-  font-size: 20px;
-  font-weight: 800;
-  color: var(--text);
-  margin-bottom: 8px;
-}
-
-.introText {
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--text);
-  white-space: pre-wrap;
+@media (min-width: 769px) {
+  .introText {
+    font-size: 15px;
+  }
 }
 
 .introCanvaLink {
@@ -257,15 +253,34 @@
    whichever wrong") — this is guess #1 of 2, 2:3 (portrait, e.g. a
    1000×1500 poster/pin size). If this still shows black bars, the other
    candidate is 1:2 (aspect-ratio: 1 / 2) — a taller, narrower,
-   phone-story-like shape. */
+   phone-story-like shape.
+   Round 332 — per explicit spec, sized up on desktop ("on desktop it
+   should be bigger") and pinned to the full shell width on mobile ("on
+   mobile it go vertical... stretch to fit the mobile size") instead of a
+   flat 420px cap at every width. */
+.canvaEmbedSection {
+  margin-bottom: 20px;
+}
+
 .canvaEmbedWrap {
   width: 100%;
   max-width: 420px;
   aspect-ratio: 2 / 3;
-  margin-top: 10px;
   border-radius: 8px;
   overflow: hidden;
   border: 1px solid var(--border);
+}
+
+@media (min-width: 769px) {
+  .canvaEmbedWrap {
+    max-width: 560px;
+  }
+}
+
+@media (max-width: 768px) {
+  .canvaEmbedWrap {
+    max-width: 100%;
+  }
 }
 
 .canvaEmbedFrame {
