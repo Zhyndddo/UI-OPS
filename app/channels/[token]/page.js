@@ -308,19 +308,24 @@ export default function ChannelReferenceSharePage() {
             mobile ("go vertical... stretch to fit the mobile size"). */}
         {/* Round 333 — brand logos next to the title. Round 334 — sits
             right after the title text, not pinned to the row's far edge.
-            Round 335 — per explicit follow-up ("change the logo in place
-            of the page title too"), the logo lockup now IS the title —
-            no more separate "Channel List"/intro.title text heading next
-            to it. Still a real <h1> for accessibility/SEO (screen
-            readers get the wordmark's alt text as the page's heading);
-            falls back to visible text only if the wordmark image itself
-            fails to load, so the page never ends up with no heading at
-            all. */}
+            Round 335 — the logo lockup IS the title now — no more
+            separate "Channel List"/intro.title text heading next to it.
+            Still a real <h1> for accessibility/SEO (screen readers get
+            the wordmark's alt text as the page's heading); falls back to
+            visible text only if the wordmark image itself fails to load.
+            Round 336 — dropped the small standalone icon (the reused
+            /vieent-logo-watermark.png) entirely: per screenshot report
+            ("there is still a circle of white thing... must be a cut out
+            from somewhere"), that file's middle "window" is actually
+            blank — it never had the black glyph the wordmark's own inline
+            copy of the same mark has. Rather than ship a visibly broken
+            icon, the wordmark alone (which already includes a correct
+            small version of the mark in "empowered by VIEENT") is the
+            whole title now. */}
         <div style={{ marginBottom: 20 }}>
           <div className={styles.eyebrow}>// Channel Reference</div>
           <h1 style={{ marginBottom: 0 }}>
             <div className={pageStyles.brandLogos}>
-              <img src="/vieent-logo-watermark.png" alt="" className={pageStyles.brandIcon} />
               {wordmarkFailed ? (
                 <span className={styles.title} style={{ marginBottom: 0 }}>{intro.title || "Channel List"}</span>
               ) : (

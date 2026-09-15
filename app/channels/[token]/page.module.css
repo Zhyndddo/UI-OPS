@@ -23,12 +23,6 @@
   flex-wrap: wrap;
 }
 
-.brandIcon {
-  height: 48px;
-  width: auto;
-  flex-shrink: 0;
-}
-
 .brandWordmark {
   height: 56px;
   width: auto;
@@ -237,12 +231,23 @@
    boxed card in favor of a plain full-width paragraph — the title that
    used to sit inside this card is now the page's own <h1> (see page.js).
    Sizes up slightly at desktop widths so it doesn't look undersized next
-   to the wider Canva embed sitting right below it. */
+   to the wider Canva embed sitting right below it.
+   Round 336 — per explicit request ("make it go full scale matching the
+   width of the counter combined"), added a visible border/background so
+   the paragraph's true edge was checkable against the counter strip.
+   Round 337 — per explicit correction ("i want invisible box"), dropped
+   the border/background/padding again — this stays a plain paragraph,
+   not a card — but kept `display: block` + `width: 100%` explicit rather
+   than relying on the div's default block-level width, in case the
+   "still only half a page wide" symptom is this div shrink-wrapping to
+   its (short) text content instead of actually filling the container. */
 .introText {
+  display: block;
   font-size: 14px;
   line-height: 1.6;
   color: var(--text);
   white-space: pre-wrap;
+  width: 100%;
   max-width: 100%;
   margin-bottom: 20px;
 }
