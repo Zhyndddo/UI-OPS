@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
 import UrlField from "../../lib/UrlField";
-import { CHANNEL_REFERENCE_INTRO_KEY, readChannelReferenceIntro } from "../../lib/channelReferenceIntro";
+import { CHANNEL_REFERENCE_INTRO_KEY, readChannelReferenceIntro, serializeChannelReferenceIntro } from "../../lib/channelReferenceIntro";
 import styles from "../shared.module.css";
 
 const BOOKING_PLATFORMS = ["TikTok", "Facebook", "Instagram", "YouTube", "Thread"];
@@ -85,6 +85,7 @@ export default function BookingChannelsPage() {
   // an odd thin bar; per explicit request, moved into the same button row
   // as Export CSV / Refresh / Share Link, toggling a panel below instead.
   const [introPanelOpen, setIntroPanelOpen] = useState(false);
+  const [introSaveError, setIntroSaveError] = useState(null);
 
   useEffect(() => {
     if (!supabase) return;
@@ -225,14 +226,24 @@ export default function BookingChannelsPage() {
   // `title`. Blank title/text/canvaUrl all just clear that field's value
   // rather than refusing to save — "remove it" is a legitimate edit, not
   // an error.
+  //
+  // Round 329 — BUG FIX: was upserting the raw { title, text, canvaUrl }
+  // object straight into global_settings.value, but that column is plain
+  // `text` in production, not jsonb (see lib/channelReferenceIntro.js's
+  // header) — nothing ever actually round-tripped, so the magic link
+  // never showed what got "saved" here. Now serialized the same way
+  // every other global_settings setting in this app already does
+  // (JSON.stringify on write, JSON.parse on read).
   async function saveIntro() {
     setIntroSaving(true);
+    setIntroSaveError(null);
     const value = { title: introDraft.title.trim(), text: introDraft.text.trim(), canvaUrl: introDraft.canvaUrl.trim() };
     const { error } = await supabase
       .from("global_settings")
-      .upsert({ key: CHANNEL_REFERENCE_INTRO_KEY, value, updated_at: new Date().toISOString() }, { onConflict: "key" });
+      .upsert({ key: CHANNEL_REFERENCE_INTRO_KEY, value: serializeChannelReferenceIntro(value), updated_at: new Date().toISOString() }, { onConflict: "key" });
     setIntroSaving(false);
     if (!error) setIntroSaved(value);
+    else setIntroSaveError(error.message);
   }
 
   function startEdit(c) {
@@ -449,6 +460,9 @@ export default function BookingChannelsPage() {
           >
             {introSaving ? "Saving…" : "Save Intro"}
           </button>
+          {introSaveError && (
+            <span style={{ color: "var(--error-fg, #ff9d9d)", fontSize: 12, marginLeft: 10 }}>{introSaveError}</span>
+          )}
         </div>
         )}
 

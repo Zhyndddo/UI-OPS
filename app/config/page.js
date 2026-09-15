@@ -18,7 +18,7 @@ import { PITCHING_PIC_LIST_KEY, DEFAULT_PITCHING_PIC_LIST, parsePitchingPicList 
 import { MILESTONE_HIGHLIGHT_SETTING_KEY, DEFAULT_MILESTONE_HIGHLIGHT_CONFIG, parseMilestoneHighlightConfig } from "../../lib/milestoneHighlight";
 import { LABEL_TYPE_DEFINITIONS_SETTING_KEY, DEFAULT_LABEL_TYPE_DEFINITIONS, parseLabelTypeDefinitions } from "../../lib/labelTypeDefinitions";
 import { RELEASE_TAG_CATEGORIES } from "../../lib/releaseTags";
-import { MAGIC_LINK_THEME_LOCK_KEY, LOCKABLE_THEMES } from "../../lib/magicLinkThemeLock";
+import { MAGIC_LINK_THEME_LOCK_KEY, LOCKABLE_THEMES, serializeMagicLinkThemeLock } from "../../lib/magicLinkThemeLock";
 import { MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
 import { TEAM_SUBTEAMS } from "../../lib/teamTypes";
 import styles from "../shared.module.css";
@@ -1581,17 +1581,25 @@ function MagicLinkThemeSection() {
     load();
   }, []);
 
+  // Round 329 — BUG FIX: was reading/writing global_settings.value as a
+  // raw object, but that column is plain `text` in production — see
+  // lib/magicLinkThemeLock.js's header. Now parses/serializes explicitly.
   async function load() {
     setLoading(true);
     const { data } = await supabase.from("global_settings").select("value").eq("key", MAGIC_LINK_THEME_LOCK_KEY).maybeSingle();
-    setThemeValue(data?.value?.theme || "");
+    let theme = "";
+    try {
+      theme = (data?.value ? JSON.parse(data.value) : {})?.theme || "";
+    } catch {
+      theme = "";
+    }
+    setThemeValue(theme);
     setLoading(false);
   }
 
   async function setLock(next) {
     setThemeValue(next);
-    const value = next ? { theme: next } : {};
-    await supabase.from("global_settings").upsert({ key: MAGIC_LINK_THEME_LOCK_KEY, value, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    await supabase.from("global_settings").upsert({ key: MAGIC_LINK_THEME_LOCK_KEY, value: serializeMagicLinkThemeLock(next), updated_at: new Date().toISOString() }, { onConflict: "key" });
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   }
