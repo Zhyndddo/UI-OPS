@@ -2084,7 +2084,7 @@ function LabelTypeDefinitionsSection() {
   return (
     <div style={{ maxWidth: 720 }}>
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
-        What each Label Relationship (LBL_) tag actually means — shown as a popup from the Labels page's "LBL
+        What each Label Type (LBL_) tag actually means — shown as a popup from the Labels page's "LBL
         Tag" column header, so anyone referencing it can check without asking. To add/remove a code itself,
         that's a code change (RELEASE_TAG_CATEGORIES in lib/releaseTags.js) — this only edits each existing
         code's text.

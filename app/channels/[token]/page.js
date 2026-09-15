@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { readMagicLinkThemeLock } from "../../../lib/magicLinkThemeLock";
-import { readChannelReferenceIntro } from "../../../lib/channelReferenceIntro";
+import { readChannelReferenceIntro, toCanvaEmbedUrl } from "../../../lib/channelReferenceIntro";
 import styles from "../../shared.module.css";
 import pageStyles from "./page.module.css";
 
@@ -125,11 +125,15 @@ export default function ChannelReferenceSharePage() {
   // app/booking-channels/page.js, read here the same fail-open way
   // themeLock is above (blank text/canvaUrl just means the block
   // doesn't render — see the conditional in the JSX below).
-  const [intro, setIntro] = useState({ text: "", canvaUrl: "" });
+  const [intro, setIntro] = useState({ title: "", text: "", canvaUrl: "" });
   useEffect(() => {
     if (!supabase) return;
     readChannelReferenceIntro(supabase).then(setIntro);
   }, []);
+  // Round 327 — null when canvaUrl isn't an actual Canva link (or is
+  // blank), so the JSX falls back to a plain outbound link for anything
+  // else pasted in that field.
+  const canvaEmbedSrc = useMemo(() => toCanvaEmbedUrl(intro.canvaUrl), [intro.canvaUrl]);
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -308,13 +312,27 @@ export default function ChannelReferenceSharePage() {
           </div>
         )}
 
-        {(intro.text || intro.canvaUrl) && (
+        {(intro.title || intro.text || intro.canvaUrl) && (
           <div className={pageStyles.introBlock}>
+            {intro.title && <div className={pageStyles.introTitle}>{intro.title}</div>}
             {intro.text && <div className={pageStyles.introText}>{intro.text}</div>}
             {intro.canvaUrl && (
-              <a href={intro.canvaUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
-                View Canva reference →
-              </a>
+              canvaEmbedSrc ? (
+                <div className={pageStyles.canvaEmbedWrap}>
+                  <iframe
+                    src={canvaEmbedSrc}
+                    loading="lazy"
+                    allow="fullscreen"
+                    allowFullScreen
+                    className={pageStyles.canvaEmbedFrame}
+                    title={intro.title || "Canva reference"}
+                  />
+                </div>
+              ) : (
+                <a href={intro.canvaUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
+                  Open reference →
+                </a>
+              )
             )}
           </div>
         )}

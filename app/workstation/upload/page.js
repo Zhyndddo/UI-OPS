@@ -229,8 +229,19 @@ export default function UploadWorkstation() {
     return { done, notDone, cancel };
   }, [releases]);
 
+  // Round 325 — per explicit request ("any canceled also count as done and
+  // filtered out"): a Cancel-status release used to stay stuck in the
+  // default "still needs action" view forever, since isDone() deliberately
+  // returns false for it (it's its own separate bucket for the counter
+  // above). That's still correct for the DONE/NOT-DONE/CANCEL 3-way split
+  // shown in StatusCounter, but for the purposes of what the default view
+  // filters OUT, a canceled release isn't outstanding work either — same
+  // "Cancel isn't outstanding" rule app/task-table/page.js's own
+  // isUploadDone() already applies. showDone still reveals both Done AND
+  // Cancel rows when toggled on (unchanged — it was already the full,
+  // unfiltered list in that state).
   const filteredReleases = useMemo(() => {
-    const base = showDone ? releases : releases.filter((r) => !isDone(r));
+    const base = showDone ? releases : releases.filter((r) => !isDone(r) && !isCancel(r));
     return base.filter((r) => matchesQuery(r, query));
   }, [releases, showDone, query]);
 
@@ -252,7 +263,7 @@ export default function UploadWorkstation() {
             className={styles.btnSmall}
             style={{ marginBottom: 16 }}
           >
-            {showDone ? "Hide done rows" : `Show done rows (${counts.done})`}
+            {showDone ? "Hide done rows" : `Show done rows (${counts.done + counts.cancel})`}
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />

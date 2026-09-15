@@ -218,6 +218,13 @@
   margin-bottom: 20px;
 }
 
+.introTitle {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
 .introText {
   font-size: 13px;
   line-height: 1.5;
@@ -236,4 +243,26 @@
 
 .introCanvaLink:hover {
   text-decoration: underline;
+}
+
+/* Round 327 — live Canva embed, replacing the old link-out. 16:9-ish
+   wrapper via padding-top trick (no aspect-ratio fallback needed) so the
+   iframe scales responsively instead of a fixed pixel height. */
+.canvaEmbedWrap {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  padding-top: 56.25%;
+  margin-top: 10px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.canvaEmbedFrame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
 }

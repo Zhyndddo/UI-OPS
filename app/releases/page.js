@@ -1047,7 +1047,7 @@ export default function ReleasesDashboard() {
             orderedColumns={colVis.orderedColumns}
             isVisible={colVis.isVisible}
             toggle={colVis.toggle}
-            move={colVis.move}
+            moveTo={colVis.moveTo}
             reset={colVis.reset}
           />
           <button

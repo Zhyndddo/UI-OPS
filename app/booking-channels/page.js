@@ -78,8 +78,8 @@ export default function BookingChannelsPage() {
   // in-progress edit; `introSaved` is what's actually live on the magic
   // link right now, so "Save" can be disabled when there's nothing new
   // to push.
-  const [introDraft, setIntroDraft] = useState({ text: "", canvaUrl: "" });
-  const [introSaved, setIntroSaved] = useState({ text: "", canvaUrl: "" });
+  const [introDraft, setIntroDraft] = useState({ title: "", text: "", canvaUrl: "" });
+  const [introSaved, setIntroSaved] = useState({ title: "", text: "", canvaUrl: "" });
   const [introSaving, setIntroSaving] = useState(false);
 
   useEffect(() => {
@@ -217,12 +217,13 @@ export default function BookingChannelsPage() {
     setMintedLinkUrl(`${window.location.origin}/channels/${data.token}`);
   }
 
-  // Round 317 — saves the magic link's intro text block. Blank text AND
-  // blank canvaUrl both just clear the row's value rather than refusing
-  // to save — "remove it" is a legitimate edit, not an error.
+  // Round 317 — saves the magic link's intro block. Round 327 added
+  // `title`. Blank title/text/canvaUrl all just clear that field's value
+  // rather than refusing to save — "remove it" is a legitimate edit, not
+  // an error.
   async function saveIntro() {
     setIntroSaving(true);
-    const value = { text: introDraft.text.trim(), canvaUrl: introDraft.canvaUrl.trim() };
+    const value = { title: introDraft.title.trim(), text: introDraft.text.trim(), canvaUrl: introDraft.canvaUrl.trim() };
     const { error } = await supabase
       .from("global_settings")
       .upsert({ key: CHANNEL_REFERENCE_INTRO_KEY, value, updated_at: new Date().toISOString() }, { onConflict: "key" });
@@ -390,14 +391,24 @@ export default function BookingChannelsPage() {
             editing this before there's a link to put it on is possible
             too (nothing gates the save itself), but this keeps it out of
             the way visually until it's relevant. */}
-        <details style={{ marginBottom: 16, border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px" }} open={!!(introSaved.text || introSaved.canvaUrl)}>
+        <details style={{ marginBottom: 16, border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px" }} open={!!(introSaved.title || introSaved.text || introSaved.canvaUrl)}>
           <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 700, color: "var(--text-muted)" }}>
-            Magic Link Intro Text {introSaved.text || introSaved.canvaUrl ? "" : "(not set)"}
+            Magic Link Intro {introSaved.title || introSaved.text || introSaved.canvaUrl ? "" : "(not set)"}
           </summary>
           <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 8, marginBottom: 10 }}>
-            Shown at the top of the public Channel Reference link (/channels/…), above the channel groups. Leave
-            either field blank to leave that part off the link.
+            Shown at the top of the public Channel Reference link (/channels/…), in this order: title, then intro
+            text, then the Canva embed, then the channel list (unchanged, below). Leave any field blank to leave
+            that part off the link.
           </p>
+          <div className={styles.field} style={{ marginBottom: 10, maxWidth: 420 }}>
+            <label className={styles.fieldLabel}>Title</label>
+            <input
+              className={styles.input}
+              placeholder="vd: VSOUNDER — Channel Reference"
+              value={introDraft.title}
+              onChange={(e) => setIntroDraft((prev) => ({ ...prev, title: e.target.value }))}
+            />
+          </div>
           <div className={styles.field} style={{ marginBottom: 10 }}>
             <label className={styles.fieldLabel}>Intro Text</label>
             <textarea
@@ -409,7 +420,7 @@ export default function BookingChannelsPage() {
             />
           </div>
           <div className={styles.field} style={{ marginBottom: 10, maxWidth: 420 }}>
-            <label className={styles.fieldLabel}>Related Canva URL</label>
+            <label className={styles.fieldLabel}>Canva Embed URL</label>
             <UrlField
               value={introDraft.canvaUrl}
               onChange={(v) => setIntroDraft((prev) => ({ ...prev, canvaUrl: v }))}
@@ -417,14 +428,18 @@ export default function BookingChannelsPage() {
               placeholder="https://www.canva.com/design/…"
               wide
             />
+            <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4 }}>
+              A Canva share/view link renders live on the magic link. Any other URL shows as a plain "open" link
+              instead (most non-Canva sites block being embedded).
+            </p>
           </div>
           <button
             type="button"
             className={styles.btnSecondary}
             onClick={saveIntro}
-            disabled={introSaving || (introDraft.text === introSaved.text && introDraft.canvaUrl === introSaved.canvaUrl)}
+            disabled={introSaving || (introDraft.title === introSaved.title && introDraft.text === introSaved.text && introDraft.canvaUrl === introSaved.canvaUrl)}
           >
-            {introSaving ? "Saving…" : "Save Intro Text"}
+            {introSaving ? "Saving…" : "Save Intro"}
           </button>
         </details>
 

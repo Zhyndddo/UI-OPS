@@ -11,6 +11,8 @@ import {
   TEAM_TICKET_TYPES, TEAM_WORKSTATION_TYPES, resolveTeamKey, isOpsTeam,
 } from "../../lib/teamTypes";
 import { TASK_PHASES, phaseForColumn } from "../../lib/taskPhases";
+import { effectiveSubteamTags } from "../../lib/releaseTags";
+import { SUBTEAM_TAG_TEAM } from "../../lib/permissions";
 import SearchBox from "../../lib/SearchBox";
 import styles from "../shared.module.css";
 
@@ -242,6 +244,42 @@ async function loadWorkstationCounts(map) {
   });
 }
 
+// Round 325 — Marketing's "Dự Án" count, per explicit request: "if it has
+// a team (brand) like indie, envi, count toward their subteam in the task
+// table." Unlike every other column here, a dự án (release) isn't
+// assigned to one Marketing PERSON — it's tagged to a SUBTEAM (INDIE/
+// VPOP/ENVI/VIEENT — see effectiveSubteamTags, lib/releaseTags.js). Per
+// explicit decisions this round: (1) every release CURRENTLY carrying a
+// subteam's tag counts, full stop — no "still outstanding"/done concept
+// exists for this, unlike every ticket/workstation column; (2) a release
+// tagged with more than one subteam counts fully toward EACH of them, not
+// split; (3) the count is a shared, subteam-wide number — every member
+// who belongs to a given subteam (profile.subteam) sees the exact same
+// number and the exact same drill-down list under the one fixed column id
+// "subteam:project", reusing the existing bumpItem/countOf machinery as-is
+// (bumping the SAME items array onto every member of that subteam) rather
+// than needing any new per-column rendering logic in TeamSection/
+// MyTasksView.
+async function loadSubteamProjectCounts(map, profiles) {
+  const { data: releases } = await fetchAllRows(() =>
+    supabase.from("releases").select("id, did, title, tags").order("id")
+  );
+  const marketingMembersBySubteam = {};
+  (profiles || []).forEach((p) => {
+    if (p.segment !== SUBTEAM_TAG_TEAM || !p.subteam) return;
+    if (!marketingMembersBySubteam[p.subteam]) marketingMembersBySubteam[p.subteam] = [];
+    marketingMembersBySubteam[p.subteam].push(p.id);
+  });
+  (releases || []).forEach((r) => {
+    const item = { id: r.id, label: releaseLabel(r), href: `/releases/${r.id}` };
+    effectiveSubteamTags(r).forEach((subteamName) => {
+      (marketingMembersBySubteam[subteamName] || []).forEach((memberId) => {
+        bumpItem(map, memberId, "subteam:project", item);
+      });
+    });
+  });
+}
+
 // Same team/type ownership lookup as before, except "confirm" (Re-Check)
 // now expands into its two real phase columns instead of one merged one —
 // see the Round 250 comment on loadWorkstationCounts above.
@@ -259,7 +297,25 @@ function columnsForTeam(segment) {
       return [{ id: `workstation:${k}`, name: WORKSTATION_TYPE_LABELS[k] || k, href: WORKSTATION_ROUTES[k] }];
     });
   const ticketCols = TICKET_KEYS.filter((k) => (TEAM_TICKET_TYPES[resolved] || []).includes(k)).map((k) => ({ id: `ticket:${k}`, name: TICKET_TYPE_LABELS[k] || k, href: TICKET_ROUTES[k] }));
-  return [...wsCols, ...ticketCols];
+  // Round 325 — "Khác" ("khac") is deliberately NOT in TEAM_TICKET_TYPES
+  // for any team (it's shared/"Tất cả" — see lib/teamTypes.js's
+  // SHARED_TICKET_TYPES), so it's added here directly instead, for every
+  // team, rather than by editing that per-team ownership list (a
+  // different concern — which team's Tickets switcher shows it). Safe to
+  // show unconditionally: loadTicketCounts's existing generic PIC-bump
+  // logic already only attributes a Khác ticket to someone when it has a
+  // real PIC, and the only Khác tickets that ever get one are "Self Task"
+  // ones (see lib/NewTicketPage.js) — which only ever attribute to their
+  // OWN requester. A member never sees someone else's personal note
+  // count show up here, by construction.
+  const khacCol = [{ id: "ticket:khac", name: "Self Tasks (Khác)", href: TICKET_ROUTES.khac }];
+  // Round 325 — Marketing-only "Dự Án" column (see
+  // loadSubteamProjectCounts's comment above) — every INDIE/VPOP/ENVI/
+  // VIEENT member's row shows their own subteam's tagged-release count.
+  // Points at /releases (no query string — this app's release filters
+  // aren't URL-driven) rather than a nonexistent per-subteam route.
+  const subteamProjectCol = resolved === SUBTEAM_TAG_TEAM ? [{ id: "subteam:project", name: "Dự Án", href: "/releases" }] : [];
+  return [...wsCols, ...ticketCols, ...khacCol, ...subteamProjectCol];
 }
 
 function unsupportedWorkstationsForTeam(segment) {
@@ -624,7 +680,7 @@ export default function TaskTablePage() {
       setProfiles(profs || []);
       const map = {};
       const reqMap = {};
-      await Promise.all([loadTicketCounts(map, reqMap), loadWorkstationCounts(map)]);
+      await Promise.all([loadTicketCounts(map, reqMap), loadWorkstationCounts(map), loadSubteamProjectCounts(map, profs || [])]);
       setMemberItems(map);
       setRequesterItems(reqMap);
       setLoading(false);

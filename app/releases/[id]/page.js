@@ -2616,7 +2616,7 @@ function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requir
               header row uses. */}
           {showLblTag && resolveLblTag(releaseTags, labelRow) && (
             <div style={{ marginTop: -8, marginBottom: 16 }}>
-              <label className={styles.fieldLabel}>Label Relationship</label>
+              <label className={styles.fieldLabel}>Label Type</label>
               <div style={{ marginTop: 4 }}>
                 <span className={`${styles.pill} ${releaseTagPillClass(styles, resolveLblTag(releaseTags, labelRow))}`} title={releaseTagInfo(resolveLblTag(releaseTags, labelRow)).label}>
                   {releaseTagInfo(resolveLblTag(releaseTags, labelRow)).short}

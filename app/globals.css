@@ -82,6 +82,54 @@
   }
 }
 
+/* Round 325 — explicit "dark" selector, added alongside [data-theme="light"]
+   and [data-theme="zhyn"] below it. Bug fix: the magic link theme lock
+   (Config -> Magic Link Theme, lib/magicLinkThemeLock.js) sets
+   data-theme={themeLock} on a DIV NESTED inside <body>, not on <html> —
+   ThemeContext.js still separately sets data-theme on <html> from the
+   VISITOR's own browser localStorage. Locking to "light" or "zhyn" always
+   worked, because those values have their own selector here that matches
+   the div directly and redefines the color vars right on it. Locking to
+   "dark" silently did nothing: there was no [data-theme="dark"] rule at
+   all — dark only ever "worked" via :root, which strictly means the
+   <html> element, never a descendant — so the div just kept INHERITING
+   whatever the visitor's own <html data-theme> already resolved to (their
+   own saved theme, e.g. "light"), which is exactly the "current theme I'm
+   using is overriding it" symptom reported. This block is a straight
+   duplicate of :root's color vars (not the non-color vars like
+   --topbar-height, which aren't theme-driven) so "dark" can now be
+   explicitly selected on any element, the same way "light"/"zhyn" already
+   could. */
+[data-theme="dark"] {
+  --bg: #0a0a0a;
+  --bg-body: #0b0b0b;
+  --bg-card: #121212;
+  --bg-input: #141414;
+  --bg-hover: #111111;
+  --border: #262626;
+  --border-strong: #333333;
+  --text: #f4f4f4;
+  --text-muted: #999999;
+  --text-faint: #666666;
+  --text-dim: #555555;
+  --accent: #ff6b1a;
+  --accent-soft: #ff9d5c;
+  --accent-on: #0a0a0a;
+  --success-bg: rgba(76, 175, 80, 0.15);
+  --success-fg: #7ee6a8;
+  --warn-bg: rgba(255, 193, 7, 0.15);
+  --warn-fg: #ffca4d;
+  --error-bg: #2a1212;
+  --error-border: #5a2323;
+  --error-fg: #ff9d9d;
+  --highlight-bg: #2a1c0f;
+  --highlight-row-tint: rgba(255, 107, 26, 0.08);
+  --highlight-text: #ffffff;
+  --highlight-text-faint: #ffcb9a;
+  --missing-highlight: #9d00ff;
+  --missing-highlight-bg: rgba(157, 0, 255, 0.12);
+}
+
 [data-theme="light"] {
   /* Round 69 correction — the earlier "grey to almost-black, white to
      eggshell" pass (see git history) made the page body/cards a yellowish
