@@ -134,6 +134,9 @@ export default function ChannelReferenceSharePage() {
   // blank), so the JSX falls back to a plain outbound link for anything
   // else pasted in that field.
   const canvaEmbedSrc = useMemo(() => toCanvaEmbedUrl(intro.canvaUrl), [intro.canvaUrl]);
+  // Round 335 — text fallback for the title row if the wordmark image
+  // itself 404s/fails, so the page's <h1> is never empty.
+  const [wordmarkFailed, setWordmarkFailed] = useState(false);
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -303,31 +306,33 @@ export default function ChannelReferenceSharePage() {
             Canva embed, then the existing channel list — each section its
             own full-width block so nothing needs horizontal scroll on
             mobile ("go vertical... stretch to fit the mobile size"). */}
-        {/* Round 333 — brand logos next to the title. Round 334 — per
-            follow-up ("not on the right most, more like next to the
-            vsounder text flexible"), no longer pinned to the row's far
-            edge (was justify-content: space-between) — now a single
-            flex-start row where the logos sit right after the title text
-            and wrap together underneath it on narrow widths, instead of
-            splitting to opposite corners.
-            The wordmark files (light/dark) are real now — dropped in via
-            the device bridge at public/brand/vsounder-wordmark-*.png
-            (union-cropped + downscaled from the two 12500×12500 originals
-            the user shared: VSOUNDER-Logo2026-{light,dark} theme.png). */}
-        <div style={{ marginBottom: 20, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
-          <div>
-            <div className={styles.eyebrow}>// Channel Reference</div>
-            <h1 className={styles.title} style={{ marginBottom: 0 }}>{intro.title || "Channel List"}</h1>
-          </div>
-          <div className={pageStyles.brandLogos}>
-            <img src="/vieent-logo-watermark.png" alt="" className={pageStyles.brandIcon} />
-            <img
-              src={`/brand/vsounder-wordmark-${themeLock || "dark"}.png`}
-              alt="VSounder — empowered by VIEENT"
-              className={pageStyles.brandWordmark}
-              onError={(e) => { e.currentTarget.style.display = "none"; }}
-            />
-          </div>
+        {/* Round 333 — brand logos next to the title. Round 334 — sits
+            right after the title text, not pinned to the row's far edge.
+            Round 335 — per explicit follow-up ("change the logo in place
+            of the page title too"), the logo lockup now IS the title —
+            no more separate "Channel List"/intro.title text heading next
+            to it. Still a real <h1> for accessibility/SEO (screen
+            readers get the wordmark's alt text as the page's heading);
+            falls back to visible text only if the wordmark image itself
+            fails to load, so the page never ends up with no heading at
+            all. */}
+        <div style={{ marginBottom: 20 }}>
+          <div className={styles.eyebrow}>// Channel Reference</div>
+          <h1 style={{ marginBottom: 0 }}>
+            <div className={pageStyles.brandLogos}>
+              <img src="/vieent-logo-watermark.png" alt="" className={pageStyles.brandIcon} />
+              {wordmarkFailed ? (
+                <span className={styles.title} style={{ marginBottom: 0 }}>{intro.title || "Channel List"}</span>
+              ) : (
+                <img
+                  src={`/brand/vsounder-wordmark-${themeLock || "dark"}.png`}
+                  alt={intro.title || "VSounder"}
+                  className={pageStyles.brandWordmark}
+                  onError={() => setWordmarkFailed(true)}
+                />
+              )}
+            </div>
+          </h1>
         </div>
 
         {platformTallies.length > 0 && (
