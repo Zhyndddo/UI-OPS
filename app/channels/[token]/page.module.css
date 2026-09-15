@@ -11,6 +11,39 @@
    not CSS auto-flow), so .grid is now just the 3 (or 4, if an unknown
    group needs a trailing "Other" column) outer columns, each a
    .column of stacked .block group cards. */
+
+/* Round 333 — brand logos on the right of the title row. Wraps under the
+   title on mobile (the row above is `flex-wrap: wrap`) rather than
+   squeezing both down to illegible size, per the standing "go vertical on
+   mobile" convention this whole page follows. */
+.brandLogos {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  min-width: 200px;
+}
+
+.brandIcon {
+  height: 40px;
+  width: auto;
+  flex-shrink: 0;
+}
+
+.brandWordmark {
+  height: 44px;
+  width: auto;
+  max-width: 100%;
+  flex-shrink: 0;
+}
+
+@media (max-width: 480px) {
+  .brandLogos {
+    justify-content: flex-start;
+  }
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

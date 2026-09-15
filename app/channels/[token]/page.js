@@ -303,9 +303,33 @@ export default function ChannelReferenceSharePage() {
             Canva embed, then the existing channel list — each section its
             own full-width block so nothing needs horizontal scroll on
             mobile ("go vertical... stretch to fit the mobile size"). */}
-        <div style={{ marginBottom: 20 }}>
-          <div className={styles.eyebrow}>// Channel Reference</div>
-          <h1 className={styles.title} style={{ marginBottom: 0 }}>{intro.title || "Channel List"}</h1>
+        {/* Round 333 — brand logos on the right of the title row, filling
+            the empty space next to it ("all of the picture, on the right
+            of the title (fill in the free space)"). The icon reuses the
+            same VIEENT circular mark already shipped at
+            /vieent-logo-watermark.png (see lib/BottomBar.js) rather than
+            waiting on a new file. The wordmark ("VSounder empowered by
+            VIEENT") doesn't exist as a repo asset yet — chat image
+            uploads weren't coming through as readable files this session
+            — so it's wired to /brand/vsounder-wordmark-{theme}.png (theme
+            per the earlier explicit request: "named file based on
+            theme") with a broken-image fallback that just hides it until
+            those 2 files are dropped in at that path (light + dark
+            variants) from a clone with push access. */}
+        <div style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+          <div>
+            <div className={styles.eyebrow}>// Channel Reference</div>
+            <h1 className={styles.title} style={{ marginBottom: 0 }}>{intro.title || "Channel List"}</h1>
+          </div>
+          <div className={pageStyles.brandLogos}>
+            <img src="/vieent-logo-watermark.png" alt="" className={pageStyles.brandIcon} />
+            <img
+              src={`/brand/vsounder-wordmark-${themeLock || "dark"}.png`}
+              alt="VSounder — empowered by VIEENT"
+              className={pageStyles.brandWordmark}
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
+            />
+          </div>
         </div>
 
         {platformTallies.length > 0 && (
