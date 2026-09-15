@@ -81,6 +81,10 @@ export default function BookingChannelsPage() {
   const [introDraft, setIntroDraft] = useState({ title: "", text: "", canvaUrl: "" });
   const [introSaved, setIntroSaved] = useState({ title: "", text: "", canvaUrl: "" });
   const [introSaving, setIntroSaving] = useState(false);
+  // Round 328 — was a <details>/<summary> disclosure sitting on its own as
+  // an odd thin bar; per explicit request, moved into the same button row
+  // as Export CSV / Refresh / Share Link, toggling a panel below instead.
+  const [introPanelOpen, setIntroPanelOpen] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
@@ -368,6 +372,14 @@ export default function BookingChannelsPage() {
           >
             {mintingLink ? "Creating…" : "🔗 Share Link"}
           </button>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            onClick={() => setIntroPanelOpen((o) => !o)}
+            title="Title, intro text, and Canva embed shown at the top of the public Channel Reference link."
+          >
+            ✎ Magic Link Intro {introSaved.title || introSaved.text || introSaved.canvaUrl ? "" : "(not set)"}
+          </button>
         </div>
 
         {mintedLinkUrl && (
@@ -386,16 +398,12 @@ export default function BookingChannelsPage() {
         )}
 
         {/* Round 317 — the magic link's intro text block, per explicit
-            team request. Only shown once a share link has ever been
-            minted (mintedLinkUrl OR a previously-saved value exists) —
-            editing this before there's a link to put it on is possible
-            too (nothing gates the save itself), but this keeps it out of
-            the way visually until it's relevant. */}
-        <details style={{ marginBottom: 16, border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px" }} open={!!(introSaved.title || introSaved.text || introSaved.canvaUrl)}>
-          <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 700, color: "var(--text-muted)" }}>
-            Magic Link Intro {introSaved.title || introSaved.text || introSaved.canvaUrl ? "" : "(not set)"}
-          </summary>
-          <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 8, marginBottom: 10 }}>
+            team request. Round 328 — toggled from the "✎ Magic Link Intro"
+            button above (was a standalone <details> disclosure) so it
+            reads as one of the row's actions instead of its own bar. */}
+        {introPanelOpen && (
+        <div style={{ marginBottom: 16, border: "1px solid var(--border)", borderRadius: 8, padding: "14px" }}>
+          <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 0, marginBottom: 10 }}>
             Shown at the top of the public Channel Reference link (/channels/…), in this order: title, then intro
             text, then the Canva embed, then the channel list (unchanged, below). Leave any field blank to leave
             that part off the link.
@@ -441,7 +449,8 @@ export default function BookingChannelsPage() {
           >
             {introSaving ? "Saving…" : "Save Intro"}
           </button>
-        </details>
+        </div>
+        )}
 
         {refreshResult && (
           <div className={styles.errorBox} style={{ marginBottom: 16, background: refreshResult.error ? undefined : "var(--bg-hover)", borderColor: refreshResult.error ? undefined : "var(--border-strong)", color: refreshResult.error ? undefined : "var(--text-muted)" }}>
