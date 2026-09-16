@@ -559,9 +559,21 @@ export default function ChannelReferenceSharePage() {
                     </table>
                   </div>
                 )}
-                <a href={intro.sheetUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
-                  View full sheet →
-                </a>
+                {/* Round 342 — BUG FIX ("there are two View full sheet
+                    and click for more detail. serving the same thing"):
+                    this link and the "Click for more detail" link below
+                    are two different admin-set fields (intro.sheetUrl vs.
+                    the Distribution Support row's own url) that just
+                    happen to often be set to the same URL — rather than
+                    delete one outright (they CAN legitimately differ —
+                    e.g. the sheet embedded here vs. a separate page with
+                    more context), only show this one when it actually
+                    points somewhere different from the detail link below. */}
+                {intro.sheetUrl !== distributionRow?.url && (
+                  <a href={intro.sheetUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
+                    View full sheet →
+                  </a>
+                )}
               </div>
             ) : (
               <div className={pageStyles.sheetStatus}>No sheet configured yet — add a Google Sheet URL in Magic Link Intro.</div>
