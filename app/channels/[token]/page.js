@@ -65,22 +65,29 @@ const GROUP_META = [
 ];
 const DEFAULT_GROUP_META = { accent: "#9a9a9a", accentBg: "rgba(154, 154, 154, 0.14)" };
 
+// Round 340 — Distribution Support is no longer one of the channel-list
+// groups at all: per explicit request ("remove the table Distribution
+// Support - MEDIA BOOKING CHANNEL, one of the table, which only have 1
+// row and its an external url, click to redirect"), it moved to its own
+// second tab entirely (see the tab JSX below) rather than riding along in
+// the VPOP - MANSTREAM column. Its one row's `url`/`name` (read straight
+// out of channelsByGroup, same live data this page already loads — never
+// hardcoded) becomes that tab's "Click for more detail" link.
+const DISTRIBUTION_GROUP = "Distribution Support - MEDIA BOOKING CHANNEL";
+
 // Round 313 — per explicit request, the page's already-existing groups
 // (Round 311's GROUP_META, unchanged) get bundled under 3 super-columns
 // instead of auto-flowing into whichever of the 3 CSS grid columns they
 // happen to land in. Each entry's `groups` are stacked top-to-bottom in
-// that column, in that order; `setApart` names a group that still lives
-// in this column but should read as visually separate from the rest
-// (Distribution Support rides along in VPOP - MANSTREAM but "not in the
-// group" — see the .blockSetApart CSS rule). Any GROUP_META group not
-// listed in any column here — or a channel_group value this page has
-// never heard of at all — still isn't dropped: it falls into a trailing
-// "Other" column, same never-silently-drop guarantee Round 311 had.
+// that column, in that order. Any GROUP_META group not listed in any
+// column here — or a channel_group value this page has never heard of at
+// all — still isn't dropped: it falls into a trailing "Other" column,
+// same never-silently-drop guarantee Round 311 had (DISTRIBUTION_GROUP is
+// the one deliberate exception — see its own tab instead).
 const COLUMN_META = [
   {
     label: "VPOP - MANSTREAM",
-    groups: ["VIEENT - SOCIAL", "VPOP - COMMUNITY", "VPOP - TIKTOK", "Distribution Support - MEDIA BOOKING CHANNEL"],
-    setApart: ["Distribution Support - MEDIA BOOKING CHANNEL"],
+    groups: ["VIEENT - SOCIAL", "VPOP - COMMUNITY", "VPOP - TIKTOK"],
   },
   {
     label: "INDIE",
@@ -272,7 +279,12 @@ export default function ChannelReferenceSharePage() {
   // never-silently-drop convention GROUP_META/COLUMN_META use.
   const platformTallies = useMemo(() => {
     const byPlatform = {};
-    Object.values(channelsByGroup).forEach((rows) => {
+    Object.entries(channelsByGroup).forEach(([group, rows]) => {
+      // Round 340 — Distribution Support moved to its own tab (see
+      // DISTRIBUTION_GROUP above) and isn't a real channel anyway (its
+      // one row is just an external redirect link), so it no longer
+      // counts toward this tab's per-platform summary.
+      if (group === DISTRIBUTION_GROUP) return;
       (rows || []).forEach((c) => {
         const p = c.platform || "Unknown";
         if (!byPlatform[p]) byPlatform[p] = { platform: p, count: 0, followerSum: 0 };
@@ -287,6 +299,25 @@ export default function ChannelReferenceSharePage() {
       .map((p) => byPlatform[p]);
     return [...known, ...unknown];
   }, [channelsByGroup]);
+
+  // Round 340 — two-tab page: "vsounder" (the channel reference — same
+  // content as before, minus Distribution Support) and "distribution"
+  // (the new Google Sheet preview tab, replacing that removed group).
+  // Both tab titles stay mounted at all times (see the JSX below) so the
+  // size/opacity swap between them can transition smoothly instead of
+  // one unmounting and the other popping in — clicking EITHER title just
+  // flips to the other tab, since with only two tabs that's unambiguous
+  // either way you read "click the title to switch."
+  const [activeTab, setActiveTab] = useState("vsounder");
+  function toggleTab() {
+    setActiveTab((t) => (t === "vsounder" ? "distribution" : "vsounder"));
+  }
+
+  // Round 340 — the Distribution Support group's one row IS the redirect
+  // link for the new tab ("the external link we already used to
+  // redirect") — read live off the same channelsByGroup data the old
+  // group block used, never hardcoded.
+  const distributionRow = (channelsByGroup[DISTRIBUTION_GROUP] || [])[0] || null;
 
   if (loading) {
     return <div className={styles.page} data-theme={themeLock || undefined}><div className={styles.container} style={{ maxWidth: 1200 }}>Loading…</div></div>;
@@ -361,42 +392,50 @@ export default function ChannelReferenceSharePage() {
   // Groups this page has data for but that aren't claimed by any of the
   // 3 fixed columns above — an unrecognized channel_group value. Still
   // rendered, just appended as a trailing "Other" column rather than
-  // silently dropped.
-  const otherGroups = groupOrder.filter((g) => !COLUMN_ASSIGNED_GROUPS.has(g));
+  // silently dropped. DISTRIBUTION_GROUP is deliberately excluded here
+  // too (Round 340) — it's not an "unclaimed" group, it moved to its own
+  // tab on purpose.
+  const otherGroups = groupOrder.filter((g) => !COLUMN_ASSIGNED_GROUPS.has(g) && g !== DISTRIBUTION_GROUP);
 
   return (
     <div className={styles.page} data-theme={themeLock || undefined}>
       <div className={styles.container} style={{ maxWidth: 1200 }}>
-        {/* Round 332 — rebuilt as one shell, per explicit spec: eyebrow +
-            title (title now comes from the admin-set intro.title, falling
-            back to "Channel List" when unset — was previously a separate
-            heading duplicated inside the intro card), counter strip, a
-            plain full-width intro paragraph (no more boxed card), the
-            Canva embed, then the existing channel list — each section its
-            own full-width block so nothing needs horizontal scroll on
-            mobile ("go vertical... stretch to fit the mobile size"). */}
-        {/* Round 333 — brand logos next to the title. Round 334 — sits
-            right after the title text, not pinned to the row's far edge.
-            Round 335 — the logo lockup IS the title now — no more
-            separate "Channel List"/intro.title text heading next to it.
-            Still a real <h1> for accessibility/SEO (screen readers get
-            the wordmark's alt text as the page's heading); falls back to
-            visible text only if the wordmark image itself fails to load.
-            Round 336 — dropped the small standalone icon (the reused
-            /vieent-logo-watermark.png) entirely: per screenshot report
-            ("there is still a circle of white thing... must be a cut out
-            from somewhere"), that file's middle "window" is actually
-            blank — it never had the black glyph the wordmark's own inline
-            copy of the same mark has. Rather than ship a visibly broken
-            icon, the wordmark alone (which already includes a correct
-            small version of the mark in "empowered by VIEENT") is the
-            whole title now. */}
-        <div style={{ marginBottom: 20 }}>
-          <div className={styles.eyebrow}>// Channel Reference</div>
-          <h1 style={{ marginBottom: 0 }}>
-            <div className={pageStyles.brandLogos}>
+        {/* Round 332 — rebuilt as one shell. Round 340 — rebuilt again into
+            two tabs ("turn the page into two tab page... each tab have
+            some kind of a frame so they know what page they are on"):
+            "vsounder" (this page's original content, minus Distribution
+            Support) and "distribution" (the Round 339 Google Sheet
+            preview + a click-through, replacing that removed group). A
+            real <h1> (visually hidden) names whichever tab is active for
+            accessibility/SEO — decoupled from the two animated visual
+            titles below it, so swapping tabs never remounts either title
+            element (needed for the transition to actually animate
+            instead of popping). */}
+        <h1 className={pageStyles.srOnly}>
+          {activeTab === "vsounder" ? intro.title || "VSounder — Channel Reference" : "[Distribution Support] MEDIA BOOKING 2026"}
+        </h1>
+
+        {/* Round 340 — the two-title tab switcher: current tab's title
+            grows and sits on top, the other shrinks and sits tucked
+            below-and-to-the-side (not a subtitle — the offset + dimmed
+            color reads as "the other tab," not "a caption for this one").
+            Both titles stay mounted always; only CSS classes toggle, so
+            font-size/opacity/image-height all transition instead of
+            snapping. Clicking EITHER title flips to the other tab — with
+            only two tabs, "switch to the other" is the same action no
+            matter which one you click. */}
+        <div className={pageStyles.tabHeader}>
+          <div className={pageStyles.tabEyebrow}>{activeTab === "vsounder" ? "// Channel Reference" : "// Distribution Support"}</div>
+          <div className={pageStyles.tabTitleRow} role="tablist" aria-label="Page section">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "vsounder"}
+              className={`${pageStyles.tabTitleBtn} ${activeTab === "vsounder" ? pageStyles.tabTitleActive : pageStyles.tabTitleInactive}`}
+              onClick={toggleTab}
+            >
               {wordmarkFailed ? (
-                <span className={styles.title} style={{ marginBottom: 0 }}>{intro.title || "Channel List"}</span>
+                <span className={pageStyles.tabTitleText}>{intro.title || "VSounder"}</span>
               ) : (
                 <img
                   src={`/brand/vsounder-wordmark-${themeLock || "dark"}.png`}
@@ -405,112 +444,146 @@ export default function ChannelReferenceSharePage() {
                   onError={() => setWordmarkFailed(true)}
                 />
               )}
-            </div>
-          </h1>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "distribution"}
+              className={`${pageStyles.tabTitleBtn} ${activeTab === "distribution" ? pageStyles.tabTitleActive : pageStyles.tabTitleInactive}`}
+              onClick={toggleTab}
+            >
+              <span className={pageStyles.tabTitleText}>[Distribution Support] MEDIA BOOKING 2026</span>
+            </button>
+          </div>
         </div>
 
-        {platformTallies.length > 0 && (
-          <div className={pageStyles.platformStrip}>
-            {platformTallies.map((p) => (
-              <div key={p.platform} className={pageStyles.platformStripItem}>
-                <div className={pageStyles.platformStripPlatform}>{p.platform}</div>
-                <div className={pageStyles.platformStripCount}>{p.count} channel{p.count === 1 ? "" : "s"}</div>
-                <div className={pageStyles.platformStripFollowers}>{formatFollowers(p.followerSum)} followers</div>
+        {activeTab === "vsounder" ? (
+          <>
+            {platformTallies.length > 0 && (
+              <div className={pageStyles.platformStrip}>
+                {platformTallies.map((p) => (
+                  <div key={p.platform} className={pageStyles.platformStripItem}>
+                    <div className={pageStyles.platformStripPlatform}>{p.platform}</div>
+                    <div className={pageStyles.platformStripCount}>{p.count} channel{p.count === 1 ? "" : "s"}</div>
+                    <div className={pageStyles.platformStripFollowers}>{formatFollowers(p.followerSum)} followers</div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )}
 
-        {introParagraphs.length > 0 && (
-          <div className={pageStyles.introText}>
-            {introParagraphs.map((paragraph, i) => (
-              <p key={i} className={pageStyles.introParagraph}>{paragraph}</p>
-            ))}
-          </div>
-        )}
+            {introParagraphs.length > 0 && (
+              <div className={pageStyles.introText}>
+                {introParagraphs.map((paragraph, i) => (
+                  <p key={i} className={pageStyles.introParagraph}>{paragraph}</p>
+                ))}
+              </div>
+            )}
 
-        {intro.canvaUrl && (
-          <div className={pageStyles.canvaEmbedSection}>
-            {canvaEmbedSrc ? (
-              <div className={pageStyles.canvaEmbedWrap}>
-                <iframe
-                  src={canvaEmbedSrc}
-                  loading="lazy"
-                  allow="fullscreen"
-                  allowFullScreen
-                  className={pageStyles.canvaEmbedFrame}
-                  title={intro.title || "Canva reference"}
-                />
+            {intro.canvaUrl && (
+              <div className={pageStyles.canvaEmbedSection}>
+                {canvaEmbedSrc ? (
+                  <div className={pageStyles.canvaEmbedWrap}>
+                    <iframe
+                      src={canvaEmbedSrc}
+                      loading="lazy"
+                      allow="fullscreen"
+                      allowFullScreen
+                      className={pageStyles.canvaEmbedFrame}
+                      title={intro.title || "Canva reference"}
+                    />
+                  </div>
+                ) : (
+                  <a href={intro.canvaUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
+                    Open reference →
+                  </a>
+                )}
+              </div>
+            )}
+
+            <div className={pageStyles.grid}>
+              {COLUMN_META.map((col) => {
+                const colGroups = col.groups.filter((g) => (channelsByGroup[g]?.length || 0) > 0);
+                if (colGroups.length === 0) return null;
+                return (
+                  <div key={col.label} className={pageStyles.column}>
+                    <div className={pageStyles.columnTitle}>{col.label}</div>
+                    {colGroups.map((group) => renderGroupBlock(group))}
+                  </div>
+                );
+              })}
+              {otherGroups.length > 0 && (
+                <div className={pageStyles.column}>
+                  <div className={pageStyles.columnTitle}>Other</div>
+                  {otherGroups.map((group) => renderGroupBlock(group))}
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className={pageStyles.distributionTab}>
+            {/* Round 339 (moved here in Round 340) — Google Sheet preview:
+                a public sheet's one tab ("the first sheet (overall)")
+                rendered as our own styled table, not Google's iframe
+                embed — per explicit spec, the exact URL pasted in admin
+                also doubles as the "view full sheet" click-through link.
+                Fails open the same way the Canva embed does: a load error
+                shows a small inline message plus the outbound link
+                instead of breaking the page. */}
+            {intro.sheetUrl ? (
+              <div className={pageStyles.sheetSection}>
+                {sheetLoading && !sheetData && (
+                  <div className={pageStyles.sheetStatus}>Loading sheet…</div>
+                )}
+                {sheetError && (
+                  <div className={pageStyles.sheetStatus}>{sheetError}</div>
+                )}
+                {sheetData && sheetData.rows.length > 0 && (
+                  <div className={pageStyles.sheetTableWrap}>
+                    <table className={pageStyles.sheetTable}>
+                      <thead>
+                        <tr>
+                          {sheetData.headers.map((h, i) => (
+                            <th key={i}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sheetData.rows.map((row, i) => (
+                          <tr key={i}>
+                            {row.map((cell, j) => (
+                              <td key={j}>{cell}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <a href={intro.sheetUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
+                  View full sheet →
+                </a>
               </div>
             ) : (
-              <a href={intro.canvaUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
-                Open reference →
+              <div className={pageStyles.sheetStatus}>No sheet configured yet — add a Google Sheet URL in Magic Link Intro.</div>
+            )}
+
+            {/* Round 340 — "a row under said something like Click for
+                more detail, and use the external link we already used to
+                re-direct" — the Distribution Support group's one row,
+                read live off the same data the old channel-list block
+                used (never hardcoded), rather than a group card. */}
+            {distributionRow?.url && (
+              <a
+                href={distributionRow.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={pageStyles.distributionDetailLink}
+              >
+                Click for more detail →
               </a>
             )}
           </div>
         )}
-
-        {/* Round 339 — Google Sheet preview: a public sheet's one tab
-            ("the first sheet (overall)") rendered as our own styled
-            table, not Google's iframe embed — per explicit spec, the
-            exact URL pasted in admin also doubles as the "view full
-            sheet" click-through link. Fails open the same way the Canva
-            embed does: a load error shows a small inline message plus
-            the outbound link instead of breaking the page. */}
-        {intro.sheetUrl && (
-          <div className={pageStyles.sheetSection}>
-            {sheetLoading && !sheetData && (
-              <div className={pageStyles.sheetStatus}>Loading sheet…</div>
-            )}
-            {sheetError && (
-              <div className={pageStyles.sheetStatus}>{sheetError}</div>
-            )}
-            {sheetData && sheetData.rows.length > 0 && (
-              <div className={pageStyles.sheetTableWrap}>
-                <table className={pageStyles.sheetTable}>
-                  <thead>
-                    <tr>
-                      {sheetData.headers.map((h, i) => (
-                        <th key={i}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sheetData.rows.map((row, i) => (
-                      <tr key={i}>
-                        {row.map((cell, j) => (
-                          <td key={j}>{cell}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <a href={intro.sheetUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
-              View full sheet →
-            </a>
-          </div>
-        )}
-
-        <div className={pageStyles.grid}>
-          {COLUMN_META.map((col) => {
-            const colGroups = col.groups.filter((g) => (channelsByGroup[g]?.length || 0) > 0);
-            if (colGroups.length === 0) return null;
-            return (
-              <div key={col.label} className={pageStyles.column}>
-                <div className={pageStyles.columnTitle}>{col.label}</div>
-                {colGroups.map((group) => renderGroupBlock(group, { setApart: col.setApart?.includes(group) }))}
-              </div>
-            );
-          })}
-          {otherGroups.length > 0 && (
-            <div className={pageStyles.column}>
-              <div className={pageStyles.columnTitle}>Other</div>
-              {otherGroups.map((group) => renderGroupBlock(group))}
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );
