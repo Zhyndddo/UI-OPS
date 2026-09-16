@@ -19,7 +19,22 @@ import { readChannelReferenceIntro, parseGoogleSheetUrl } from "../../../lib/cha
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_BYTES = 2 * 1024 * 1024; // safety cap — this is a preview table, not a data export
 
-const NOT_PUBLIC_ERROR = 'Sheet not accessible — check it\'s shared as "Anyone with the link."';
+function notPublicError(detail) {
+  // Round 343 — includes the actual upstream signal (status code, or
+  // "non-CSV response") in the message now, not just a generic string.
+  // Reported symptom: "it showed before... has something different?" —
+  // the table worked at some point, then started failing with no code
+  // change in between. Google's CSV export endpoint is known to
+  // occasionally 403 requests coming from a data-center/server IP
+  // (Vercel's functions) even for a genuinely public sheet, especially
+  // under repeat hits — this can't be reproduced or confirmed from this
+  // sandbox (its own egress proxy blocks docs.google.com outright), so
+  // surfacing the real detail on the page is the fastest way to tell
+  // "sheet really isn't shared" apart from "Google's rate-limiting/bot-
+  // detection flagged this request" without needing a shared debugging
+  // session.
+  return `Sheet not accessible (${detail}) — check it's shared as "Anyone with the link," or try again in a moment.`;
+}
 
 // Minimal RFC4180 CSV parser (quoted fields, embedded commas/newlines,
 // "" as an escaped quote) — no dependency needed for what Google's own
@@ -95,7 +110,17 @@ export async function GET(request) {
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     let res;
     try {
-      res = await fetch(exportUrl, { signal: controller.signal, redirect: "follow" });
+      res = await fetch(exportUrl, {
+        signal: controller.signal,
+        redirect: "follow",
+        // Round 343 — a plain server-side fetch (Node's default UA, or
+        // none at all) to Google's CSV export endpoint is more likely to
+        // get bot-detected/blocked than one that looks like an ordinary
+        // browser request — worth trying since the symptom (worked once,
+        // then started failing with no code change) matches Google-side
+        // flakiness more than a bug in this route.
+        headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" },
+      });
     } finally {
       clearTimeout(timer);
     }
@@ -104,14 +129,14 @@ export async function GET(request) {
       // A sheet that isn't actually shared publicly most commonly 400s
       // or 401s here rather than serving a login page for the CSV export
       // endpoint specifically.
-      return NextResponse.json({ error: NOT_PUBLIC_ERROR }, { status: 502 });
+      return NextResponse.json({ error: notPublicError(`HTTP ${res.status}`) }, { status: 502 });
     }
     const contentType = res.headers.get("content-type") || "";
     if (!contentType.includes("csv") && !contentType.includes("text")) {
       // The other failure shape: a 200 OK that's actually Google's HTML
       // sign-in interstitial, not CSV — content-type is the tell since
       // the HTTP status alone doesn't catch this case.
-      return NextResponse.json({ error: NOT_PUBLIC_ERROR }, { status: 502 });
+      return NextResponse.json({ error: notPublicError(`got ${contentType || "unknown"} instead of CSV`) }, { status: 502 });
     }
 
     const text = await res.text();
