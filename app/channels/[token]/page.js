@@ -9,6 +9,7 @@ import { readChannelReferenceIntro, toCanvaEmbedUrl } from "../../../lib/channel
 // only ever passes intro.sheetUrl straight through to
 // /api/channel-reference-sheet, which does its own parsing/validation
 // server-side (see that route + the SSRF-guard comment on it).
+import PlatformIcon from "../../../lib/PlatformIcon";
 import styles from "../../shared.module.css";
 import pageStyles from "./page.module.css";
 
@@ -183,6 +184,30 @@ export default function ChannelReferenceSharePage() {
   const [sheetData, setSheetData] = useState(null);
   const [sheetError, setSheetError] = useState(null);
   const [sheetLoading, setSheetLoading] = useState(false);
+  // Round 346 — "add a sixth counter for the external, based on the fetch
+  // table... we can do pre-load fetch and save somewhere then re-fetch on
+  // page load": the live sheet fetch above can take a while (up to ~50s
+  // worst case, see route.js), which would leave the 6th counter tile
+  // blank/loading every single visit. Instead, the last successfully
+  // fetched row count is cached in localStorage (keyed by the sheet URL,
+  // so a changed admin config doesn't show a stale count from a different
+  // sheet) and used to paint the tile immediately on load; the real fetch
+  // above still runs every time and overwrites it once it resolves, so
+  // the number is never more than one page-load stale.
+  const [sheetCount, setSheetCount] = useState(null);
+  useEffect(() => {
+    if (!intro.sheetUrl) {
+      setSheetCount(null);
+      return;
+    }
+    try {
+      const cached = window.localStorage.getItem(`channelRef.sheetCount.${intro.sheetUrl}`);
+      if (cached != null) setSheetCount(Number(cached));
+    } catch {
+      // localStorage unavailable (private mode, etc.) — fine, just no
+      // pre-loaded count until the live fetch below resolves.
+    }
+  }, [intro.sheetUrl]);
   useEffect(() => {
     if (!intro.sheetUrl) {
       setSheetData(null);
@@ -201,6 +226,12 @@ export default function ChannelReferenceSharePage() {
           setSheetData(null);
         } else {
           setSheetData(body);
+          setSheetCount(body.rows.length);
+          try {
+            window.localStorage.setItem(`channelRef.sheetCount.${intro.sheetUrl}`, String(body.rows.length));
+          } catch {
+            // best-effort cache only
+          }
         }
       })
       .catch(() => {
@@ -318,24 +349,40 @@ export default function ChannelReferenceSharePage() {
     return [...known, ...unknown];
   }, [channelsByGroup]);
 
-  // Round 340 — two-tab page: "vsounder" (the channel reference — same
-  // content as before, minus Distribution Support) and "distribution"
-  // (the new Google Sheet preview tab, replacing that removed group).
-  // Both tab titles stay mounted at all times (see the JSX below) so the
-  // size/opacity swap between them can transition smoothly instead of
-  // one unmounting and the other popping in — clicking EITHER title just
-  // flips to the other tab, since with only two tabs that's unambiguous
-  // either way you read "click the title to switch."
-  const [activeTab, setActiveTab] = useState("vsounder");
-  function toggleTab() {
-    setActiveTab((t) => (t === "vsounder" ? "distribution" : "vsounder"));
-  }
-
-  // Round 340 — the Distribution Support group's one row IS the redirect
-  // link for the new tab ("the external link we already used to
-  // redirect") — read live off the same channelsByGroup data the old
-  // group block used, never hardcoded.
+  // Round 346 — BUG FIX / revert ("remove the tabs entirely. only 1 page
+  // now"): the Round 340 two-tab split is gone, everything lives on one
+  // scrolling page again (see the single return JSX below) — the
+  // Distribution Support group's one row is still just data read live off
+  // channelsByGroup, never hardcoded, but it now powers the 6th "External"
+  // counter tile and the "Click for more detail" button inline rather
+  // than a whole separate tab.
   const distributionRow = (channelsByGroup[DISTRIBUTION_GROUP] || [])[0] || null;
+
+  // Round 346 — "every counter is now clickable... if click on the
+  // external, go to that table; otherwise go to the channel (on reference
+  // list) table": one array driving all 6 tiles (5 real platforms +
+  // "External"), each carrying the anchor id it scrolls to, so the JSX
+  // below is a single .map instead of 5 near-duplicate tiles plus one
+  // bespoke 6th.
+  const counterTiles = useMemo(() => {
+    const tiles = platformTallies.map((p) => ({
+      key: p.platform,
+      label: p.platform,
+      count: p.count,
+      sub: `${formatFollowers(p.followerSum)} followers`,
+      anchor: "#channel-list",
+    }));
+    if (intro.sheetUrl) {
+      tiles.push({
+        key: "external",
+        label: "External",
+        count: sheetCount,
+        sub: sheetCount == null ? (sheetLoading ? "loading…" : "—") : `${sheetCount} ${sheetCount === 1 ? "entry" : "entries"}`,
+        anchor: "#sheet-preview",
+      });
+    }
+    return tiles;
+  }, [platformTallies, intro.sheetUrl, sheetCount, sheetLoading]);
 
   if (loading) {
     return <div className={styles.page} data-theme={themeLock || undefined}><div className={styles.container} style={{ maxWidth: 1200 }}>Loading…</div></div>;
@@ -390,7 +437,16 @@ export default function ChannelReferenceSharePage() {
                   className={pageStyles.row}
                   style={!c.url ? { pointerEvents: "none", opacity: 0.6 } : undefined}
                 >
-                  <span className={pageStyles.rowPlatform}>{(c.platform || "").toUpperCase()}</span>
+                  {/* Round 347 — "switch the name of the platform in the
+                      table into the icon... reduce the load speed" — an
+                      inline SVG (see lib/PlatformIcon.js), not an <img>
+                      pointing at a PNG, so this never costs an extra
+                      network request. title= keeps the platform name
+                      reachable on hover/for a screen reader now that the
+                      text itself isn't in the DOM. */}
+                  <span className={pageStyles.rowPlatform} title={c.platform || undefined}>
+                    <PlatformIcon platform={c.platform} />
+                  </span>
                   <span className={pageStyles.rowFollowers}>{formatFollowers(c.follower_count)}</span>
                   <span className={pageStyles.rowName}>{c.name}</span>
                   {c.note && (
@@ -418,77 +474,32 @@ export default function ChannelReferenceSharePage() {
   return (
     <div className={styles.page} data-theme={themeLock || undefined}>
       <div className={styles.container} style={{ maxWidth: 1200 }}>
-        {/* Round 332 — rebuilt as one shell. Round 340 — rebuilt again into
-            two tabs ("turn the page into two tab page... each tab have
-            some kind of a frame so they know what page they are on"):
-            "vsounder" (this page's original content, minus Distribution
-            Support) and "distribution" (the Round 339 Google Sheet
-            preview + a click-through, replacing that removed group). A
-            real <h1> (visually hidden) names whichever tab is active for
-            accessibility/SEO — decoupled from the two animated visual
-            titles below it, so swapping tabs never remounts either title
-            element (needed for the transition to actually animate
-            instead of popping). */}
-        <h1 className={pageStyles.srOnly}>
-          {activeTab === "vsounder" ? intro.title || "VSounder — Channel Reference" : "[Distribution Support] MEDIA BOOKING 2026"}
+        {/* Round 346 — "revert time... remove the tabs entirely. only 1
+            page now": back to a single plain title (eyebrow + wordmark
+            <h1>, no tab switcher, no visually-hidden duplicate heading —
+            there's only one section for it to name now). */}
+        <div className={pageStyles.eyebrow}>// Channel Reference</div>
+        <h1 className={pageStyles.pageTitle}>
+          {wordmarkFailed ? (
+            <span className={pageStyles.pageTitleText}>{intro.title || "VSounder"}</span>
+          ) : (
+            <img
+              src={`/brand/vsounder-wordmark-${themeLock || "dark"}.png`}
+              alt={intro.title || "VSounder"}
+              className={pageStyles.brandWordmark}
+              onError={() => setWordmarkFailed(true)}
+            />
+          )}
         </h1>
 
-        {/* Round 340 — the two-title tab switcher: current tab's title
-            grows and sits on top, the other shrinks and sits tucked
-            below-and-to-the-side (not a subtitle — the offset + dimmed
-            color reads as "the other tab," not "a caption for this one").
-            Both titles stay mounted always; only CSS classes toggle, so
-            font-size/opacity/image-height all transition instead of
-            snapping. Clicking EITHER title flips to the other tab — with
-            only two tabs, "switch to the other" is the same action no
-            matter which one you click. */}
-        <div className={pageStyles.tabHeader}>
-          <div className={pageStyles.tabEyebrow}>{activeTab === "vsounder" ? "// Channel Reference" : "// Distribution Support"}</div>
-          <div className={pageStyles.tabTitleRow} role="tablist" aria-label="Page section">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "vsounder"}
-              className={`${pageStyles.tabTitleBtn} ${activeTab === "vsounder" ? pageStyles.tabTitleActive : pageStyles.tabTitleInactive}`}
-              onClick={toggleTab}
-            >
-              {wordmarkFailed ? (
-                <span className={pageStyles.tabTitleText}>{intro.title || "VSounder"}</span>
-              ) : (
-                <img
-                  src={`/brand/vsounder-wordmark-${themeLock || "dark"}.png`}
-                  alt={intro.title || "VSounder"}
-                  className={pageStyles.brandWordmark}
-                  onError={() => setWordmarkFailed(true)}
-                />
-              )}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "distribution"}
-              className={`${pageStyles.tabTitleBtn} ${activeTab === "distribution" ? pageStyles.tabTitleActive : pageStyles.tabTitleInactive}`}
-              onClick={toggleTab}
-            >
-              <span className={pageStyles.tabTitleText}>[Distribution Support] MEDIA BOOKING 2026</span>
-            </button>
-          </div>
-        </div>
-
-        {activeTab === "vsounder" ? (
-          <>
-            {platformTallies.length > 0 && (
-              <div className={pageStyles.platformStrip}>
-                {platformTallies.map((p) => (
-                  <div key={p.platform} className={pageStyles.platformStripItem}>
-                    <div className={pageStyles.platformStripPlatform}>{p.platform}</div>
-                    <div className={pageStyles.platformStripCount}>{p.count} channel{p.count === 1 ? "" : "s"}</div>
-                    <div className={pageStyles.platformStripFollowers}>{formatFollowers(p.followerSum)} followers</div>
-                  </div>
-                ))}
-              </div>
-            )}
-
+        {/* Round 346 — "pull the intro text and canva embed right under
+            the vsounder title. split the space in two: intro text on the
+            left, canva on the right, same size if we can. Still vertical
+            (intro text first) on mobile version" — intro text comes first
+            in the DOM so the mobile single-column stack (see CSS) puts it
+            on top with no extra JS/markup branching needed. */}
+        {(introParagraphs.length > 0 || intro.canvaUrl) && (
+          <div className={pageStyles.introCanvaRow}>
             {introParagraphs.length > 0 && (
               <div className={pageStyles.introText}>
                 {introParagraphs.map((paragraph, i) => (
@@ -496,7 +507,6 @@ export default function ChannelReferenceSharePage() {
                 ))}
               </div>
             )}
-
             {intro.canvaUrl && (
               <div className={pageStyles.canvaEmbedSection}>
                 {canvaEmbedSrc ? (
@@ -517,114 +527,122 @@ export default function ChannelReferenceSharePage() {
                 )}
               </div>
             )}
+          </div>
+        )}
 
-            <div className={pageStyles.grid}>
-              {COLUMN_META.map((col) => {
-                const colGroups = col.groups.filter((g) => (channelsByGroup[g]?.length || 0) > 0);
-                if (colGroups.length === 0) return null;
-                return (
-                  <div key={col.label} className={pageStyles.column}>
-                    <div className={pageStyles.columnTitle}>{col.label}</div>
-                    {colGroups.map((group) => renderGroupBlock(group))}
-                  </div>
-                );
-              })}
-              {otherGroups.length > 0 && (
-                <div className={pageStyles.column}>
-                  <div className={pageStyles.columnTitle}>Other</div>
-                  {otherGroups.map((group) => renderGroupBlock(group))}
+        {/* Round 346 — "under the canva embed is the counter. now add a
+            sixth... for the external, based on the fetch table. every
+            counter is now clickable" — counterTiles above already builds
+            the 5 platform tiles + the External tile with the right anchor
+            on each; this is just the render. */}
+        {counterTiles.length > 0 && (
+          <div className={pageStyles.platformStrip}>
+            {counterTiles.map((tile) => (
+              <a key={tile.key} href={tile.anchor} className={pageStyles.platformStripItem}>
+                <div className={pageStyles.platformStripPlatform}>{tile.label}</div>
+                <div className={pageStyles.platformStripCount}>
+                  {tile.count == null ? "…" : `${tile.count} ${tile.key === "external" ? (tile.count === 1 ? "entry" : "entries") : tile.count === 1 ? "channel" : "channels"}`}
                 </div>
-              )}
-            </div>
-          </>
-        ) : (
-          <div className={pageStyles.distributionTab}>
-            {/* Round 339 (moved here in Round 340) — Google Sheet preview:
-                a public sheet's one tab ("the first sheet (overall)")
-                rendered as our own styled table, not Google's iframe
-                embed — per explicit spec, the exact URL pasted in admin
-                also doubles as the "view full sheet" click-through link.
-                Fails open the same way the Canva embed does: a load error
-                shows a small inline message plus the outbound link
-                instead of breaking the page. */}
-            {intro.sheetUrl ? (
-              <div className={pageStyles.sheetSection}>
-                {sheetLoading && !sheetData && (
-                  <div className={pageStyles.sheetStatus}>Loading sheet…</div>
-                )}
-                {sheetError && (
-                  <div className={pageStyles.sheetStatus}>{sheetError}</div>
-                )}
-                {sheetData && sheetData.rows.length > 0 && (
-                  <div className={pageStyles.sheetTableWrap}>
-                    <table className={pageStyles.sheetTable}>
-                      <thead>
-                        {sheetTitleLines ? (
-                          <tr>
-                            <th colSpan={sheetData.headers.length} className={pageStyles.sheetTitleCell}>
-                              {sheetTitleLines.map((line, i) => (
-                                <div key={i} className={i === 0 ? pageStyles.sheetTitleMain : pageStyles.sheetTitleSub}>
-                                  {line}
-                                </div>
-                              ))}
-                            </th>
-                          </tr>
-                        ) : (
-                          <tr>
-                            {sheetData.headers.map((h, i) => (
-                              <th key={i}>{h}</th>
-                            ))}
-                          </tr>
-                        )}
-                      </thead>
-                      <tbody>
-                        {sheetData.rows.map((row, i) => (
-                          <tr key={i}>
-                            {row.map((cell, j) => (
-                              <td key={j}>{cell}</td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {/* Round 342 — BUG FIX ("there are two View full sheet
-                    and click for more detail. serving the same thing"):
-                    this link and the "Click for more detail" link below
-                    are two different admin-set fields (intro.sheetUrl vs.
-                    the Distribution Support row's own url) that just
-                    happen to often be set to the same URL — rather than
-                    delete one outright (they CAN legitimately differ —
-                    e.g. the sheet embedded here vs. a separate page with
-                    more context), only show this one when it actually
-                    points somewhere different from the detail link below. */}
-                {intro.sheetUrl !== distributionRow?.url && (
-                  <a href={intro.sheetUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
-                    View full sheet →
-                  </a>
-                )}
-              </div>
-            ) : (
-              <div className={pageStyles.sheetStatus}>No sheet configured yet — add a Google Sheet URL in Magic Link Intro.</div>
-            )}
+                <div className={pageStyles.platformStripFollowers}>{tile.sub}</div>
+              </a>
+            ))}
+          </div>
+        )}
 
-            {/* Round 340 — "a row under said something like Click for
-                more detail, and use the external link we already used to
-                re-direct" — the Distribution Support group's one row,
-                read live off the same data the old channel-list block
-                used (never hardcoded), rather than a group card. */}
-            {distributionRow?.url && (
-              <a
-                href={distributionRow.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={pageStyles.distributionDetailLink}
-              >
-                Click for more detail →
+        {/* Round 346 — "under the counter is the channel reference list" —
+            same COLUMN_META/otherGroups rendering as before, just no
+            longer gated behind a tab. id="channel-list" is the scroll
+            target for the 5 platform counter tiles above. */}
+        <div id="channel-list" className={pageStyles.grid}>
+          {COLUMN_META.map((col) => {
+            const colGroups = col.groups.filter((g) => (channelsByGroup[g]?.length || 0) > 0);
+            if (colGroups.length === 0) return null;
+            return (
+              <div key={col.label} className={pageStyles.column}>
+                <div className={pageStyles.columnTitle}>{col.label}</div>
+                {colGroups.map((group) => renderGroupBlock(group))}
+              </div>
+            );
+          })}
+          {otherGroups.length > 0 && (
+            <div className={pageStyles.column}>
+              <div className={pageStyles.columnTitle}>Other</div>
+              {otherGroups.map((group) => renderGroupBlock(group))}
+            </div>
+          )}
+        </div>
+
+        {/* Round 346 — "then under there is the fetch table, and under
+            the fetch table is still click for detail button we have" —
+            the Round 339/345 Google Sheet preview, unchanged content,
+            just no longer its own tab. id="sheet-preview" is the scroll
+            target for the External counter tile above. */}
+        {intro.sheetUrl && (
+          <div id="sheet-preview" className={pageStyles.sheetSection}>
+            {sheetLoading && !sheetData && (
+              <div className={pageStyles.sheetStatus}>Loading sheet…</div>
+            )}
+            {sheetError && (
+              <div className={pageStyles.sheetStatus}>{sheetError}</div>
+            )}
+            {sheetData && sheetData.rows.length > 0 && (
+              <div className={pageStyles.sheetTableWrap}>
+                <table className={pageStyles.sheetTable}>
+                  <thead>
+                    {sheetTitleLines ? (
+                      <tr>
+                        <th colSpan={sheetData.headers.length} className={pageStyles.sheetTitleCell}>
+                          {sheetTitleLines.map((line, i) => (
+                            <div key={i} className={i === 0 ? pageStyles.sheetTitleMain : pageStyles.sheetTitleSub}>
+                              {line}
+                            </div>
+                          ))}
+                        </th>
+                      </tr>
+                    ) : (
+                      <tr>
+                        {sheetData.headers.map((h, i) => (
+                          <th key={i}>{h}</th>
+                        ))}
+                      </tr>
+                    )}
+                  </thead>
+                  <tbody>
+                    {sheetData.rows.map((row, i) => (
+                      <tr key={i}>
+                        {row.map((cell, j) => (
+                          <td key={j}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {/* Round 342 — still applies: only show this when it points
+                somewhere different from the detail link below. */}
+            {intro.sheetUrl !== distributionRow?.url && (
+              <a href={intro.sheetUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
+                View full sheet →
               </a>
             )}
           </div>
+        )}
+
+        {/* Round 346 — "still click for detail button we have": kept
+            outside the sheetUrl-gated block above (unlike the old
+            distribution tab, this button doesn't depend on a sheet being
+            configured at all — it's the Distribution Support row's own
+            redirect link). */}
+        {distributionRow?.url && (
+          <a
+            href={distributionRow.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={pageStyles.distributionDetailLink}
+          >
+            Click for more detail →
+          </a>
         )}
       </div>
     </div>

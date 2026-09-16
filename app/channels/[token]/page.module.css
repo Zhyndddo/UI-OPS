@@ -28,9 +28,32 @@
   width: auto;
   max-width: 100%;
   flex-shrink: 0;
-  /* Round 340 — animates between the active/inactive tab-title sizes set
-     below (.tabTitleActive/.tabTitleInactive descendant rules). */
-  transition: height 0.25s ease;
+}
+
+/* Round 346 — "revert time... remove the tabs entirely" reverts the
+   title back to a single plain eyebrow + <h1> (the wordmark image IS the
+   heading content, same as Round 335), replacing Round 340's whole
+   two-title tab-switcher block below. */
+.eyebrow {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.pageTitle {
+  margin: 0 0 20px;
+  line-height: 1;
+}
+
+.pageTitleText {
+  display: inline-block;
+  font-weight: 800;
+  font-size: 28px;
+  letter-spacing: -0.01em;
+  color: var(--text);
 }
 
 .grid {
@@ -124,7 +147,11 @@
    each row's own content happens to measure. */
 .row {
   display: grid;
-  grid-template-columns: 72px 56px 1fr auto;
+  /* Round 347 — first column shrunk from 72px to 32px: it used to hold
+     uppercase platform text (TIKTOK, INSTAGRAM, ...), now it's just a
+     small square icon (see .rowPlatform + PlatformIcon), so it no longer
+     needs room for the longest platform name. */
+  grid-template-columns: 32px 56px 1fr auto;
   align-items: center;
   gap: 10px;
   padding: 8px 8px;
@@ -142,7 +169,7 @@
    line under the badge/count rather than truncating or overflowing. */
 @media (max-width: 480px) {
   .row {
-    grid-template-columns: 72px 56px 1fr;
+    grid-template-columns: 32px 56px 1fr;
     grid-template-areas:
       "platform followers note"
       "name name name";
@@ -154,22 +181,27 @@
 
 /* Round 317 — was hardcoded #1c1c1c/#ddd (dark-only, ignored the theme
    lock entirely). Real theme-aware tokens so this badge actually flips
-   with the rest of the page under the light theme. */
+   with the rest of the page under the light theme.
+   Round 347 — "switch the name of the platform in the table into the
+   icon": no more uppercase text/letter-spacing/pill shape — this is now
+   a small square swatch around a PlatformIcon (inline SVG, currentColor)
+   instead. Kept a background + rounded corners so it still reads as a
+   little badge, just square instead of a wide pill (nothing left inside
+   it needs the extra horizontal room a pill gave text). */
 .rowPlatform {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
   background: var(--bg-hover);
   color: var(--text-dim);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.4px;
-  white-space: nowrap;
-  /* Round 340 — the row's platform column is now a fixed width (see
-     .row) so every row lines up; without this the pill would grid-stretch
-     to fill that whole column instead of staying a tight left-aligned
-     badge ("left for text"). */
+  flex-shrink: 0;
+  /* Round 340 — the row's platform column is a fixed width (see .row) so
+     every row lines up; without this the badge would grid-stretch to
+     fill that whole column instead of staying a tight left-aligned
+     square ("left for text"). */
   justify-self: start;
 }
 
@@ -215,6 +247,10 @@
   margin-bottom: 20px;
 }
 
+/* Round 346 — "every counter is now clickable" — tiles are now <a> tags
+   (see page.js), so they need the usual link resets plus a visible
+   affordance that they're interactive, matching .row's own hover
+   treatment elsewhere on this page. */
 .platformStripItem {
   flex: 1 1 140px;
   min-width: 140px;
@@ -222,6 +258,16 @@
   border-radius: 10px;
   background: var(--bg-card);
   padding: 10px 14px;
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.platformStripItem:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.04));
+  border-color: var(--accent);
 }
 
 .platformStripPlatform {
@@ -267,11 +313,30 @@
    real blank-line paragraph breaks and reflows everything else into
    normal browser-wrapped <p> tags, so `white-space: pre-wrap` is gone —
    ordinary wrapping needs no special white-space handling. */
+/* Round 346 — "split the space in two: intro text on the left, canva on
+   the right, same size if we can. Still vertical (intro text first) on
+   mobile version" — a simple 2-column grid, equal-width columns; below
+   768px it collapses to a single column and, since introText is first in
+   the DOM (see page.js), it naturally stacks on top with no extra markup. */
+.introCanvaRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 768px) {
+  .introCanvaRow {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
 .introText {
   display: block;
   width: 100%;
   max-width: 100%;
-  margin-bottom: 20px;
 }
 
 .introParagraph {
@@ -443,119 +508,12 @@
   margin-top: 4px;
 }
 
-/* Round 340 — visually-hidden but still reachable by screen readers/SEO;
-   see the <h1> in page.js that uses this. Standard clip-based hidden
-   pattern (not display:none, which pulls it out of the accessibility
-   tree entirely). */
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-/* Round 340 — two-tab title switcher ("the current tab title has its
-   title grow bigger, and sit at the top; the other one become smaller
-   and live right under it (a bit to the side)... a small animation to
-   complement that"). Both titles stay mounted always (see page.js) —
-   `order` swaps which one renders on top instantly, while font-size/
-   opacity/image-height (set below, and on .brandWordmark) transition, so
-   switching tabs reads as an animated grow/shrink rather than a hard cut. */
-.tabHeader {
-  margin-bottom: 20px;
-}
-
-.tabEyebrow {
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  margin-bottom: 6px;
-}
-
-.tabTitleRow {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.tabTitleBtn {
-  appearance: none;
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  cursor: pointer;
-  font-family: inherit;
-  text-align: left;
-  transition: opacity 0.25s ease;
-}
-
-.tabTitleBtn:hover {
-  opacity: 0.8;
-}
-
-.tabTitleBtn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-  border-radius: 4px;
-}
-
-/* Order (not DOM position) decides which title renders on top, so the
-   two buttons can stay in a fixed DOM order (vsounder, then
-   distribution) while still visually swapping places with the tab. */
-.tabTitleActive {
-  order: 0;
-  opacity: 1;
-}
-
-.tabTitleInactive {
-  order: 1;
-  margin-top: 6px;
-  margin-left: 10px;
-  opacity: 0.5;
-}
-
-.tabTitleInactive:hover {
-  opacity: 0.8;
-}
-
-.tabTitleText {
-  display: inline-block;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: var(--text);
-  transition: font-size 0.25s ease;
-}
-
-.tabTitleActive .tabTitleText {
-  font-size: 28px;
-}
-
-.tabTitleInactive .tabTitleText {
-  font-size: 13px;
-}
-
-.tabTitleActive .brandWordmark {
-  height: 56px;
-}
-
-.tabTitleInactive .brandWordmark {
-  height: 18px;
-}
-
-/* Round 340 — the new Distribution Support tab: the Round 339 sheet
-   preview plus a "Click for more detail" redirect, replacing the old
-   1-row channel-list group entirely. */
-.distributionTab {
-  display: flex;
-  flex-direction: column;
+/* Round 346 — scroll target for the counter tiles above (#channel-list,
+   #sheet-preview) — a small top offset so an anchored jump doesn't land
+   with the section's heading flush against the very top edge. */
+#channel-list,
+#sheet-preview {
+  scroll-margin-top: 16px;
 }
 
 .distributionDetailLink {
