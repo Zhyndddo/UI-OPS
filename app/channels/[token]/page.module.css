@@ -322,3 +322,63 @@
   height: 100%;
   border: none;
 }
+
+/* Round 339 — Google Sheet preview ("embed the first sheet (overall)...
+   use the normal url as a click for details"). A native table (not
+   Google's own iframe embed, per explicit choice) so it matches the rest
+   of this page's theme instead of looking like a foreign widget — same
+   border/bg-card treatment as .block so it reads as one more card in the
+   page's own visual language. Horizontal scroll is contained to the
+   table itself (a wide sheet never forces the whole page to scroll
+   sideways, same "no horizontal scroll on mobile" rule the rest of this
+   page follows). */
+.sheetSection {
+  margin-bottom: 20px;
+}
+
+.sheetStatus {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.sheetTableWrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.sheetTable {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sheetTable th,
+.sheetTable td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.sheetTable th {
+  background: var(--bg-hover);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sheetTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.sheetTable tbody tr:hover {
+  background: var(--bg-hover);
+}

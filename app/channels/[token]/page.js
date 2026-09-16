@@ -5,6 +5,10 @@ import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { readMagicLinkThemeLock } from "../../../lib/magicLinkThemeLock";
 import { readChannelReferenceIntro, toCanvaEmbedUrl } from "../../../lib/channelReferenceIntro";
+// Round 339 note: no parseGoogleSheetUrl import needed here — this page
+// only ever passes intro.sheetUrl straight through to
+// /api/channel-reference-sheet, which does its own parsing/validation
+// server-side (see that route + the SSRF-guard comment on it).
 import styles from "../../shared.module.css";
 import pageStyles from "./page.module.css";
 
@@ -125,7 +129,7 @@ export default function ChannelReferenceSharePage() {
   // app/booking-channels/page.js, read here the same fail-open way
   // themeLock is above (blank text/canvaUrl just means the block
   // doesn't render — see the conditional in the JSX below).
-  const [intro, setIntro] = useState({ title: "", text: "", canvaUrl: "" });
+  const [intro, setIntro] = useState({ title: "", text: "", canvaUrl: "", sheetUrl: "" });
   useEffect(() => {
     if (!supabase) return;
     readChannelReferenceIntro(supabase).then(setIntro);
@@ -160,6 +164,48 @@ export default function ChannelReferenceSharePage() {
       .map((p) => p.replace(/\s*\n\s*/g, " ").trim())
       .filter(Boolean);
   }, [intro.text]);
+
+  // Round 339 — Google Sheet preview ("I want to embed the first sheet
+  // (overall). then use the normal url as a click for details"). Fetched
+  // through our own API route (not a client-side fetch straight to
+  // docs.google.com) both to avoid CORS on that endpoint and to keep the
+  // SSRF guard server-side — see app/api/channel-reference-sheet/route.js.
+  // Fetched live on every load per explicit spec, not cached client-side
+  // beyond the browser's normal handling of the route's own 60s
+  // Cache-Control hint.
+  const [sheetData, setSheetData] = useState(null);
+  const [sheetError, setSheetError] = useState(null);
+  const [sheetLoading, setSheetLoading] = useState(false);
+  useEffect(() => {
+    if (!intro.sheetUrl) {
+      setSheetData(null);
+      setSheetError(null);
+      return;
+    }
+    let cancelled = false;
+    setSheetLoading(true);
+    setSheetError(null);
+    fetch(`/api/channel-reference-sheet?url=${encodeURIComponent(intro.sheetUrl)}`)
+      .then((res) => res.json().then((body) => ({ ok: res.ok, body })))
+      .then(({ ok, body }) => {
+        if (cancelled) return;
+        if (!ok) {
+          setSheetError(body.error || "Failed to load sheet.");
+          setSheetData(null);
+        } else {
+          setSheetData(body);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSheetError("Failed to load sheet.");
+      })
+      .finally(() => {
+        if (!cancelled) setSheetLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [intro.sheetUrl]);
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -401,6 +447,49 @@ export default function ChannelReferenceSharePage() {
                 Open reference →
               </a>
             )}
+          </div>
+        )}
+
+        {/* Round 339 — Google Sheet preview: a public sheet's one tab
+            ("the first sheet (overall)") rendered as our own styled
+            table, not Google's iframe embed — per explicit spec, the
+            exact URL pasted in admin also doubles as the "view full
+            sheet" click-through link. Fails open the same way the Canva
+            embed does: a load error shows a small inline message plus
+            the outbound link instead of breaking the page. */}
+        {intro.sheetUrl && (
+          <div className={pageStyles.sheetSection}>
+            {sheetLoading && !sheetData && (
+              <div className={pageStyles.sheetStatus}>Loading sheet…</div>
+            )}
+            {sheetError && (
+              <div className={pageStyles.sheetStatus}>{sheetError}</div>
+            )}
+            {sheetData && sheetData.rows.length > 0 && (
+              <div className={pageStyles.sheetTableWrap}>
+                <table className={pageStyles.sheetTable}>
+                  <thead>
+                    <tr>
+                      {sheetData.headers.map((h, i) => (
+                        <th key={i}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sheetData.rows.map((row, i) => (
+                      <tr key={i}>
+                        {row.map((cell, j) => (
+                          <td key={j}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <a href={intro.sheetUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
+              View full sheet →
+            </a>
           </div>
         )}
 

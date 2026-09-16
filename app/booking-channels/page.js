@@ -78,8 +78,11 @@ export default function BookingChannelsPage() {
   // in-progress edit; `introSaved` is what's actually live on the magic
   // link right now, so "Save" can be disabled when there's nothing new
   // to push.
-  const [introDraft, setIntroDraft] = useState({ title: "", text: "", canvaUrl: "" });
-  const [introSaved, setIntroSaved] = useState({ title: "", text: "", canvaUrl: "" });
+  // Round 339 — sheetUrl added: a public Google Sheet URL whose one tab
+  // gets embedded as a native table on the magic link (see
+  // lib/channelReferenceIntro.js's header for the full spec).
+  const [introDraft, setIntroDraft] = useState({ title: "", text: "", canvaUrl: "", sheetUrl: "" });
+  const [introSaved, setIntroSaved] = useState({ title: "", text: "", canvaUrl: "", sheetUrl: "" });
   const [introSaving, setIntroSaving] = useState(false);
   // Round 328 — was a <details>/<summary> disclosure sitting on its own as
   // an odd thin bar; per explicit request, moved into the same button row
@@ -223,9 +226,9 @@ export default function BookingChannelsPage() {
   }
 
   // Round 317 — saves the magic link's intro block. Round 327 added
-  // `title`. Blank title/text/canvaUrl all just clear that field's value
-  // rather than refusing to save — "remove it" is a legitimate edit, not
-  // an error.
+  // `title`. Round 339 added `sheetUrl`. Blank title/text/canvaUrl/
+  // sheetUrl all just clear that field's value rather than refusing to
+  // save — "remove it" is a legitimate edit, not an error.
   //
   // Round 329 — BUG FIX: was upserting the raw { title, text, canvaUrl }
   // object straight into global_settings.value, but that column is plain
@@ -237,7 +240,12 @@ export default function BookingChannelsPage() {
   async function saveIntro() {
     setIntroSaving(true);
     setIntroSaveError(null);
-    const value = { title: introDraft.title.trim(), text: introDraft.text.trim(), canvaUrl: introDraft.canvaUrl.trim() };
+    const value = {
+      title: introDraft.title.trim(),
+      text: introDraft.text.trim(),
+      canvaUrl: introDraft.canvaUrl.trim(),
+      sheetUrl: introDraft.sheetUrl.trim(),
+    };
     const { error } = await supabase
       .from("global_settings")
       .upsert({ key: CHANNEL_REFERENCE_INTRO_KEY, value: serializeChannelReferenceIntro(value), updated_at: new Date().toISOString() }, { onConflict: "key" });
@@ -387,9 +395,9 @@ export default function BookingChannelsPage() {
             type="button"
             className={styles.btnSecondary}
             onClick={() => setIntroPanelOpen((o) => !o)}
-            title="Title, intro text, and Canva embed shown at the top of the public Channel Reference link."
+            title="Title, intro text, Canva embed, and Google Sheet preview shown at the top of the public Channel Reference link."
           >
-            ✎ Magic Link Intro {introSaved.title || introSaved.text || introSaved.canvaUrl ? "" : "(not set)"}
+            ✎ Magic Link Intro {introSaved.title || introSaved.text || introSaved.canvaUrl || introSaved.sheetUrl ? "" : "(not set)"}
           </button>
         </div>
 
@@ -416,8 +424,8 @@ export default function BookingChannelsPage() {
         <div style={{ marginBottom: 16, border: "1px solid var(--border)", borderRadius: 8, padding: "14px" }}>
           <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 0, marginBottom: 10 }}>
             Shown at the top of the public Channel Reference link (/channels/…), in this order: title, then intro
-            text, then the Canva embed, then the channel list (unchanged, below). Leave any field blank to leave
-            that part off the link.
+            text, then the Canva embed, then the Google Sheet preview, then the channel list (unchanged, below).
+            Leave any field blank to leave that part off the link.
           </p>
           <div className={styles.field} style={{ marginBottom: 10, maxWidth: 420 }}>
             <label className={styles.fieldLabel}>Title</label>
@@ -452,11 +460,32 @@ export default function BookingChannelsPage() {
               instead (most non-Canva sites block being embedded).
             </p>
           </div>
+          <div className={styles.field} style={{ marginBottom: 10, maxWidth: 420 }}>
+            <label className={styles.fieldLabel}>Google Sheet URL</label>
+            <UrlField
+              value={introDraft.sheetUrl}
+              onChange={(v) => setIntroDraft((prev) => ({ ...prev, sheetUrl: v }))}
+              styles={styles}
+              placeholder="https://docs.google.com/spreadsheets/d/…/edit?gid=…"
+              wide
+            />
+            <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4 }}>
+              Paste the normal edit link to one tab (the "overall" sheet) — that tab shows as a table on the magic
+              link, and the same link doubles as the "view full sheet" click-through. The sheet must be shared as
+              "Anyone with the link" (view access), and only this one, currently-saved link is ever fetched.
+            </p>
+          </div>
           <button
             type="button"
             className={styles.btnSecondary}
             onClick={saveIntro}
-            disabled={introSaving || (introDraft.title === introSaved.title && introDraft.text === introSaved.text && introDraft.canvaUrl === introSaved.canvaUrl)}
+            disabled={
+              introSaving ||
+              (introDraft.title === introSaved.title &&
+                introDraft.text === introSaved.text &&
+                introDraft.canvaUrl === introSaved.canvaUrl &&
+                introDraft.sheetUrl === introSaved.sheetUrl)
+            }
           >
             {introSaving ? "Saving…" : "Save Intro"}
           </button>
