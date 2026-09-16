@@ -16,7 +16,23 @@ import { readChannelReferenceIntro, parseGoogleSheetUrl } from "../../../lib/cha
 // high-traffic, so the extra round-trip per view is cheap and the data
 // is never stale.
 
-const FETCH_TIMEOUT_MS = 8000;
+// Round 344 — BUG FIX: the actual error on the page ("Failed to fetch
+// sheet.") only ever comes from the outer catch block below — meaning
+// `fetch()` itself threw, not that Google returned a non-2xx/non-CSV
+// response (those two cases got their own detailed messages in Round
+// 343, and neither is showing). The most likely thing that throws here
+// is our OWN 8-second AbortController firing before Google's export
+// finished generating — plausible for a sheet with real size/formatting
+// to it, and would explain "it showed before" (a smaller/simpler sheet,
+// or a faster response that day) without any code change in between.
+// Raised the budget well past that, and `maxDuration` below raises the
+// Vercel function's own ceiling to match (Hobby plans cap this at 10s
+// regardless — this only helps on Pro/Enterprise, but doesn't hurt
+// either way). The catch block below also now says explicitly whether
+// THIS was a timeout, instead of folding every possible network failure
+// into one unhelpful line.
+export const maxDuration = 30;
+const FETCH_TIMEOUT_MS = 25000;
 const MAX_BYTES = 2 * 1024 * 1024; // safety cap — this is a preview table, not a data export
 
 function notPublicError(detail) {
@@ -150,7 +166,15 @@ export async function GET(request) {
     }
     const [headers, ...body] = rows;
     return NextResponse.json({ headers, rows: body }, { headers: { "Cache-Control": "public, max-age=60" } });
-  } catch {
-    return NextResponse.json({ error: "Failed to fetch sheet." }, { status: 502 });
+  } catch (err) {
+    // Round 344 — says WHICH network failure this was instead of one
+    // flat "Failed to fetch sheet." for everything: our own timeout
+    // firing (the AbortController above) reads as `err.name ===
+    // "AbortError"` and is the most likely culprit (see the comment on
+    // FETCH_TIMEOUT_MS) — anything else (DNS, connection refused, TLS)
+    // gets its own message text instead of being indistinguishable from
+    // a timeout.
+    const detail = err?.name === "AbortError" ? `timed out after ${FETCH_TIMEOUT_MS / 1000}s` : err?.message || "network error";
+    return NextResponse.json({ error: `Failed to fetch sheet (${detail}).` }, { status: 502 });
   }
 }
