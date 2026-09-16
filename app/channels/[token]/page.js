@@ -214,6 +214,24 @@ export default function ChannelReferenceSharePage() {
     };
   }, [intro.sheetUrl]);
 
+  // Round 345 — the sheet's own row 1 is a merged title cell spanning
+  // several columns ("HỖ TRỢ 10%...\nNhận booking lẻ..." — two lines,
+  // separated by a real line break inside that one Sheets cell), which
+  // Google's CSV export flattens into a header row where only the FIRST
+  // cell has text and every other cell in that row is empty. That's a
+  // reliable enough signature to detect generically (no hardcoded
+  // column count, since a merge can span any number of columns) and
+  // render as one centered, spanning title instead of a normal per-
+  // column header row — "this title text box expand (merge) all column
+  // so it mimic effect that the text is in centre of the whole table."
+  const sheetTitleLines = useMemo(() => {
+    const headers = sheetData?.headers;
+    if (!headers || headers.length < 2) return null;
+    if (!headers[0]?.trim()) return null;
+    if (headers.slice(1).some((h) => h.trim())) return null;
+    return headers[0].split(/\r\n|\n|\r/).filter((line) => line.trim() !== "");
+  }, [sheetData]);
+
   useEffect(() => {
     if (!supabase || !token) return;
     load();
@@ -541,11 +559,23 @@ export default function ChannelReferenceSharePage() {
                   <div className={pageStyles.sheetTableWrap}>
                     <table className={pageStyles.sheetTable}>
                       <thead>
-                        <tr>
-                          {sheetData.headers.map((h, i) => (
-                            <th key={i}>{h}</th>
-                          ))}
-                        </tr>
+                        {sheetTitleLines ? (
+                          <tr>
+                            <th colSpan={sheetData.headers.length} className={pageStyles.sheetTitleCell}>
+                              {sheetTitleLines.map((line, i) => (
+                                <div key={i} className={i === 0 ? pageStyles.sheetTitleMain : pageStyles.sheetTitleSub}>
+                                  {line}
+                                </div>
+                              ))}
+                            </th>
+                          </tr>
+                        ) : (
+                          <tr>
+                            {sheetData.headers.map((h, i) => (
+                              <th key={i}>{h}</th>
+                            ))}
+                          </tr>
+                        )}
                       </thead>
                       <tbody>
                         {sheetData.rows.map((row, i) => (

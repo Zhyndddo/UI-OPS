@@ -413,6 +413,36 @@
   background: var(--bg-hover);
 }
 
+/* Round 345 — the merged-title row (see sheetTitleLines in page.js):
+   centered and spanning every column ("mimic effect that the text is in
+   centre of the whole table"), with the extra specificity
+   (.sheetTable th.sheetTitleCell) needed to win over the plain
+   `.sheetTable th` rule above (uppercase/muted/small — wrong for a
+   title). Max-width from the shared th/td rule is dropped here since a
+   colSpan cell spanning the whole table should size with it, not cap
+   itself like a single data column would. */
+.sheetTable th.sheetTitleCell {
+  text-align: center;
+  max-width: none;
+  white-space: normal;
+  text-transform: none;
+  letter-spacing: normal;
+  padding: 14px 16px;
+}
+
+.sheetTitleMain {
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.sheetTitleSub {
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
 /* Round 340 — visually-hidden but still reachable by screen readers/SEO;
    see the <h1> in page.js that uses this. Standard clip-based hidden
    pattern (not display:none, which pulls it out of the accessibility

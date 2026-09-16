@@ -31,7 +31,12 @@ import { readChannelReferenceIntro, parseGoogleSheetUrl } from "../../../lib/cha
 // either way). The catch block below also now says explicitly whether
 // THIS was a timeout, instead of folding every possible network failure
 // into one unhelpful line.
-export const maxDuration = 30;
+//
+// Round 345 — now up to 2 attempts (see the retry loop below), so
+// maxDuration needs enough room for two full FETCH_TIMEOUT_MS windows
+// plus the retry delay between them (worst case ~51s) without Vercel's
+// own platform timeout cutting it off first.
+export const maxDuration = 60;
 const FETCH_TIMEOUT_MS = 25000;
 const MAX_BYTES = 2 * 1024 * 1024; // safety cap — this is a preview table, not a data export
 
@@ -121,6 +126,25 @@ export async function GET(request) {
 
   const exportUrl = `https://docs.google.com/spreadsheets/d/${requested.spreadsheetId}/export?format=csv&gid=${requested.gid}`;
 
+  // Round 345 — "I want to make sure it stay works": one automatic retry
+  // (short delay in between) before giving up, since the two most likely
+  // failure modes we've found so far (Round 343's bot-detection theory,
+  // Round 344's timeout theory) are both the kind of transient hiccup a
+  // second attempt can just sail through, rather than something a person
+  // needs to notice and manually reload for. Only retries actual fetch
+  // attempts — not the param/config/SSRF checks above, which are never
+  // going to succeed on a second try.
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const result = await attemptFetch(exportUrl);
+    if (result.ok) return NextResponse.json(result.data, { headers: { "Cache-Control": "public, max-age=60" } });
+    lastError = result;
+    if (attempt < 2) await new Promise((r) => setTimeout(r, 1200));
+  }
+  return NextResponse.json({ error: lastError.error }, { status: lastError.status });
+}
+
+async function attemptFetch(exportUrl) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -145,27 +169,25 @@ export async function GET(request) {
       // A sheet that isn't actually shared publicly most commonly 400s
       // or 401s here rather than serving a login page for the CSV export
       // endpoint specifically.
-      return NextResponse.json({ error: notPublicError(`HTTP ${res.status}`) }, { status: 502 });
+      return { ok: false, error: notPublicError(`HTTP ${res.status}`), status: 502 };
     }
     const contentType = res.headers.get("content-type") || "";
     if (!contentType.includes("csv") && !contentType.includes("text")) {
       // The other failure shape: a 200 OK that's actually Google's HTML
       // sign-in interstitial, not CSV — content-type is the tell since
       // the HTTP status alone doesn't catch this case.
-      return NextResponse.json({ error: notPublicError(`got ${contentType || "unknown"} instead of CSV`) }, { status: 502 });
+      return { ok: false, error: notPublicError(`got ${contentType || "unknown"} instead of CSV`), status: 502 };
     }
 
     const text = await res.text();
     if (text.length > MAX_BYTES) {
-      return NextResponse.json({ error: "Sheet too large to preview." }, { status: 502 });
+      return { ok: false, error: "Sheet too large to preview.", status: 502 };
     }
 
     const rows = parseCsv(text);
-    if (rows.length === 0) {
-      return NextResponse.json({ headers: [], rows: [] }, { headers: { "Cache-Control": "public, max-age=60" } });
-    }
+    if (rows.length === 0) return { ok: true, data: { headers: [], rows: [] } };
     const [headers, ...body] = rows;
-    return NextResponse.json({ headers, rows: body }, { headers: { "Cache-Control": "public, max-age=60" } });
+    return { ok: true, data: { headers, rows: body } };
   } catch (err) {
     // Round 344 — says WHICH network failure this was instead of one
     // flat "Failed to fetch sheet." for everything: our own timeout
@@ -175,6 +197,6 @@ export async function GET(request) {
     // gets its own message text instead of being indistinguishable from
     // a timeout.
     const detail = err?.name === "AbortError" ? `timed out after ${FETCH_TIMEOUT_MS / 1000}s` : err?.message || "network error";
-    return NextResponse.json({ error: `Failed to fetch sheet (${detail}).` }, { status: 502 });
+    return { ok: false, error: `Failed to fetch sheet (${detail}).`, status: 502 };
   }
 }
