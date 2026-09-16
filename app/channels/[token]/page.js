@@ -137,6 +137,29 @@ export default function ChannelReferenceSharePage() {
   // Round 335 — text fallback for the title row if the wordmark image
   // itself 404s/fails, so the page's <h1> is never empty.
   const [wordmarkFailed, setWordmarkFailed] = useState(false);
+  // Round 338 — BUG FIX for "the text literally half page wide": the
+  // paragraph WAS already rendering at the container's full width (Round
+  // 337 confirmed there's no width constraint in the CSS) — the actual
+  // cause was `white-space: pre-wrap` faithfully preserving every single
+  // line break stored in intro.text, including ones that were never
+  // meant as real paragraph breaks. The admin almost certainly typed this
+  // into a narrow textarea, so each visual wrap in that box got saved as
+  // a literal "\n" — pre-wrap then forces the SAME short line width on
+  // this page regardless of how wide its own container is, which is
+  // exactly the "stops right in the middle and breaks line" symptom.
+  // Fix: only treat a BLANK line (two+ newlines) as an intentional
+  // paragraph break; a lone "\n" inside a paragraph gets collapsed back
+  // to a space so the browser reflows it to fill the real container
+  // width, the same way it would if the admin had typed it as one long
+  // line. Each paragraph renders as its own <p> (normal white-space, no
+  // more pre-wrap) so wrapping is back to ordinary browser behavior.
+  const introParagraphs = useMemo(() => {
+    if (!intro.text) return [];
+    return intro.text
+      .split(/\n\s*\n/)
+      .map((p) => p.replace(/\s*\n\s*/g, " ").trim())
+      .filter(Boolean);
+  }, [intro.text]);
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -352,7 +375,13 @@ export default function ChannelReferenceSharePage() {
           </div>
         )}
 
-        {intro.text && <div className={pageStyles.introText}>{intro.text}</div>}
+        {introParagraphs.length > 0 && (
+          <div className={pageStyles.introText}>
+            {introParagraphs.map((paragraph, i) => (
+              <p key={i} className={pageStyles.introParagraph}>{paragraph}</p>
+            ))}
+          </div>
+        )}
 
         {intro.canvaUrl && (
           <div className={pageStyles.canvaEmbedSection}>

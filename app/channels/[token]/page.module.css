@@ -238,22 +238,35 @@
    Round 337 — per explicit correction ("i want invisible box"), dropped
    the border/background/padding again — this stays a plain paragraph,
    not a card — but kept `display: block` + `width: 100%` explicit rather
-   than relying on the div's default block-level width, in case the
-   "still only half a page wide" symptom is this div shrink-wrapping to
-   its (short) text content instead of actually filling the container. */
+   than relying on the div's default block-level width. Round 338 — the
+   REAL bug (per screenshot: text wrapping at ~half the container's
+   width, consistently): `white-space: pre-wrap` was preserving literal
+   "\n" characters saved from whatever narrow textarea the admin typed
+   this into, forcing that same short line length here regardless of
+   this div's actual (already-correct) width. page.js now only keeps
+   real blank-line paragraph breaks and reflows everything else into
+   normal browser-wrapped <p> tags, so `white-space: pre-wrap` is gone —
+   ordinary wrapping needs no special white-space handling. */
 .introText {
   display: block;
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--text);
-  white-space: pre-wrap;
   width: 100%;
   max-width: 100%;
   margin-bottom: 20px;
 }
 
+.introParagraph {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+
+.introParagraph:last-child {
+  margin-bottom: 0;
+}
+
 @media (min-width: 769px) {
-  .introText {
+  .introParagraph {
     font-size: 15px;
   }
 }
