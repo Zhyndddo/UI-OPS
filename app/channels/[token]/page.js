@@ -13,6 +13,7 @@ import { computeSheetCount } from "../../../lib/channelReferenceSheetCount";
 // server-side (see that route + the SSRF-guard comment on it).
 import PlatformIcon from "../../../lib/PlatformIcon";
 import { resolvePlatformKey, PLATFORM_COLORS } from "../../../lib/platformBrand";
+import { useIsMobile } from "../../../lib/useIsMobile";
 import styles from "../../shared.module.css";
 import pageStyles from "./page.module.css";
 
@@ -159,6 +160,10 @@ const OFFICIAL_GROUPS = ["VIEENT - SOCIAL", "ENVI"];
 // keep their groups but lose their label text — label: "" renders no
 // heading at all (see the JSX below's `col.label &&` guard) rather than
 // an empty one.
+// Round 373 — "move this table ENVI - MIỀN TÂY/BOLERO to TikTok Channels,
+// bolero (third column)": pulled out of this column entirely (it used to
+// stack here alongside MIỀN TÂY/BOLERO - COMMUNITY) — see TIKTOK_COLUMNS
+// below for where it landed instead.
 const COLUMN_META = [
   {
     label: "",
@@ -170,7 +175,7 @@ const COLUMN_META = [
   },
   {
     label: "",
-    groups: ["ENVI - MIỀN TÂY/BOLERO", "MIỀN TÂY/BOLERO - COMMUNITY"],
+    groups: ["MIỀN TÂY/BOLERO - COMMUNITY"],
   },
 ];
 
@@ -181,15 +186,24 @@ const COLUMN_META = [
 // official channel") promoted it to its own top-level section, a peer of
 // OFFICIAL_GROUPS/COLUMN_META rather than folded into either — see the
 // "TikTok Channels" .topSection in the JSX below, which reuses .grid the
-// same way Community Channel does (each of these 3 groups gets its own
-// column, one group per column, no COLUMN_META-style sub-stacking needed
-// since none of them share a column with another group here).
-const TIKTOK_GROUPS = ["VPOP - TIKTOK", "INDIE - TIKTOK", "TIKTOK MIỀN TÂY/BOLERO"];
+// same way Community Channel does.
+//
+// Round 373 — "move this table ENVI - MIỀN TÂY/BOLERO to TikTok Channels,
+// bolero (third column)": each entry used to be a single group key (one
+// group per column, no stacking); now an array of groups per column, same
+// COLUMN_META-style stacking, so ENVI - MIỀN TÂY/BOLERO can share the
+// 3rd (bolero) column with TIKTOK MIỀN TÂY/BOLERO instead of needing a
+// column of its own.
+const TIKTOK_COLUMNS = [
+  ["VPOP - TIKTOK"],
+  ["INDIE - TIKTOK"],
+  ["TIKTOK MIỀN TÂY/BOLERO", "ENVI - MIỀN TÂY/BOLERO"],
+];
 
 const COLUMN_ASSIGNED_GROUPS = new Set([
   ...OFFICIAL_GROUPS,
   ...COLUMN_META.flatMap((c) => c.groups),
-  ...TIKTOK_GROUPS,
+  ...TIKTOK_COLUMNS.flat(),
 ]);
 
 // Best-effort color mapping for the sheet's "Type" tag, matching picture
@@ -302,8 +316,63 @@ function detectMergedTitleLines(headers) {
   return headers[0].split(/\r\n|\n|\r/).filter((line) => line.trim() !== "");
 }
 
+// Round 373 — "mobile shell, two external table we fetch from google
+// sheet. can you do some thing like the treatment of the booking
+// magiclink. textjoin whole row of all column into one text blob: maybe
+// use template like 'column title': 'row data'": replicates
+// MobilePackageItems' card pattern from app/pick-package/[token]/page.js
+// — one "Column Title:" line per non-blank cell, value on the next line,
+// any blank cell skipped entirely (never a bare label with nothing under
+// it). `renderSpecialRow`, when given, lets a table keep its own
+// row-type handling (Distribution Support's highlighted column-title
+// rows, Ratecard Ads' merged YouTube-discount row) instead of forcing
+// those through the generic label/value split, since neither is shaped
+// like an ordinary data row.
+function MobileSheetRows({ headers, rows, keyPrefix, renderSpecialRow }) {
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      {rows.map((row, i) => {
+        const special = renderSpecialRow ? renderSpecialRow(row, i) : null;
+        if (special) {
+          return <div key={`${keyPrefix}-${i}`}>{special}</div>;
+        }
+        return (
+          <div
+            key={`${keyPrefix}-${i}`}
+            style={{
+              borderBottom: i === rows.length - 1 ? "none" : "1px solid var(--border)",
+              paddingBottom: 8,
+            }}
+          >
+            {row.map((cell, j) => {
+              if (cell == null || String(cell).trim() === "") return null;
+              const label = headers?.[j]?.trim() || `Column ${j + 1}`;
+              return (
+                <div
+                  key={j}
+                  style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6, marginBottom: 4 }}
+                >
+                  <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>{label}:</span>
+                  <br />
+                  <span style={{ color: "var(--text)" }}>{cell}</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ChannelReferenceSharePage() {
   const { token } = useParams();
+  // Round 373 — "mobile shell, two external table we fetch from google
+  // sheet. can you do some thing like the treatment of the booking
+  // magiclink": drives the mobile card branch for both Google Sheet
+  // tables below (see MobileSheetRows), same hook app/pick-package/[token]
+  // doesn't use directly but whose card pattern this replicates.
+  const isMobile = useIsMobile();
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [channelsByGroup, setChannelsByGroup] = useState({});
@@ -654,6 +723,12 @@ export default function ChannelReferenceSharePage() {
         key: "external",
         label: "External",
         count: sheetCount,
+        // Round 373 — "add color for the external, i think a bit of grey
+        // or green also do the trick": a muted grey-green, same
+        // {accent, accentBg} shape PLATFORM_COLORS/GROUP_META use, so the
+        // External tile reads as its own thing without competing with
+        // the 5 platform brand colors.
+        colors: { accent: "#7fae8f", accentBg: "rgba(127, 174, 143, 0.14)" },
         sub: null,
         anchor: "#sheet-preview",
       });
@@ -943,19 +1018,24 @@ export default function ChannelReferenceSharePage() {
               Channels is its own top-level section (a peer of Official
               Channel/Community Channel above), not a 4th COLUMN_META
               column squeezed into Community Channel's grid. Reuses
-              .grid/.column the same way Community Channel does — each of
-              the 3 TIKTOK_GROUPS gets its own column, one group per
-              column (no sub-stacking, unlike COLUMN_META's columns). */}
+              .grid/.column the same way Community Channel does.
+              Round 373 — "move this table ENVI - MIỀN TÂY/BOLERO to
+              TikTok Channels, bolero (third column)": TIKTOK_COLUMNS is
+              now an array of groups per column (same shape/stacking as
+              COLUMN_META) so the bolero column can hold both TIKTOK MIỀN
+              TÂY/BOLERO and ENVI - MIỀN TÂY/BOLERO. */}
           {(() => {
-            const tiktokGroupsPresent = TIKTOK_GROUPS.filter((g) => (channelsByGroup[g]?.length || 0) > 0);
-            if (tiktokGroupsPresent.length === 0) return null;
+            const tiktokColumnsPresent = TIKTOK_COLUMNS.map((groups) =>
+              groups.filter((g) => (channelsByGroup[g]?.length || 0) > 0)
+            ).filter((colGroups) => colGroups.length > 0);
+            if (tiktokColumnsPresent.length === 0) return null;
             return (
               <div className={pageStyles.topSection} style={{ marginTop: 24 }}>
                 <div className={pageStyles.topSectionTitle}>TikTok Channels</div>
                 <div className={pageStyles.grid}>
-                  {tiktokGroupsPresent.map((group) => (
-                    <div key={group} className={pageStyles.column}>
-                      {renderGroupBlock(group)}
+                  {tiktokColumnsPresent.map((colGroups) => (
+                    <div key={colGroups.join("|")} className={pageStyles.column}>
+                      {colGroups.map((group) => renderGroupBlock(group))}
                     </div>
                   ))}
                 </div>
@@ -991,7 +1071,10 @@ export default function ChannelReferenceSharePage() {
             tbody, since its "header" row IS the merged title). */}
         <div id="sheet-preview" className={pageStyles.sheetSection}>
           <div className={pageStyles.sheetSectionHeader}>
-            <div className={pageStyles.sheetSectionTitle}>Distribution Support - Media Booking 2026</div>
+            <div className={pageStyles.sheetSectionTitle}>
+              <div>Distribution Support</div>
+              <div>Media Booking 2026</div>
+            </div>
             {sheetTitleLines && (
               <div className={pageStyles.sheetSectionSubtitle}>
                 {sheetTitleLines.map((line, i) => (
@@ -1020,6 +1103,27 @@ export default function ChannelReferenceSharePage() {
                 <div className={pageStyles.sheetStatus}>{sheetError}</div>
               )}
               {sheetData && sheetData.rows.length > 0 && (
+                isMobile ? (
+                  <MobileSheetRows
+                    headers={sheetData.headers}
+                    rows={sheetData.rows}
+                    keyPrefix="dist"
+                    renderSpecialRow={(row) =>
+                      isColumnTitleRow(row) ? (
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 800,
+                            color: "var(--text)",
+                            padding: "4px 0",
+                          }}
+                        >
+                          {row.filter((c) => String(c || "").trim() !== "").join(" · ")}
+                        </div>
+                      ) : null
+                    }
+                  />
+                ) : (
                 <div className={pageStyles.sheetTableWrap}>
                   <table className={pageStyles.sheetTable}>
                     {!sheetTitleLines && (
@@ -1054,6 +1158,7 @@ export default function ChannelReferenceSharePage() {
                     </tbody>
                   </table>
                 </div>
+                )
               )}
               {/* Round 342 — still applies: only show this when it
                   points somewhere different from the detail link below. */}
@@ -1122,6 +1227,32 @@ export default function ChannelReferenceSharePage() {
               <div className={pageStyles.sheetStatus}>{sheetError2}</div>
             )}
             {sheetData2 && sheetData2.rows.length > 0 && (
+              isMobile ? (
+                <MobileSheetRows
+                  headers={sheetData2.headers}
+                  rows={sheetData2.rows}
+                  keyPrefix="rate"
+                  renderSpecialRow={(row) => {
+                    // Round 370/371 — see isRatecardYoutubeMergeRow /
+                    // findRatecardMergeStart above: this row's merged
+                    // paragraph doesn't fit the generic label/value split
+                    // (it's one long text block, not per-column data), so
+                    // it renders as its own card instead.
+                    if (!isRatecardYoutubeMergeRow(row)) return null;
+                    const start = findRatecardMergeStart(row);
+                    if (start === -1) return null;
+                    return (
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
+                        <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>
+                          {row[0]}:
+                        </span>
+                        <br />
+                        <span style={{ color: "var(--text)" }}>{row[start]}</span>
+                      </div>
+                    );
+                  }}
+                />
+              ) : (
               <div className={pageStyles.sheetTableWrap}>
                 <table className={pageStyles.sheetTable}>
                   {!sheetTitleLines2 && (
@@ -1181,6 +1312,7 @@ export default function ChannelReferenceSharePage() {
                   </tbody>
                 </table>
               </div>
+              )
             )}
             <a href={intro.sheetUrl2} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
               View full sheet →
