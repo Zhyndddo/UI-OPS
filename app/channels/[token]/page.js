@@ -63,6 +63,13 @@ const GROUP_META = [
   { group: "INDIE - COMMUNITY", accent: "#5fd68a", accentBg: "rgba(95, 214, 138, 0.12)" },
   { group: "INDIE - TIKTOK", accent: "#5fd68a", accentBg: "rgba(95, 214, 138, 0.12)" },
   { group: "ENVI", accent: "#c46bff", accentBg: "rgba(196, 107, 255, 0.14)" },
+  // Round 365 — "this table ENVI - MIỀN TÂY/BOLERO belong to sub-group
+  // MIỀN TÂY - BOLERO of group Community Channel": a distinct
+  // channel_group value from plain "ENVI" above (that one stays in
+  // OFFICIAL_GROUPS, unchanged) — this one was showing up in the
+  // trailing "Other" column since it wasn't in GROUP_META/COLUMN_META at
+  // all yet. Same purple accent as its two MIỀN TÂY - BOLERO siblings.
+  { group: "ENVI - MIỀN TÂY/BOLERO", accent: "#c46bff", accentBg: "rgba(196, 107, 255, 0.14)" },
   { group: "MIỀN TÂY/BOLERO - COMMUNITY", accent: "#c46bff", accentBg: "rgba(196, 107, 255, 0.14)" },
   { group: "TIKTOK MIỀN TÂY/BOLERO", accent: "#c46bff", accentBg: "rgba(196, 107, 255, 0.14)" },
   { group: "Distribution Support - MEDIA BOOKING CHANNEL", accent: "#9a9a9a", accentBg: "rgba(154, 154, 154, 0.14)" },
@@ -152,7 +159,7 @@ const COLUMN_META = [
   },
   {
     label: "MIỀN TÂY - BOLERO",
-    groups: ["MIỀN TÂY/BOLERO - COMMUNITY", "TIKTOK MIỀN TÂY/BOLERO"],
+    groups: ["ENVI - MIỀN TÂY/BOLERO", "MIỀN TÂY/BOLERO - COMMUNITY", "TIKTOK MIỀN TÂY/BOLERO"],
   },
 ];
 const COLUMN_ASSIGNED_GROUPS = new Set([...OFFICIAL_GROUPS, ...COLUMN_META.flatMap((c) => c.groups)]);
@@ -221,6 +228,16 @@ function isColumnTitleRow(row) {
   if (!row || row.length === 0) return false;
   if (String(row[0] || "").trim() !== "") return false;
   return row.slice(1).some((cell) => String(cell || "").trim() !== "");
+}
+
+// Round 345 — see the sheetTitleLines useMemo below for the full
+// reasoning; extracted to a plain function in Round 365 so the second
+// (Ratecard Ads) sheet can reuse the exact same merged-title detection.
+function detectMergedTitleLines(headers) {
+  if (!headers || headers.length < 2) return null;
+  if (!headers[0]?.trim()) return null;
+  if (headers.slice(1).some((h) => h.trim())) return null;
+  return headers[0].split(/\r\n|\n|\r/).filter((line) => line.trim() !== "");
 }
 
 export default function ChannelReferenceSharePage() {
@@ -397,13 +414,57 @@ export default function ChannelReferenceSharePage() {
   // render as one centered, spanning title instead of a normal per-
   // column header row — "this title text box expand (merge) all column
   // so it mimic effect that the text is in centre of the whole table."
-  const sheetTitleLines = useMemo(() => {
-    const headers = sheetData?.headers;
-    if (!headers || headers.length < 2) return null;
-    if (!headers[0]?.trim()) return null;
-    if (headers.slice(1).some((h) => h.trim())) return null;
-    return headers[0].split(/\r\n|\n|\r/).filter((line) => line.trim() !== "");
-  }, [sheetData]);
+  // Round 365 — extracted to a plain function so the new Ratecard Ads
+  // sheet (sheetData2 below) can detect the exact same merged-title
+  // shape without a second copy of this logic.
+  const sheetTitleLines = useMemo(() => detectMergedTitleLines(sheetData?.headers), [sheetData]);
+
+  // Round 365 — "add this one under the Distribution Support - Media
+  // Booking 2026 table. it's from same spread sheet just different sheet
+  // of that table" — a second, independent sheet embed (Ratecard Ads),
+  // same fetch-through-our-own-route mechanism as the first (see
+  // intro.sheetUrl's own useEffect above and app/api/channel-reference-
+  // sheet/route.js's SSRF guard, which now checks against either
+  // configured URL). Deliberately simpler than the first sheet's state:
+  // no localStorage pre-paint cache or daily-snapshot fallback, since
+  // those exist specifically to keep the External COUNTER tile from
+  // showing blank while its own fetch is in flight — this second sheet
+  // has no counter tile of its own, just a table, so a plain "Loading…"
+  // on first render is fine.
+  const [sheetData2, setSheetData2] = useState(null);
+  const [sheetError2, setSheetError2] = useState(null);
+  const [sheetLoading2, setSheetLoading2] = useState(false);
+  useEffect(() => {
+    if (!intro.sheetUrl2) {
+      setSheetData2(null);
+      setSheetError2(null);
+      return;
+    }
+    let cancelled = false;
+    setSheetLoading2(true);
+    setSheetError2(null);
+    fetch(`/api/channel-reference-sheet?url=${encodeURIComponent(intro.sheetUrl2)}`)
+      .then((res) => res.json().then((body) => ({ ok: res.ok, body })))
+      .then(({ ok, body }) => {
+        if (cancelled) return;
+        if (!ok) {
+          setSheetError2(body.error || "Failed to load sheet.");
+          setSheetData2(null);
+        } else {
+          setSheetData2(body);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSheetError2("Failed to load sheet.");
+      })
+      .finally(() => {
+        if (!cancelled) setSheetLoading2(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [intro.sheetUrl2]);
+  const sheetTitleLines2 = useMemo(() => detectMergedTitleLines(sheetData2?.headers), [sheetData2]);
 
   useEffect(() => {
     if (!supabase || !token) return;
@@ -624,7 +685,16 @@ export default function ChannelReferenceSharePage() {
                     <PlatformIcon platform={c.platform} />
                   </span>
                   <span className={pageStyles.rowName}>{c.name}</span>
-                  <span className={pageStyles.rowFollowers}>{formatFollowers(c.follower_count)}</span>
+                  <span className={pageStyles.rowFollowers}>
+                    {formatFollowers(c.follower_count)}
+                    {/* Round 367 — "use a small followers as a unit right
+                        next to the number": desktop already labels this
+                        column via .blockColumnTitles ("Followers"), so
+                        this unit text is mobile-only (see
+                        .rowFollowersUnit's default display:none, switched
+                        on only inside the <=480px media query). */}
+                    <span className={pageStyles.rowFollowersUnit}>followers</span>
+                  </span>
                   {c.note && (
                     // Round 353 — note's column is now a fixed width
                     // (see .rowNote in the CSS) so the follower column
@@ -914,6 +984,67 @@ export default function ChannelReferenceSharePage() {
             </a>
           )}
         </div>
+
+        {/* Round 365 — "add this one under the Distribution Support -
+            Media Booking 2026 table. it's from same spread sheet just
+            different sheet of that table" — Ratecard Ads, a second sheet
+            embed just below the first one. Unlike the Distribution
+            Support section above (which always renders — it's also home
+            to that group's own "Click for more detail" redirect button),
+            this one is gated entirely behind intro.sheetUrl2 being set:
+            there's no other always-relevant content living in this
+            section, so an unconfigured second sheet just means nothing
+            renders here at all rather than an empty card. */}
+        {intro.sheetUrl2 && (
+          <div className={pageStyles.sheetSection}>
+            <div className={pageStyles.sheetSectionHeader}>
+              <div className={pageStyles.sheetSectionTitle}>Ratecard Ads</div>
+              {sheetTitleLines2 && (
+                <div className={pageStyles.sheetSectionSubtitle}>
+                  {sheetTitleLines2.map((line, i) => (
+                    <div key={i}>{line}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {sheetLoading2 && !sheetData2 && (
+              <div className={pageStyles.sheetStatus}>Loading sheet…</div>
+            )}
+            {sheetError2 && (
+              <div className={pageStyles.sheetStatus}>{sheetError2}</div>
+            )}
+            {sheetData2 && sheetData2.rows.length > 0 && (
+              <div className={pageStyles.sheetTableWrap}>
+                <table className={pageStyles.sheetTable}>
+                  {!sheetTitleLines2 && (
+                    <thead>
+                      <tr>
+                        {sheetData2.headers.map((h, i) => (
+                          <th key={i}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                  )}
+                  <tbody>
+                    {sheetData2.rows.map((row, i) => (
+                      <tr
+                        key={i}
+                        className={isColumnTitleRow(row) ? pageStyles.sheetColumnTitleRow : undefined}
+                      >
+                        {row.map((cell, j) => (
+                          <td key={j}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <a href={intro.sheetUrl2} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
+              View full sheet →
+            </a>
+          </div>
+        )}
       </div>
     </div>
   );

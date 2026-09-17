@@ -56,14 +56,17 @@ export async function GET(request) {
     return NextResponse.json({ error: "Server not configured (missing SUPABASE_SERVICE_ROLE_KEY)." }, { status: 500 });
   }
 
-  // SSRF guard: only ever fetch the ONE sheet currently configured on the
-  // Channel Reference intro, never an arbitrary caller-supplied sheet —
-  // same "must match a value we already trust" idiom crawl-og-image uses
-  // for its own og:image crawl.
+  // SSRF guard: only ever fetch one of the (up to 2, as of Round 365)
+  // sheets currently configured on the Channel Reference intro, never an
+  // arbitrary caller-supplied sheet — same "must match a value we
+  // already trust" idiom crawl-og-image uses for its own og:image crawl.
   const intro = await readChannelReferenceIntro(supabaseAdmin);
-  const configured = parseGoogleSheetUrl(intro.sheetUrl);
-  if (!configured || configured.spreadsheetId !== requested.spreadsheetId || configured.gid !== requested.gid) {
-    return NextResponse.json({ error: "url does not match the configured Channel Reference sheet." }, { status: 403 });
+  const matchesConfigured = (rawConfiguredUrl) => {
+    const configured = parseGoogleSheetUrl(rawConfiguredUrl);
+    return configured && configured.spreadsheetId === requested.spreadsheetId && configured.gid === requested.gid;
+  };
+  if (!matchesConfigured(intro.sheetUrl) && !matchesConfigured(intro.sheetUrl2)) {
+    return NextResponse.json({ error: "url does not match a configured Channel Reference sheet." }, { status: 403 });
   }
 
   // Round 345 — "I want to make sure it stay works": one automatic retry

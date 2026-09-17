@@ -90,8 +90,8 @@ export default function BookingChannelsPage() {
   // Round 339 — sheetUrl added: a public Google Sheet URL whose one tab
   // gets embedded as a native table on the magic link (see
   // lib/channelReferenceIntro.js's header for the full spec).
-  const [introDraft, setIntroDraft] = useState({ title: "", text: "", canvaUrl: "", sheetUrl: "" });
-  const [introSaved, setIntroSaved] = useState({ title: "", text: "", canvaUrl: "", sheetUrl: "" });
+  const [introDraft, setIntroDraft] = useState({ title: "", text: "", canvaUrl: "", sheetUrl: "", sheetUrl2: "" });
+  const [introSaved, setIntroSaved] = useState({ title: "", text: "", canvaUrl: "", sheetUrl: "", sheetUrl2: "" });
   const [introSaving, setIntroSaving] = useState(false);
   // Round 328 — was a <details>/<summary> disclosure sitting on its own as
   // an odd thin bar; per explicit request, moved into the same button row
@@ -297,6 +297,7 @@ export default function BookingChannelsPage() {
       text: introDraft.text.trim(),
       canvaUrl: introDraft.canvaUrl.trim(),
       sheetUrl: introDraft.sheetUrl.trim(),
+      sheetUrl2: introDraft.sheetUrl2.trim(),
     };
     const { error } = await supabase
       .from("global_settings")
@@ -449,7 +450,7 @@ export default function BookingChannelsPage() {
             onClick={() => setIntroPanelOpen((o) => !o)}
             title="Title, intro text, Canva embed, and Google Sheet preview shown at the top of the public Channel Reference link."
           >
-            ✎ Magic Link Intro {introSaved.title || introSaved.text || introSaved.canvaUrl || introSaved.sheetUrl ? "" : "(not set)"}
+            ✎ Magic Link Intro {introSaved.title || introSaved.text || introSaved.canvaUrl || introSaved.sheetUrl || introSaved.sheetUrl2 ? "" : "(not set)"}
           </button>
         </div>
 
@@ -562,6 +563,26 @@ export default function BookingChannelsPage() {
               "Anyone with the link" (view access), and only this one, currently-saved link is ever fetched.
             </p>
           </div>
+          {/* Round 365 — "add this one under the Distribution Support -
+              Media Booking 2026 table. it's from same spread sheet just
+              different sheet of that table" — Ratecard Ads, a second tab
+              rendered the same way as the field above, just its own
+              section further down the public page. */}
+          <div className={styles.field} style={{ marginBottom: 10, maxWidth: 420 }}>
+            <label className={styles.fieldLabel}>Ratecard Ads Sheet URL</label>
+            <UrlField
+              value={introDraft.sheetUrl2}
+              onChange={(v) => setIntroDraft((prev) => ({ ...prev, sheetUrl2: v }))}
+              styles={styles}
+              placeholder="https://docs.google.com/spreadsheets/d/…/edit?gid=…"
+              wide
+            />
+            <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4 }}>
+              A second, separate tab (e.g. Ratecard Ads) shown as its own table below the Distribution Support one —
+              same rules as the field above: "Anyone with the link" sharing, and this exact saved link is what's
+              fetched.
+            </p>
+          </div>
           <button
             type="button"
             className={styles.btnSecondary}
@@ -571,7 +592,8 @@ export default function BookingChannelsPage() {
               (introDraft.title === introSaved.title &&
                 introDraft.text === introSaved.text &&
                 introDraft.canvaUrl === introSaved.canvaUrl &&
-                introDraft.sheetUrl === introSaved.sheetUrl)
+                introDraft.sheetUrl === introSaved.sheetUrl &&
+                introDraft.sheetUrl2 === introSaved.sheetUrl2)
             }
           >
             {introSaving ? "Saving…" : "Save Intro"}

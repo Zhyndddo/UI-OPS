@@ -203,7 +203,13 @@
   gap: 10px;
   padding: 6px 14px 4px;
   font-weight: 700;
-  font-size: 10px;
+  /* Round 367 — "reduce the font size of the column title row, about 0.6
+     to 0.7 (will resend if the UI keep being clipped)": on the narrower
+     3-per-row desktop group columns (VPOP-MANSTREAM / INDIE / MIỀN TÂY -
+     BOLERO), the 4 labels ("Platform · Channel Name · Followers · Type")
+     were running into each other with no room to breathe. 10px -> 7px is
+     right in the requested 0.6-0.7x range. */
+  font-size: 7px;
   letter-spacing: 0.3px;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -299,13 +305,24 @@
    icon gives line 2 a small left indent instead of stretching followers
    under the icon's exact 32px width (which is narrower than most
    follower numbers need). */
+/* Round 367 — "use a small followers as a unit right next to the number.
+   then move the number to be right under the channel name, and move the
+   type a bit to the left show it show everything": the number used to
+   inherit .rowFollowers's desktop text-align:center (so it floated in the
+   middle of its column instead of sitting under the name it belongs to),
+   and .rowNote's desktop fixed 104px width + ellipsis truncated longer
+   type pills ("Official Channel") to "Official Chan…". Mobile now
+   overrides both: followers left-aligns directly under the name column,
+   and note's column becomes content-sized (min 72px so a short pill like
+   "Lyrics" doesn't look stranded) instead of a fixed 104px, so it always
+   shows its full text instead of truncating. */
 @media (max-width: 480px) {
   .row {
-    grid-template-columns: 32px 1fr 104px;
+    grid-template-columns: 32px 1fr minmax(72px, max-content);
     grid-template-areas:
       "platform name name"
       ". followers note";
-    row-gap: 2px;
+    row-gap: 3px;
   }
   .rowPlatform {
     grid-area: platform;
@@ -315,9 +332,24 @@
   }
   .rowFollowers {
     grid-area: followers;
+    text-align: left;
+    justify-self: start;
+    min-width: 0;
+  }
+  .rowFollowersUnit {
+    display: inline;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-faint);
+    text-transform: lowercase;
+    margin-left: 3px;
   }
   .rowNote {
     grid-area: note;
+    justify-self: end;
+    max-width: none;
+    overflow: visible;
+    text-overflow: unset;
   }
 }
 
@@ -361,6 +393,15 @@
   /* Round 340 — "middle for numbers": centered within its now-fixed-width
      column instead of hugging the left edge. */
   text-align: center;
+}
+
+/* Round 367 — the "followers" unit label rendered right after the number
+   (see page.js). Desktop already has a "Followers" column title above
+   this column (.blockColumnTitles), so the label would be redundant
+   there — hidden by default, switched on only inside the <=480px mobile
+   media query below where there's no column-title row to label it. */
+.rowFollowersUnit {
+  display: none;
 }
 
 .rowName {
