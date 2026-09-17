@@ -258,6 +258,23 @@ function isColumnTitleRow(row) {
   return row.slice(1).some((cell) => String(cell || "").trim() !== "");
 }
 
+// Round 370 — "apply exclusively to the Ratecard Ads: row TRỢ GIÁ BOOKING
+// ADS YOUTUBE * Chỉ áp dụng với dự án phát hành qua Vieent: the text block
+// 'hỗ trợ 10% đối với kênh youtube...' is a merge cell, can you make that
+// change (it merge 5 columns counting from itself to the right)": Google's
+// CSV export flattens an in-sheet merged cell to one cell holding the text
+// with blank cells trailing it (same flattening detectMergedTitleLines
+// already works around, for the sheet's own title instead of an ordinary
+// body row). Matched by this row's own label text rather than a generic
+// "long cell with blanks after it" structural rule, since that would risk
+// merging other short label/value rows that just happen to have empty
+// trailing columns — only this one row is a real merge in the sheet.
+// Deliberately only referenced from the Ratecard Ads (sheetData2) render
+// below, never the Distribution Support table above it.
+function isRatecardYoutubeMergeRow(row) {
+  return String(row?.[0] || "").trim().toUpperCase().startsWith("TRỢ GIÁ BOOKING ADS YOUTUBE");
+}
+
 // Round 345 — see the sheetTitleLines useMemo below for the full
 // reasoning; extracted to a plain function in Round 365 so the second
 // (Ratecard Ads) sheet can reuse the exact same merged-title detection.
@@ -1102,13 +1119,34 @@ export default function ChannelReferenceSharePage() {
                         in this sheet — so this table no longer runs rows
                         through it at all, unlike the Distribution Support
                         table above which is unchanged. */}
-                    {sheetData2.rows.map((row, i) => (
-                      <tr key={i}>
-                        {row.map((cell, j) => (
-                          <td key={j}>{cell}</td>
-                        ))}
-                      </tr>
-                    ))}
+                    {sheetData2.rows.map((row, i) => {
+                      // Round 370 — see isRatecardYoutubeMergeRow above:
+                      // this one row's 2nd cell is a merged cell in the
+                      // real sheet (5 columns, counting itself), flattened
+                      // by the CSV export into one long-text cell followed
+                      // by blanks — rendered here with a real colSpan
+                      // instead of 4 empty <td>s trailing it.
+                      if (isRatecardYoutubeMergeRow(row)) {
+                        const mergeSpan = Math.min(5, Math.max(1, row.length - 1));
+                        const rest = row.slice(1 + mergeSpan);
+                        return (
+                          <tr key={i}>
+                            <td>{row[0]}</td>
+                            <td colSpan={mergeSpan}>{row[1]}</td>
+                            {rest.map((cell, j) => (
+                              <td key={1 + mergeSpan + j}>{cell}</td>
+                            ))}
+                          </tr>
+                        );
+                      }
+                      return (
+                        <tr key={i}>
+                          {row.map((cell, j) => (
+                            <td key={j}>{cell}</td>
+                          ))}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
