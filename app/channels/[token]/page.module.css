@@ -513,6 +513,17 @@
   color: var(--text-muted);
 }
 
+/* Round 357 — "the auto fetch, run a fetch every day at 8:00": small,
+   quiet proof line the daily cron is actually running, not competing
+   visually with the real title/subtitle above it. */
+.sheetSectionMeta {
+  margin-top: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--text-faint);
+}
+
 .sheetStatus {
   font-size: 13px;
   color: var(--text-muted);

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, getCallerProfile } from "../../../lib/supabaseAdmin";
+import { refreshYoutubeChannels } from "../../../lib/refreshYoutubeStats";
 
 // Round 56 — item 3: auto-fetch follower/subscriber counts into
 // booking_channels.follower_count, via YouTube's OFFICIAL Data API v3
@@ -23,46 +24,15 @@ import { supabaseAdmin, getCallerProfile } from "../../../lib/supabaseAdmin";
 //      project (Settings -> Environment Variables), then redeploy.
 // Without that env var set, this route returns a clear 500 rather than
 // silently doing nothing.
-
-const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3/channels";
-
-// Best-effort channel-identifier resolution from whatever URL shape is on
-// file — booking_channels.url is free-typed from the reference sheet, so
-// this has to handle the 3 real shapes YouTube URLs come in.
-function parseYoutubeUrl(url) {
-  if (!url) return null;
-  try {
-    const u = new URL(url.trim());
-    const path = u.pathname.replace(/\/+$/, "");
-    const channelMatch = path.match(/\/channel\/([\w-]+)/);
-    if (channelMatch) return { kind: "id", value: channelMatch[1] };
-    const handleMatch = path.match(/\/(@[\w.-]+)/);
-    if (handleMatch) return { kind: "handle", value: handleMatch[1] };
-    const userMatch = path.match(/\/user\/([\w-]+)/);
-    if (userMatch) return { kind: "username", value: userMatch[1] };
-    // "/c/CustomName" (legacy custom URLs) has no official lookup-by-name
-    // endpoint in the Data API's cheap `channels` call — treat as
-    // unresolvable rather than burning a much pricier `search` quota unit
-    // per row on every refresh.
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchSubscriberCount(apiKey, ref) {
-  const params = new URLSearchParams({ part: "statistics", key: apiKey });
-  if (ref.kind === "id") params.set("id", ref.value);
-  else if (ref.kind === "handle") params.set("forHandle", ref.value);
-  else if (ref.kind === "username") params.set("forUsername", ref.value);
-  const res = await fetch(`${YOUTUBE_API_BASE}?${params.toString()}`);
-  const body = await res.json();
-  if (!res.ok) throw new Error(body?.error?.message || `YouTube API error (${res.status})`);
-  const item = body.items?.[0];
-  if (!item) throw new Error("Channel not found");
-  if (item.statistics?.hiddenSubscriberCount) throw new Error("Subscriber count is hidden on this channel");
-  return Number(item.statistics?.subscriberCount ?? null);
-}
+//
+// Round 359 — the actual fetch/parse/write logic moved to
+// lib/refreshYoutubeStats.js so the new daily cron
+// (app/api/cron/refresh-youtube-stats/route.js) can call the exact same
+// implementation this admin-triggered button always has, instead of a
+// second copy. This route's own job now is just: authenticate the caller
+// (still required here — this is the button an admin clicks, unlike the
+// cron which authenticates via CRON_SECRET instead), read the optional
+// channelIds filter, and hand off.
 
 export async function POST(request) {
   if (!supabaseAdmin) {
@@ -89,26 +59,10 @@ export async function POST(request) {
     // no body sent — refresh everything, that's fine
   }
 
-  let query = supabaseAdmin.from("booking_channels").select("id, name, url").eq("platform", "YouTube").not("url", "is", null);
-  if (channelIds.length > 0) query = query.in("id", channelIds);
-  const { data: channels, error: fetchErr } = await query;
-  if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
-
-  const results = { updated: [], skipped: [], errors: [] };
-  for (const channel of channels || []) {
-    const ref = parseYoutubeUrl(channel.url);
-    if (!ref) {
-      results.skipped.push({ id: channel.id, name: channel.name, reason: "Couldn't resolve a channel ID/handle/username from this URL — /c/ custom URLs aren't supported, use the /channel/UC... or /@handle link instead." });
-      continue;
-    }
-    try {
-      const subscriberCount = await fetchSubscriberCount(apiKey, ref);
-      await supabaseAdmin.from("booking_channels").update({ follower_count: subscriberCount, stats_synced_at: new Date().toISOString() }).eq("id", channel.id);
-      results.updated.push({ id: channel.id, name: channel.name, follower_count: subscriberCount });
-    } catch (err) {
-      results.errors.push({ id: channel.id, name: channel.name, reason: err.message });
-    }
+  try {
+    const results = await refreshYoutubeChannels(supabaseAdmin, apiKey, channelIds);
+    return NextResponse.json(results);
+  } catch (err) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
-
-  return NextResponse.json(results);
 }

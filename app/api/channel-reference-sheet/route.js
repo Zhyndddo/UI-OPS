@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { readChannelReferenceIntro, parseGoogleSheetUrl } from "../../../lib/channelReferenceIntro";
+import { fetchSheetCsv } from "../../../lib/googleSheetCsv";
 
 // Round 339 — server-side fetch of the Channel Reference magic link's
 // configured Google Sheet ("embed the first sheet... use the normal url
@@ -37,71 +38,12 @@ import { readChannelReferenceIntro, parseGoogleSheetUrl } from "../../../lib/cha
 // plus the retry delay between them (worst case ~51s) without Vercel's
 // own platform timeout cutting it off first.
 export const maxDuration = 60;
-const FETCH_TIMEOUT_MS = 25000;
-const MAX_BYTES = 2 * 1024 * 1024; // safety cap — this is a preview table, not a data export
 
-function notPublicError(detail) {
-  // Round 343 — includes the actual upstream signal (status code, or
-  // "non-CSV response") in the message now, not just a generic string.
-  // Reported symptom: "it showed before... has something different?" —
-  // the table worked at some point, then started failing with no code
-  // change in between. Google's CSV export endpoint is known to
-  // occasionally 403 requests coming from a data-center/server IP
-  // (Vercel's functions) even for a genuinely public sheet, especially
-  // under repeat hits — this can't be reproduced or confirmed from this
-  // sandbox (its own egress proxy blocks docs.google.com outright), so
-  // surfacing the real detail on the page is the fastest way to tell
-  // "sheet really isn't shared" apart from "Google's rate-limiting/bot-
-  // detection flagged this request" without needing a shared debugging
-  // session.
-  return `Sheet not accessible (${detail}) — check it's shared as "Anyone with the link," or try again in a moment.`;
-}
-
-// Minimal RFC4180 CSV parser (quoted fields, embedded commas/newlines,
-// "" as an escaped quote) — no dependency needed for what Google's own
-// CSV export already produces cleanly.
-function parseCsv(text) {
-  const rows = [];
-  let row = [];
-  let field = "";
-  let inQuotes = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        field += c;
-      }
-    } else if (c === '"') {
-      inQuotes = true;
-    } else if (c === ",") {
-      row.push(field);
-      field = "";
-    } else if (c === "\n") {
-      row.push(field);
-      field = "";
-      rows.push(row);
-      row = [];
-    } else if (c === "\r") {
-      // skip — \n (handled above) closes the row either way
-    } else {
-      field += c;
-    }
-  }
-  if (field.length > 0 || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-  // Drop fully-blank rows (a trailing blank line, or a genuinely empty
-  // row Sheets sometimes exports) rather than rendering an empty <tr>.
-  return rows.filter((r) => r.some((cell) => cell.trim() !== ""));
-}
+// Round 357 — the actual fetch/parse/retry implementation (and its
+// notPublicError/parseCsv helpers) moved to lib/googleSheetCsv.js so the
+// new daily auto-fetch cron (app/api/cron/channel-reference-sheet/
+// route.js) can reuse it verbatim instead of a second copy drifting out
+// of sync. Nothing about the request/response shape below changed.
 
 export async function GET(request) {
   const rawUrl = new URL(request.url).searchParams.get("url");
@@ -124,79 +66,13 @@ export async function GET(request) {
     return NextResponse.json({ error: "url does not match the configured Channel Reference sheet." }, { status: 403 });
   }
 
-  const exportUrl = `https://docs.google.com/spreadsheets/d/${requested.spreadsheetId}/export?format=csv&gid=${requested.gid}`;
-
   // Round 345 — "I want to make sure it stay works": one automatic retry
-  // (short delay in between) before giving up, since the two most likely
-  // failure modes we've found so far (Round 343's bot-detection theory,
-  // Round 344's timeout theory) are both the kind of transient hiccup a
-  // second attempt can just sail through, rather than something a person
-  // needs to notice and manually reload for. Only retries actual fetch
-  // attempts — not the param/config/SSRF checks above, which are never
-  // going to succeed on a second try.
-  let lastError = null;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const result = await attemptFetch(exportUrl);
-    if (result.ok) return NextResponse.json(result.data, { headers: { "Cache-Control": "public, max-age=60" } });
-    lastError = result;
-    if (attempt < 2) await new Promise((r) => setTimeout(r, 1200));
-  }
-  return NextResponse.json({ error: lastError.error }, { status: lastError.status });
-}
-
-async function attemptFetch(exportUrl) {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    let res;
-    try {
-      res = await fetch(exportUrl, {
-        signal: controller.signal,
-        redirect: "follow",
-        // Round 343 — a plain server-side fetch (Node's default UA, or
-        // none at all) to Google's CSV export endpoint is more likely to
-        // get bot-detected/blocked than one that looks like an ordinary
-        // browser request — worth trying since the symptom (worked once,
-        // then started failing with no code change) matches Google-side
-        // flakiness more than a bug in this route.
-        headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" },
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if (!res.ok) {
-      // A sheet that isn't actually shared publicly most commonly 400s
-      // or 401s here rather than serving a login page for the CSV export
-      // endpoint specifically.
-      return { ok: false, error: notPublicError(`HTTP ${res.status}`), status: 502 };
-    }
-    const contentType = res.headers.get("content-type") || "";
-    if (!contentType.includes("csv") && !contentType.includes("text")) {
-      // The other failure shape: a 200 OK that's actually Google's HTML
-      // sign-in interstitial, not CSV — content-type is the tell since
-      // the HTTP status alone doesn't catch this case.
-      return { ok: false, error: notPublicError(`got ${contentType || "unknown"} instead of CSV`), status: 502 };
-    }
-
-    const text = await res.text();
-    if (text.length > MAX_BYTES) {
-      return { ok: false, error: "Sheet too large to preview.", status: 502 };
-    }
-
-    const rows = parseCsv(text);
-    if (rows.length === 0) return { ok: true, data: { headers: [], rows: [] } };
-    const [headers, ...body] = rows;
-    return { ok: true, data: { headers, rows: body } };
-  } catch (err) {
-    // Round 344 — says WHICH network failure this was instead of one
-    // flat "Failed to fetch sheet." for everything: our own timeout
-    // firing (the AbortController above) reads as `err.name ===
-    // "AbortError"` and is the most likely culprit (see the comment on
-    // FETCH_TIMEOUT_MS) — anything else (DNS, connection refused, TLS)
-    // gets its own message text instead of being indistinguishable from
-    // a timeout.
-    const detail = err?.name === "AbortError" ? `timed out after ${FETCH_TIMEOUT_MS / 1000}s` : err?.message || "network error";
-    return { ok: false, error: `Failed to fetch sheet (${detail}).`, status: 502 };
-  }
+  // (short delay in between) before giving up (now inside
+  // lib/googleSheetCsv.js's fetchSheetCsv), since the two most likely
+  // failure modes found so far (Round 343's bot-detection theory, Round
+  // 344's timeout theory) are both the kind of transient hiccup a second
+  // attempt can just sail through.
+  const result = await fetchSheetCsv(requested.spreadsheetId, requested.gid);
+  if (result.ok) return NextResponse.json(result.data, { headers: { "Cache-Control": "public, max-age=60" } });
+  return NextResponse.json({ error: result.error }, { status: 502 });
 }

@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { readMagicLinkThemeLock } from "../../../lib/magicLinkThemeLock";
 import { readChannelReferenceIntro, toCanvaEmbedUrl } from "../../../lib/channelReferenceIntro";
+import { readChannelReferenceSheetSnapshot } from "../../../lib/channelReferenceSheetSnapshot";
+import { computeSheetCount } from "../../../lib/channelReferenceSheetCount";
 // Round 339 note: no parseGoogleSheetUrl import needed here — this page
 // only ever passes intro.sheetUrl straight through to
 // /api/channel-reference-sheet, which does its own parsing/validation
@@ -127,37 +129,30 @@ function formatFollowers(n) {
   return new Intl.NumberFormat("vi-VN").format(n);
 }
 
-// Round 348 — BUG FIX / correction to the External counter (Round 346 had
-// it counting the fetched sheet's total row count). Per explicit spec:
-// "look at the số lượng row... it has 50 kênh, 120 kênh,.. sum those
-// numbers". Strips non-digit characters out of each cell and sums
-// whatever numbers turn up — a "simple sum across the row" per explicit
-// spec.
-function sumRowNumbers(row) {
-  if (!row) return 0;
-  return row.reduce((sum, cell) => {
-    const digits = String(cell || "").replace(/[^\d]/g, "");
-    if (!digits) return sum;
-    const n = parseInt(digits, 10);
-    return sum + (Number.isFinite(n) ? n : 0);
-  }, 0);
+// Round 357 — renders the daily cron's fetchedAt (an ISO timestamp) in
+// Vietnam local time, since "8:00" in the request was a local time and
+// the on-page proof should read the same way. Falls back to the raw ISO
+// string for a malformed/unparseable value rather than throwing.
+function formatAutoRefreshedAt(iso) {
+  try {
+    return new Intl.DateTimeFormat("vi-VN", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
 }
 
-// Round 349 — BUG FIX: the sheet turned out to have TWO "Số lượng" count
-// rows, not one — one per column-title section ("CAPCUT 1, CAPCUT 2...",
-// then further down "BIG CHANNEL 1, BIG CHANNEL 2..."), each with its own
-// row of "N kênh" cells underneath it. Round 348's sumRowNumbers(rows[1])
-// only ever summed the FIRST section. Per explicit correction ("count
-// both row under their column title row. the one with the suffix
-// 'kênh'"), detect every row that actually has "kênh"-suffixed cells —
-// not a fixed row index — and sum all of them together. Generic by
-// design: however many "N kênh" rows this sheet ends up with (1, 2, 5...)
-// they all get counted, with nothing hardcoded to "CAPCUT"/"BIG CHANNEL"
-// or to there being exactly two sections.
-function isKenhCountRow(row) {
-  if (!row) return false;
-  return row.some((cell) => /kênh\s*$/i.test(String(cell || "").trim()));
-}
+// Round 357 — sumRowNumbers/isKenhCountRow (Round 348/349) moved to
+// lib/channelReferenceSheetCount.js so the new daily auto-fetch cron
+// (app/api/cron/channel-reference-sheet/route.js) counts the sheet
+// exactly the same way this page does, instead of a second hand-copied
+// implementation drifting out of sync. isColumnTitleRow stays local — it
+// only drives this page's own row styling, the cron has no use for it.
 
 // Round 349 — "this row also a column title row" (the BIG CHANNEL 1/BIG
 // CHANNEL 2/KOL DANCE/COVER row wasn't getting the Round 348 highlight):
@@ -251,6 +246,21 @@ export default function ChannelReferenceSharePage() {
   // time and overwrites it once it resolves, so the number is never more
   // than one page-load stale.
   const [sheetCount, setSheetCount] = useState(null);
+  // Round 357 — "the auto fetch, run a fetch every day at 8:00": the last
+  // snapshot written by the new daily cron (app/api/cron/channel-
+  // reference-sheet/route.js), read here so this page can (a) show "auto-
+  // refreshed daily · last: ..." next to the sheet, and (b) fall back on
+  // it below if this viewer's own live fetch never gets a chance to
+  // resolve/succeed — the localStorage cache from Round 346 is still the
+  // FIRST fallback (it's this browser's own last-seen number, so it's at
+  // least as fresh as the daily snapshot most of the time); the snapshot
+  // is the one that still works on a visitor's very first-ever visit,
+  // which localStorage can't.
+  const [sheetSnapshot, setSheetSnapshot] = useState(null);
+  useEffect(() => {
+    if (!supabase) return;
+    readChannelReferenceSheetSnapshot(supabase).then(setSheetSnapshot);
+  }, []);
   useEffect(() => {
     if (!intro.sheetUrl) {
       setSheetCount(null);
@@ -258,12 +268,18 @@ export default function ChannelReferenceSharePage() {
     }
     try {
       const cached = window.localStorage.getItem(`channelRef.sheetCount.${intro.sheetUrl}`);
-      if (cached != null) setSheetCount(Number(cached));
+      if (cached != null) {
+        setSheetCount(Number(cached));
+        return;
+      }
     } catch {
-      // localStorage unavailable (private mode, etc.) — fine, just no
-      // pre-loaded count until the live fetch below resolves.
+      // localStorage unavailable (private mode, etc.) — fall through to
+      // the daily snapshot below instead.
     }
-  }, [intro.sheetUrl]);
+    if (sheetSnapshot && sheetSnapshot.sheetUrl === intro.sheetUrl) {
+      setSheetCount(sheetSnapshot.count);
+    }
+  }, [intro.sheetUrl, sheetSnapshot]);
   useEffect(() => {
     if (!intro.sheetUrl) {
       setSheetData(null);
@@ -280,14 +296,19 @@ export default function ChannelReferenceSharePage() {
         if (!ok) {
           setSheetError(body.error || "Failed to load sheet.");
           setSheetData(null);
+          // Round 357 — a failed live fetch no longer leaves the tile
+          // blank when a daily snapshot exists: falls back to it exactly
+          // like the initial-load effect above does.
+          if (sheetCount == null && sheetSnapshot && sheetSnapshot.sheetUrl === intro.sheetUrl) {
+            setSheetCount(sheetSnapshot.count);
+          }
         } else {
           setSheetData(body);
-          // Round 349 — sum EVERY "N kênh" row (see isKenhCountRow above),
-          // not just the first one — this sheet has one per column-title
-          // section (CAPCUT's, then BIG CHANNEL's further down).
-          const countSum = (body.rows || [])
-            .filter(isKenhCountRow)
-            .reduce((sum, row) => sum + sumRowNumbers(row), 0);
+          // Round 349 — sum EVERY "N kênh" row (see isKenhCountRow in
+          // lib/channelReferenceSheetCount.js), not just the first one —
+          // this sheet has one per column-title section (CAPCUT's, then
+          // BIG CHANNEL's further down).
+          const countSum = computeSheetCount(body.rows);
           setSheetCount(countSum);
           try {
             window.localStorage.setItem(`channelRef.sheetCount.${intro.sheetUrl}`, String(countSum));
@@ -297,7 +318,12 @@ export default function ChannelReferenceSharePage() {
         }
       })
       .catch(() => {
-        if (!cancelled) setSheetError("Failed to load sheet.");
+        if (!cancelled) {
+          setSheetError("Failed to load sheet.");
+          if (sheetCount == null && sheetSnapshot && sheetSnapshot.sheetUrl === intro.sheetUrl) {
+            setSheetCount(sheetSnapshot.count);
+          }
+        }
       })
       .finally(() => {
         if (!cancelled) setSheetLoading(false);
@@ -305,6 +331,7 @@ export default function ChannelReferenceSharePage() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intro.sheetUrl]);
 
   // Round 345 — the sheet's own row 1 is a merged title cell spanning
@@ -716,6 +743,17 @@ export default function ChannelReferenceSharePage() {
                 {sheetTitleLines.map((line, i) => (
                   <div key={i}>{line}</div>
                 ))}
+              </div>
+            )}
+            {/* Round 357 — "the auto fetch, run a fetch every day at
+            8:00": visible proof the daily cron is actually running, not
+            just a number that might be live or might be stale with no
+            way to tell. sheetSnapshot is null until the cron has fired
+            at least once (right after this round ships), so this line
+            just doesn't render yet rather than showing a fake time. */}
+            {sheetSnapshot && sheetSnapshot.sheetUrl === intro.sheetUrl && (
+              <div className={pageStyles.sheetSectionMeta}>
+                Auto-refreshed daily at 08:00 · last: {formatAutoRefreshedAt(sheetSnapshot.fetchedAt)}
               </div>
             )}
           </div>

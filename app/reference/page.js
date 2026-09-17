@@ -11,6 +11,8 @@ const REFS = [
   { href: "/package-categories", label: "Package Categories", note: "Top-level content-plan groups (Social Vieent, Community, ...) for building a package" },
   // Round 82 item 2 — new read-only content page, see app/tro-gia-booking/page.js.
   { href: "/tro-gia-booking", label: "Trợ Giá Booking", note: "Subsidy rates for TikTok Channel booking, CapCut templates, and ADS rate card" },
+  // Round 360 — the custom URL minter ("internal.vieent.com/vsounder").
+  { href: "/short-links", label: "Short Links", note: "Mint a custom internal.vieent.com/<slug> redirect to any URL — each slug is unique across the whole app" },
 ];
 
 export default function ReferencePage() {
