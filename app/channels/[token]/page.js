@@ -120,6 +120,27 @@ function formatFollowers(n) {
   return new Intl.NumberFormat("vi-VN").format(n);
 }
 
+// Round 348 — BUG FIX / correction to the External counter (Round 346 had
+// it counting the fetched sheet's total row count). Per explicit spec:
+// "look at the số lượng row (should be 2nd row after the column title
+// row). it has 50 kênh, 120 kênh,.. sum those numbers" — this sheet's own
+// 2nd data row (right under its "CAPCUT 1, CAPCUT 2... / BIG CHANNEL 1,
+// BIG CHANNEL 2..." column-title row) is where the real per-column
+// channel counts live, each cell something like "50 kênh". Strips
+// non-digit characters out of each cell and sums whatever numbers turn
+// up — a "simple sum across the row" per explicit spec, not hardcoded to
+// "CAPCUT"/"BIG CHANNEL" specifically so it still works if a column is
+// renamed or another one is added later.
+function sumRowNumbers(row) {
+  if (!row) return 0;
+  return row.reduce((sum, cell) => {
+    const digits = String(cell || "").replace(/[^\d]/g, "");
+    if (!digits) return sum;
+    const n = parseInt(digits, 10);
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
+}
+
 export default function ChannelReferenceSharePage() {
   const { token } = useParams();
   const [error, setError] = useState(null);
@@ -189,11 +210,12 @@ export default function ChannelReferenceSharePage() {
   // page load": the live sheet fetch above can take a while (up to ~50s
   // worst case, see route.js), which would leave the 6th counter tile
   // blank/loading every single visit. Instead, the last successfully
-  // fetched row count is cached in localStorage (keyed by the sheet URL,
-  // so a changed admin config doesn't show a stale count from a different
-  // sheet) and used to paint the tile immediately on load; the real fetch
-  // above still runs every time and overwrites it once it resolves, so
-  // the number is never more than one page-load stale.
+  // computed count (see sumRowNumbers/Round 348 above) is cached in
+  // localStorage (keyed by the sheet URL, so a changed admin config
+  // doesn't show a stale count from a different sheet) and used to paint
+  // the tile immediately on load; the real fetch above still runs every
+  // time and overwrites it once it resolves, so the number is never more
+  // than one page-load stale.
   const [sheetCount, setSheetCount] = useState(null);
   useEffect(() => {
     if (!intro.sheetUrl) {
@@ -226,9 +248,14 @@ export default function ChannelReferenceSharePage() {
           setSheetData(null);
         } else {
           setSheetData(body);
-          setSheetCount(body.rows.length);
+          // Round 348 — the count row is the 2nd body row (index 1): body
+          // row 0 is "CAPCUT 1, CAPCUT 2... / BIG CHANNEL 1, BIG CHANNEL
+          // 2..." (the column-title row, see sheetColumnTitleRow below),
+          // body row 1 is "50 kênh, 120 kênh, ..." underneath it.
+          const countSum = sumRowNumbers(body.rows?.[1]);
+          setSheetCount(countSum);
           try {
-            window.localStorage.setItem(`channelRef.sheetCount.${intro.sheetUrl}`, String(body.rows.length));
+            window.localStorage.setItem(`channelRef.sheetCount.${intro.sheetUrl}`, String(countSum));
           } catch {
             // best-effort cache only
           }
@@ -377,7 +404,7 @@ export default function ChannelReferenceSharePage() {
         key: "external",
         label: "External",
         count: sheetCount,
-        sub: sheetCount == null ? (sheetLoading ? "loading…" : "—") : `${sheetCount} ${sheetCount === 1 ? "entry" : "entries"}`,
+        sub: sheetCount == null ? (sheetLoading ? "loading…" : "—") : `${sheetCount} ${sheetCount === 1 ? "channel" : "channels"}`,
         anchor: "#sheet-preview",
       });
     }
@@ -541,7 +568,7 @@ export default function ChannelReferenceSharePage() {
               <a key={tile.key} href={tile.anchor} className={pageStyles.platformStripItem}>
                 <div className={pageStyles.platformStripPlatform}>{tile.label}</div>
                 <div className={pageStyles.platformStripCount}>
-                  {tile.count == null ? "…" : `${tile.count} ${tile.key === "external" ? (tile.count === 1 ? "entry" : "entries") : tile.count === 1 ? "channel" : "channels"}`}
+                  {tile.count == null ? "…" : `${tile.count} ${tile.count === 1 ? "channel" : "channels"}`}
                 </div>
                 <div className={pageStyles.platformStripFollowers}>{tile.sub}</div>
               </a>
@@ -609,7 +636,19 @@ export default function ChannelReferenceSharePage() {
                   </thead>
                   <tbody>
                     {sheetData.rows.map((row, i) => (
-                      <tr key={i}>
+                      // Round 348 — "put a title color for the row of the
+                      // column title row like the one with CAPCUT 1,
+                      // CAPCUT 2... or BIG CHANNEL 1, BIG CHANNEL 2":
+                      // when the sheet's actual header is the merged
+                      // title (sheetTitleLines truthy — see Round 345),
+                      // body row 0 is that per-column label row, right
+                      // under the title. Styled distinctly (see
+                      // .sheetColumnTitleRow) so it reads as a second
+                      // header instead of ordinary data.
+                      <tr
+                        key={i}
+                        className={sheetTitleLines && i === 0 ? pageStyles.sheetColumnTitleRow : undefined}
+                      >
                         {row.map((cell, j) => (
                           <td key={j}>{cell}</td>
                         ))}

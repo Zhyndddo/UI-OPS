@@ -508,6 +508,22 @@
   margin-top: 4px;
 }
 
+/* Round 348 — "put a title color for the row of the column title row
+   like the one with CAPCUT 1, CAPCUT 2... or BIG CHANNEL 1, BIG CHANNEL
+   2" — the per-column label row right under the merged title (see the
+   sheetTitleLines check in page.js) gets the same accent-tinted
+   treatment as .sheetTable th (its plain per-column header row, for a
+   sheet that ISN'T using a merged title) so it reads as a second header
+   band rather than blending into the ordinary data rows below it. */
+.sheetColumnTitleRow td {
+  background: var(--bg-hover);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
 /* Round 346 — scroll target for the counter tiles above (#channel-list,
    #sheet-preview) — a small top offset so an anchored jump doesn't land
    with the section's heading flush against the very top edge. */
