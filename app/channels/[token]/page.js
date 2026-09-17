@@ -275,6 +275,23 @@ function isRatecardYoutubeMergeRow(row) {
   return String(row?.[0] || "").trim().toUpperCase().startsWith("TRỢ GIÁ BOOKING ADS YOUTUBE");
 }
 
+// Round 371 — BUG FIX ("it's clipping all the cell data, could be due to
+// my example last session"): the real sheet has the merged paragraph
+// starting in column C (index 2), not column B (index 1) — column B ("AD
+// FORMAT") is its own blank cell in this row. Round 370 assumed index 1
+// unconditionally, so it rendered that blank cell as the "merged" one and
+// the actual paragraph text (sitting one column further right) never
+// appeared at all — not truncated, just entirely missing. Finds the first
+// non-blank cell after the row's own label (index 0) instead of assuming
+// a fixed position, so it keeps working regardless of how many blank
+// columns sit between the label and the merged text.
+function findRatecardMergeStart(row) {
+  for (let i = 1; i < row.length; i++) {
+    if (String(row[i] || "").trim() !== "") return i;
+  }
+  return -1;
+}
+
 // Round 345 — see the sheetTitleLines useMemo below for the full
 // reasoning; extracted to a plain function in Round 365 so the second
 // (Ratecard Ads) sheet can reuse the exact same merged-title detection.
@@ -1055,13 +1072,21 @@ export default function ChannelReferenceSharePage() {
               not a separate unrelated button floating below it. Still
               independent of whether a sheet URL is configured — it's the
               Distribution Support row's own redirect link, not sourced
-              from the sheet fetch. */}
+              from the sheet fetch.
+              Round 371 — "change the button of Distribution Support...
+              'clicking for more detail' to be like that of Ratecard Ads
+              (just a line no button)": swapped from .distributionDetailLink
+              (bordered button chrome) to .introCanvaLink, the same plain
+              text-link style the "View full sheet →" links already use
+              in both sheet sections. .distributionDetailLink itself is
+              now unused (kept in the CSS rather than deleted, in case a
+              future button-style link elsewhere wants to reuse it). */}
           {distributionRow?.url && (
             <a
               href={distributionRow.url}
               target="_blank"
               rel="noopener noreferrer"
-              className={pageStyles.distributionDetailLink}
+              className={pageStyles.introCanvaLink}
             >
               Click for more detail →
             </a>
@@ -1127,17 +1152,23 @@ export default function ChannelReferenceSharePage() {
                       // by blanks — rendered here with a real colSpan
                       // instead of 4 empty <td>s trailing it.
                       if (isRatecardYoutubeMergeRow(row)) {
-                        const mergeSpan = Math.min(5, Math.max(1, row.length - 1));
-                        const rest = row.slice(1 + mergeSpan);
-                        return (
-                          <tr key={i}>
-                            <td>{row[0]}</td>
-                            <td colSpan={mergeSpan}>{row[1]}</td>
-                            {rest.map((cell, j) => (
-                              <td key={1 + mergeSpan + j}>{cell}</td>
-                            ))}
-                          </tr>
-                        );
+                        const start = findRatecardMergeStart(row);
+                        if (start !== -1) {
+                          const mergeSpan = Math.min(5, row.length - start);
+                          const before = row.slice(0, start);
+                          const after = row.slice(start + mergeSpan);
+                          return (
+                            <tr key={i}>
+                              {before.map((cell, j) => (
+                                <td key={j}>{cell}</td>
+                              ))}
+                              <td colSpan={mergeSpan}>{row[start]}</td>
+                              {after.map((cell, j) => (
+                                <td key={start + mergeSpan + j}>{cell}</td>
+                              ))}
+                            </tr>
+                          );
+                        }
                       }
                       return (
                         <tr key={i}>
