@@ -115,22 +115,23 @@ const NOTE_COLORS = {
 };
 const DEFAULT_NOTE_COLOR = { bg: "var(--bg-hover)", fg: "var(--text-dim)" };
 
+// Round 350 — "whichever numbers that is below 1000 and not 0 returns
+// something like this: <1000 instead of real number" — a small follower
+// count reads as noise/imprecision-bait next to the big ones anyway;
+// exactly 0 is left alone (still a real, meaningful "0 followers"), and
+// anything at or above 1000 still gets its real formatted number.
 function formatFollowers(n) {
   if (n == null) return "—";
+  if (n > 0 && n < 1000) return "<1000";
   return new Intl.NumberFormat("vi-VN").format(n);
 }
 
 // Round 348 — BUG FIX / correction to the External counter (Round 346 had
 // it counting the fetched sheet's total row count). Per explicit spec:
-// "look at the số lượng row (should be 2nd row after the column title
-// row). it has 50 kênh, 120 kênh,.. sum those numbers" — this sheet's own
-// 2nd data row (right under its "CAPCUT 1, CAPCUT 2... / BIG CHANNEL 1,
-// BIG CHANNEL 2..." column-title row) is where the real per-column
-// channel counts live, each cell something like "50 kênh". Strips
-// non-digit characters out of each cell and sums whatever numbers turn
-// up — a "simple sum across the row" per explicit spec, not hardcoded to
-// "CAPCUT"/"BIG CHANNEL" specifically so it still works if a column is
-// renamed or another one is added later.
+// "look at the số lượng row... it has 50 kênh, 120 kênh,.. sum those
+// numbers". Strips non-digit characters out of each cell and sums
+// whatever numbers turn up — a "simple sum across the row" per explicit
+// spec.
 function sumRowNumbers(row) {
   if (!row) return 0;
   return row.reduce((sum, cell) => {
@@ -139,6 +140,38 @@ function sumRowNumbers(row) {
     const n = parseInt(digits, 10);
     return sum + (Number.isFinite(n) ? n : 0);
   }, 0);
+}
+
+// Round 349 — BUG FIX: the sheet turned out to have TWO "Số lượng" count
+// rows, not one — one per column-title section ("CAPCUT 1, CAPCUT 2...",
+// then further down "BIG CHANNEL 1, BIG CHANNEL 2..."), each with its own
+// row of "N kênh" cells underneath it. Round 348's sumRowNumbers(rows[1])
+// only ever summed the FIRST section. Per explicit correction ("count
+// both row under their column title row. the one with the suffix
+// 'kênh'"), detect every row that actually has "kênh"-suffixed cells —
+// not a fixed row index — and sum all of them together. Generic by
+// design: however many "N kênh" rows this sheet ends up with (1, 2, 5...)
+// they all get counted, with nothing hardcoded to "CAPCUT"/"BIG CHANNEL"
+// or to there being exactly two sections.
+function isKenhCountRow(row) {
+  if (!row) return false;
+  return row.some((cell) => /kênh\s*$/i.test(String(cell || "").trim()));
+}
+
+// Round 349 — "this row also a column title row" (the BIG CHANNEL 1/BIG
+// CHANNEL 2/KOL DANCE/COVER row wasn't getting the Round 348 highlight):
+// Round 348 only styled body row 0 as the column-title row, but the sheet
+// repeats that pattern (a title row, then 4 data rows) once per section.
+// Detected structurally instead of by position: every "Số lượng"/"Đơn
+// Giá"/etc. data row in this sheet has its own row label in the first
+// cell; a column-title row is the one where that first cell is BLANK but
+// at least one other cell in the row has text — true for both the CAPCUT
+// and the BIG CHANNEL title rows, and for however many more sections a
+// future edit to the sheet adds.
+function isColumnTitleRow(row) {
+  if (!row || row.length === 0) return false;
+  if (String(row[0] || "").trim() !== "") return false;
+  return row.slice(1).some((cell) => String(cell || "").trim() !== "");
 }
 
 export default function ChannelReferenceSharePage() {
@@ -248,11 +281,12 @@ export default function ChannelReferenceSharePage() {
           setSheetData(null);
         } else {
           setSheetData(body);
-          // Round 348 — the count row is the 2nd body row (index 1): body
-          // row 0 is "CAPCUT 1, CAPCUT 2... / BIG CHANNEL 1, BIG CHANNEL
-          // 2..." (the column-title row, see sheetColumnTitleRow below),
-          // body row 1 is "50 kênh, 120 kênh, ..." underneath it.
-          const countSum = sumRowNumbers(body.rows?.[1]);
+          // Round 349 — sum EVERY "N kênh" row (see isKenhCountRow above),
+          // not just the first one — this sheet has one per column-title
+          // section (CAPCUT's, then BIG CHANNEL's further down).
+          const countSum = (body.rows || [])
+            .filter(isKenhCountRow)
+            .reduce((sum, row) => sum + sumRowNumbers(row), 0);
           setSheetCount(countSum);
           try {
             window.localStorage.setItem(`channelRef.sheetCount.${intro.sheetUrl}`, String(countSum));
@@ -400,11 +434,17 @@ export default function ChannelReferenceSharePage() {
       anchor: "#channel-list",
     }));
     if (intro.sheetUrl) {
+      // Round 349 — BUG FIX ("no under line for the followers, as of
+      // now, we are making a duplicate of the ... channel for two
+      // line"): the External tile has no follower concept, so unlike the
+      // 5 platform tiles it gets no `sub` line at all — the count line
+      // below (tile.count + "channel(s)") already says everything this
+      // tile has to say, once.
       tiles.push({
         key: "external",
         label: "External",
         count: sheetCount,
-        sub: sheetCount == null ? (sheetLoading ? "loading…" : "—") : `${sheetCount} ${sheetCount === 1 ? "channel" : "channels"}`,
+        sub: null,
         anchor: "#sheet-preview",
       });
     }
@@ -448,6 +488,13 @@ export default function ChannelReferenceSharePage() {
           <div className={pageStyles.blockHeaderMeta}>
             {rows.length} channel{rows.length === 1 ? "" : "s"} · {formatFollowers(followerSum)} followers
           </div>
+          {/* Round 350 — "add a small line under the table name for
+              column title like (platform, channel name, followers,
+              type)": a plain text legend, not aligned per-column (this
+              is a card list, not a literal <table>) — just names what
+              each row's 4 pieces are, in the same order as .row now
+              renders them below. */}
+          <div className={pageStyles.blockHeaderLegend}>Platform · Channel Name · Followers · Type</div>
         </div>
         <div className={pageStyles.blockBody}>
           {rows.length === 0 ? (
@@ -470,12 +517,17 @@ export default function ChannelReferenceSharePage() {
                       pointing at a PNG, so this never costs an extra
                       network request. title= keeps the platform name
                       reachable on hover/for a screen reader now that the
-                      text itself isn't in the DOM. */}
+                      text itself isn't in the DOM.
+                      Round 350 — "move the channel name column before the
+                      followers column": name now comes right after the
+                      platform icon, followers moved after it — see the
+                      matching .row grid-template-columns reorder in the
+                      CSS. */}
                   <span className={pageStyles.rowPlatform} title={c.platform || undefined}>
                     <PlatformIcon platform={c.platform} />
                   </span>
-                  <span className={pageStyles.rowFollowers}>{formatFollowers(c.follower_count)}</span>
                   <span className={pageStyles.rowName}>{c.name}</span>
+                  <span className={pageStyles.rowFollowers}>{formatFollowers(c.follower_count)}</span>
                   {c.note && (
                     <span className={pageStyles.rowNote} style={{ background: noteColor.bg, color: noteColor.fg }}>
                       {c.note}
@@ -570,7 +622,7 @@ export default function ChannelReferenceSharePage() {
                 <div className={pageStyles.platformStripCount}>
                   {tile.count == null ? "…" : `${tile.count} ${tile.count === 1 ? "channel" : "channels"}`}
                 </div>
-                <div className={pageStyles.platformStripFollowers}>{tile.sub}</div>
+                {tile.sub && <div className={pageStyles.platformStripFollowers}>{tile.sub}</div>}
               </a>
             ))}
           </div>
@@ -601,88 +653,101 @@ export default function ChannelReferenceSharePage() {
 
         {/* Round 346 — "then under there is the fetch table, and under
             the fetch table is still click for detail button we have" —
-            the Round 339/345 Google Sheet preview, unchanged content,
-            just no longer its own tab. id="sheet-preview" is the scroll
-            target for the External counter tile above. */}
-        {intro.sheetUrl && (
-          <div id="sheet-preview" className={pageStyles.sheetSection}>
-            {sheetLoading && !sheetData && (
-              <div className={pageStyles.sheetStatus}>Loading sheet…</div>
-            )}
-            {sheetError && (
-              <div className={pageStyles.sheetStatus}>{sheetError}</div>
-            )}
-            {sheetData && sheetData.rows.length > 0 && (
-              <div className={pageStyles.sheetTableWrap}>
-                <table className={pageStyles.sheetTable}>
-                  <thead>
-                    {sheetTitleLines ? (
-                      <tr>
-                        <th colSpan={sheetData.headers.length} className={pageStyles.sheetTitleCell}>
-                          {sheetTitleLines.map((line, i) => (
-                            <div key={i} className={i === 0 ? pageStyles.sheetTitleMain : pageStyles.sheetTitleSub}>
-                              {line}
-                            </div>
+            the Round 339/345 Google Sheet preview. id="sheet-preview" is
+            the scroll target for the External counter tile above.
+            Round 350 — "above the external table we fetch, add the
+            badge name... And wrap or move the click for more detail to
+            be closer to the table so it would mean it belong to the
+            table": rendered unconditionally now (not gated behind
+            intro.sheetUrl) so the badge + detail button are always
+            reachable here even before a sheet URL is configured, same
+            never-silently-drop fallback the rest of this section already
+            used for a missing sheetUrl. */}
+        <div id="sheet-preview" className={pageStyles.sheetSection}>
+          <div className={pageStyles.sheetSectionBadge}>Distribution Support - Media Booking 2026</div>
+          {intro.sheetUrl ? (
+            <>
+              {sheetLoading && !sheetData && (
+                <div className={pageStyles.sheetStatus}>Loading sheet…</div>
+              )}
+              {sheetError && (
+                <div className={pageStyles.sheetStatus}>{sheetError}</div>
+              )}
+              {sheetData && sheetData.rows.length > 0 && (
+                <div className={pageStyles.sheetTableWrap}>
+                  <table className={pageStyles.sheetTable}>
+                    <thead>
+                      {sheetTitleLines ? (
+                        <tr>
+                          <th colSpan={sheetData.headers.length} className={pageStyles.sheetTitleCell}>
+                            {sheetTitleLines.map((line, i) => (
+                              <div key={i} className={i === 0 ? pageStyles.sheetTitleMain : pageStyles.sheetTitleSub}>
+                                {line}
+                              </div>
+                            ))}
+                          </th>
+                        </tr>
+                      ) : (
+                        <tr>
+                          {sheetData.headers.map((h, i) => (
+                            <th key={i}>{h}</th>
                           ))}
-                        </th>
-                      </tr>
-                    ) : (
-                      <tr>
-                        {sheetData.headers.map((h, i) => (
-                          <th key={i}>{h}</th>
-                        ))}
-                      </tr>
-                    )}
-                  </thead>
-                  <tbody>
-                    {sheetData.rows.map((row, i) => (
-                      // Round 348 — "put a title color for the row of the
-                      // column title row like the one with CAPCUT 1,
-                      // CAPCUT 2... or BIG CHANNEL 1, BIG CHANNEL 2":
-                      // when the sheet's actual header is the merged
-                      // title (sheetTitleLines truthy — see Round 345),
-                      // body row 0 is that per-column label row, right
-                      // under the title. Styled distinctly (see
-                      // .sheetColumnTitleRow) so it reads as a second
-                      // header instead of ordinary data.
-                      <tr
-                        key={i}
-                        className={sheetTitleLines && i === 0 ? pageStyles.sheetColumnTitleRow : undefined}
-                      >
-                        {row.map((cell, j) => (
-                          <td key={j}>{cell}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {/* Round 342 — still applies: only show this when it points
-                somewhere different from the detail link below. */}
-            {intro.sheetUrl !== distributionRow?.url && (
-              <a href={intro.sheetUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
-                View full sheet →
-              </a>
-            )}
-          </div>
-        )}
+                        </tr>
+                      )}
+                    </thead>
+                    <tbody>
+                      {sheetData.rows.map((row, i) => (
+                        // Round 348/349 — "put a title color for the row
+                        // of the column title row like the one with
+                        // CAPCUT 1, CAPCUT 2... or BIG CHANNEL 1, BIG
+                        // CHANNEL 2": detected structurally (see
+                        // isColumnTitleRow above) instead of assuming
+                        // it's only body row 0 — this sheet repeats the
+                        // title-row/4-data-rows pattern once per section,
+                        // so every such row gets the highlight, not just
+                        // the first.
+                        <tr
+                          key={i}
+                          className={isColumnTitleRow(row) ? pageStyles.sheetColumnTitleRow : undefined}
+                        >
+                          {row.map((cell, j) => (
+                            <td key={j}>{cell}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {/* Round 342 — still applies: only show this when it
+                  points somewhere different from the detail link below. */}
+              {intro.sheetUrl !== distributionRow?.url && (
+                <a href={intro.sheetUrl} target="_blank" rel="noopener noreferrer" className={pageStyles.introCanvaLink}>
+                  View full sheet →
+                </a>
+              )}
+            </>
+          ) : (
+            <div className={pageStyles.sheetStatus}>No sheet configured yet — add a Google Sheet URL in Magic Link Intro.</div>
+          )}
 
-        {/* Round 346 — "still click for detail button we have": kept
-            outside the sheetUrl-gated block above (unlike the old
-            distribution tab, this button doesn't depend on a sheet being
-            configured at all — it's the Distribution Support row's own
-            redirect link). */}
-        {distributionRow?.url && (
-          <a
-            href={distributionRow.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={pageStyles.distributionDetailLink}
-          >
-            Click for more detail →
-          </a>
-        )}
+          {/* Round 350 — moved from its own standalone block into this
+              section so it visually reads as belonging to this table,
+              not a separate unrelated button floating below it. Still
+              independent of whether a sheet URL is configured — it's the
+              Distribution Support row's own redirect link, not sourced
+              from the sheet fetch. */}
+          {distributionRow?.url && (
+            <a
+              href={distributionRow.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={pageStyles.distributionDetailLink}
+            >
+              Click for more detail →
+            </a>
+          )}
+        </div>
       </div>
     </div>
   );

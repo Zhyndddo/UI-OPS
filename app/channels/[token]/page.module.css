@@ -129,6 +129,17 @@
   opacity: 0.72;
 }
 
+/* Round 350 — "add a small line under the table name for column title
+   like (platform, channel name, followers, type)" — one step lighter
+   than .blockHeaderMeta (which is still real data, a count/sum) since
+   this is just a static legend labeling what's below. */
+.blockHeaderLegend {
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.2px;
+  opacity: 0.55;
+}
+
 .blockBody {
   padding: 6px;
   display: flex;
@@ -150,8 +161,11 @@
   /* Round 347 — first column shrunk from 72px to 32px: it used to hold
      uppercase platform text (TIKTOK, INSTAGRAM, ...), now it's just a
      small square icon (see .rowPlatform + PlatformIcon), so it no longer
-     needs room for the longest platform name. */
-  grid-template-columns: 32px 56px 1fr auto;
+     needs room for the longest platform name.
+     Round 350 — "move the channel name column before the followers
+     column": columns reordered platform / name / followers / note (name
+     now gets the flexible 1fr slot, followers a fixed 56px). */
+  grid-template-columns: 32px 1fr 56px auto;
   align-items: center;
   gap: 10px;
   padding: 8px 8px;
@@ -166,13 +180,19 @@
 
 /* Rows can get tight on a narrow phone (platform badge + follower count +
    name + note pill all in one line) — let the name wrap onto its own
-   line under the badge/count rather than truncating or overflowing. */
+   line under the badge/count rather than truncating or overflowing.
+   Round 350 — "move the title name on upper line, type and number to
+   lower line of the same row": swapped which area comes first — name is
+   now its own top row, platform/followers/note share the row below it
+   (only .rowName needs an explicit grid-area; the other 3 spans are
+   unpositioned and auto-place into whatever cells are left, in their DOM
+   order, which is already platform/followers/note left-to-right). */
 @media (max-width: 480px) {
   .row {
     grid-template-columns: 32px 56px 1fr;
     grid-template-areas:
-      "platform followers note"
-      "name name name";
+      "name name name"
+      "platform followers note";
   }
   .rowName {
     grid-area: name;
@@ -419,6 +439,23 @@
    page follows). */
 .sheetSection {
   margin-bottom: 20px;
+}
+
+/* Round 350 — "above the external table we fetch, add the badge name
+   use 'Distribution Support - Media Booking 2026'" — a small eyebrow-
+   style label, same idea as .eyebrow up top but scoped to just this
+   section instead of the whole page. */
+.sheetSectionBadge {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
 }
 
 .sheetStatus {
