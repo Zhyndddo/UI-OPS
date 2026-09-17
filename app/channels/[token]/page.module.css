@@ -91,7 +91,15 @@
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 16px;
-  align-items: start;
+  /* Round 368 — "pull the frame of table ENVI of Official Channel group
+     to be equal to that of the VIEENT table (envi lacking 1 row due to 1
+     less channel row) so just pull the out to match if we can": was
+     align-items: start, so each .block sized to its own content and the
+     shorter ENVI card visibly stopped short. stretch makes both grid
+     items (the .block cards) fill the row's full height — whichever one
+     has more channels sets the height, same as it would with any future
+     channel-count difference, not a number hardcoded to today's 5-vs-4. */
+  align-items: stretch;
 }
 
 @media (max-width: 768px) {
@@ -102,6 +110,11 @@
 
 .grid {
   display: grid;
+  /* Round 368 — briefly grew to repeat(4, 1fr) to fit a 4th "TikTok
+     Channels" COLUMN_META column; follow-up request moved that into its
+     own top-level section instead (see page.js's TIKTOK_GROUPS + the new
+     .topSection in the JSX, which reuses this same .grid), so Community
+     Channel itself is back to its original 3 columns. */
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   align-items: start;
@@ -199,7 +212,9 @@
    in prose. */
 .blockColumnTitles {
   display: grid;
-  grid-template-columns: 32px 1fr 56px 104px;
+  /* Round 368 — 32px -> 38px, matching .row's own first-column widening
+     for the bigger platform icon. */
+  grid-template-columns: 38px 1fr 56px 104px;
   gap: 10px;
   padding: 6px 14px 4px;
   font-weight: 700;
@@ -269,8 +284,9 @@
      first fixed, reintroduced by giving note back a variable width.
      Fixing it the same way Round 340 did: every column except name is
      now a fixed size on every row, so name's 1fr resolves to the same
-     width every time regardless of that row's own note text. */
-  grid-template-columns: 32px 1fr 56px 104px;
+     width every time regardless of that row's own note text.
+     Round 368 — 32px -> 38px for the bigger platform icon. */
+  grid-template-columns: 38px 1fr 56px 104px;
   align-items: center;
   gap: 10px;
   padding: 8px 8px;
@@ -318,7 +334,8 @@
    shows its full text instead of truncating. */
 @media (max-width: 480px) {
   .row {
-    grid-template-columns: 32px 1fr minmax(72px, max-content);
+    /* Round 368 — 32px -> 38px for the bigger platform icon. */
+    grid-template-columns: 38px 1fr minmax(72px, max-content);
     grid-template-areas:
       "platform name name"
       ". followers note";
@@ -373,9 +390,12 @@
   justify-content: center;
   /* Round 355 — grown to fit the bigger icon (see PlatformIcon.js's
      default size 16 -> 22) with a little breathing room, still comfortably
-     under .row's 32px first column. */
-  width: 28px;
-  height: 28px;
+     under .row's 32px first column.
+     Round 368 — icon grew again (22 -> 29px, "make the icon a bit bigger,
+     about 1.3 current"), so this badge and .row/.blockColumnTitles' first
+     grid column both grew to match (28 -> 36px, 32 -> 38px). */
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
   /* Round 340 — the row's platform column is a fixed width (see .row) so
      every row lines up; without this the badge would grid-stretch to

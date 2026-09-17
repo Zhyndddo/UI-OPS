@@ -56,10 +56,16 @@ const PLATFORM_ORDER = ["TikTok", "Facebook", "Instagram", "YouTube", "Thread"];
 // into that group), INDIE (INDIE - COMMUNITY + INDIE - TIKTOK), and
 // MIỀN TÂY - BOLERO (ENVI + MIỀN TÂY/BOLERO - COMMUNITY + TIKTOK MIỀN
 // TÂY/BOLERO). See COLUMN_META below for the exact assignment.
+// Round 368 — "VIEENT - SOCIAL table use orange plate (basically switch
+// color of vieent social and vpop tables)": VIEENT - SOCIAL and the 2
+// VPOP groups simply trade accent values (blue <-> orange) — everything
+// downstream (blockHeader background, the pastelized title text, the
+// counter-tile colors in platformBrand.js-adjacent code) reads this table
+// instead of a hardcoded color, so the swap is just these 2 lines.
 const GROUP_META = [
-  { group: "VIEENT - SOCIAL", accent: "#5b9dff", accentBg: "rgba(91, 157, 255, 0.12)" },
-  { group: "VPOP - COMMUNITY", accent: "#ff9d1a", accentBg: "rgba(255, 157, 26, 0.12)" },
-  { group: "VPOP - TIKTOK", accent: "#ff9d1a", accentBg: "rgba(255, 157, 26, 0.12)" },
+  { group: "VIEENT - SOCIAL", accent: "#ff9d1a", accentBg: "rgba(255, 157, 26, 0.12)" },
+  { group: "VPOP - COMMUNITY", accent: "#5b9dff", accentBg: "rgba(91, 157, 255, 0.12)" },
+  { group: "VPOP - TIKTOK", accent: "#5b9dff", accentBg: "rgba(91, 157, 255, 0.12)" },
   { group: "INDIE - COMMUNITY", accent: "#5fd68a", accentBg: "rgba(95, 214, 138, 0.12)" },
   { group: "INDIE - TIKTOK", accent: "#5fd68a", accentBg: "rgba(95, 214, 138, 0.12)" },
   { group: "ENVI", accent: "#c46bff", accentBg: "rgba(196, 107, 255, 0.14)" },
@@ -148,21 +154,43 @@ const OFFICIAL_GROUPS = ["VIEENT - SOCIAL", "ENVI"];
 // into a trailing "Other" column, same never-silently-drop guarantee
 // Round 311 had (DISTRIBUTION_GROUP is the one deliberate exception —
 // see its own tab instead).
+// Round 368 — "remove VPOP - MANSTREAM, INDIE, MIỀN TÂY - BOLERO name
+// entirely (still have 3 sub groups but no name showing)": the 3 columns
+// keep their groups but lose their label text — label: "" renders no
+// heading at all (see the JSX below's `col.label &&` guard) rather than
+// an empty one.
 const COLUMN_META = [
   {
-    label: "VPOP - MANSTREAM",
-    groups: ["VPOP - COMMUNITY", "VPOP - TIKTOK"],
+    label: "",
+    groups: ["VPOP - COMMUNITY"],
   },
   {
-    label: "INDIE",
-    groups: ["INDIE - COMMUNITY", "INDIE - TIKTOK"],
+    label: "",
+    groups: ["INDIE - COMMUNITY"],
   },
   {
-    label: "MIỀN TÂY - BOLERO",
-    groups: ["ENVI - MIỀN TÂY/BOLERO", "MIỀN TÂY/BOLERO - COMMUNITY", "TIKTOK MIỀN TÂY/BOLERO"],
+    label: "",
+    groups: ["ENVI - MIỀN TÂY/BOLERO", "MIỀN TÂY/BOLERO - COMMUNITY"],
   },
 ];
-const COLUMN_ASSIGNED_GROUPS = new Set([...OFFICIAL_GROUPS, ...COLUMN_META.flatMap((c) => c.groups)]);
+
+// Round 368 — "split 3 table VPOP - TIKTOK, INDIE - TIKTOK, TIKTOK MIỀN
+// TÂY/BOLERO into a new group of TIKTOK Channels" first landed as a 4th
+// COLUMN_META column (still inside Community Channel's grid); explicit
+// follow-up ("not new column, new group entirely like community and
+// official channel") promoted it to its own top-level section, a peer of
+// OFFICIAL_GROUPS/COLUMN_META rather than folded into either — see the
+// "TikTok Channels" .topSection in the JSX below, which reuses .grid the
+// same way Community Channel does (each of these 3 groups gets its own
+// column, one group per column, no COLUMN_META-style sub-stacking needed
+// since none of them share a column with another group here).
+const TIKTOK_GROUPS = ["VPOP - TIKTOK", "INDIE - TIKTOK", "TIKTOK MIỀN TÂY/BOLERO"];
+
+const COLUMN_ASSIGNED_GROUPS = new Set([
+  ...OFFICIAL_GROUPS,
+  ...COLUMN_META.flatMap((c) => c.groups),
+  ...TIKTOK_GROUPS,
+]);
 
 // Best-effort color mapping for the sheet's "Type" tag, matching picture
 // 1's palette as closely as a fixed small set reasonably can. A note value
@@ -649,7 +677,16 @@ export default function ChannelReferenceSharePage() {
             query in the CSS) since the <=480px .row layout is a
             different 2-line shape these 4 fixed columns no longer match. */}
         <div className={pageStyles.blockColumnTitles}>
-          <span>Platform</span>
+          {/* Round 368 — "font size didn't fix it... remove the platform
+              text entirely, leave that as blank, we consider the icon and
+              the name as one pseudo column": the shrunk 7px label (Round
+              367) still wasn't enough room on the narrower group columns,
+              so "Platform" is dropped rather than shrunk further — the
+              icon+name pair now reads as one combined column with no
+              label of its own. The cell stays in the DOM (empty) so the
+              grid still has 4 tracks and Channel Name/Followers/Type stay
+              aligned with their real columns below. */}
+          <span></span>
           <span>Channel Name</span>
           <span className={pageStyles.blockColumnTitleFollowers}>Followers</span>
           <span>Type</span>
@@ -849,8 +886,12 @@ export default function ChannelReferenceSharePage() {
             const colGroups = col.groups.filter((g) => (channelsByGroup[g]?.length || 0) > 0);
             if (colGroups.length === 0) return null;
             return (
-              <div key={col.label} className={pageStyles.column}>
-                <div className={pageStyles.columnTitle}>{col.label}</div>
+              // Round 368 — col.label can now be "" (see COLUMN_META
+              // above), so the key uses the column's groups instead of
+              // its label to stay unique, and the heading itself only
+              // renders when there's actually a label to show.
+              <div key={col.groups.join("|")} className={pageStyles.column}>
+                {col.label && <div className={pageStyles.columnTitle}>{col.label}</div>}
                 {colGroups.map((group) => renderGroupBlock(group))}
               </div>
             );
@@ -862,6 +903,31 @@ export default function ChannelReferenceSharePage() {
             </div>
           )}
           </div>
+
+          {/* Round 368 — "not new column, new group entirely like
+              community and official channel, please make change": TikTok
+              Channels is its own top-level section (a peer of Official
+              Channel/Community Channel above), not a 4th COLUMN_META
+              column squeezed into Community Channel's grid. Reuses
+              .grid/.column the same way Community Channel does — each of
+              the 3 TIKTOK_GROUPS gets its own column, one group per
+              column (no sub-stacking, unlike COLUMN_META's columns). */}
+          {(() => {
+            const tiktokGroupsPresent = TIKTOK_GROUPS.filter((g) => (channelsByGroup[g]?.length || 0) > 0);
+            if (tiktokGroupsPresent.length === 0) return null;
+            return (
+              <div className={pageStyles.topSection} style={{ marginTop: 24 }}>
+                <div className={pageStyles.topSectionTitle}>TikTok Channels</div>
+                <div className={pageStyles.grid}>
+                  {tiktokGroupsPresent.map((group) => (
+                    <div key={group} className={pageStyles.column}>
+                      {renderGroupBlock(group)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Round 346 — "then under there is the fetch table, and under
@@ -1026,11 +1092,18 @@ export default function ChannelReferenceSharePage() {
                     </thead>
                   )}
                   <tbody>
+                    {/* Round 368 — "the orange text rule is not needed for
+                        it [Ratecard Ads]. I guess i will fix each
+                        external embed table individually so the rule
+                        apply correctly": isColumnTitleRow's blank-first-
+                        cell heuristic was written for the Distribution
+                        Support sheet's own layout (see that function's
+                        Round 349 comment) and doesn't mean the same thing
+                        in this sheet — so this table no longer runs rows
+                        through it at all, unlike the Distribution Support
+                        table above which is unchanged. */}
                     {sheetData2.rows.map((row, i) => (
-                      <tr
-                        key={i}
-                        className={isColumnTitleRow(row) ? pageStyles.sheetColumnTitleRow : undefined}
-                      >
+                      <tr key={i}>
                         {row.map((cell, j) => (
                           <td key={j}>{cell}</td>
                         ))}
