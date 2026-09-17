@@ -662,9 +662,31 @@ export default function ChannelReferenceSharePage() {
             intro.sheetUrl) so the badge + detail button are always
             reachable here even before a sheet URL is configured, same
             never-silently-drop fallback the rest of this section already
-            used for a missing sheetUrl. */}
+            used for a missing sheetUrl.
+            Round 351 — "make the badge bigger. so that it becomes an
+            equal to others table": the small pill from Round 350 is now
+            a real section header — "Distribution Support - Media Booking
+            2026" as the big/bold title, with the sheet's own merged
+            title (sheetTitleLines — "HỖ TRỢ 10%...\nNhận booking lẻ...")
+            demoted to a subtitle underneath it, sized the way
+            .sheetTitleMain/.sheetTitleSub used to inside the table's own
+            thead. Since that content now lives up here, the table's
+            <thead> no longer repeats it as a spanning title row (that
+            would just be the same two lines shown twice, right on top of
+            each other) — sheetTitleLines skips straight to the real
+            per-column header row (or, for this sheet, straight into
+            tbody, since its "header" row IS the merged title). */}
         <div id="sheet-preview" className={pageStyles.sheetSection}>
-          <div className={pageStyles.sheetSectionBadge}>Distribution Support - Media Booking 2026</div>
+          <div className={pageStyles.sheetSectionHeader}>
+            <div className={pageStyles.sheetSectionTitle}>Distribution Support - Media Booking 2026</div>
+            {sheetTitleLines && (
+              <div className={pageStyles.sheetSectionSubtitle}>
+                {sheetTitleLines.map((line, i) => (
+                  <div key={i}>{line}</div>
+                ))}
+              </div>
+            )}
+          </div>
           {intro.sheetUrl ? (
             <>
               {sheetLoading && !sheetData && (
@@ -676,25 +698,15 @@ export default function ChannelReferenceSharePage() {
               {sheetData && sheetData.rows.length > 0 && (
                 <div className={pageStyles.sheetTableWrap}>
                   <table className={pageStyles.sheetTable}>
-                    <thead>
-                      {sheetTitleLines ? (
-                        <tr>
-                          <th colSpan={sheetData.headers.length} className={pageStyles.sheetTitleCell}>
-                            {sheetTitleLines.map((line, i) => (
-                              <div key={i} className={i === 0 ? pageStyles.sheetTitleMain : pageStyles.sheetTitleSub}>
-                                {line}
-                              </div>
-                            ))}
-                          </th>
-                        </tr>
-                      ) : (
+                    {!sheetTitleLines && (
+                      <thead>
                         <tr>
                           {sheetData.headers.map((h, i) => (
                             <th key={i}>{h}</th>
                           ))}
                         </tr>
-                      )}
-                    </thead>
+                      </thead>
+                    )}
                     <tbody>
                       {sheetData.rows.map((row, i) => (
                         // Round 348/349 — "put a title color for the row

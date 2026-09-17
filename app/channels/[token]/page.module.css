@@ -442,20 +442,30 @@
 }
 
 /* Round 350 — "above the external table we fetch, add the badge name
-   use 'Distribution Support - Media Booking 2026'" — a small eyebrow-
-   style label, same idea as .eyebrow up top but scoped to just this
-   section instead of the whole page. */
-.sheetSectionBadge {
-  display: inline-block;
-  margin-bottom: 10px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: var(--bg-hover);
-  color: var(--text-muted);
-  font-size: 11px;
+   use 'Distribution Support - Media Booking 2026'" (started as a small
+   eyebrow pill). Round 351 — "make the badge bigger. so that it becomes
+   an equal to others table": now a real section header — bigger/bolder
+   title line, with the sheet's own merged title (formerly rendered a
+   second time inside the table's own thead — see page.js) demoted to a
+   smaller subtitle underneath, at roughly the same weight the old
+   .sheetTitleMain/.sheetTitleSub pairing used. */
+.sheetSectionHeader {
+  margin-bottom: 14px;
+}
+
+.sheetSectionTitle {
   font-weight: 800;
-  letter-spacing: 0.3px;
-  text-transform: uppercase;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.sheetSectionSubtitle {
+  margin-top: 4px;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
 }
 
 .sheetStatus {
@@ -515,35 +525,15 @@
   background: var(--bg-hover);
 }
 
-/* Round 345 — the merged-title row (see sheetTitleLines in page.js):
-   centered and spanning every column ("mimic effect that the text is in
-   centre of the whole table"), with the extra specificity
-   (.sheetTable th.sheetTitleCell) needed to win over the plain
-   `.sheetTable th` rule above (uppercase/muted/small — wrong for a
-   title). Max-width from the shared th/td rule is dropped here since a
-   colSpan cell spanning the whole table should size with it, not cap
-   itself like a single data column would. */
-.sheetTable th.sheetTitleCell {
-  text-align: center;
-  max-width: none;
-  white-space: normal;
-  text-transform: none;
-  letter-spacing: normal;
-  padding: 14px 16px;
-}
-
-.sheetTitleMain {
-  font-weight: 800;
-  font-size: 14px;
-  color: var(--text);
-}
-
-.sheetTitleSub {
-  font-weight: 700;
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 4px;
-}
+/* Round 345 — the merged-title row (see sheetTitleLines in page.js) used
+   to render as a spanning <th> inside this table's own thead ("mimic
+   effect that the text is in centre of the whole table"). Round 351
+   moved that content up into .sheetSectionTitle/.sheetSectionSubtitle
+   above the table instead (showing it twice — once here, once up there —
+   was pure duplication), so the .sheetTitleCell/.sheetTitleMain/
+   .sheetTitleSub rules that used to style it in here are gone; when
+   sheetTitleLines is set, page.js now skips this table's <thead>
+   entirely rather than rendering an empty one. */
 
 /* Round 348 — "put a title color for the row of the column title row
    like the one with CAPCUT 1, CAPCUT 2... or BIG CHANNEL 1, BIG CHANNEL
