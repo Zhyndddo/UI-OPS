@@ -69,6 +69,46 @@ const GROUP_META = [
 ];
 const DEFAULT_GROUP_META = { accent: "#9a9a9a", accentBg: "rgba(154, 154, 154, 0.14)" };
 
+// Round 363 — "change the font color to that of a pastel version of the
+// color used for the box containing it": each .blockHeader is painted
+// solid with that group's own `accent` (see the style={{ background:
+// meta.accent }} below), so the title text needs to be a much LIGHTER
+// tint of that same hue to stay readable sitting on top of it — not the
+// existing `accentBg` field, which is a low-opacity rgba() meant to be
+// composited over the page's dark surface elsewhere, not used as a solid
+// text color. Blends the accent 72% toward white (a "pastel" is
+// conventionally just a hue at high lightness/low saturation, and mixing
+// toward white is the simplest way to get there from a single hex
+// value) — computed from `accent` instead of hand-picked per group, so a
+// future GROUP_META color change never leaves a stale pastel behind.
+function pastelizeHex(hex, whiteMix = 0.72) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const mix = (c) => Math.round(c * (1 - whiteMix) + 255 * whiteMix);
+  return `#${[mix(r), mix(g), mix(b)].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+// Round 363 — "allow me to bold or format text on the config text field
+// in the reference table": rather than a full rich-text editor (a much
+// bigger lift for one formatting need), the admin's plain textarea
+// (app/booking-channels/page.js) now supports **bold** — the same
+// double-asterisk convention Markdown/Slack/WhatsApp already use, so
+// nothing new to learn — and this splits each paragraph on that marker,
+// rendering the wrapped portions as <strong>. Anything not wrapped in
+// **...** renders as plain text exactly as before; a paragraph with no
+// "**" in it at all just returns itself unchanged.
+function renderBoldText(text) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) => {
+    const m = /^\*\*([^*]+)\*\*$/.exec(part);
+    return m ? <strong key={i}>{m[1]}</strong> : part;
+  });
+}
+
 // Round 340 — Distribution Support is no longer one of the channel-list
 // groups at all: per explicit request ("remove the table Distribution
 // Support - MEDIA BOOKING CHANNEL, one of the table, which only have 1
@@ -79,19 +119,32 @@ const DEFAULT_GROUP_META = { accent: "#9a9a9a", accentBg: "rgba(154, 154, 154, 0
 // hardcoded) becomes that tab's "Click for more detail" link.
 const DISTRIBUTION_GROUP = "Distribution Support - MEDIA BOOKING CHANNEL";
 
+// Round 364 — "taking two social of vieent and envi out to become their
+// own group": VIEENT - SOCIAL and ENVI used to ride along inside the
+// VPOP - MANSTREAM and MIỀN TÂY - BOLERO columns respectively (see the
+// COLUMN_META this replaced, in this file's git history). Per explicit
+// request, they're pulled out into their own top-level "OFFICIAL
+// CHANNEL" section, sitting above the rest ("COMMUNITY CHANNEL" —
+// COLUMN_META below), rather than being folded into either community
+// column. Side-note clarification from the same request: the MIỀN TÂY -
+// BOLERO column's own label stays the same, it just no longer includes
+// ENVI now that ENVI has its own home above it.
+const OFFICIAL_GROUPS = ["VIEENT - SOCIAL", "ENVI"];
+
 // Round 313 — per explicit request, the page's already-existing groups
 // (Round 311's GROUP_META, unchanged) get bundled under 3 super-columns
 // instead of auto-flowing into whichever of the 3 CSS grid columns they
 // happen to land in. Each entry's `groups` are stacked top-to-bottom in
 // that column, in that order. Any GROUP_META group not listed in any
-// column here — or a channel_group value this page has never heard of at
-// all — still isn't dropped: it falls into a trailing "Other" column,
-// same never-silently-drop guarantee Round 311 had (DISTRIBUTION_GROUP is
-// the one deliberate exception — see its own tab instead).
+// column here (or in OFFICIAL_GROUPS above) — or a channel_group value
+// this page has never heard of at all — still isn't dropped: it falls
+// into a trailing "Other" column, same never-silently-drop guarantee
+// Round 311 had (DISTRIBUTION_GROUP is the one deliberate exception —
+// see its own tab instead).
 const COLUMN_META = [
   {
     label: "VPOP - MANSTREAM",
-    groups: ["VIEENT - SOCIAL", "VPOP - COMMUNITY", "VPOP - TIKTOK"],
+    groups: ["VPOP - COMMUNITY", "VPOP - TIKTOK"],
   },
   {
     label: "INDIE",
@@ -99,10 +152,10 @@ const COLUMN_META = [
   },
   {
     label: "MIỀN TÂY - BOLERO",
-    groups: ["ENVI", "MIỀN TÂY/BOLERO - COMMUNITY", "TIKTOK MIỀN TÂY/BOLERO"],
+    groups: ["MIỀN TÂY/BOLERO - COMMUNITY", "TIKTOK MIỀN TÂY/BOLERO"],
   },
 ];
-const COLUMN_ASSIGNED_GROUPS = new Set(COLUMN_META.flatMap((c) => c.groups));
+const COLUMN_ASSIGNED_GROUPS = new Set([...OFFICIAL_GROUPS, ...COLUMN_META.flatMap((c) => c.groups)]);
 
 // Best-effort color mapping for the sheet's "Type" tag, matching picture
 // 1's palette as closely as a fixed small set reasonably can. A note value
@@ -513,7 +566,7 @@ export default function ChannelReferenceSharePage() {
         className={setApart ? `${pageStyles.block} ${pageStyles.blockSetApart}` : pageStyles.block}
       >
         <div className={pageStyles.blockHeader} style={{ background: meta.accent }}>
-          <div>{group}</div>
+          <div className={pageStyles.blockHeaderTitle} style={{ color: pastelizeHex(meta.accent) }}>{group}</div>
           {/* Round 311 — per-group count + follower sum, per explicit
               request. followerSum is 0 (shown as "0 followers", not
               hidden) for a group like Distribution Support whose one
@@ -522,13 +575,23 @@ export default function ChannelReferenceSharePage() {
           <div className={pageStyles.blockHeaderMeta}>
             {rows.length} channel{rows.length === 1 ? "" : "s"} · {formatFollowers(followerSum)} followers
           </div>
-          {/* Round 350 — "add a small line under the table name for
-              column title like (platform, channel name, followers,
-              type)": a plain text legend, not aligned per-column (this
-              is a card list, not a literal <table>) — just names what
-              each row's 4 pieces are, in the same order as .row now
-              renders them below. */}
-          <div className={pageStyles.blockHeaderLegend}>Platform · Channel Name · Followers · Type</div>
+        </div>
+        {/* Round 364 — "split this line from the table header badge and
+            align it to the content so it would be like real column
+            title": Round 350's "Platform · Channel Name · Followers ·
+            Type" legend used to be one plain text line INSIDE the
+            colored .blockHeader, not aligned to anything below it. Moved
+            out to its own row between the header and the body, sharing
+            .row's exact grid-template-columns (32px 1fr 56px 104px) so
+            each label sits directly above its actual column instead of
+            just naming them in prose. Hidden on mobile (see the media
+            query in the CSS) since the <=480px .row layout is a
+            different 2-line shape these 4 fixed columns no longer match. */}
+        <div className={pageStyles.blockColumnTitles}>
+          <span>Platform</span>
+          <span>Channel Name</span>
+          <span className={pageStyles.blockColumnTitleFollowers}>Followers</span>
+          <span>Type</span>
         </div>
         <div className={pageStyles.blockBody}>
           {rows.length === 0 ? (
@@ -625,7 +688,7 @@ export default function ChannelReferenceSharePage() {
             {introParagraphs.length > 0 && (
               <div className={pageStyles.introText}>
                 {introParagraphs.map((paragraph, i) => (
-                  <p key={i} className={pageStyles.introParagraph}>{paragraph}</p>
+                  <p key={i} className={pageStyles.introParagraph}>{renderBoldText(paragraph)}</p>
                 ))}
               </div>
             )}
@@ -688,10 +751,30 @@ export default function ChannelReferenceSharePage() {
         )}
 
         {/* Round 346 — "under the counter is the channel reference list" —
-            same COLUMN_META/otherGroups rendering as before, just no
-            longer gated behind a tab. id="channel-list" is the scroll
-            target for the 5 platform counter tiles above. */}
-        <div id="channel-list" className={pageStyles.grid}>
+            id="channel-list" is the scroll target for the 5 platform
+            counter tiles above.
+            Round 364 — "split into 2 group: OFFICIAL CHANNEL... COMMUNITY
+            CHANNEL": OFFICIAL_GROUPS (VIEENT - SOCIAL, ENVI) render in
+            their own section first, above the existing 3-column
+            COLUMN_META layout (now labeled COMMUNITY CHANNEL) — same
+            never-render-an-empty-section guard as everywhere else on this
+            page (officialGroupsPresent.length check below). */}
+        <div id="channel-list">
+          {(() => {
+            const officialGroupsPresent = OFFICIAL_GROUPS.filter((g) => (channelsByGroup[g]?.length || 0) > 0);
+            if (officialGroupsPresent.length === 0) return null;
+            return (
+              <div className={pageStyles.topSection}>
+                <div className={pageStyles.topSectionTitle}>Official Channel</div>
+                <div className={pageStyles.officialGrid}>
+                  {officialGroupsPresent.map((group) => renderGroupBlock(group))}
+                </div>
+              </div>
+            );
+          })()}
+
+          <div className={pageStyles.topSectionTitle}>Community Channel</div>
+          <div className={pageStyles.grid}>
           {COLUMN_META.map((col) => {
             const colGroups = col.groups.filter((g) => (channelsByGroup[g]?.length || 0) > 0);
             if (colGroups.length === 0) return null;
@@ -708,6 +791,7 @@ export default function ChannelReferenceSharePage() {
               {otherGroups.map((group) => renderGroupBlock(group))}
             </div>
           )}
+          </div>
         </div>
 
         {/* Round 346 — "then under there is the fetch table, and under

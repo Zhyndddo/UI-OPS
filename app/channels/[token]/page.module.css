@@ -24,7 +24,13 @@
 }
 
 .brandWordmark {
-  height: 56px;
+  /* Round 363 — "make it a bit larger. about 1.2 times of current...
+     should be alright right now on mobile (no change)": 56px -> 67px
+     (56 * 1.2 = 67.2). No separate mobile rule existed before this and
+     none is added now — max-width: 100% below already keeps it from
+     ever overflowing a narrow viewport, confirmed fine as-is per the
+     explicit "no change" on mobile. */
+  height: 67px;
   width: auto;
   max-width: 100%;
   flex-shrink: 0;
@@ -54,6 +60,44 @@
   font-size: 28px;
   letter-spacing: -0.01em;
   color: var(--text);
+}
+
+/* Round 364 — "split the table into 2 group: OFFICIAL CHANNEL...
+   COMMUNITY CHANNEL": .topSection wraps the OFFICIAL CHANNEL block (its
+   own heading + a small grid of just VIEENT - SOCIAL/ENVI); COMMUNITY
+   CHANNEL reuses the existing .grid/.column layout below unchanged
+   (still its own .topSectionTitle heading, just no wrapping section div
+   since it's the last thing in #channel-list and doesn't need one). */
+.topSection {
+  margin-bottom: 24px;
+}
+
+.topSectionTitle {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text);
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+  border-bottom: 2px solid var(--border-strong, var(--border));
+}
+
+/* Just 2 groups (VIEENT - SOCIAL, ENVI) — a 2-column grid on desktop,
+   same 1-column mobile collapse as .grid below, so each gets a full-width
+   card of its own real estate rather than being squeezed into a 3-column
+   layout built for the bigger COMMUNITY CHANNEL section. */
+.officialGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .officialGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .grid {
@@ -116,6 +160,22 @@
   gap: 2px;
 }
 
+/* Round 363 — "increase the font size of the table name to be as large
+   as the Distribution Support - Media Booking 2026 [title]. then change
+   the font color to that of a pastel version of the color used for the
+   box containing it": 18px matches .sheetSectionTitle's size exactly.
+   Only the group NAME line gets this treatment — .blockHeaderMeta/
+   .blockHeaderLegend below it still inherit .blockHeader's dark #0a0a0a
+   (they're secondary metadata, not "the table name"). The pastel color
+   itself is computed per-group from that group's own accent (see
+   pastelizeHex in page.js) and set inline as `style`, since it has to
+   track GROUP_META's accent value instead of being a fixed class. */
+.blockHeaderTitle {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
 /* Round 311 — count + follower-sum subtitle under the group title.
    Slightly lighter/smaller and not bold, so it reads as metadata rather
    than competing with the group name above it. Inherits the header's
@@ -129,15 +189,40 @@
   opacity: 0.72;
 }
 
-/* Round 350 — "add a small line under the table name for column title
-   like (platform, channel name, followers, type)" — one step lighter
-   than .blockHeaderMeta (which is still real data, a count/sum) since
-   this is just a static legend labeling what's below. */
-.blockHeaderLegend {
-  font-weight: 600;
+/* Round 364 — "split this line from the table header badge and align it
+   to the content so it would be like real column title": replaces Round
+   350's .blockHeaderLegend (one plain text line living inside the
+   colored .blockHeader, not aligned to anything). Sits OUTSIDE the
+   header now, on the plain card surface, sharing .row's exact
+   grid-template-columns so "Platform"/"Channel Name"/"Followers"/"Type"
+   each sit directly above their real column instead of just being named
+   in prose. */
+.blockColumnTitles {
+  display: grid;
+  grid-template-columns: 32px 1fr 56px 104px;
+  gap: 10px;
+  padding: 6px 14px 4px;
+  font-weight: 700;
   font-size: 10px;
-  letter-spacing: 0.2px;
-  opacity: 0.55;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Matches .rowFollowers's own centered alignment so the label sits
+   directly above the numbers it's labeling, not just above the column. */
+.blockColumnTitleFollowers {
+  text-align: center;
+}
+
+/* The <=480px .row layout is a different 2-line shape (see that media
+   query further down) that these 4 fixed columns no longer line up
+   with, so the column-title row just isn't shown there. */
+@media (max-width: 480px) {
+  .blockColumnTitles {
+    display: none;
+  }
 }
 
 .blockBody {
@@ -201,15 +286,38 @@
    (only .rowName needs an explicit grid-area; the other 3 spans are
    unpositioned and auto-place into whatever cells are left, in their DOM
    order, which is already platform/followers/note left-to-right). */
+/* Round 363 — "on mobile shell, instead of 4 columns, can we do
+   something like this, platform icon + name on first line, number and
+   type on second line of each row": swaps Round 350's stacking (name
+   alone on its own top line, platform/followers/note sharing the line
+   below) for platform+name together on line 1, followers+note ("type")
+   together on line 2 underneath — every one of the row's 4 pieces now
+   gets an explicit grid-area instead of 3 of them relying on
+   auto-placement into whatever named cells were left, since the leftover
+   cells no longer form one contiguous run in DOM order the way they did
+   under the old 3-cell second line. The empty ". " under the platform
+   icon gives line 2 a small left indent instead of stretching followers
+   under the icon's exact 32px width (which is narrower than most
+   follower numbers need). */
 @media (max-width: 480px) {
   .row {
-    grid-template-columns: 32px 56px 1fr;
+    grid-template-columns: 32px 1fr 104px;
     grid-template-areas:
-      "name name name"
-      "platform followers note";
+      "platform name name"
+      ". followers note";
+    row-gap: 2px;
+  }
+  .rowPlatform {
+    grid-area: platform;
   }
   .rowName {
     grid-area: name;
+  }
+  .rowFollowers {
+    grid-area: followers;
+  }
+  .rowNote {
+    grid-area: note;
   }
 }
 
@@ -401,6 +509,15 @@
   line-height: 1.6;
   color: var(--text);
   margin: 0 0 12px;
+  /* Round 363 — "change to justify align so that it would not look
+     jagged on the side due to line break": ragged-right edge (default
+     left-align) is what "jagged" refers to — justify stretches each
+     line's word-spacing to hit the right edge evenly instead. Vietnamese
+     diacritics don't play well with browsers' automatic hyphenation
+     (mid-word breaks can land inside a combining mark), so hyphens is
+     deliberately left at its default "none" rather than turned on to
+     smooth out justify's spacing further. */
+  text-align: justify;
 }
 
 .introParagraph:last-child {
@@ -479,6 +596,14 @@
    button — so it reads as one visually separate block, not a continuation
    of the page above it. */
 .sheetSection {
+  /* Round 364 — "separate this table Distribution Support - Media
+     Booking 2026 with a little more space from the upper table": this
+     card had no top margin of its own before (only the 20px bottom
+     margin below), so it sat right up against the channel-list grid
+     above it with nothing but that grid's own trailing gap. 40px reads
+     as a deliberate section break rather than just another card in the
+     same list. */
+  margin-top: 40px;
   margin-bottom: 20px;
   padding: 16px;
   border: 1px solid var(--border);

@@ -525,6 +525,13 @@ export default function BookingChannelsPage() {
               value={introDraft.text}
               onChange={(e) => setIntroDraft((prev) => ({ ...prev, text: e.target.value }))}
             />
+            {/* Round 363 — "allow me to bold or format text on the config
+                text field": wrap anything in **double asterisks** to bold
+                it on the public page (same convention as Markdown/Slack/
+                WhatsApp) — e.g. **Cụm Kênh Showbiz & Giải Trí**. */}
+            <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 4 }}>
+              Wrap text in **double asterisks** to bold it on the public page — e.g. **Cụm Kênh Showbiz & Giải Trí**.
+            </p>
           </div>
           <div className={styles.field} style={{ marginBottom: 10, maxWidth: 420 }}>
             <label className={styles.fieldLabel}>Canva Embed URL</label>
