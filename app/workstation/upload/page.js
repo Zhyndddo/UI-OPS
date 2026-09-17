@@ -109,8 +109,21 @@ export default function UploadWorkstation() {
     // so the release falls back to showing the config default again. Runs
     // every load, so it's self-healing going forward too, not just a
     // one-time fix for the current backlog.
+    // Round 372 — BUG FIX ("no matter how they fix it in the workstation,
+    // it just went back to the default PIC"): this delete used to key
+    // ONLY on release_id, not also on auto_assigned — its own comment
+    // above already promised "a human's own pick is never flagged this
+    // way" / "self-healing", but the query itself didn't actually enforce
+    // that promise. If a manual pick's UPDATE (see updatePic below) ever
+    // landed after this ran but the row's auto_assigned flag was stale
+    // true for any reason (a slow write, a retried request, old data),
+    // this cleanup would delete that manual row right back out on the
+    // very next load — indistinguishable from "reverts to the default no
+    // matter what you do." Scoping the delete to auto_assigned=true too
+    // makes it structurally impossible for this cleanup to ever remove a
+    // manual assignment, matching what the comment already claimed.
     if (def != null && autoAssignedIds.length > 0) {
-      await supabase.from("workstation_assignments").delete().eq("workstation", "upload").in("release_id", autoAssignedIds);
+      await supabase.from("workstation_assignments").delete().eq("workstation", "upload").eq("auto_assigned", true).in("release_id", autoAssignedIds);
       autoAssignedIds.forEach((rid) => { delete map[rid]; });
     }
 
@@ -202,10 +215,25 @@ export default function UploadWorkstation() {
     // overwriting a row this page's own auto-assign wrote earlier. Once a
     // human has touched it, it's a real manual assignment — never again
     // eligible to be reclaimed by a later-set config default.
-    if (existing) {
-      await supabase.from("workstation_assignments").update({ pic_profile_id: profileId, auto_assigned: false }).eq("id", existing.id);
-    } else {
-      await supabase.from("workstation_assignments").insert({ workstation: "upload", column_key: "all", release_id: release.id, pic_profile_id: profileId, auto_assigned: false });
+    //
+    // Round 372 — BUG FIX ("no matter how they fix it in the workstation,
+    // it just went back to the default PIC"): neither branch below used
+    // to check its own result. This write is the ONLY thing standing
+    // between "the pick you just made" and "silently still the old
+    // value" — the optimistic setAssignments above already made the
+    // dropdown show your pick regardless of whether the write behind it
+    // actually landed, so a write that failed (a dropped connection, an
+    // RLS/permission edge case, anything) looked identical to success
+    // right up until the next page load reverted it with zero
+    // explanation. Now a failed write rolls the optimistic UI state back
+    // to what it actually was and says so, instead of a mystery revert
+    // later.
+    const { error } = existing
+      ? await supabase.from("workstation_assignments").update({ pic_profile_id: profileId, auto_assigned: false }).eq("id", existing.id)
+      : await supabase.from("workstation_assignments").insert({ workstation: "upload", column_key: "all", release_id: release.id, pic_profile_id: profileId, auto_assigned: false });
+    if (error) {
+      setAssignments((prev) => ({ ...prev, [release.id]: before ?? undefined }));
+      alert(`Couldn't save PIC — try again. (${error.message})`);
     }
   }
 

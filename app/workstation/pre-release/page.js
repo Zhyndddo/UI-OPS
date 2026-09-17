@@ -126,8 +126,13 @@ export default function PreReleaseWorkstation() {
     // this page's past auto-assign wrote (auto_assigned=true), not just
     // future ones. A manual pick (auto_assigned=false, see updatePic) is
     // never touched.
+    //
+    // Round 372 — BUG FIX, same as app/workstation/upload/page.js's own
+    // Round 372 comment: this delete now also requires auto_assigned=true
+    // so it can never remove a manual pick, matching what the comment
+    // above already claimed it did.
     if (def != null && autoAssignedIds.length > 0) {
-      await supabase.from("workstation_assignments").delete().eq("workstation", "pre_release").in("release_id", autoAssignedIds);
+      await supabase.from("workstation_assignments").delete().eq("workstation", "pre_release").eq("auto_assigned", true).in("release_id", autoAssignedIds);
       autoAssignedIds.forEach((rid) => { delete map[rid]; });
     }
 
@@ -182,9 +187,17 @@ export default function PreReleaseWorkstation() {
     }
     // Round 296 — a manual pick always clears auto_assigned, see
     // app/workstation/upload/page.js's own comment.
+    // Round 372 — error handling, same as app/workstation/upload/page.js's
+    // own Round 372 comment: an unchecked failure here looked identical
+    // to success until the next reload silently reverted it.
     const { data: existing } = await supabase.from("workstation_assignments").select("id").eq("workstation", "pre_release").eq("column_key", "all").eq("release_id", releaseId).maybeSingle();
-    if (existing) await supabase.from("workstation_assignments").update({ pic_profile_id: profileId, auto_assigned: false }).eq("id", existing.id);
-    else await supabase.from("workstation_assignments").insert({ workstation: "pre_release", column_key: "all", release_id: releaseId, pic_profile_id: profileId, auto_assigned: false });
+    const { error } = existing
+      ? await supabase.from("workstation_assignments").update({ pic_profile_id: profileId, auto_assigned: false }).eq("id", existing.id)
+      : await supabase.from("workstation_assignments").insert({ workstation: "pre_release", column_key: "all", release_id: releaseId, pic_profile_id: profileId, auto_assigned: false });
+    if (error) {
+      setAssignments((prev) => ({ ...prev, [releaseId]: before ?? undefined }));
+      alert(`Couldn't save PIC — try again. (${error.message})`);
+    }
   }
 
   // Round 158 — artist_pick_status dropped from this rule (moved to

@@ -148,9 +148,14 @@ function ConfirmWorkstationInner() {
     // release its OWN past auto-assign wrote (auto_assigned=true) once
     // that phase gets a config default. A manual pick (auto_assigned=
     // false, see updatePic) is never touched.
+    //
+    // Round 372 — BUG FIX, same as app/workstation/upload/page.js's own
+    // Round 372 comment: this delete now also requires auto_assigned=true
+    // so it can never remove a manual pick, matching what the comment
+    // above already claimed it did.
     for (const ph of ["confirm_phase1", "confirm_phase2"]) {
       if (defs[ph] != null && autoAssignedIds[ph].length > 0) {
-        await supabase.from("workstation_assignments").delete().eq("workstation", ph).in("release_id", autoAssignedIds[ph]);
+        await supabase.from("workstation_assignments").delete().eq("workstation", ph).eq("auto_assigned", true).in("release_id", autoAssignedIds[ph]);
         autoAssignedIds[ph].forEach((rid) => { delete rows[ph][rid]; });
       }
     }
@@ -232,9 +237,17 @@ function ConfirmWorkstationInner() {
     }
     // Round 296 — a manual pick always clears auto_assigned, see
     // app/workstation/upload/page.js's own comment.
+    // Round 372 — error handling, same as app/workstation/upload/page.js's
+    // own Round 372 comment: an unchecked failure here looked identical
+    // to success until the next reload silently reverted it.
     const { data: existing } = await supabase.from("workstation_assignments").select("id").eq("workstation", phase).eq("column_key", "all").eq("release_id", releaseId).maybeSingle();
-    if (existing) await supabase.from("workstation_assignments").update({ pic_profile_id: profileId, auto_assigned: false }).eq("id", existing.id);
-    else await supabase.from("workstation_assignments").insert({ workstation: phase, column_key: "all", release_id: releaseId, pic_profile_id: profileId, auto_assigned: false });
+    const { error } = existing
+      ? await supabase.from("workstation_assignments").update({ pic_profile_id: profileId, auto_assigned: false }).eq("id", existing.id)
+      : await supabase.from("workstation_assignments").insert({ workstation: phase, column_key: "all", release_id: releaseId, pic_profile_id: profileId, auto_assigned: false });
+    if (error) {
+      setAssignments((prev) => ({ ...prev, [phase]: { ...prev[phase], [releaseId]: before ?? undefined } }));
+      alert(`Couldn't save PIC — try again. (${error.message})`);
+    }
   }
 
   function dspAllChecked(r) {

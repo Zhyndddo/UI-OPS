@@ -6,7 +6,6 @@ import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
 import UrlField from "../../lib/UrlField";
 import { CHANNEL_REFERENCE_INTRO_KEY, readChannelReferenceIntro, serializeChannelReferenceIntro } from "../../lib/channelReferenceIntro";
-import { isValidSlugFormat } from "../../lib/shortLinks";
 import styles from "../shared.module.css";
 
 const BOOKING_PLATFORMS = ["TikTok", "Facebook", "Instagram", "YouTube", "Thread"];
@@ -73,14 +72,6 @@ export default function BookingChannelsPage() {
   // the way to kill a leaked link without a code deploy.
   const [mintingLink, setMintingLink] = useState(false);
   const [mintedLinkUrl, setMintedLinkUrl] = useState(null);
-  // Round 362 — "become this... permanently as a custom unique page...
-  // no rewrite or redirect": instead of aliasing the random token through
-  // the short-links minter, this lets the token ITSELF be a memorable
-  // string (e.g. "vsounder"), so /channels/vsounder IS the real,
-  // permanent URL — no indirection, nothing to redirect or rewrite.
-  const [customToken, setCustomToken] = useState("");
-  const [customTokenSaving, setCustomTokenSaving] = useState(false);
-  const [customTokenError, setCustomTokenError] = useState(null);
   // Round 317 — the magic link's configurable intro text block (see
   // lib/channelReferenceIntro.js's header for why this is one shared
   // global_settings row rather than a new table). `introDraft` holds the
@@ -234,48 +225,13 @@ export default function BookingChannelsPage() {
     setMintedLinkUrl(`${window.location.origin}/channels/${data.token}`);
   }
 
-  // Round 362 — renames the current active share link's token to a
-  // custom, memorable value (or creates the first-ever link directly
-  // with that value, if none exists yet) — same get-or-create shape as
-  // mintShareLink above, just writing a chosen token instead of letting
-  // the table default one in. This is a real rename: the OLD random-hex
-  // URL stops working the moment this saves (the token column only ever
-  // holds one value), which matches "become this... permanently" rather
-  // than adding a second alias for the same link. The table's own
-  // `unique` constraint on token (sql/pending/add-round305-channel-
-  // reference-share-links.sql) is the real guarantee against two links
-  // ever sharing a slug; the 23505 handling below just turns that into a
-  // readable message.
-  async function setCustomShareToken() {
-    setCustomTokenError(null);
-    const normalized = customToken.trim().toLowerCase();
-    if (!isValidSlugFormat(normalized)) {
-      setCustomTokenError("Use lowercase letters, numbers, and hyphens only (no leading/trailing hyphen), 2-64 characters.");
-      return;
-    }
-    setCustomTokenSaving(true);
-    const { data: existing } = await supabase
-      .from("channel_reference_share_links")
-      .select("*")
-      .is("revoked_at", null)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    let error;
-    if (existing) {
-      ({ error } = await supabase.from("channel_reference_share_links").update({ token: normalized }).eq("id", existing.id));
-    } else {
-      ({ error } = await supabase.from("channel_reference_share_links").insert({ created_by: profile?.email || profile?.name || null, token: normalized }));
-    }
-    setCustomTokenSaving(false);
-    if (error) {
-      setCustomTokenError(error.code === "23505" ? `"${normalized}" is already in use by another link.` : "Couldn't save — try again.");
-      return;
-    }
-    setMintedLinkUrl(`${window.location.origin}/channels/${normalized}`);
-    setCustomToken("");
-  }
+  // Round 372 — "remove Custom link:/channels/ from the channel reference
+  // in the app (not the magic link) since we already change the link to
+  // /vsounder already": Round 362's rename-token UI (setCustomShareToken)
+  // is gone — the link is already permanently set to /channels/vsounder,
+  // so this admin control has no reason to stay in front of anyone who
+  // could accidentally rename it again. The public magic link itself
+  // (/channels/vsounder) is completely untouched.
 
   // Round 317 — saves the magic link's intro block. Round 327 added
   // `title`. Round 339 added `sheetUrl`. Blank title/text/canvaUrl/
@@ -469,33 +425,9 @@ export default function BookingChannelsPage() {
           </div>
         )}
 
-        {/* Round 362 — "become this... permanently as a custom unique
-            page... no rewrite or redirect": sets the share link's own
-            token to a memorable string, so /channels/<that string> IS
-            the real URL, not an alias pointing at one. Shown regardless
-            of whether a link has been minted yet — this can create the
-            first-ever link directly with a custom token too. */}
-        <div className={styles.errorBox} style={{ marginBottom: 16, background: "var(--bg-hover)", borderColor: "var(--border-strong)", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span>Custom link:</span>
-          <span style={{ color: "var(--text-faint)" }}>/channels/</span>
-          <input
-            className={styles.input}
-            value={customToken}
-            onChange={(e) => setCustomToken(e.target.value)}
-            placeholder="vsounder"
-            style={{ width: 160 }}
-          />
-          <button
-            type="button"
-            className={styles.btnSecondary}
-            onClick={setCustomShareToken}
-            disabled={customTokenSaving || !customToken.trim()}
-            title="Renames the current share link's token to this value — the old link stops working the moment this saves."
-          >
-            {customTokenSaving ? "Saving…" : mintedLinkUrl ? "Rename link to this" : "Use as the link"}
-          </button>
-          {customTokenError && <span style={{ color: "var(--danger, #ff6b6b)", fontSize: 12 }}>{customTokenError}</span>}
-        </div>
+        {/* Round 372 — the Round 362 "Custom link:" rename UI that used to
+            sit here is gone (see the removed setCustomShareToken comment
+            above) — the link is already permanently /channels/vsounder. */}
 
         {/* Round 317 — the magic link's intro text block, per explicit
             team request. Round 328 — toggled from the "✎ Magic Link Intro"

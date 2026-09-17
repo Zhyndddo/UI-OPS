@@ -1199,12 +1199,28 @@ function ChartEntryPopup({ platform, onClose, onSave, entries, chartLinks }) {
   // yet for today are left out of this initial map entirely, so the
   // existing "one blank starter row" fallback below still applies to
   // them exactly as before.
-  // Round 174 — a chart with nothing saved yet TODAY now falls back to the
-  // most recent PRIOR day's row list (song/artist/DID carried over, rank
-  // deliberately blanked — "swipe the number, leave the row intact")
+  // Round 174 — a chart with nothing saved yet TODAY used to fall back to
+  // the most recent PRIOR day's row list (song/artist/DID carried over,
+  // rank deliberately blanked — "swipe the number, leave the row intact")
   // instead of one lone blank row, per explicit report that a fresh day
-  // meant retyping every previously-tracked song from scratch. Both
-  // branches respect sort_order (see sortByOrder above).
+  // meant retyping every previously-tracked song from scratch.
+  //
+  // Round 372 — BUG FIX/walk-back ("delete a row and save table, exit out
+  // and click to open the panel back on — still have the row, just blank
+  // rank"): saveRows' delete-then-write is a full replace (Round 194) —
+  // deleting every row of a chart and saving genuinely empties today's DB
+  // rows for it. But this auto-carry-forward couldn't tell "genuinely
+  // emptied today" apart from "haven't touched today yet" — both look
+  // identical (zero rows for today), so it silently resurrected the very
+  // row that was just deleted, with its rank blanked, looking exactly
+  // like the delete never took. Per explicit request, this no longer
+  // auto-populates the live, editable table at all — a chart with zero
+  // rows for today now genuinely starts from the single blank row below,
+  // same as any other empty chart. The Rewind panel's own "Yesterday" tab
+  // (see RewindPanel/priorRows below) already shows this exact same prior
+  // day's list with a one-click ↩ restore per row — that's now the only
+  // way prior-day rows come back, a deliberate per-row pick instead of an
+  // automatic all-or-nothing repopulate.
   const [rowsByChart, setRowsByChart] = useState(() => {
     const today = todayStr();
     const initial = {};
@@ -1212,11 +1228,6 @@ function ChartEntryPopup({ platform, onClose, onSave, entries, chartLinks }) {
       const todays = (entries || []).filter((e) => e.platform === platform && e.chart === c && e.entry_date === today);
       if (todays.length > 0) {
         initial[c] = sortByOrder(todays).map((e) => ({ track_title: e.track_title || "", artist: e.artist || "", rank: e.rank != null ? String(e.rank) : "", did: e.did || "" }));
-      } else {
-        const prior = findPriorRows(entries || [], platform, c, today);
-        if (prior && prior.length > 0) {
-          initial[c] = prior.map((e) => ({ track_title: e.track_title || "", artist: e.artist || "", rank: "", did: e.did || "" }));
-        }
       }
     });
     return initial;
