@@ -231,8 +231,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  /* Round 355 — grown to fit the bigger icon (see PlatformIcon.js's
+     default size 16 -> 22) with a little breathing room, still comfortably
+     under .row's 32px first column. */
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
   /* Round 340 — the row's platform column is a fixed width (see .row) so
      every row lines up; without this the badge would grid-stretch to
