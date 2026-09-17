@@ -164,8 +164,22 @@
      needs room for the longest platform name.
      Round 350 — "move the channel name column before the followers
      column": columns reordered platform / name / followers / note (name
-     now gets the flexible 1fr slot, followers a fixed 56px). */
-  grid-template-columns: 32px 1fr 56px auto;
+     now gets the flexible 1fr slot, followers a fixed 56px).
+     Round 353 — BUG FIX ("don't know why it just off the column UI
+     wise" — the follower numbers weren't lining up down a column
+     anymore): note used to be `auto` (sized to its own text every row),
+     the last column with nothing after it to misalign — harmless. Once
+     followers moved to sit BETWEEN the flexible name column and note,
+     that stopped being harmless: a 1fr track's width is computed from
+     ALL the other tracks' actual per-row sizes, so a row with a wider
+     note pill ("News tổng hợp") left less room for name than a row with
+     a narrower one ("Lyrics"), which pushed THAT row's followers number
+     left or right — the exact "columns don't line up" bug Round 340
+     first fixed, reintroduced by giving note back a variable width.
+     Fixing it the same way Round 340 did: every column except name is
+     now a fixed size on every row, so name's 1fr resolves to the same
+     width every time regardless of that row's own note text. */
+  grid-template-columns: 32px 1fr 56px 104px;
   align-items: center;
   gap: 10px;
   padding: 8px 8px;
@@ -208,15 +222,17 @@
    instead. Kept a background + rounded corners so it still reads as a
    little badge, just square instead of a wide pill (nothing left inside
    it needs the extra horizontal room a pill gave text). */
+/* Round 354 — "switch the platform icon to this folder": the icon is now
+   a full-color PNG (see lib/PlatformIcon.js) with its own colored circle
+   baked into the image itself, so the neutral chip background/border-
+   radius Round 347's monochrome-on-a-swatch look needed is gone — a grey
+   box behind an already-colorful circle just looked muddy. */
 .rowPlatform {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 24px;
   height: 24px;
-  border-radius: 7px;
-  background: var(--bg-hover);
-  color: var(--text-dim);
   flex-shrink: 0;
   /* Round 340 — the row's platform column is a fixed width (see .row) so
      every row lines up; without this the badge would grid-stretch to
@@ -254,6 +270,18 @@
   padding: 3px 9px;
   border-radius: 999px;
   white-space: nowrap;
+  /* Round 353 — note's column is now a fixed 104px (see .row) instead of
+     auto/content-sized, so a longer note ("Lyrics (Source Phim)") needs
+     to truncate instead of stretching the column — title= on the span
+     (see page.js) keeps the full text reachable on hover. Kept left-
+     aligned (justify-self: start) rather than stretching the pill to
+     fill the whole fixed column, which would look like an oversized
+     blank badge for a short note like "Lyrics". */
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  justify-self: start;
 }
 
 /* Round 317 — per-platform summary strip ("a new counter for the channel
@@ -271,12 +299,18 @@
    (see page.js), so they need the usual link resets plus a visible
    affordance that they're interactive, matching .row's own hover
    treatment elsewhere on this page. */
+/* Round 354 — "based on the platform color, also color the counter cell
+   accordingly": a tile with a brand color sets --tile-accent/
+   --tile-accent-bg inline (see page.js, sourced from
+   lib/platformBrand.js's PLATFORM_COLORS) and these rules pick them up
+   via var(...) with a plain fallback for a tile that has none (External,
+   or an unrecognized platform) — no per-platform CSS classes needed. */
 .platformStripItem {
   flex: 1 1 140px;
   min-width: 140px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--tile-accent, var(--border));
   border-radius: 10px;
-  background: var(--bg-card);
+  background: var(--tile-accent-bg, var(--bg-card));
   padding: 10px 14px;
   display: block;
   text-decoration: none;
@@ -287,7 +321,7 @@
 
 .platformStripItem:hover {
   background: var(--bg-hover, rgba(255, 255, 255, 0.04));
-  border-color: var(--accent);
+  border-color: var(--tile-accent, var(--accent));
 }
 
 .platformStripPlatform {
@@ -295,7 +329,7 @@
   font-weight: 800;
   letter-spacing: 0.5px;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--tile-accent, var(--text-muted));
   margin-bottom: 4px;
 }
 
@@ -431,14 +465,22 @@
 /* Round 339 — Google Sheet preview ("embed the first sheet (overall)...
    use the normal url as a click for details"). A native table (not
    Google's own iframe embed, per explicit choice) so it matches the rest
-   of this page's theme instead of looking like a foreign widget — same
-   border/bg-card treatment as .block so it reads as one more card in the
-   page's own visual language. Horizontal scroll is contained to the
-   table itself (a wide sheet never forces the whole page to scroll
-   sideways, same "no horizontal scroll on mobile" rule the rest of this
-   page follows). */
+   of this page's theme instead of looking like a foreign widget.
+   Round 352 — "i want all this is like in a frame or something so they
+   know it's different from the above": the title/subtitle, table, and
+   "Click for more detail" button were all sitting directly on the page
+   background, same as the channel-count strip and everything else above
+   them — nothing marked this whole section as its own distinct unit. Now
+   a single bordered card (same border/bg-card treatment .block already
+   uses for each channel group) wraps the entire section — title through
+   button — so it reads as one visually separate block, not a continuation
+   of the page above it. */
 .sheetSection {
   margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
 }
 
 /* Round 350 — "above the external table we fetch, add the badge name

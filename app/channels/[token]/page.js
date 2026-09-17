@@ -10,6 +10,7 @@ import { readChannelReferenceIntro, toCanvaEmbedUrl } from "../../../lib/channel
 // /api/channel-reference-sheet, which does its own parsing/validation
 // server-side (see that route + the SSRF-guard comment on it).
 import PlatformIcon from "../../../lib/PlatformIcon";
+import { resolvePlatformKey, PLATFORM_COLORS } from "../../../lib/platformBrand";
 import styles from "../../shared.module.css";
 import pageStyles from "./page.module.css";
 
@@ -432,6 +433,12 @@ export default function ChannelReferenceSharePage() {
       count: p.count,
       sub: `${formatFollowers(p.followerSum)} followers`,
       anchor: "#channel-list",
+      // Round 354 — "based on the platform color, also color the counter
+      // cell accordingly": PLATFORM_COLORS[key] is undefined for a
+      // platform value outside the 5 brand icons cover — colors stays
+      // null and the tile just keeps its plain default look, same
+      // never-silently-drop fallback the rest of this page uses.
+      colors: PLATFORM_COLORS[resolvePlatformKey(p.platform)] || null,
     }));
     if (intro.sheetUrl) {
       // Round 349 — BUG FIX ("no under line for the followers, as of
@@ -529,7 +536,16 @@ export default function ChannelReferenceSharePage() {
                   <span className={pageStyles.rowName}>{c.name}</span>
                   <span className={pageStyles.rowFollowers}>{formatFollowers(c.follower_count)}</span>
                   {c.note && (
-                    <span className={pageStyles.rowNote} style={{ background: noteColor.bg, color: noteColor.fg }}>
+                    // Round 353 — note's column is now a fixed width
+                    // (see .rowNote in the CSS) so the follower column
+                    // next to it stays aligned down the block; title=
+                    // keeps the untruncated text reachable on hover for
+                    // a note long enough to get ellipsized.
+                    <span
+                      className={pageStyles.rowNote}
+                      style={{ background: noteColor.bg, color: noteColor.fg }}
+                      title={c.note}
+                    >
                       {c.note}
                     </span>
                   )}
@@ -617,7 +633,23 @@ export default function ChannelReferenceSharePage() {
         {counterTiles.length > 0 && (
           <div className={pageStyles.platformStrip}>
             {counterTiles.map((tile) => (
-              <a key={tile.key} href={tile.anchor} className={pageStyles.platformStripItem}>
+              // Round 354 — the per-platform accent/tint (see .row's
+              // --tile-accent / --tile-accent-bg custom properties in the
+              // CSS) is passed as inline style rather than a per-platform
+              // CSS class so PLATFORM_COLORS stays the one place these
+              // colors are defined; a tile with no match (External, or an
+              // unrecognized platform) just gets no override and falls
+              // back to the plain default look already in the CSS.
+              <a
+                key={tile.key}
+                href={tile.anchor}
+                className={pageStyles.platformStripItem}
+                style={
+                  tile.colors
+                    ? { "--tile-accent": tile.colors.accent, "--tile-accent-bg": tile.colors.accentBg }
+                    : undefined
+                }
+              >
                 <div className={pageStyles.platformStripPlatform}>{tile.label}</div>
                 <div className={pageStyles.platformStripCount}>
                   {tile.count == null ? "…" : `${tile.count} ${tile.count === 1 ? "channel" : "channels"}`}
