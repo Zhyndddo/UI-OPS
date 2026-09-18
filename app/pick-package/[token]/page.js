@@ -170,7 +170,16 @@ function TermsText({ text, baseStyle }) {
 // value. Thành Tiền (price) additionally goes ~2.2x its previous font
 // size and from the muted grey text color to plain white, so the price is
 // the one thing that visually pops on the card.
-function MobilePackageItems({ items }) {
+// Round 385 — `desktop` prop, default false/undefined so every existing
+// mobile call site (MobileTabbedPackages below) renders byte-for-byte the
+// same markup it always has. Only the Round 384 desktop call site (the
+// rich-options grid further down) passes `desktop`, per explicit request:
+// "move the number of TT (remove the text TT as well) to be right next to
+// the title like Community, TikTok Channel. Reduce the size of the money
+// numbers to about 0.6-0.7... add a small gap so the number wont clip over
+// the số lượng and chi tiết. Also move the số lượng number... to same
+// line of its title too. this is to desktop view only, mobile no change".
+function MobilePackageItems({ items, desktop }) {
   return (
     <div style={{ display: "grid", gap: 10 }}>
       {items.map((item, i) => {
@@ -179,12 +188,34 @@ function MobilePackageItems({ items }) {
         const amountText = item.amount != null ? fmtVnd(item.amount) : null;
         return (
           <div key={i} style={{ borderBottom: i === items.length - 1 ? "none" : "1px solid var(--border)", paddingBottom: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text)", marginBottom: 4, wordBreak: "break-word" }}>{item.category}</div>
+            {desktop ? (
+              // Round 385 — title + amount share one row (amount right-
+              // aligned, no more "TT:" label — the position next to the
+              // title already says what it is, same as how the title
+              // itself needs no "Hạng Mục:" label). marginBottom:6 is the
+              // "small gap" so this row never reads as touching Số
+              // Lượng/Chi Tiết right below it. fontSize 15 is ~0.6-0.7x
+              // the original 24px mobile size — still reads as the
+              // "big number" of the card without threatening to overflow
+              // a narrow desktop column on a package with more digits.
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: "var(--text)", wordBreak: "break-word" }}>{item.category}</span>
+                {amountText && (
+                  <span style={{ fontSize: 15, fontWeight: 800, color: "var(--text)", whiteSpace: "nowrap", flexShrink: 0 }}>{amountText}</span>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text)", marginBottom: 4, wordBreak: "break-word" }}>{item.category}</div>
+            )}
             <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
               {qtyText && (
                 <div>
-                  <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>Số Lượng:</span><br />
-                  {qtyText}
+                  <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>Số Lượng:</span>
+                  {/* Round 385 — desktop: value stays on the label's own
+                      line instead of dropping to a new one below it.
+                      Mobile keeps the original <br/> + new-line layout,
+                      untouched. */}
+                  {desktop ? <> {qtyText}</> : (<><br />{qtyText}</>)}
                 </div>
               )}
               {detailText && (
@@ -193,7 +224,10 @@ function MobilePackageItems({ items }) {
                   {detailText}
                 </div>
               )}
-              {amountText && (
+              {/* Round 385 — on desktop the amount already rendered up in
+                  the title row above; this whole TT block only exists for
+                  mobile, exactly as it always has. */}
+              {!desktop && amountText && (
                 <div>
                   <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>TT:</span><br />
                   {/* Round 377 — BUG FIX ("the Thành Tiền on mobile is not
@@ -1154,7 +1188,7 @@ export default function PickPackagePage() {
                         that Round's still-intact MobileTabbedPackages
                         branch above (useTabbedPackages) for the one-line
                         revert path if this also needs undoing. */}
-                    <MobilePackageItems items={c.items} />
+                    <MobilePackageItems items={c.items} desktop />
                   </div>
                 ) : null}
                 {c.showSharedB && sharedTerms.b && (
