@@ -215,34 +215,10 @@ function MobilePackageItems({ items }) {
   );
 }
 
-// Round 383 — "hybrid... still use the textjoin but all package side by
-// side still": the same tab-strip look MobileTabbedPackages uses below,
-// reused on desktop as a pure quick-jump/highlight row (onJump) rather
-// than a tab that hides every other package — the full side-by-side grid
-// stays visible underneath at all times, this just scrolls to + briefly
-// highlights whichever card was clicked.
-function PackageQuickNav({ options, onJump }) {
-  if (!options || options.length < 2) return null; // nothing to jump between with 0-1 options
-  return (
-    <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 4 }}>
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          onClick={() => onJump(o.value)}
-          style={{
-            flexShrink: 0, padding: "8px 12px", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", whiteSpace: "nowrap",
-            border: "1px solid var(--border-strong)",
-            background: "var(--bg-card)",
-            color: "var(--text-muted)",
-          }}
-        >
-          {o.label || o.value}
-        </button>
-      ))}
-    </div>
-  );
-}
+// Round 383 added PackageQuickNav (a tab-strip-look quick-jump row) here.
+// Round 384 removed it per explicit feedback ("not the button on top") —
+// see the MobilePackageItems swap below instead, which is what Round 384
+// actually asked for.
 
 // Round 125 — item 3a: mobile-only package picker. Desktop keeps the
 // side-by-side card grid (unchanged, further down in the main render);
@@ -413,25 +389,18 @@ export default function PickPackagePage() {
 
   // Round 382 — EXPERIMENT, first cut: tried the mobile tabbed package
   // picker (MobileTabbedPackages — one package at a time) on desktop too.
-  // Round 383 follow-up per explicit feedback ("not revert but more like
-  // a hybrid, still use the textjoin but all package side by side
-  // still"): desktop goes back to `isMobile` here (i.e. back to false),
-  // but the desktop branch below now ALSO renders the tab strip
-  // (PackageQuickNav, the same package-name pill row MobileTabbedPackages
-  // uses) above the untouched side-by-side comparison grid — tabs are a
-  // quick-jump/highlight now instead of a visibility gate, so every
-  // package still shows at once like before, with the tab row as an
-  // added way to jump straight to one.
+  // Round 383 follow-up: tried a hybrid instead — desktop back to
+  // `isMobile` here, plus a PackageQuickNav tab-strip added above the
+  // grid as a pure quick-jump. Round 384 — per explicit feedback ("not
+  // the button on top but use the mobile shell of the package translator
+  // from table to blob for the desktop too"), PackageQuickNav is removed
+  // again (see MobilePackageItems usage in the rich-options loop below
+  // for what Round 384 actually changed instead). `useTabbedPackages`
+  // stays a named flag (not just `isMobile` inline) so the
+  // MobileTabbedPackages branch just below remains the one clean revert
+  // path if the Round 384 change also needs undoing — flip this back to
+  // `true` for that.
   const useTabbedPackages = isMobile;
-  // Round 383 — which package's card is currently getting the
-  // PackageQuickNav jump-highlight (see the boxShadow on the rich/compact
-  // option cards below); cleared a moment after each jump.
-  const [jumpTarget, setJumpTarget] = useState(null);
-  function jumpToPackage(value) {
-    document.getElementById(`pkg-card-${value}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-    setJumpTarget(value);
-    setTimeout(() => setJumpTarget((cur) => (cur === value ? null : cur)), 1500);
-  }
 
   // Round 233 — dev-configurable theme lock (Config → Magic Link Theme),
   // same idiom as the Performance report share page. Independent of the
@@ -1067,14 +1036,13 @@ export default function PickPackagePage() {
         {/* Round 125 — item 3a: below the mobile breakpoint, the desktop
             side-by-side card grid doesn't fit — swap to a tabbed picker
             (one tab per package) instead, per explicit request. Desktop
-            (isMobile false) renders the exact same grid as before,
-            completely untouched below.
-            Round 382/383 — see the useTabbedPackages comment above: an
-            experiment tried this branch on desktop too, then per explicit
-            feedback ("hybrid... still use the textjoin but all package
-            side by side still") desktop went back to the grid, now with
-            PackageQuickNav's tab strip added above it instead of gating
-            visibility. */}
+            (isMobile false) renders the exact same grid as before.
+            Round 382/383 tried the tabbed branch (then a tab-strip-plus-
+            grid hybrid) on desktop too — both reverted per feedback.
+            Round 384 — the grid below is structurally the same 3-cards-
+            wide side-by-side layout as ever; what changed is what's
+            INSIDE each card (see the MobilePackageItems swap further
+            down, replacing the old itemized <table>). */}
         {useTabbedPackages ? (
           <MobileTabbedPackages
             options={visibleOptions}
@@ -1087,11 +1055,6 @@ export default function PickPackagePage() {
           />
         ) : (
         <>
-        {/* Round 383 — the same package-name pill row MobileTabbedPackages
-            renders, reused here purely as a quick-jump/highlight (see
-            jumpToPackage above) rather than a visibility gate — every
-            package card below still shows at once, same as always. */}
-        <PackageQuickNav options={visibleOptions} onJump={jumpToPackage} />
         {/* All options shown at once, full breakdown always expanded — a
             side-by-side comparison, not a stack of collapsible cards. Rich
             (itemized) packages get a wide grid on the left; the always-
@@ -1105,15 +1068,7 @@ export default function PickPackagePage() {
             return (
               <div
                 key={c.value}
-                id={`pkg-card-${c.value}`}
                 style={{
-                  // Round 383 — brief highlight ring when PackageQuickNav's
-                  // tab strip jumps here, so the jump is visibly obvious
-                  // even though the card was already on screen the whole
-                  // time (nothing to reveal like the old one-tab-at-a-time
-                  // view had).
-                  boxShadow: jumpTarget === c.value ? "0 0 0 3px rgba(255,107,26,0.55)" : undefined,
-                  transition: "box-shadow 0.3s ease",
                   // Round 68 — item 3 hardcoded this to a fixed cream
                   // (#f7f3ee) regardless of site theme, because back then
                   // var(--bg-card) + the hardcoded near-white title text
@@ -1182,75 +1137,24 @@ export default function PickPackagePage() {
                   </div>
                 )}
                 {c.items?.length > 0 ? (
-                  <div style={{ borderTop: "1px solid var(--border)", padding: "8px 16px" }}>
-                    <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
-                    <table className={styles.table} style={{ marginTop: 8, tableLayout: "fixed", width: "100%" }}>
-                      {/* Round 68 — item 3: Số Lượng (14% -> 16%, ~1.15x)
-                          and Thành Tiền (18% -> 21%, ~1.15x) were clipping/
-                          wrapping their own numbers ("32 Bài Đăng" and
-                          "22.400.000 đ" breaking onto 2 lines). Chi Tiết
-                          gives up the difference (46% -> 41%) — it already
-                          has the most room to spare and wraps fine.
-                          Round 377 — BUG FIX ("the column title can use a
-                          line break so it show full... same for the
-                          data"): Round 68's nowrap fix assumed one package
-                          card at comfortable width — with several package
-                          cards side by side (see the 3-packages-wide
-                          layout screenshot) each column is much narrower,
-                          and nowrap now clips/overlaps instead of
-                          wrapping. Both the header (`.table th` is nowrap
-                          app-wide — overridden here, not there, since that
-                          class is shared by every table in the app) and
-                          the Số Lượng/Thành Tiền cells now wrap like Chi
-                          Tiết already did, on desktop and mobile alike. */}
-                      <colgroup>
-                        <col style={{ width: "22%" }} />
-                        <col style={{ width: "16%" }} />
-                        <col style={{ width: "41%" }} />
-                        <col style={{ width: "21%" }} />
-                      </colgroup>
-                      <thead>
-                        {/* Round 379 — "make the change on the magic link
-                            booking so the title of the package table a
-                            bit smaller font size... about 0.8": fontSize
-                            "0.8em" on each <th> instead of a fixed px
-                            value, so it stays 0.8x whatever the row's own
-                            size already is (11px desktop / 10px mobile
-                            via the <tr> override below) rather than
-                            needing separate desktop/mobile numbers.
-                            Round 380 follow-up (desktop only — mobile uses
-                            its own separate shell, MobilePackageItems, not
-                            this table): Round 379's wordBreak:"break-word"
-                            let "Số Lượng" split mid-word into "Lượn"/"g"
-                            when the 16%-wide column got tight. Headers now
-                            use overflowWrap:"normal" so a break can only
-                            land between the two words (at the space) —
-                            never inside one. wordBreak stays break-word on
-                            the OTHER headers (Hạng Mục/Chi Tiết/Thành
-                            Tiền) and on every data cell, unchanged. */}
-                        <tr style={isMobile ? { fontSize: 10 } : undefined}>
-                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3, fontSize: "0.8em" }}>Hạng Mục</th>
-                          <th style={{ whiteSpace: "normal", wordBreak: "normal", overflowWrap: "normal", lineHeight: 1.3, fontSize: "0.8em" }}>Số Lượng</th>
-                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3, fontSize: "0.8em" }}>Chi Tiết</th>
-                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3, fontSize: "0.8em" }}>Thành Tiền</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {c.items.map((item, i) => (
-                          <tr key={i} style={isMobile ? { fontSize: 11 } : undefined}>
-                            <td style={{ wordBreak: "break-word" }}>{item.category}</td>
-                            {/* Round 88 follow-up 4 — nowrap dropped on mobile so a
-                                narrow column wraps this onto a 2nd line instead of
-                                overflowing sideways on top of Chi Tiết's text.
-                                Round 377 — now dropped on desktop too, same reason. */}
-                            <td style={{ wordBreak: "break-word" }}>{item.isNonYoutubeAdsLine ? "1 Gói" : item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
-                            <td style={{ fontSize: isMobile ? 10 : 11, color: "var(--text-faint)", whiteSpace: "pre-line", lineHeight: 1.4 }}>{formatDetailText(item.detail) || "—"}</td>
-                            <td style={{ wordBreak: "break-word" }}>{fmtVnd(item.amount)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    </div>
+                  <div style={{ borderTop: "1px solid var(--border)", padding: "10px 16px" }}>
+                    {/* Round 384 — "not the button on top but use the
+                        mobile shell of the package translator from table
+                        to blob for the desktop too. if it not good,
+                        switch it back to the before the flip": the desktop
+                        itemized <table> (Hạng Mục/Số Lượng/Chi Tiết/Thành
+                        Tiền columns) is replaced with MobilePackageItems —
+                        the same "blob" card-per-line-item rendering mobile
+                        already used, reused as-is (not a copy) so any
+                        future fix to it covers both. The 3-cards-wide
+                        side-by-side layout itself is UNCHANGED — this only
+                        swaps what's inside each card. Round 383's
+                        PackageQuickNav tab-strip-on-top is removed below
+                        (explicit "not the button on top" feedback) — see
+                        that Round's still-intact MobileTabbedPackages
+                        branch above (useTabbedPackages) for the one-line
+                        revert path if this also needs undoing. */}
+                    <MobilePackageItems items={c.items} />
                   </div>
                 ) : null}
                 {c.showSharedB && sharedTerms.b && (
@@ -1302,7 +1206,6 @@ export default function PickPackagePage() {
               return (
                 <button
                   key={c.value}
-                  id={`pkg-card-${c.value}`}
                   onClick={() => selectPackage(c.value)}
                   disabled={isLocked || picking}
                   style={{
@@ -1318,10 +1221,6 @@ export default function PickPackagePage() {
                     padding: "10px 12px",
                     cursor: isLocked ? "not-allowed" : "pointer",
                     opacity: isLocked && !selected ? 0.5 : 1,
-                    // Round 383 — same PackageQuickNav jump-highlight as
-                    // the rich option cards above.
-                    boxShadow: jumpTarget === c.value ? "0 0 0 3px rgba(255,107,26,0.55)" : undefined,
-                    transition: "box-shadow 0.3s ease",
                   }}
                 >
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
