@@ -1136,10 +1136,20 @@ export default function PickPackagePage() {
                             value, so it stays 0.8x whatever the row's own
                             size already is (11px desktop / 10px mobile
                             via the <tr> override below) rather than
-                            needing separate desktop/mobile numbers. */}
+                            needing separate desktop/mobile numbers.
+                            Round 380 follow-up (desktop only — mobile uses
+                            its own separate shell, MobilePackageItems, not
+                            this table): Round 379's wordBreak:"break-word"
+                            let "Số Lượng" split mid-word into "Lượn"/"g"
+                            when the 16%-wide column got tight. Headers now
+                            use overflowWrap:"normal" so a break can only
+                            land between the two words (at the space) —
+                            never inside one. wordBreak stays break-word on
+                            the OTHER headers (Hạng Mục/Chi Tiết/Thành
+                            Tiền) and on every data cell, unchanged. */}
                         <tr style={isMobile ? { fontSize: 10 } : undefined}>
                           <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3, fontSize: "0.8em" }}>Hạng Mục</th>
-                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3, fontSize: "0.8em" }}>Số Lượng</th>
+                          <th style={{ whiteSpace: "normal", wordBreak: "normal", overflowWrap: "normal", lineHeight: 1.3, fontSize: "0.8em" }}>Số Lượng</th>
                           <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3, fontSize: "0.8em" }}>Chi Tiết</th>
                           <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3, fontSize: "0.8em" }}>Thành Tiền</th>
                         </tr>

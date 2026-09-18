@@ -267,6 +267,25 @@ const RELEASE_COLUMNS =
 // same as how the magic-link confirm flow sets it. Only real built
 // packages (incl. INT MEDIA) have lines; the simple options (Chỉ Phát
 // Hành, Không Độc Quyền) never got a row here.
+//
+// Round 380 — this never mirrored the magic-link's "INT MEDIA follow-up
+// override" / "Internal Package shortcut override" (app/pick-package/
+// [token]/page.js, ~line 579: intMediaBuilt/internalPackageBuilt/
+// followUpBuilt). A release locked in as "Chỉ Phát Hành" that later got a
+// real "INT MEDIA" package built for it shows that real package on the
+// magic link — but release.project_type is deliberately never updated to
+// match (the historical "AR locked Chỉ Phát Hành" fact stays true). This
+// function's old exact-name match (`p.name === r.project_type`) could
+// therefore never find that real package, so every booked/target column
+// for such a release always read null/"—" even once it had real
+// media_booking_package_lines sitting right there. Same root cause as
+// Round 380's SQL fix to booking_pkg_for_release() — that SQL function
+// only feeds the board's server-side FILTERING/counts (booking_board_page
+// RPC); the actual "0 / —" numbers rendered in the grid come from this
+// client-side map via bookedFor(), which is why fixing the SQL alone
+// wasn't enough. Branch order mirrors the JS precedence exactly: INT
+// MEDIA (only when project_type is Chỉ Phát Hành) beats Internal Package
+// (no precondition) beats the plain exact-name match.
 export function buildPackageByRelease(releasesList, packagesList) {
   const map = {};
   packagesList.forEach((p) => {
@@ -275,7 +294,18 @@ export function buildPackageByRelease(releasesList, packagesList) {
   });
   const resolved = {};
   releasesList.forEach((r) => {
-    resolved[r.id] = (map[r.id] || []).find((p) => p.name === r.project_type) || null;
+    const forRelease = map[r.id] || [];
+    let pkg = null;
+    if (r.project_type === "Chỉ Phát Hành") {
+      pkg = forRelease.find((p) => p.name === "INT MEDIA") || null;
+    }
+    if (!pkg) {
+      pkg = forRelease.find((p) => p.name === "Internal Package") || null;
+    }
+    if (!pkg) {
+      pkg = forRelease.find((p) => p.name === r.project_type) || null;
+    }
+    resolved[r.id] = pkg;
   });
   return resolved;
 }
