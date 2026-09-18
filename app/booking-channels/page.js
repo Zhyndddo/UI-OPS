@@ -11,6 +11,27 @@ import styles from "../shared.module.css";
 const BOOKING_PLATFORMS = ["TikTok", "Facebook", "Instagram", "YouTube", "Thread"];
 const BOOKING_CHANNEL_TYPES = ["Direct", "Partner"];
 
+// Round 374 — "make a tab-like switch. split the tables to 3 group each
+// group per tab: indie; envi, vpop, same as we already have in the
+// magiclink": the magic link (app/channels/[token]/page.js) already
+// splits channel_group values into brand families this same way (its
+// GROUP_META — VPOP-*, INDIE-*, ENVI/ENVI-*, VIEENT - SOCIAL). Matched by
+// prefix on channel_group rather than a fixed list, so a future group
+// like "VPOP - NEW THING" lands in the right tab automatically. A group
+// that matches none of the three (MIỀN TÂY/BOLERO groups, Distribution
+// Support, "— No Group —") falls into "Other" — never silently dropped
+// from the page, same convention every other grouping on this page uses.
+const CHANNEL_FAMILY_TABS = [
+  { key: "vpop", label: "Vpop", match: (g) => /^VPOP\b/i.test(g || "") },
+  { key: "indie", label: "Indie", match: (g) => /^INDIE\b/i.test(g || "") },
+  { key: "envi", label: "Envi", match: (g) => /^(ENVI|VIEENT)\b/i.test(g || "") },
+];
+
+function familyTabForGroup(group) {
+  const found = CHANNEL_FAMILY_TABS.find((t) => t.match(group));
+  return found ? found.key : "other";
+}
+
 function editStateFor(c) {
   return {
     name: c.name || "",
@@ -54,8 +75,20 @@ export default function BookingChannelsPage() {
   const [platform, setPlatform] = useState("TikTok");
   const [channelType, setChannelType] = useState("Direct");
   const [url, setUrl] = useState("");
+  // Round 374 — Brand + Group on the create form, per explicit request
+  // (see ClassificationPicker above for the dropdown/"+ New…" behavior).
+  const [brand, setBrand] = useState("");
+  const [brandCustom, setBrandCustom] = useState(false);
+  const [group, setGroup] = useState("");
+  const [groupCustom, setGroupCustom] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  // Round 374 — "make a tab-like switch. split the tables to 3 group each
+  // group per tab: indie; envi, vpop, same as we already have in the
+  // magiclink": CHANNEL_FAMILY_TABS above defines the 3 named tabs + the
+  // "other" catch-all; defaults to the first named tab rather than an
+  // unscoped "All", per the explicit "split the tables" request.
+  const [familyTab, setFamilyTab] = useState(CHANNEL_FAMILY_TABS[0].key);
   const [editingId, setEditingId] = useState(null);
   const [editValues, setEditValues] = useState(null);
   const [saveError, setSaveError] = useState(null);
@@ -137,9 +170,23 @@ export default function BookingChannelsPage() {
     const siblings = channels.filter((c) => c.platform === platform && c.channel_type === channelType);
     if (siblings.some((c) => c.name.toLowerCase() === name.trim().toLowerCase())) return;
     const maxSort = Math.max(-1, ...siblings.map((c) => c.sort_order));
-    await supabase.from("booking_channels").insert({ name: name.trim(), platform, channel_type: channelType, url: url.trim() || null, sort_order: maxSort + 1 });
+    await supabase.from("booking_channels").insert({
+      name: name.trim(),
+      platform,
+      channel_type: channelType,
+      // Round 374 — Brand + Group now set at creation time instead of
+      // only via a follow-up Edit.
+      brand: brand.trim() || null,
+      channel_group: group.trim() || null,
+      url: url.trim() || null,
+      sort_order: maxSort + 1,
+    });
     setName("");
     setUrl("");
+    setBrand("");
+    setBrandCustom(false);
+    setGroup("");
+    setGroupCustom(false);
     load();
   }
 
@@ -150,14 +197,33 @@ export default function BookingChannelsPage() {
     ? channels.filter((c) => `${c.name} ${c.brand || ""} ${c.channel_group || ""} ${c.note || ""}`.toLowerCase().includes(search.trim().toLowerCase()))
     : channels;
 
+  // Round 374 — the tab switch scopes everything below it (Direct/Partner
+  // counts, group totals, the brand/platform list, CSV export) to the
+  // active family, same "numbers match what's visible" convention the
+  // Direct/Partner StatCards already used pre-tabs. familyTabForGroup
+  // reads channel_group (not the separate `brand` field) — same field the
+  // magic link's own grouping keys off.
+  const tabChannels = searchedChannels.filter((c) => familyTabForGroup(c.channel_group) === familyTab);
+  const familyTabCounts = {};
+  CHANNEL_FAMILY_TABS.forEach((t) => { familyTabCounts[t.key] = 0; });
+  familyTabCounts.other = 0;
+  searchedChannels.forEach((c) => { familyTabCounts[familyTabForGroup(c.channel_group)]++; });
+
   // Hạng Mục counter/filter row — same click-to-filter pattern as the New
   // Release dashboard's stat cards (StatCard below), counted off the
-  // search-filtered set so the numbers stay consistent with what's on
+  // tab+search-filtered set so the numbers stay consistent with what's on
   // screen.
   const typeCounts = { Direct: 0, Partner: 0 };
-  searchedChannels.forEach((c) => { if (typeCounts[c.channel_type] !== undefined) typeCounts[c.channel_type]++; });
+  tabChannels.forEach((c) => { if (typeCounts[c.channel_type] !== undefined) typeCounts[c.channel_type]++; });
 
-  const visibleChannels = typeFilter ? searchedChannels.filter((c) => c.channel_type === typeFilter) : searchedChannels;
+  const visibleChannels = typeFilter ? tabChannels.filter((c) => c.channel_type === typeFilter) : tabChannels;
+
+  // Round 374 — distinct Brand/Group values already in use, across every
+  // channel (not scoped to the active tab — you might be adding a channel
+  // for a different family than the one you're currently viewing), for
+  // ClassificationPicker's dropdowns.
+  const existingBrands = [...new Set(channels.map((c) => c.brand).filter(Boolean))].sort();
+  const existingGroups = [...new Set(channels.map((c) => c.channel_group).filter(Boolean))].sort();
 
   async function remove(c) {
     await supabase.from("booking_channels").delete().eq("id", c.id);
@@ -165,7 +231,8 @@ export default function BookingChannelsPage() {
   }
 
   // Exports whatever's currently on screen (respects the search filter,
-  // same convention as the Booking Board's own "⇩ Export CSV" button) —
+  // same convention as the Booking Board's own "⇩ Export CSV" button;
+  // Round 374 — now also respects the active family tab) —
   // "Platform" and "Brand" keep their column names, "Channel Type" is
   // exported as "Hạng Mục" to match the relabeled UI, even though the
   // underlying field/column is still channel_type.
@@ -329,29 +396,86 @@ export default function BookingChannelsPage() {
           instead of free-typing the channel name every time.
         </p>
 
-        <form onSubmit={add} style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <div className={styles.field} style={{ marginBottom: 0, minWidth: 140 }}>
-            <label className={styles.fieldLabel}>Platform</label>
-            <select className={styles.select} value={platform} onChange={(e) => setPlatform(e.target.value)}>
-              {BOOKING_PLATFORMS.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
+        {/* Round 374 — reflowed into two rows: classification fields
+            (Platform/Hạng Mục/Brand/Group) on top, identity fields
+            (Channel Name/URL/Add) below — was one long flex-wrap row that
+            got cramped once Brand/Group were added (previously only
+            settable via Edit, after the row already existed — the actual
+            "how do i add to the group" complaint this round fixes). */}
+        <form onSubmit={add} style={{ marginBottom: 24 }}>
+          <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div className={styles.field} style={{ marginBottom: 0, minWidth: 140 }}>
+              <label className={styles.fieldLabel}>Platform</label>
+              <select className={styles.select} value={platform} onChange={(e) => setPlatform(e.target.value)}>
+                {BOOKING_PLATFORMS.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div className={styles.field} style={{ marginBottom: 0, minWidth: 120 }}>
+              <label className={styles.fieldLabel}>Hạng Mục</label>
+              <select className={styles.select} value={channelType} onChange={(e) => setChannelType(e.target.value)}>
+                {BOOKING_CHANNEL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <ClassificationPicker
+              label="Brand"
+              value={brand}
+              onChange={setBrand}
+              options={existingBrands}
+              custom={brandCustom}
+              onCustomToggle={setBrandCustom}
+              placeholder="e.g. VPOP"
+            />
+            <ClassificationPicker
+              label="Group"
+              value={group}
+              onChange={setGroup}
+              options={existingGroups}
+              custom={groupCustom}
+              onCustomToggle={setGroupCustom}
+              placeholder="e.g. VPOP - COMMUNITY"
+            />
           </div>
-          <div className={styles.field} style={{ marginBottom: 0, minWidth: 120 }}>
-            <label className={styles.fieldLabel}>Hạng Mục</label>
-            <select className={styles.select} value={channelType} onChange={(e) => setChannelType(e.target.value)}>
-              {BOOKING_CHANNEL_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div className={styles.field} style={{ marginBottom: 0, minWidth: 180 }}>
+              <label className={styles.fieldLabel}>Channel Name</label>
+              <input className={styles.input} placeholder="e.g. ENVI" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className={styles.field} style={{ marginBottom: 0, minWidth: 220 }}>
+              <label className={styles.fieldLabel}>URL (optional)</label>
+              <input className={styles.input} placeholder="https://…" value={url} onChange={(e) => setUrl(e.target.value)} />
+            </div>
+            <button className={styles.btnPrimary} type="submit">+ Add</button>
           </div>
-          <div className={styles.field} style={{ marginBottom: 0, minWidth: 180 }}>
-            <label className={styles.fieldLabel}>Channel Name</label>
-            <input className={styles.input} placeholder="e.g. ENVI" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className={styles.field} style={{ marginBottom: 0, minWidth: 220 }}>
-            <label className={styles.fieldLabel}>URL (optional)</label>
-            <input className={styles.input} placeholder="https://…" value={url} onChange={(e) => setUrl(e.target.value)} />
-          </div>
-          <button className={styles.btnPrimary} type="submit">+ Add</button>
         </form>
+
+        {/* Round 374 — "make a tab-like switch. split the tables to 3
+            group each group per tab: indie; envi, vpop, same as we
+            already have in the magiclink": scopes everything below it
+            (Direct/Partner counts, group totals, the brand/platform
+            list, CSV export) to the active family — see
+            CHANNEL_FAMILY_TABS/familyTabForGroup above. "Other" is a 4th,
+            always-present tab for any channel_group that doesn't match
+            one of the 3 named families (or has no group set at all), so
+            switching to tabs never hides a channel. */}
+        <div className={styles.tabBar}>
+          {CHANNEL_FAMILY_TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              className={`${styles.tabBtn} ${familyTab === t.key ? styles.tabBtnActive : ""}`}
+              onClick={() => setFamilyTab(t.key)}
+            >
+              {t.label} ({familyTabCounts[t.key] || 0})
+            </button>
+          ))}
+          <button
+            type="button"
+            className={`${styles.tabBtn} ${familyTab === "other" ? styles.tabBtnActive : ""}`}
+            onClick={() => setFamilyTab("other")}
+          >
+            Other ({familyTabCounts.other || 0})
+          </button>
+        </div>
 
         <div className={styles.statRow} style={{ marginBottom: 20, maxWidth: 400 }}>
           <StatCard
@@ -555,18 +679,27 @@ export default function BookingChannelsPage() {
         {/* Round 311 — Group totals, per explicit request ("for each
             group, count up the quantity of channel, and sum for the
             followers of all channels in the group"). Off visibleChannels
-            so it tracks the search box / Direct/Partner filter above. */}
+            so it tracks the search box / Direct/Partner filter / family
+            tab above.
+            Round 374 — "relayout this page so it clearer... looking a
+            bit like a mess right now": framed in its own bordered card
+            with a heading instead of floating loose chips wrapping
+            between the button row and the channel list below — that
+            loose-chips look was a big part of the "mess" complaint. */}
         {!loading && visibleChannels.length > 0 && (
-          <div style={{ marginBottom: 24, display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {groupTotals(visibleChannels).map(([group, t]) => (
+          <div style={{ marginBottom: 24, border: "1px solid var(--border)", borderRadius: 8, padding: "12px 14px" }}>
+            <div className={styles.fieldLabel} style={{ marginBottom: 8 }}>Groups</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {groupTotals(visibleChannels).map(([grp, t]) => (
               <div
-                key={group}
+                key={grp}
                 style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "6px 12px", fontSize: 12, color: "var(--text-muted)", background: "var(--bg-card)" }}
               >
-                <span style={{ fontWeight: 700, color: "var(--text)" }}>{group}</span>
+                <span style={{ fontWeight: 700, color: "var(--text)" }}>{grp}</span>
                 {" — "}{t.count} channel{t.count === 1 ? "" : "s"} · {t.followers.toLocaleString()} followers
               </div>
             ))}
+            </div>
           </div>
         )}
 
@@ -700,6 +833,54 @@ export default function BookingChannelsPage() {
       </div>
     </div>
     </AppShell>
+  );
+}
+
+// Round 374 — "how do i add to the group?? the create only have this
+// much Platform/Hạng Mục/Channel Name/URL": Brand + Group are now on the
+// create form too (previously only settable via Edit, after the row
+// already existed). Dropdown of whatever Brand/Group values already
+// exist, so picking one can't introduce a near-duplicate spelling (e.g.
+// "ENVI" vs "Envi" becoming two different groups) — "+ New…" drops into
+// a plain text box for a genuinely new value, same free-text escape
+// hatch the Edit row's inputs already give.
+function ClassificationPicker({ label, value, onChange, options, custom, onCustomToggle, placeholder }) {
+  return (
+    <div className={styles.field} style={{ marginBottom: 0, minWidth: 170 }}>
+      <label className={styles.fieldLabel}>{label}</label>
+      {custom ? (
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            className={styles.input}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
+            autoFocus
+          />
+          <button
+            type="button"
+            onClick={() => { onCustomToggle(false); onChange(""); }}
+            title="Back to the list"
+            style={{ background: "none", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-faint)", cursor: "pointer", padding: "0 8px", fontSize: 12 }}
+          >
+            ↩
+          </button>
+        </div>
+      ) : (
+        <select
+          className={styles.select}
+          value={options.includes(value) ? value : ""}
+          onChange={(e) => {
+            if (e.target.value === "__new__") { onCustomToggle(true); onChange(""); }
+            else onChange(e.target.value);
+          }}
+        >
+          <option value="">— None —</option>
+          {options.map((o) => <option key={o} value={o}>{o}</option>)}
+          <option value="__new__">+ New…</option>
+        </select>
+      )}
+    </div>
   );
 }
 
