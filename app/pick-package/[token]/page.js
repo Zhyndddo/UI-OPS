@@ -196,7 +196,15 @@ function MobilePackageItems({ items }) {
               {amountText && (
                 <div>
                   <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>TT:</span><br />
-                  <span style={{ fontSize: 24, fontWeight: 800, color: "#fff" }}>{amountText}</span>
+                  {/* Round 377 — BUG FIX ("the Thành Tiền on mobile is not
+                      showing some how"): Round 146 hardcoded this to plain
+                      white (`#fff`) to make it "pop", which is invisible
+                      against the light-theme magic link background (this
+                      page can render in either theme via the release's
+                      theme lock — see readMagicLinkThemeLock). var(--text)
+                      still pops at this size/weight and adapts to
+                      whichever theme is actually active. */}
+                  <span style={{ fontSize: 24, fontWeight: 800, color: "var(--text)" }}>{amountText}</span>
                 </div>
               )}
             </div>
@@ -224,6 +232,18 @@ function MobileTabbedPackages({ options, selectedValue, confirmed, isLocked, pic
   const active = options.find((o) => o.value === activeTab) || options[0];
   if (!active) return null;
   const selected = selectedValue === active.value;
+  // Round 378 — BUG FIX ("remove the hỗ trợ chi phí for Chỉ phát hành
+  // package, it doesn't have that on desktop could be the shell miss
+  // displaying"): desktop only ever renders the shared terms/items/
+  // Trợ Giá Booking blocks inside the richOptions loop — compactOptions
+  // (Chỉ Phát Hành, kind === "simple") get just a label + button, never
+  // this extra content (see richOptions/compactOptions split further
+  // down in the main render). This mobile tab strip mixes every option
+  // (rich AND simple) into one `options` list/tab row by design, but was
+  // rendering the shared terms block for whichever tab was active
+  // regardless of kind — showing "Hỗ Trợ 100% Chi Phí" etc. under Chỉ
+  // Phát Hành even though that option has none of its own on desktop.
+  const isSimpleActive = active.kind === "simple";
   return (
     <div>
       <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 4 }}>
@@ -272,7 +292,7 @@ function MobileTabbedPackages({ options, selectedValue, confirmed, isLocked, pic
           </div>
         </div>
 
-        {(active.termsText || sharedTerms.a || sharedTerms.conditions) && (
+        {!isSimpleActive && (active.termsText || sharedTerms.a || sharedTerms.conditions) && (
           <div style={{ borderTop: "1px solid var(--border)", padding: "10px 16px", background: "rgba(255,107,26,0.04)", display: "grid", gap: 8 }}>
             {sharedTerms.a && <TermsText text={sharedTerms.a} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
             {sharedTerms.conditions && <TermsText text={sharedTerms.conditions} baseStyle={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }} />}
@@ -280,19 +300,19 @@ function MobileTabbedPackages({ options, selectedValue, confirmed, isLocked, pic
           </div>
         )}
 
-        {active.items?.length > 0 && (
+        {!isSimpleActive && active.items?.length > 0 && (
           <div style={{ borderTop: "1px solid var(--border)", padding: "8px 16px" }}>
             <MobilePackageItems items={active.items} />
           </div>
         )}
 
-        {active.showSharedB && sharedTerms.b && (
+        {!isSimpleActive && active.showSharedB && sharedTerms.b && (
           <div style={{ borderTop: "1px dashed var(--border-strong)", padding: "8px 16px" }}>
             <TermsText text={sharedTerms.b} baseStyle={{ fontSize: 10, color: "var(--text-faint)", lineHeight: 1.5 }} />
           </div>
         )}
 
-        {active.troGiaBookingText && (
+        {!isSimpleActive && active.troGiaBookingText && (
           <div style={{ borderTop: "1px solid var(--border)" }}>
             <div style={{ background: "#ff6b1a", color: "#0a0a0a", fontWeight: 800, fontSize: 12, letterSpacing: 0.3, padding: "6px 16px", textTransform: "uppercase" }}>
               Trợ Giá Booking
@@ -1089,7 +1109,19 @@ export default function PickPackagePage() {
                           wrapping their own numbers ("32 Bài Đăng" and
                           "22.400.000 đ" breaking onto 2 lines). Chi Tiết
                           gives up the difference (46% -> 41%) — it already
-                          has the most room to spare and wraps fine. */}
+                          has the most room to spare and wraps fine.
+                          Round 377 — BUG FIX ("the column title can use a
+                          line break so it show full... same for the
+                          data"): Round 68's nowrap fix assumed one package
+                          card at comfortable width — with several package
+                          cards side by side (see the 3-packages-wide
+                          layout screenshot) each column is much narrower,
+                          and nowrap now clips/overlaps instead of
+                          wrapping. Both the header (`.table th` is nowrap
+                          app-wide — overridden here, not there, since that
+                          class is shared by every table in the app) and
+                          the Số Lượng/Thành Tiền cells now wrap like Chi
+                          Tiết already did, on desktop and mobile alike. */}
                       <colgroup>
                         <col style={{ width: "22%" }} />
                         <col style={{ width: "16%" }} />
@@ -1097,7 +1129,12 @@ export default function PickPackagePage() {
                         <col style={{ width: "21%" }} />
                       </colgroup>
                       <thead>
-                        <tr style={isMobile ? { fontSize: 10 } : undefined}><th>Hạng Mục</th><th>Số Lượng</th><th>Chi Tiết</th><th>Thành Tiền</th></tr>
+                        <tr style={isMobile ? { fontSize: 10 } : undefined}>
+                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}>Hạng Mục</th>
+                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}>Số Lượng</th>
+                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}>Chi Tiết</th>
+                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}>Thành Tiền</th>
+                        </tr>
                       </thead>
                       <tbody>
                         {c.items.map((item, i) => (
@@ -1105,10 +1142,11 @@ export default function PickPackagePage() {
                             <td style={{ wordBreak: "break-word" }}>{item.category}</td>
                             {/* Round 88 follow-up 4 — nowrap dropped on mobile so a
                                 narrow column wraps this onto a 2nd line instead of
-                                overflowing sideways on top of Chi Tiết's text. */}
-                            <td style={isMobile ? { wordBreak: "break-word" } : { whiteSpace: "nowrap" }}>{item.isNonYoutubeAdsLine ? "1 Gói" : item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
+                                overflowing sideways on top of Chi Tiết's text.
+                                Round 377 — now dropped on desktop too, same reason. */}
+                            <td style={{ wordBreak: "break-word" }}>{item.isNonYoutubeAdsLine ? "1 Gói" : item.quantity != null ? `${item.quantity} ${item.unit || ""}` : "—"}</td>
                             <td style={{ fontSize: isMobile ? 10 : 11, color: "var(--text-faint)", whiteSpace: "pre-line", lineHeight: 1.4 }}>{formatDetailText(item.detail) || "—"}</td>
-                            <td style={isMobile ? { wordBreak: "break-word" } : { whiteSpace: "nowrap" }}>{fmtVnd(item.amount)}</td>
+                            <td style={{ wordBreak: "break-word" }}>{fmtVnd(item.amount)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1150,7 +1188,16 @@ export default function PickPackagePage() {
           // nothing else on the page; give it the wide left-aligned
           // treatment instead so it just reads as "the option", not an
           // afterthought next to empty space.
-          <div style={richOptions.length === 0 ? { flex: "1 1 320px", display: "grid", gap: 10, maxWidth: 360 } : { flex: "0 0 200px", display: "grid", gap: 10 }}>
+          <div
+            // Round 377 — "on desktop app. reduce the button for Chỉ
+            // Phát Hành if we can so we have more space for other": was a
+            // fixed 200px rail, same width whether there are 1 or several
+            // rich package cards squeezed beside it — narrowed to 130px
+            // (still enough for the label + SELECTED pill) so the rich
+            // cards (and their own itemized tables, see the Round 377 fix
+            // above for those) get the freed-up width instead.
+            style={richOptions.length === 0 ? { flex: "1 1 320px", display: "grid", gap: 10, maxWidth: 360 } : { flex: "0 0 130px", display: "grid", gap: 10 }}
+          >
             {compactOptions.map((c) => {
               const selected = selectedValue === c.value;
               return (
@@ -1166,16 +1213,18 @@ export default function PickPackagePage() {
                     background: selected ? "rgba(255,107,26,0.1)" : "var(--bg-card)",
                     border: selected ? "1px solid #ff6b1a" : "1px solid var(--border)",
                     borderRadius: 10,
-                    padding: "14px 16px",
+                    // Round 377 — padding trimmed alongside the rail's
+                    // own width reduction (14px 16px -> 10px 12px).
+                    padding: "10px 12px",
                     cursor: isLocked ? "not-allowed" : "pointer",
                     opacity: isLocked && !selected ? 0.5 : 1,
                   }}
                 >
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span style={{ fontSize: 14, fontWeight: 800, color: selected ? "#ff9d5c" : "var(--text)" }}>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: selected ? "#ff9d5c" : "var(--text)", wordBreak: "break-word" }}>
                       {c.label || c.value}
                     </span>
-                    {selected && <span style={{ fontSize: 10, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
+                    {selected && <span style={{ fontSize: 9, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
                   </div>
                 </button>
               );

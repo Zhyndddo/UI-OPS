@@ -755,6 +755,51 @@ function PicDefaultsSection() {
 // (2) the 2 shared blocks every real package shows alongside its own
 // terms (global_settings). Both save on blur, immediate-write like
 // everything else in this app.
+//
+// Round 377 — shared between every field this section (and
+// TroGiaBookingSection, same TermsText renderer) exposes, since the
+// formatting rules are all coming from the one TermsText function on the
+// magic-link page (app/pick-package/[token]/page.js) — HIGHLIGHT_PHRASES,
+// BOLD_ONLY_PHRASES, withColoredYears, and the raw-HTML fallback. Kept as
+// one string so a future rule change only needs updating in one place
+// (plus TermsText's own comment, which is the actual source of truth).
+const TERMS_FORMATTING_HELP =
+  'Plain text auto-formats, no markup needed: a line containing "hỗ trợ 100%" or "không cần trừ doanh thu" ' +
+  'turns orange + bold; a line containing "điều kiện cam kết", "điều kiện 1", or "điều kiện 2" turns bold; any ' +
+  '"NN năm" duration (05 năm, 02 năm, …) bolds that line and colors the number + năm orange. For anything else ' +
+  '(bold, links, line breaks), paste real HTML — e.g. <br/>, <a href="…">text</a>, <b>bold</b> — any field with ' +
+  "an HTML tag in it renders as HTML instead of the auto-formatting above.";
+
+// Round 377 — small hover-tooltip icon, native `title` attribute (same
+// convention this page already uses for e.g. the profile delete button's
+// title="Delete this person entirely") rather than a new tooltip
+// component/library.
+function InfoTip({ text }) {
+  return (
+    <span
+      title={text}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 14,
+        height: 14,
+        borderRadius: "50%",
+        border: "1px solid var(--text-faint)",
+        color: "var(--text-faint)",
+        fontSize: 10,
+        fontWeight: 700,
+        marginLeft: 6,
+        cursor: "help",
+        userSelect: "none",
+        flexShrink: 0,
+      }}
+    >
+      i
+    </span>
+  );
+}
+
 function PackageTermsSection() {
   const [packages, setPackages] = useState([]);
   const [sharedA, setSharedA] = useState("");
@@ -820,8 +865,18 @@ function PackageTermsSection() {
         always shows the same terms every time. Changes save on blur.
       </p>
 
-      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10, display: "flex", alignItems: "center" }}>
         Per-Package Terms
+        {/* Round 377 — "allow me to format the text (add tooltips
+            please) of the text Per-Package Terms we have in config": the
+            formatting rules (TermsText on the magic-link page) already
+            applied to this field, but the only explanation of them lived
+            in a paragraph further down under "Shared Terms" — nothing
+            here told you formatting was even possible. Native `title`
+            hover tooltip, same convention this page already uses
+            elsewhere (e.g. the profile delete button's title="Delete
+            this person entirely") rather than a new tooltip component. */}
+        <InfoTip text={TERMS_FORMATTING_HELP} />
       </div>
       <div style={{ display: "grid", gap: 16, marginBottom: 28, maxWidth: 640 }}>
         {packages.map((p) => (
@@ -838,7 +893,10 @@ function PackageTermsSection() {
               onBlur={(e) => savePackageTerms(p, e.target.value)}
             />
             <label className={styles.fieldLabel} style={{ fontSize: 11, display: "flex", justifyContent: "space-between", marginTop: 10 }}>
-              <span>Trợ Giá Booking (optional, own block below the itemized table)</span>
+              <span style={{ display: "flex", alignItems: "center" }}>
+                Trợ Giá Booking (optional, own block below the itemized table)
+                <InfoTip text={TERMS_FORMATTING_HELP} />
+              </span>
               {savedKey === `${p.id}-tgb` && <span style={{ color: "var(--success-fg)", fontWeight: 400 }}>Saved</span>}
             </label>
             <textarea
