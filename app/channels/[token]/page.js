@@ -289,6 +289,19 @@ function isRatecardYoutubeMergeRow(row) {
   return String(row?.[0] || "").trim().toUpperCase().startsWith("TRỢ GIÁ BOOKING ADS YOUTUBE");
 }
 
+// Round 376 — "lưu ý is not a channel, just leave no channel (text) on
+// that row": the sheet's trailing "* Lưu ý: ..." disclaimer sits in the
+// same column-0 cell every real row uses for its Channel name — on
+// mobile that was rendering as "Channel: * Lưu ý: ...", mislabeling a
+// footnote as if it were a channel. Matched the same way
+// isRatecardYoutubeMergeRow matches its own row (by the cell's own text,
+// not a generic heuristic, since only this exact row needs the
+// exception) — trims a leading "*"/whitespace first, since the sheet
+// prefixes the note with one.
+function isRatecardNoteRow(row) {
+  return /^lưu ý/i.test(String(row?.[0] || "").trim().replace(/^\*+\s*/, ""));
+}
+
 // Round 371 — BUG FIX ("it's clipping all the cell data, could be due to
 // my example last session"): the real sheet has the merged paragraph
 // starting in column C (index 2), not column B (index 1) — column B ("AD
@@ -405,13 +418,16 @@ function MobileDistributionCards({ rows }) {
 // magiclink. textjoin whole row of all column into one text blob: maybe
 // use template like 'column title': 'row data'": replicates
 // MobilePackageItems' card pattern from app/pick-package/[token]/page.js
-// — one "Column Title:" line per non-blank cell, value on the next line,
-// any blank cell skipped entirely (never a bare label with nothing under
-// it). `renderSpecialRow`, when given, lets a table keep its own
-// row-type handling (Distribution Support's highlighted column-title
-// rows, Ratecard Ads' merged YouTube-discount row) instead of forcing
-// those through the generic label/value split, since neither is shaped
-// like an ordinary data row.
+// — one "Column Title: value" line per non-blank cell, any blank cell
+// skipped entirely (never a bare label with nothing under it).
+// `renderSpecialRow`, when given, lets a table keep its own row-type
+// handling (Ratecard Ads' merged YouTube-discount row, its trailing note
+// row) instead of forcing those through the generic label/value split,
+// since neither is shaped like an ordinary data row.
+// Round 376 — "make the channel and facebook on same line, like the
+// title and the data on the same line of a row": label and value used to
+// stack (label, <br/>, value) — now inline on one line, same "Label:
+// value" shape as the Distribution Support package cards.
 function MobileSheetRows({ headers, rows, keyPrefix, renderSpecialRow }) {
   return (
     <div style={{ display: "grid", gap: 10 }}>
@@ -436,8 +452,7 @@ function MobileSheetRows({ headers, rows, keyPrefix, renderSpecialRow }) {
                   key={j}
                   style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6, marginBottom: 4 }}
                 >
-                  <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>{label}:</span>
-                  <br />
+                  <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>{label}:</span>{" "}
                   <span style={{ color: "var(--text)" }}>{cell}</span>
                 </div>
               );
@@ -1299,6 +1314,19 @@ export default function ChannelReferenceSharePage() {
                   rows={sheetData2.rows}
                   keyPrefix="rate"
                   renderSpecialRow={(row) => {
+                    // Round 376 — see isRatecardNoteRow above: the
+                    // sheet's trailing "* Lưu ý: ..." footnote sits in
+                    // the same column-0 cell every real row uses for its
+                    // Channel name — rendered here as plain text with no
+                    // "Channel:" label, instead of the generic split
+                    // mislabeling it as a channel.
+                    if (isRatecardNoteRow(row)) {
+                      return (
+                        <div style={{ fontSize: 11, color: "var(--text-faint)", lineHeight: 1.6, fontStyle: "italic" }}>
+                          {row.filter((c) => String(c || "").trim() !== "").join(" ")}
+                        </div>
+                      );
+                    }
                     // Round 370/371 — see isRatecardYoutubeMergeRow /
                     // findRatecardMergeStart above: this row's merged
                     // paragraph doesn't fit the generic label/value split
@@ -1309,10 +1337,7 @@ export default function ChannelReferenceSharePage() {
                     if (start === -1) return null;
                     return (
                       <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
-                        <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>
-                          {row[0]}:
-                        </span>
-                        <br />
+                        <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>{row[0]}:</span>{" "}
                         <span style={{ color: "var(--text)" }}>{row[start]}</span>
                       </div>
                     );
