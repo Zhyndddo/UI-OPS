@@ -215,6 +215,35 @@ function MobilePackageItems({ items }) {
   );
 }
 
+// Round 383 — "hybrid... still use the textjoin but all package side by
+// side still": the same tab-strip look MobileTabbedPackages uses below,
+// reused on desktop as a pure quick-jump/highlight row (onJump) rather
+// than a tab that hides every other package — the full side-by-side grid
+// stays visible underneath at all times, this just scrolls to + briefly
+// highlights whichever card was clicked.
+function PackageQuickNav({ options, onJump }) {
+  if (!options || options.length < 2) return null; // nothing to jump between with 0-1 options
+  return (
+    <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 4 }}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onJump(o.value)}
+          style={{
+            flexShrink: 0, padding: "8px 12px", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", whiteSpace: "nowrap",
+            border: "1px solid var(--border-strong)",
+            background: "var(--bg-card)",
+            color: "var(--text-muted)",
+          }}
+        >
+          {o.label || o.value}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // Round 125 — item 3a: mobile-only package picker. Desktop keeps the
 // side-by-side card grid (unchanged, further down in the main render);
 // below the breakpoint that layout doesn't fit, so this renders a tab
@@ -382,18 +411,27 @@ export default function PickPackagePage() {
   // wrapping to a second line).
   const isMobile = useIsMobile();
 
-  // Round 382 — EXPERIMENT ("can you try the treatment of mobile shell
-  // for the booking magiclink here. Still be prepared to revert if we
-  // don't think it's good"): trying the mobile tabbed package picker
-  // (MobileTabbedPackages — one package at a time, tab-select) on DESKTOP
-  // too, instead of the side-by-side 3-cards-wide grid that's been the
-  // source of the recent crowding/overlap bugs (Round 377/379/382's
-  // header-wrap and z-index fixes were both patches on that crowded
-  // layout, not the layout itself). This flag is the entire experiment —
-  // flip this back to `isMobile` to revert instantly with no other code
-  // changes needed; the untouched desktop grid branch below is kept in
-  // place, not deleted, specifically so that revert is trivial.
-  const useTabbedPackages = true;
+  // Round 382 — EXPERIMENT, first cut: tried the mobile tabbed package
+  // picker (MobileTabbedPackages — one package at a time) on desktop too.
+  // Round 383 follow-up per explicit feedback ("not revert but more like
+  // a hybrid, still use the textjoin but all package side by side
+  // still"): desktop goes back to `isMobile` here (i.e. back to false),
+  // but the desktop branch below now ALSO renders the tab strip
+  // (PackageQuickNav, the same package-name pill row MobileTabbedPackages
+  // uses) above the untouched side-by-side comparison grid — tabs are a
+  // quick-jump/highlight now instead of a visibility gate, so every
+  // package still shows at once like before, with the tab row as an
+  // added way to jump straight to one.
+  const useTabbedPackages = isMobile;
+  // Round 383 — which package's card is currently getting the
+  // PackageQuickNav jump-highlight (see the boxShadow on the rich/compact
+  // option cards below); cleared a moment after each jump.
+  const [jumpTarget, setJumpTarget] = useState(null);
+  function jumpToPackage(value) {
+    document.getElementById(`pkg-card-${value}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setJumpTarget(value);
+    setTimeout(() => setJumpTarget((cur) => (cur === value ? null : cur)), 1500);
+  }
 
   // Round 233 — dev-configurable theme lock (Config → Magic Link Theme),
   // same idiom as the Performance report share page. Independent of the
@@ -1031,10 +1069,12 @@ export default function PickPackagePage() {
             (one tab per package) instead, per explicit request. Desktop
             (isMobile false) renders the exact same grid as before,
             completely untouched below.
-            Round 382 — see the useTabbedPackages comment above: this now
-            reads that experiment flag instead of isMobile directly, so
-            desktop currently takes the same tabbed-picker branch mobile
-            does. */}
+            Round 382/383 — see the useTabbedPackages comment above: an
+            experiment tried this branch on desktop too, then per explicit
+            feedback ("hybrid... still use the textjoin but all package
+            side by side still") desktop went back to the grid, now with
+            PackageQuickNav's tab strip added above it instead of gating
+            visibility. */}
         {useTabbedPackages ? (
           <MobileTabbedPackages
             options={visibleOptions}
@@ -1047,6 +1087,11 @@ export default function PickPackagePage() {
           />
         ) : (
         <>
+        {/* Round 383 — the same package-name pill row MobileTabbedPackages
+            renders, reused here purely as a quick-jump/highlight (see
+            jumpToPackage above) rather than a visibility gate — every
+            package card below still shows at once, same as always. */}
+        <PackageQuickNav options={visibleOptions} onJump={jumpToPackage} />
         {/* All options shown at once, full breakdown always expanded — a
             side-by-side comparison, not a stack of collapsible cards. Rich
             (itemized) packages get a wide grid on the left; the always-
@@ -1060,7 +1105,15 @@ export default function PickPackagePage() {
             return (
               <div
                 key={c.value}
+                id={`pkg-card-${c.value}`}
                 style={{
+                  // Round 383 — brief highlight ring when PackageQuickNav's
+                  // tab strip jumps here, so the jump is visibly obvious
+                  // even though the card was already on screen the whole
+                  // time (nothing to reveal like the old one-tab-at-a-time
+                  // view had).
+                  boxShadow: jumpTarget === c.value ? "0 0 0 3px rgba(255,107,26,0.55)" : undefined,
+                  transition: "box-shadow 0.3s ease",
                   // Round 68 — item 3 hardcoded this to a fixed cream
                   // (#f7f3ee) regardless of site theme, because back then
                   // var(--bg-card) + the hardcoded near-white title text
@@ -1249,6 +1302,7 @@ export default function PickPackagePage() {
               return (
                 <button
                   key={c.value}
+                  id={`pkg-card-${c.value}`}
                   onClick={() => selectPackage(c.value)}
                   disabled={isLocked || picking}
                   style={{
@@ -1264,6 +1318,10 @@ export default function PickPackagePage() {
                     padding: "10px 12px",
                     cursor: isLocked ? "not-allowed" : "pointer",
                     opacity: isLocked && !selected ? 0.5 : 1,
+                    // Round 383 — same PackageQuickNav jump-highlight as
+                    // the rich option cards above.
+                    boxShadow: jumpTarget === c.value ? "0 0 0 3px rgba(255,107,26,0.55)" : undefined,
+                    transition: "box-shadow 0.3s ease",
                   }}
                 >
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
