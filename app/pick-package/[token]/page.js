@@ -1129,11 +1129,19 @@ export default function PickPackagePage() {
                         <col style={{ width: "21%" }} />
                       </colgroup>
                       <thead>
+                        {/* Round 379 — "make the change on the magic link
+                            booking so the title of the package table a
+                            bit smaller font size... about 0.8": fontSize
+                            "0.8em" on each <th> instead of a fixed px
+                            value, so it stays 0.8x whatever the row's own
+                            size already is (11px desktop / 10px mobile
+                            via the <tr> override below) rather than
+                            needing separate desktop/mobile numbers. */}
                         <tr style={isMobile ? { fontSize: 10 } : undefined}>
-                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}>Hạng Mục</th>
-                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}>Số Lượng</th>
-                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}>Chi Tiết</th>
-                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}>Thành Tiền</th>
+                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3, fontSize: "0.8em" }}>Hạng Mục</th>
+                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3, fontSize: "0.8em" }}>Số Lượng</th>
+                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3, fontSize: "0.8em" }}>Chi Tiết</th>
+                          <th style={{ whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3, fontSize: "0.8em" }}>Thành Tiền</th>
                         </tr>
                       </thead>
                       <tbody>
