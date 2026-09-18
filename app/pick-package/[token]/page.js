@@ -382,6 +382,19 @@ export default function PickPackagePage() {
   // wrapping to a second line).
   const isMobile = useIsMobile();
 
+  // Round 382 — EXPERIMENT ("can you try the treatment of mobile shell
+  // for the booking magiclink here. Still be prepared to revert if we
+  // don't think it's good"): trying the mobile tabbed package picker
+  // (MobileTabbedPackages — one package at a time, tab-select) on DESKTOP
+  // too, instead of the side-by-side 3-cards-wide grid that's been the
+  // source of the recent crowding/overlap bugs (Round 377/379/382's
+  // header-wrap and z-index fixes were both patches on that crowded
+  // layout, not the layout itself). This flag is the entire experiment —
+  // flip this back to `isMobile` to revert instantly with no other code
+  // changes needed; the untouched desktop grid branch below is kept in
+  // place, not deleted, specifically so that revert is trivial.
+  const useTabbedPackages = true;
+
   // Round 233 — dev-configurable theme lock (Config → Magic Link Theme),
   // same idiom as the Performance report share page. Independent of the
   // token/link load below so it resolves as early as possible; null (no
@@ -932,12 +945,23 @@ export default function PickPackagePage() {
             header (identity block + the partner-benefits note beside it)
             pins to the top of the viewport once scrolled past, with its
             own opaque background/border so it reads as a distinct pinned
-            bar rather than floating over whatever's now underneath it. */}
+            bar rather than floating over whatever's now underneath it.
+            Round 382 — BUG FIX ("the column title in package as layer
+            order higher than the top part"): zIndex was 5, but the shared
+            .table th rule (app/shared.module.css) every package's itemized
+            table header uses is position:sticky with zIndex:20 — higher
+            than this header's, so once the MediaPartnerNote dropdown below
+            was opened and grew taller than this pinned bar's original
+            height, the package table's own sticky column-title row painted
+            IN FRONT of this bar's content instead of staying behind it.
+            Bumped to 21 (just above that table header's 20) so this top
+            identity/note bar always wins the stacking order against any
+            package table header it might visually overlap. */}
         <div
           style={{
             position: "sticky",
             top: 0,
-            zIndex: 5,
+            zIndex: 21,
             background: "var(--bg)",
             paddingTop: 12,
             paddingBottom: 10,
@@ -1006,8 +1030,12 @@ export default function PickPackagePage() {
             side-by-side card grid doesn't fit — swap to a tabbed picker
             (one tab per package) instead, per explicit request. Desktop
             (isMobile false) renders the exact same grid as before,
-            completely untouched below. */}
-        {isMobile ? (
+            completely untouched below.
+            Round 382 — see the useTabbedPackages comment above: this now
+            reads that experiment flag instead of isMobile directly, so
+            desktop currently takes the same tabbed-picker branch mobile
+            does. */}
+        {useTabbedPackages ? (
           <MobileTabbedPackages
             options={visibleOptions}
             selectedValue={selectedValue}

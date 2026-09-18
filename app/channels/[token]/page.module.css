@@ -299,6 +299,31 @@
   background: var(--bg-hover, rgba(255, 255, 255, 0.04));
 }
 
+/* Round 382 — "any channels that is smaller or equal to 1000 followers,
+   make a collapsable click for more channel section": the toggle that
+   reveals/hides those rows, styled like a plain text link/row rather than
+   a full button so it reads as part of the list, not a separate UI
+   control. */
+.moreChannelsToggle {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px 8px;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-faint);
+  border-radius: 6px;
+}
+
+.moreChannelsToggle:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.04));
+  color: var(--text-muted);
+}
+
 /* Rows can get tight on a narrow phone (platform badge + follower count +
    name + note pill all in one line) — let the name wrap onto its own
    line under the badge/count rather than truncating or overflowing.

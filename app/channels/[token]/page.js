@@ -225,10 +225,40 @@ const DEFAULT_NOTE_COLOR = { bg: "var(--bg-hover)", fg: "var(--text-dim)" };
 // count reads as noise/imprecision-bait next to the big ones anyway;
 // exactly 0 is left alone (still a real, meaningful "0 followers"), and
 // anything at or above 1000 still gets its real formatted number.
+// Round 382 — "change from <1000 to just a simple dash": same threshold,
+// just a plainer "-" instead of spelling out "<1000". Kept distinct from
+// the em-dash "—" used for a genuinely missing (null) follower_count, so
+// "we have a real (small) number" and "we have no number at all" still
+// read differently.
 function formatFollowers(n) {
   if (n == null) return "—";
-  if (n > 0 && n < 1000) return "<1000";
+  if (n > 0 && n < 1000) return "-";
   return new Intl.NumberFormat("vi-VN").format(n);
+}
+
+// Round 382 — "sort the table by platform, then by followers": PLATFORM_
+// ORDER's index gives the primary sort key (a platform not in that list
+// sorts after every known one, alphabetical order preserved for ties via
+// the stable sort below); follower_count desc (nulls/blank last) breaks
+// ties within a platform, same direction the original query already
+// sorted by.
+function platformSortIndex(platform) {
+  const idx = PLATFORM_ORDER.indexOf(platform);
+  return idx === -1 ? PLATFORM_ORDER.length : idx;
+}
+function sortChannelRows(rows) {
+  return [...rows].sort((a, b) => {
+    const pi = platformSortIndex(a.platform) - platformSortIndex(b.platform);
+    if (pi !== 0) return pi;
+    return (b.follower_count || 0) - (a.follower_count || 0);
+  });
+}
+
+// Round 382 — a channel with <=1000 followers (or no follower_count at
+// all — never confidently "big") is the one that moves into the
+// collapsed "more channels" section instead of the always-visible list.
+function isSmallChannel(c) {
+  return c.follower_count == null || c.follower_count <= 1000;
 }
 
 // Round 357 — renders the daily cron's fetchedAt (an ISO timestamp) in
@@ -476,6 +506,13 @@ export default function ChannelReferenceSharePage() {
   const [loading, setLoading] = useState(true);
   const [channelsByGroup, setChannelsByGroup] = useState({});
   const [groupOrder, setGroupOrder] = useState([]);
+  // Round 382 — "sort the table by platform, then by followers... any
+  // channels that is smaller or equal to 1000 followers, make a
+  // collapsable click for more channel section living inside that table
+  // too, just hide on default": one open/closed flag per group (keyed by
+  // group name), all collapsed by default, so opening one group's "more
+  // channels" doesn't affect any other group's block.
+  const [moreOpenByGroup, setMoreOpenByGroup] = useState({});
 
   const [themeLock, setThemeLock] = useState(null);
   useEffect(() => {
@@ -740,6 +777,12 @@ export default function ChannelReferenceSharePage() {
     (rows || []).forEach((r) => {
       (grouped[r.channel_group] = grouped[r.channel_group] || []).push(r);
     });
+    // Round 382 — re-sort each group by platform then followers (see
+    // sortChannelRows above); the query above still orders by
+    // follower_count alone, which is only a tie-breaker here now.
+    Object.keys(grouped).forEach((g) => {
+      grouped[g] = sortChannelRows(grouped[g]);
+    });
     // Known groups first, in GROUP_META's fixed order; anything else
     // (a group not yet added to GROUP_META) appended after, alphabetical,
     // so it's still visible rather than dropped.
@@ -903,63 +946,99 @@ export default function ChannelReferenceSharePage() {
           {rows.length === 0 ? (
             <div style={{ color: "var(--text-faint)", fontSize: 13, padding: "12px 4px" }}>No channels yet.</div>
           ) : (
-            rows.map((c) => {
-              const noteColor = NOTE_COLORS[c.note] || DEFAULT_NOTE_COLOR;
-              return (
-                <a
-                  key={c.id}
-                  href={c.url || undefined}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={pageStyles.row}
-                  style={!c.url ? { pointerEvents: "none", opacity: 0.6 } : undefined}
-                >
-                  {/* Round 347 — "switch the name of the platform in the
-                      table into the icon... reduce the load speed" — an
-                      inline SVG (see lib/PlatformIcon.js), not an <img>
-                      pointing at a PNG, so this never costs an extra
-                      network request. title= keeps the platform name
-                      reachable on hover/for a screen reader now that the
-                      text itself isn't in the DOM.
-                      Round 350 — "move the channel name column before the
-                      followers column": name now comes right after the
-                      platform icon, followers moved after it — see the
-                      matching .row grid-template-columns reorder in the
-                      CSS. */}
-                  <span className={pageStyles.rowPlatform} title={c.platform || undefined}>
-                    <PlatformIcon platform={c.platform} />
-                  </span>
-                  <span className={pageStyles.rowName}>{c.name}</span>
-                  <span className={pageStyles.rowFollowers}>
-                    {formatFollowers(c.follower_count)}
-                    {/* Round 367 — "use a small followers as a unit right
-                        next to the number": desktop already labels this
-                        column via .blockColumnTitles ("Followers"), so
-                        this unit text is mobile-only (see
-                        .rowFollowersUnit's default display:none, switched
-                        on only inside the <=480px media query). */}
-                    <span className={pageStyles.rowFollowersUnit}>followers</span>
-                  </span>
-                  {c.note && (
-                    // Round 353 — note's column is now a fixed width
-                    // (see .rowNote in the CSS) so the follower column
-                    // next to it stays aligned down the block; title=
-                    // keeps the untruncated text reachable on hover for
-                    // a note long enough to get ellipsized.
-                    <span
-                      className={pageStyles.rowNote}
-                      style={{ background: noteColor.bg, color: noteColor.fg }}
-                      title={c.note}
-                    >
-                      {c.note}
-                    </span>
-                  )}
-                </a>
-              );
-            })
+            renderChannelRows(rows, group)
           )}
         </div>
       </div>
+    );
+  }
+
+  // Round 382 — one channel row, pulled out of renderGroupBlock so both
+  // the always-visible list and the collapsed "more channels" list below
+  // can render it identically.
+  function renderChannelRow(c) {
+    const noteColor = NOTE_COLORS[c.note] || DEFAULT_NOTE_COLOR;
+    return (
+      <a
+        key={c.id}
+        href={c.url || undefined}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={pageStyles.row}
+        style={!c.url ? { pointerEvents: "none", opacity: 0.6 } : undefined}
+      >
+        {/* Round 347 — "switch the name of the platform in the
+            table into the icon... reduce the load speed" — an
+            inline SVG (see lib/PlatformIcon.js), not an <img>
+            pointing at a PNG, so this never costs an extra
+            network request. title= keeps the platform name
+            reachable on hover/for a screen reader now that the
+            text itself isn't in the DOM.
+            Round 350 — "move the channel name column before the
+            followers column": name now comes right after the
+            platform icon, followers moved after it — see the
+            matching .row grid-template-columns reorder in the
+            CSS. */}
+        <span className={pageStyles.rowPlatform} title={c.platform || undefined}>
+          <PlatformIcon platform={c.platform} />
+        </span>
+        <span className={pageStyles.rowName}>{c.name}</span>
+        <span className={pageStyles.rowFollowers}>
+          {formatFollowers(c.follower_count)}
+          {/* Round 367 — "use a small followers as a unit right
+              next to the number": desktop already labels this
+              column via .blockColumnTitles ("Followers"), so
+              this unit text is mobile-only (see
+              .rowFollowersUnit's default display:none, switched
+              on only inside the <=480px media query). */}
+          <span className={pageStyles.rowFollowersUnit}>followers</span>
+        </span>
+        {c.note && (
+          // Round 353 — note's column is now a fixed width
+          // (see .rowNote in the CSS) so the follower column
+          // next to it stays aligned down the block; title=
+          // keeps the untruncated text reachable on hover for
+          // a note long enough to get ellipsized.
+          <span
+            className={pageStyles.rowNote}
+            style={{ background: noteColor.bg, color: noteColor.fg }}
+            title={c.note}
+          >
+            {c.note}
+          </span>
+        )}
+      </a>
+    );
+  }
+
+  // Round 382 — "any channels that is smaller or equal to 1000 followers,
+  // make a collapsable click for more channel section living inside that
+  // table too, just hide on default": splits a group's already-sorted
+  // rows into the always-visible "big" channels and the <=1000-follower
+  // "small" ones, which sit behind a toggle instead of always rendering.
+  // If EVERY row in the group is small (e.g. Distribution Support's one
+  // follower-less row), there's nothing to collapse against — render the
+  // plain list instead of a toggle that would hide the group's entire
+  // content by default.
+  function renderChannelRows(rows, group) {
+    const bigRows = rows.filter((c) => !isSmallChannel(c));
+    const smallRows = rows.filter((c) => isSmallChannel(c));
+    if (bigRows.length === 0 || smallRows.length === 0) {
+      return rows.map(renderChannelRow);
+    }
+    const open = !!moreOpenByGroup[group];
+    return (
+      <>
+        {bigRows.map(renderChannelRow)}
+        <button
+          type="button"
+          onClick={() => setMoreOpenByGroup((prev) => ({ ...prev, [group]: !prev[group] }))}
+          className={pageStyles.moreChannelsToggle}
+        >
+          {open ? "▾ Ẩn bớt" : `▸ Xem thêm ${smallRows.length} kênh`}
+        </button>
+        {open && smallRows.map(renderChannelRow)}
+      </>
     );
   }
 
@@ -1338,7 +1417,16 @@ export default function ChannelReferenceSharePage() {
                     return (
                       <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
                         <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>{row[0]}:</span>{" "}
-                        <span style={{ color: "var(--text)" }}>{row[start]}</span>
+                        {/* Round 382 — "the text below has line break but
+                            since it inside one cell, maybe we can check for
+                            that. But can you still do the line break": the
+                            sheet cell's own \n line breaks (between the
+                            10%/5% support lines and the numbered exclusion
+                            list) were being collapsed by default HTML
+                            whitespace handling. whiteSpace:"pre-line" keeps
+                            real \n's as line breaks while still letting
+                            long lines wrap normally. */}
+                        <span style={{ color: "var(--text)", whiteSpace: "pre-line" }}>{row[start]}</span>
                       </div>
                     );
                   }}
@@ -1384,7 +1472,11 @@ export default function ChannelReferenceSharePage() {
                               {before.map((cell, j) => (
                                 <td key={j}>{cell}</td>
                               ))}
-                              <td colSpan={mergeSpan}>{row[start]}</td>
+                              {/* Round 382 — same whiteSpace:"pre-line" fix
+                                  as the mobile card above, so this
+                                  desktop-table version of the merged cell
+                                  also keeps the sheet's own line breaks. */}
+                              <td colSpan={mergeSpan} style={{ whiteSpace: "pre-line" }}>{row[start]}</td>
                               {after.map((cell, j) => (
                                 <td key={start + mergeSpan + j}>{cell}</td>
                               ))}
