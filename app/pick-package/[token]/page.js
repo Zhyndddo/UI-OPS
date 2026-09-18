@@ -194,14 +194,19 @@ function MobilePackageItems({ items, desktop }) {
               // title already says what it is, same as how the title
               // itself needs no "Hạng Mục:" label). marginBottom:6 is the
               // "small gap" so this row never reads as touching Số
-              // Lượng/Chi Tiết right below it. fontSize 15 is ~0.6-0.7x
-              // the original 24px mobile size — still reads as the
-              // "big number" of the card without threatening to overflow
-              // a narrow desktop column on a package with more digits.
+              // Lượng/Chi Tiết right below it.
+              // Round 386 — "the small part number inside a package
+              // (example 28.000.000 đ) reduce to about 0.8 times of
+              // current, no bold": Round 385's 15px/800-weight number
+              // (already ~0.6-0.7x the old 24px mobile size) is now
+              // ~0.8x THAT — 12px, fontWeight back to normal — so these
+              // per-line-item amounts read as secondary detail next to
+              // the bold orange package-total number above them (see the
+              // c.totalValue span this same round made larger/bold/orange).
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
                 <span style={{ fontSize: 12, fontWeight: 800, color: "var(--text)", wordBreak: "break-word" }}>{item.category}</span>
                 {amountText && (
-                  <span style={{ fontSize: 15, fontWeight: 800, color: "var(--text)", whiteSpace: "nowrap", flexShrink: 0 }}>{amountText}</span>
+                  <span style={{ fontSize: 12, fontWeight: 400, color: "var(--text)", whiteSpace: "nowrap", flexShrink: 0 }}>{amountText}</span>
                 )}
               </div>
             ) : (
@@ -1138,7 +1143,14 @@ export default function PickPackagePage() {
                     </span>
                     {selected && <span style={{ fontSize: 11, color: "#ff6b1a", fontWeight: 700 }}>{confirmed ? "CONFIRMED" : "SELECTED — not confirmed yet"}</span>}
                     {c.totalValue != null && (
-                      <span style={{ fontSize: 13, color: "var(--text-faint)" }}>{fmtVnd(c.totalValue)}</span>
+                      // Round 386 — "the package whole sum numbers become
+                      // large about 1.3 times with bold type and orange
+                      // color": 13px -> 17px (~1.3x), var(--text-faint) ->
+                      // the same brand orange the buttons/borders on this
+                      // card already use, fontWeight 800. Desktop-only card
+                      // header (the mobile equivalent — MobileTabbedPackages'
+                      // own active.totalValue span above — is untouched).
+                      <span style={{ fontSize: 17, fontWeight: 800, color: "#ff6b1a" }}>{fmtVnd(c.totalValue)}</span>
                     )}
                   </div>
                   {!isLocked && (
