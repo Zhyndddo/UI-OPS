@@ -316,6 +316,90 @@ function detectMergedTitleLines(headers) {
   return headers[0].split(/\r\n|\n|\r/).filter((line) => line.trim() !== "");
 }
 
+// Round 375 — BUG FIX ("the vsounder magiclink on mobile it show this...
+// this is one group (a half column since, there is another column in
+// that same space separated by that first empty column"): the Distribution
+// Support sheet isn't a per-column-header table at all — it's transposed.
+// A title row (isColumnTitleRow — e.g. "MẪU CAPCUT / CAPCUT 1 / CAPCUT 2 /
+// TỔNG HỢP 1 / TỔNG HỢP 2") names a run of packages, and each row after it
+// until the next title row is one metric (its own label sitting in column
+// 0 — "Số lượng", "Đơn Giá", "Hỗ Trợ", "VIEENT Hỗ Trợ") with that metric's
+// value per package in the matching column. Round 373's generic
+// MobileSheetRows treated every row as an independent "Column N: value"
+// card using sheetData.headers as labels — wrong here, since headers[0]
+// is the sheet's single top merged banner (sheetTitleLines) and
+// headers[1+] are blank, so every real column showed as "Column 2:",
+// "Column 3:"… with the giant banner text mislabeling the row's own
+// column-0 label. Regrouped by package instead: one card per package
+// (MẪU CAPCUT, CAPCUT 1, …), its own metrics listed inside.
+function groupDistributionBlocks(rows) {
+  const blocks = [];
+  let current = null;
+  rows.forEach((row) => {
+    if (isColumnTitleRow(row)) {
+      current = { titles: row, metricRows: [] };
+      blocks.push(current);
+    } else if (current) {
+      current.metricRows.push(row);
+    } else {
+      // A metric row before any title row has ever appeared — shouldn't
+      // happen in this sheet's real layout, but never silently drop it:
+      // starts an untitled block so it still renders (packages fall back
+      // to "Package N").
+      current = { titles: null, metricRows: [row] };
+      blocks.push(current);
+    }
+  });
+  return blocks;
+}
+
+function MobileDistributionCards({ rows }) {
+  const blocks = groupDistributionBlocks(rows);
+  return (
+    <div style={{ display: "grid", gap: 18 }}>
+      {blocks.map((block, bi) => {
+        const titles = block.titles || [];
+        const maxCols = Math.max(titles.length, ...block.metricRows.map((r) => r.length), 0);
+        const packages = [];
+        for (let j = 1; j < maxCols; j++) {
+          const name = titles[j] && String(titles[j]).trim();
+          const metrics = block.metricRows
+            .map((r) => ({ label: r[0], value: r[j] }))
+            .filter((m) => m.value != null && String(m.value).trim() !== "");
+          if (!name && metrics.length === 0) continue;
+          packages.push({ name: name || `Package ${j}`, metrics });
+        }
+        if (packages.length === 0) return null;
+        return (
+          <div
+            key={bi}
+            // Round 375 — "we can do two column view if it's not too
+            // crowded, or just 1 column is fine as well": auto-fit lets
+            // the grid decide per-viewport instead of hardcoding one or
+            // the other — 2 columns when there's room (~≥300px), 1 when
+            // there isn't, no media query needed.
+            style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}
+          >
+            {packages.map((pkg, pi) => (
+              <div
+                key={pi}
+                style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px", background: "var(--bg-card)" }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 800, color: "var(--accent)", marginBottom: 6 }}>{pkg.name}</div>
+                {pkg.metrics.map((m, mi) => (
+                  <div key={mi} style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
+                    <span style={{ color: "var(--text-faint)", fontWeight: 700 }}>{m.label}:</span> {m.value}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Round 373 — "mobile shell, two external table we fetch from google
 // sheet. can you do some thing like the treatment of the booking
 // magiclink. textjoin whole row of all column into one text blob: maybe
@@ -1104,25 +1188,7 @@ export default function ChannelReferenceSharePage() {
               )}
               {sheetData && sheetData.rows.length > 0 && (
                 isMobile ? (
-                  <MobileSheetRows
-                    headers={sheetData.headers}
-                    rows={sheetData.rows}
-                    keyPrefix="dist"
-                    renderSpecialRow={(row) =>
-                      isColumnTitleRow(row) ? (
-                        <div
-                          style={{
-                            fontSize: 12,
-                            fontWeight: 800,
-                            color: "var(--text)",
-                            padding: "4px 0",
-                          }}
-                        >
-                          {row.filter((c) => String(c || "").trim() !== "").join(" · ")}
-                        </div>
-                      ) : null
-                    }
-                  />
+                  <MobileDistributionCards rows={sheetData.rows} />
                 ) : (
                 <div className={pageStyles.sheetTableWrap}>
                   <table className={pageStyles.sheetTable}>
