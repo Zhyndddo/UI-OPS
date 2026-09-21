@@ -248,7 +248,18 @@ body {
   padding: 0;
   background: var(--bg-body);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  /* Round 387 — "change font on all app... font sent along with this
+     zip": Be Vietnam Pro (self-hosted, see app/layout.js's localFont
+     setup) is now the app-wide default, via the CSS variable
+     next/font/local exposes on <html>. The old system-font stack stays
+     as the fallback chain for the brief instant before the font loads
+     (display:"swap") and for the rare context that somehow doesn't have
+     the variable (shouldn't happen — it's on <html>, every page inherits
+     it). Nothing else needed changing: every other font-family in the
+     app is either "inherit" (picks this up automatically) or a
+     deliberately-monospace spot (ticket IDs / raw-data boxes) that was
+     never on the system stack to begin with — see the layout.js comment. */
+  font-family: var(--font-be-vietnam-pro), -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   min-height: 100vh;
 }
 

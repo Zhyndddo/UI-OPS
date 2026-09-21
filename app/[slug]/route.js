@@ -28,6 +28,27 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../lib/supabaseAdmin";
 import { normalizeSlug, canRewriteToDestination } from "../../lib/shortLinks";
 
+// Round 391 — "i try to make new short link but the short link didn't
+// work, returns nothing": the link WAS created fine (showed up in the
+// admin list), but visiting it kept returning this route's own
+// "Not found." — because this is a plain server-side GET Route Handler
+// with no cookie/header read and no cache opt-out, which is exactly the
+// shape Next.js's App Router will cache (its Data Cache wraps the global
+// fetch this file's supabaseAdmin call goes through, and Vercel can
+// cache the route's own response on top of that) — so the very first hit
+// to a given slug (even a 404 for one that doesn't exist yet, or one hit
+// right after a fresh deploy) can get cached and then keep being served
+// forever, never re-checking the database. Every OTHER "magic link"-
+// style page in this app is either a client component (fetches happen
+// in the visitor's own browser, no server cache involved) or a route
+// that reads cookies/headers (getCallerProfile — that alone already
+// forces Next to treat it as dynamic) — this was the one exception.
+// `dynamic = "force-dynamic"` makes every request re-run this handler
+// and re-query Supabase, no caching at any layer; correct here anyway
+// since the destination can be revoked/changed at any time and
+// click_count/last_used_at need to update on every real visit.
+export const dynamic = "force-dynamic";
+
 export async function GET(request, { params }) {
   const slug = normalizeSlug(params.slug);
 

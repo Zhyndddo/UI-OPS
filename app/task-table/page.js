@@ -89,6 +89,21 @@ const TICKET_KEYS = Object.keys(TICKET_ROUTES).filter((k) => k !== "batch_phai_s
 const WORKSTATION_KEYS = Object.keys(WORKSTATION_ROUTES);
 const UNASSIGNED = "__unassigned__";
 
+// Round 389 — "limit counter to exclude old data for task tab and any
+// thing that we compilate ourselves. Old data mean any things date back
+// from june 2026 (release or create) and before": every count on this
+// page is compiled client-side from tickets/releases (never a raw DB
+// count/pagination total), so this one cutoff applies everywhere on this
+// page — a ticket's created_at, or a release's release_date, of June 2026
+// or earlier no longer counts toward anyone's numbers or drill-down
+// lists. isRecent() treats a MISSING date (a release with no release_date
+// set yet) as recent/kept, not old — an undated release is still active
+// work, not something to silently drop from counts.
+const TASK_TABLE_CUTOFF = "2026-07-01";
+function isRecent(dateStr) {
+  return !dateStr || dateStr >= TASK_TABLE_CUTOFF;
+}
+
 const TERMINAL_EXECUTOR = ["COMPLETE", "CANCELED", "REFUND"];
 const TERMINAL_REPORT_CONFLICT_EXECUTOR = ["Hoàn thành", "Từ chối", "Hủy"];
 const TERMINAL_DESIGN = ["COMPLETE", "CANCEL"];
@@ -167,7 +182,10 @@ async function loadTicketCounts(map, requesterMap) {
   const { data: tabs } = await supabase.from("ticket_tabs").select("id, key").in("key", TICKET_KEYS);
   if (!tabs) return;
   for (const tab of tabs) {
-    const { data: tickets } = await supabase.from("tickets").select("id, status, pic_profile_id, pic_profile_ids, requester_profile_id, data").eq("tab_id", tab.id).is("deleted_at", null);
+    // Round 389 — .gte("created_at", ...) excludes June 2026-and-earlier
+    // tickets straight from the query (created_at is never null, unlike a
+    // release's release_date, so this can filter server-side).
+    const { data: tickets } = await supabase.from("tickets").select("id, status, pic_profile_id, pic_profile_ids, requester_profile_id, data").eq("tab_id", tab.id).is("deleted_at", null).gte("created_at", TASK_TABLE_CUTOFF);
     (tickets || []).forEach((t) => {
       // Round 281 — requester side, ALL tickets (not just undone ones —
       // done ones still count, just under the "done" column instead of
@@ -210,16 +228,21 @@ async function loadAssignMap(workstationKeys) {
 async function loadWorkstationCounts(map) {
   const assignMap = await loadAssignMap(["upload", "confirm_phase1", "confirm_phase2", "pre_release"]);
 
-  const { data: uploads } = await supabase.from("releases").select("id, did, title, upload_status, link_lbm, link_share, smartlink, link_preorder, gate_pre_order").eq("requested", true);
-  (uploads || []).forEach((r) => {
+  // Round 389 — "release_date" added to every releases select below so
+  // isRecent() (see its comment up top) has something to check; filtered
+  // in JS rather than a query .gte() since release_date CAN be null
+  // (undated release) and null must stay IN, not be excluded by a plain
+  // date comparison.
+  const { data: uploads } = await supabase.from("releases").select("id, did, title, release_date, upload_status, link_lbm, link_share, smartlink, link_preorder, gate_pre_order").eq("requested", true);
+  (uploads || []).filter((r) => isRecent(r.release_date)).forEach((r) => {
     const pic = assignMap.upload?.[r.id];
     if (pic !== undefined && !isUploadDone(r)) bumpItem(map, pic, "workstation:upload", { id: r.id, label: releaseLabel(r), href: WORKSTATION_ROUTES.upload });
   });
 
   const { data: confirmRows } = await fetchAllRows(() =>
-    supabase.from("releases").select([...DSP_CHECK_FIELDS, "id", "did", "title", "link_lbm", "confirm_tag", "smartlink", "confirm_insta_sound", "confirm_tiktok_sound_updated", "confirm_smartlink_updated"].join(", ")).order("id")
+    supabase.from("releases").select([...DSP_CHECK_FIELDS, "id", "did", "title", "release_date", "link_lbm", "confirm_tag", "smartlink", "confirm_insta_sound", "confirm_tiktok_sound_updated", "confirm_smartlink_updated"].join(", ")).order("id")
   );
-  (confirmRows || []).forEach((r) => {
+  (confirmRows || []).filter((r) => isRecent(r.release_date)).forEach((r) => {
     // Round 250 — kept as two distinct columns (workstation:confirm_phase1
     // / _phase2) instead of the old merged "workstation:confirm" id, so
     // Phase 1 (Pre-release) and Phase 2 (Release) can show up as separate
@@ -236,9 +259,9 @@ async function loadWorkstationCounts(map) {
   });
 
   const { data: preReleaseRows } = await fetchAllRows(() =>
-    supabase.from("releases").select("id, did, title, canva_mv_status, canva_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric").order("id")
+    supabase.from("releases").select("id, did, title, release_date, canva_mv_status, canva_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric").order("id")
   );
-  (preReleaseRows || []).forEach((r) => {
+  (preReleaseRows || []).filter((r) => isRecent(r.release_date)).forEach((r) => {
     const pic = assignMap.pre_release?.[r.id];
     if (pic !== undefined && !isPreReleaseDone(r)) bumpItem(map, pic, "workstation:pre_release", { id: r.id, label: releaseLabel(r), href: WORKSTATION_ROUTES.pre_release });
   });
@@ -262,7 +285,7 @@ async function loadWorkstationCounts(map) {
 // MyTasksView.
 async function loadSubteamProjectCounts(map, profiles) {
   const { data: releases } = await fetchAllRows(() =>
-    supabase.from("releases").select("id, did, title, tags").order("id")
+    supabase.from("releases").select("id, did, title, release_date, tags").order("id")
   );
   const marketingMembersBySubteam = {};
   (profiles || []).forEach((p) => {
@@ -270,7 +293,7 @@ async function loadSubteamProjectCounts(map, profiles) {
     if (!marketingMembersBySubteam[p.subteam]) marketingMembersBySubteam[p.subteam] = [];
     marketingMembersBySubteam[p.subteam].push(p.id);
   });
-  (releases || []).forEach((r) => {
+  (releases || []).filter((r) => isRecent(r.release_date)).forEach((r) => {
     const item = { id: r.id, label: releaseLabel(r), href: `/releases/${r.id}` };
     effectiveSubteamTags(r).forEach((subteamName) => {
       (marketingMembersBySubteam[subteamName] || []).forEach((memberId) => {

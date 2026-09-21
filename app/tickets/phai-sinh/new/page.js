@@ -37,6 +37,13 @@ export default function PhaiSinhNewTicket() {
 
   const [deadline, setDeadline] = useState("");
   const [deadlineTouched, setDeadlineTouched] = useState(false);
+  // Round 387 — "add a tick so that a phai sinh (single only, not batch)
+  // can be added to calendar": single-song ticket only, per explicit
+  // request — the batch flow (Kho Nhạc/Chuyển Net/Takedown) has no one
+  // deadline that represents a whole list of songs the same way, so it's
+  // deliberately not offered there. See openCalendarEvent below for what
+  // checking this actually does on submit.
+  const [addToCalendar, setAddToCalendar] = useState(false);
   const [tenBai, setTenBai] = useState("");
   const [relatedDid, setRelatedDid] = useState("");
   const [artist, setArtist] = useState("");
@@ -106,6 +113,34 @@ export default function PhaiSinhNewTicket() {
   function handleDeadlineChange(v) {
     setDeadline(v);
     setDeadlineTouched(v !== "");
+  }
+
+  // Round 387 — no OAuth/live Google Calendar integration exists anywhere
+  // in this app (checked — nothing else writes a calendar_event or holds
+  // Calendar credentials), so this builds a link to Google Calendar's own
+  // "quick add event" web page, pre-filled via URL params — no new
+  // credentials/dependency needed, and the person still gets a final look
+  // at the event before it's actually saved to THEIR calendar. All-day
+  // event on the ticket's Deadline (Hạn Cuối) — the actionable due date —
+  // not Release Date, which is separate reference info on this form.
+  // Returns the URL rather than opening it itself: a browser popup
+  // blocker will very likely kill a window.open() that fires after an
+  // `await` (the insert above) since it no longer counts as directly
+  // user-triggered — see the handleSubmit caller, which navigates the
+  // current tab there instead of trying a new one.
+  function buildCalendarEventUrl({ eventDate, title, details }) {
+    if (!eventDate) return null;
+    const startYmd = eventDate.replace(/-/g, "");
+    const nextDay = new Date(eventDate + "T00:00:00");
+    nextDay.setDate(nextDay.getDate() + 1);
+    const endYmd = `${nextDay.getFullYear()}${String(nextDay.getMonth() + 1).padStart(2, "0")}${String(nextDay.getDate()).padStart(2, "0")}`;
+    const params = new URLSearchParams({
+      action: "TEMPLATE",
+      text: title,
+      dates: `${startYmd}/${endYmd}`,
+      details,
+    });
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
   }
 
   async function handleSubmit(e) {
@@ -213,7 +248,27 @@ export default function PhaiSinhNewTicket() {
     else {
       // Round 282 — audit log / requester attribution
       if (created) logTicketCreate({ actor: profile?.id, ticketId: created.id });
-      router.push("/tickets/phai-sinh");
+      // Round 387 — "add a tick so that a phai sinh... can be added to
+      // calendar": on success, if checked, send the browser to Google
+      // Calendar's pre-filled quick-add page INSTEAD of the ticket list
+      // (a window.open() new tab here would very likely get killed by a
+      // popup blocker — see buildCalendarEventUrl's comment). Uses the
+      // same deadline just saved onto the ticket (falls back to Release
+      // Date if Deadline was left blank, matching the "defaults to taking
+      // Release Date as deadline" note already shown under that field).
+      const calendarUrl = addToCalendar
+        ? buildCalendarEventUrl({
+            eventDate: deadline || releaseDate,
+            title: `Phái Sinh: ${tenBai}${artist ? ` — ${artist}` : ""}`,
+            details: [
+              `Type: ${typeRequest}`,
+              relatedDid ? `Related DID: ${relatedDid}` : null,
+              description ? `\n${description}` : null,
+            ].filter(Boolean).join("\n"),
+          })
+        : null;
+      if (calendarUrl) window.location.href = calendarUrl;
+      else router.push("/tickets/phai-sinh");
     }
   }
 
@@ -386,6 +441,15 @@ export default function PhaiSinhNewTicket() {
                   <label className={styles.fieldLabel}>Description</label>
                   <textarea className={styles.textarea} value={description} onChange={(e) => setDescription(e.target.value)} />
                 </div>
+
+                {/* Round 387 — "add a tick so that a phai sinh (single
+                    only, not batch) can be added to calendar": single-song
+                    form only, per explicit request — see the isBatch
+                    branch above, which has no equivalent checkbox. */}
+                <label className={styles.checkboxRow} style={{ marginBottom: 20 }}>
+                  <input type="checkbox" checked={addToCalendar} onChange={(e) => setAddToCalendar(e.target.checked)} />
+                  Add to Calendar (opens Google Calendar, pre-filled, on Deadline)
+                </label>
 
                 <button className={styles.btnPrimary} type="submit" disabled={submitting}>
                   {submitting ? "Creating…" : "Create Ticket"}

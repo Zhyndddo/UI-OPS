@@ -61,6 +61,11 @@ import NoteCell from "../../../lib/NoteCell";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import { useIsMobile } from "../../../lib/useIsMobile";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
+// Round 388 — "click onto a row also open it in a popup panel, layout of
+// panel is the same as the create new ticket layout": ReleasePicker is the
+// same Asset Title auto-fill widget app/tickets/report-conflict/new/page.js
+// uses (Round 144).
+import ReleasePicker from "../../../lib/ReleasePicker";
 import styles from "../../shared.module.css";
 // Round 282 — audit log / requester attribution
 import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
@@ -209,6 +214,8 @@ export default function ReportConflictPage() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
   const [query, setQuery] = useState("");
+  // Round 388 — which ticket's detail popup is open, if any.
+  const [openTicket, setOpenTicket] = useState(null);
 
   useEffect(() => {
     if (!supabase) return;
@@ -344,7 +351,7 @@ export default function ReportConflictPage() {
             <>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {pagedTickets.map((t, i) => (
-                <ReportConflictRow key={t.id} mobile ticket={t} index={(page - 1) * pageSize + i} cols={cols} profiles={profiles} isExecutorView={isExecutorView} onUpdateField={updateField} onUpdateStatus={updateStatus} onUpdatePic={updatePic} />
+                <ReportConflictRow key={t.id} mobile ticket={t} index={(page - 1) * pageSize + i} cols={cols} profiles={profiles} isExecutorView={isExecutorView} onUpdateField={updateField} onUpdateStatus={updateStatus} onUpdatePic={updatePic} onOpenDetail={setOpenTicket} />
               ))}
             </div>
             <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
@@ -363,7 +370,7 @@ export default function ReportConflictPage() {
               </thead>
               <tbody>
                 {pagedTickets.map((t, i) => (
-                  <ReportConflictRow key={t.id} ticket={t} index={(page - 1) * pageSize + i} cols={cols} profiles={profiles} isExecutorView={isExecutorView} onUpdateField={updateField} onUpdateStatus={updateStatus} onUpdatePic={updatePic} />
+                  <ReportConflictRow key={t.id} ticket={t} index={(page - 1) * pageSize + i} cols={cols} profiles={profiles} isExecutorView={isExecutorView} onUpdateField={updateField} onUpdateStatus={updateStatus} onUpdatePic={updatePic} onOpenDetail={setOpenTicket} />
                 ))}
               </tbody>
             </table>
@@ -373,13 +380,25 @@ export default function ReportConflictPage() {
           )}
         </div>
       </div>
+      {/* Round 388 — "click onto a row also open it in a popup panel,
+          layout of panel is the same as the create new ticket layout" */}
+      {openTicket && (
+        <ReportConflictDetailModal
+          ticket={openTicket}
+          onClose={() => setOpenTicket(null)}
+          onSaved={(patch) => {
+            setTickets((prev) => prev.map((x) => (x.id === openTicket.id ? { ...x, ...patch } : x)));
+            setOpenTicket(null);
+          }}
+        />
+      )}
     </AppShell>
   );
 }
 
 const fieldLabelStyle = { fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 };
 
-function ReportConflictRow({ ticket, index, cols, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePic, mobile = false }) {
+function ReportConflictRow({ ticket, index, cols, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePic, onOpenDetail, mobile = false }) {
   const status = ticket.status;
   const color = statusColor(status);
   const isRefundLike = REFUND_LIKE.includes(status);
@@ -448,9 +467,26 @@ function ReportConflictRow({ ticket, index, cols, profiles, isExecutorView, onUp
     <span style={{ fontSize: 12 }}>{ticket.profiles?.name || "—"}</span>
   );
 
+  // Round 388 — "click onto a row also open it in a popup panel": the row
+  // itself is already full of interactive inputs/selects/a NoteCell popup
+  // trigger, so a plain onClick on the row would also fire every time
+  // someone types into a field, opens a dropdown, etc. Checks the actual
+  // click target instead — only opens the detail popup when it landed on
+  // plain row chrome (the "#N" index, empty <td> padding, a computed
+  // read-only cell), never on an input/select/textarea/button/link/label
+  // or anything inside one.
+  function handleRowClick(e) {
+    if (!onOpenDetail) return;
+    if (e.target.closest("input, select, textarea, button, a, label")) return;
+    onOpenDetail(ticket);
+  }
+
   if (mobile) {
     return (
-      <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14, background: "var(--bg-card)" }}>
+      <div
+        onClick={handleRowClick}
+        style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14, background: "var(--bg-card)", cursor: onOpenDetail ? "pointer" : undefined }}
+      >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
           <div style={{ fontSize: 12, fontWeight: 700 }}>#{index + 1}</div>
           {statusBody}
@@ -472,11 +508,198 @@ function ReportConflictRow({ ticket, index, cols, profiles, isExecutorView, onUp
   }
 
   return (
-    <tr>
+    <tr onClick={handleRowClick} style={{ cursor: onOpenDetail ? "pointer" : undefined }}>
       <td>{index + 1}</td>
       {cols.map((c) => <td key={c.key}>{fieldBody(c)}</td>)}
       <td>{picBody}</td>
       <td>{statusBody}</td>
     </tr>
+  );
+}
+
+// Round 388 — "click onto a row also open it in a popup panel, layout of
+// panel is the same as the create new ticket layout": same grouped
+// sections/fields as app/tickets/report-conflict/new/page.js's create
+// form (Round 144) — Type/Requester row, Asset Info, Thông tin cần
+// report, Thông tin Official, Note — pre-filled from the ticket being
+// opened instead of starting blank, with one Save button that patches
+// every field in a single update (same idea as the row's own per-field
+// onUpdateField, just batched instead of per-cell-on-blur since here
+// there's a real Save action to gate it on).
+const REPORT_CONFLICT_FIELD_KEYS = [
+  "conflictType", "assetTitle", "artist", "reportedISRC", "reportedUPC", "reportedURL",
+  "label", "originalReleaseDate", "officialSongTitle", "officialArtist", "officialISRC",
+  "officialUPC", "officialURL", "linkMVYoutube", "tiktokProfile", "note",
+];
+
+function ReportConflictDetailModal({ ticket, onClose, onSaved }) {
+  const [form, setForm] = useState(() => {
+    const d = ticket.data || {};
+    const f = {};
+    REPORT_CONFLICT_FIELD_KEYS.forEach((k) => { f[k] = d[k] || ""; });
+    return f;
+  });
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  function update(key, value) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  // Same auto-fill rule as the create form's fillFromRelease — only fills
+  // fields the picked release actually has a value for.
+  function fillFromRelease(release) {
+    setForm((f) => ({
+      ...f,
+      assetTitle: release.title ?? f.assetTitle,
+      artist: release.main_artist ?? f.artist,
+      label: release.label ?? f.label,
+      originalReleaseDate: release.release_date ? fmtDate(release.release_date) : f.originalReleaseDate,
+      officialSongTitle: release.title ?? f.officialSongTitle,
+      officialArtist: release.main_artist ?? f.officialArtist,
+      officialISRC: release.isrc ?? f.officialISRC,
+      officialUPC: release.upc ?? f.officialUPC,
+    }));
+  }
+
+  const isYoutube = form.conflictType === "YouTube";
+
+  async function handleSave() {
+    setError(null);
+    if (!form.conflictType) { setError("Type required."); return; }
+    if (!form.assetTitle.trim()) { setError("Asset Title required."); return; }
+    setSaving(true);
+    const newData = { ...ticket.data, ...form };
+    const { error: updateErr } = await supabase.from("tickets").update({ data: newData }).eq("id", ticket.id);
+    setSaving(false);
+    if (updateErr) { setError(updateErr.message); return; }
+    onSaved({ data: newData });
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: "var(--bg-body)", border: "1px solid var(--border)", borderRadius: 12, maxWidth: 640, width: "100%", maxHeight: "90vh", overflowY: "auto", padding: 24 }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+          <div>
+            <div className={styles.eyebrow}>// Ticket Detail</div>
+            <h1 className={styles.title} style={{ marginBottom: 0 }}>Report Conflict</h1>
+          </div>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+
+        {error && <div className={styles.errorBox}>{error}</div>}
+
+        {/* a. top row — no title */}
+        <div className={styles.grid2}>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>
+              Type <span className={styles.required}>*</span>
+            </label>
+            <select className={styles.select} value={form.conflictType} onChange={(e) => update("conflictType", e.target.value)}>
+              <option value="">— Select —</option>
+              {CONFLICT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Requester</label>
+            <div style={{ padding: "9px 12px", fontSize: 14, color: "var(--text-muted)" }}>
+              {ticket.requester_name || "—"}{ticket.requester_segment ? ` (${ticket.requester_segment})` : ""}
+            </div>
+          </div>
+        </div>
+
+        {/* b. Asset Info */}
+        <div className={styles.subheading}>Asset Info</div>
+        <div className={styles.grid2}>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>
+              Asset Title <span className={styles.required}>*</span>
+            </label>
+            <div style={{ position: "relative" }}>
+              <input className={styles.input} style={{ paddingRight: 34 }} value={form.assetTitle} onChange={(e) => update("assetTitle", e.target.value)} />
+              <ReleasePicker onSelect={fillFromRelease} />
+            </div>
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Artist</label>
+            <input className={styles.input} value={form.artist} onChange={(e) => update("artist", e.target.value)} />
+          </div>
+        </div>
+
+        {/* c. Thông tin cần report — each on its own full-width row */}
+        <div className={styles.subheading}>Thông tin cần report</div>
+        <div className={styles.field}>
+          <label className={styles.fieldLabel}>Reported ISRC</label>
+          <input className={styles.input} value={form.reportedISRC} onChange={(e) => update("reportedISRC", e.target.value)} />
+        </div>
+        <div className={styles.field}>
+          <label className={styles.fieldLabel}>Reported UPC</label>
+          <input className={styles.input} value={form.reportedUPC} onChange={(e) => update("reportedUPC", e.target.value)} />
+        </div>
+        <div className={styles.field}>
+          <label className={styles.fieldLabel}>Reported Sound Link</label>
+          <input className={styles.input} value={form.reportedURL} onChange={(e) => update("reportedURL", e.target.value)} />
+        </div>
+
+        {/* d. Thông tin Official */}
+        <div className={styles.subheading}>Thông tin Official</div>
+        <div className={styles.grid2}>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Label</label>
+            <input className={styles.input} value={form.label} onChange={(e) => update("label", e.target.value)} />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Original Release Date</label>
+            <input className={styles.input} value={form.originalReleaseDate} onChange={(e) => update("originalReleaseDate", e.target.value)} />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Official Song Title</label>
+            <input className={styles.input} value={form.officialSongTitle} onChange={(e) => update("officialSongTitle", e.target.value)} />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Official Artist</label>
+            <input className={styles.input} value={form.officialArtist} onChange={(e) => update("officialArtist", e.target.value)} />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Official ISRC</label>
+            <input className={styles.input} value={form.officialISRC} onChange={(e) => update("officialISRC", e.target.value)} />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Official UPC</label>
+            <input className={styles.input} value={form.officialUPC} onChange={(e) => update("officialUPC", e.target.value)} />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>{isYoutube ? "MV YouTube Link" : "Official Sound Link"}</label>
+            <input
+              className={styles.input}
+              value={isYoutube ? form.linkMVYoutube : form.officialURL}
+              onChange={(e) => update(isYoutube ? "linkMVYoutube" : "officialURL", e.target.value)}
+            />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.fieldLabel}>Hình profile Tiktok NS</label>
+            <input className={styles.input} value={form.tiktokProfile} onChange={(e) => update("tiktokProfile", e.target.value)} />
+          </div>
+        </div>
+
+        {/* e. Note */}
+        <div className={styles.field}>
+          <label className={styles.fieldLabel}>Note</label>
+          <textarea className={styles.textarea} value={form.note} onChange={(e) => update("note", e.target.value)} />
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className={styles.btnPrimary} type="button" onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "1px solid var(--border-strong)", color: "var(--text-muted)", borderRadius: 6, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
