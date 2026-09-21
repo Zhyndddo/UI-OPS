@@ -60,6 +60,23 @@ function yesterdayUTC() {
 // to just these two sections, nothing else in the app is affected.
 const NOT_DONE_SINCE_DATE = "2026-08-01";
 
+// Round 403 — "Ticket Counter — Not Done" ticket types with no reachable
+// UI to ever clear them through, per explicit request. newrelease_upload
+// is auto-created by the SEND UPLOAD button (see app/releases/[id]/
+// page.js) but was never wired into any team's Tickets picker
+// (lib/teamTypes.js's TEAM_TICKET_TYPES/SHARED_TICKET_TYPES) — nobody has
+// a normal way to open it and move its status, so its "not done" count
+// only ever grows. The real, actionable signal for this same work already
+// exists and is already shown: "Workstation — Not Done" -> New Release
+// Setup (workstationNotDoneCount's "upload" branch reads releases.
+// upload_status/link_lbm/link_share/smartlink/link_preorder directly, not
+// this ticket's own status). Showing both would double-report the same
+// underlying work through one live number and one dead one — excluded
+// here rather than from ticketRows (Sent/Completed) above, since that
+// table is just "how many were auto-sent yesterday," which stays a
+// harmless, accurate activity signal even with nowhere to act on them.
+const TICKET_NOT_DONE_EXCLUDED_TYPES = new Set(["newrelease_upload"]);
+
 // Round 232 — "Missing Data" section, per explicit request: same 6-item
 // checklist as the release detail page's Metadata Checklist (see that
 // page's METADATA_ITEMS — these labels are copied verbatim from there so
@@ -188,6 +205,7 @@ async function buildDigest(supabase) {
   // workstationRows already uses it above, not any real signed-in caller.
   const ticketNotDoneRows = [];
   for (const tab of tabs || []) {
+    if (TICKET_NOT_DONE_EXCLUDED_TYPES.has(tab.key)) continue;
     const count = await getNotDoneCount("ticket", tab.key, { role: "dev" }, { sinceDate: NOT_DONE_SINCE_DATE });
     if (count !== null) ticketNotDoneRows.push({ label: TICKET_TYPE_LABELS[tab.key] || tab.label, count });
   }

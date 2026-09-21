@@ -5,7 +5,7 @@ import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { useAuth } from "../../../lib/AuthContext";
-import { fmtDate } from "../../../lib/helpers";
+import { fmtDate, fetchAllRows } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import StatusCounter from "../../../lib/StatusCounter";
@@ -91,19 +91,29 @@ export default function PreReleaseWorkstation() {
 
   async function load() {
     setLoading(true);
-    const { data: rels } = await supabase
-      .from("releases")
-      // Round 158 — artist_pick_status moved to Re-Check Phase 2 (see
-      // app/workstation/confirm/page.js), per explicit request. No longer
-      // fetched/rendered here — the underlying releases column is
-      // unchanged, this page just stopped being its edit surface.
-      // Round 165 — link_lbm added per explicit request, so LBM/Labelmaster
-      // URL is visible and editable from this workstation too (same
-      // releases.link_lbm column the Re-Check workstation's LbmCell and
-      // the release detail page's URL tab already read/write — one shared
-      // field, just another edit surface, same pattern as Musixmatch Link
-      // already being editable from both this page and the detail page).
-      .select("id, did, title, main_artist, release_date, release_time, link_lbm, canva_mv_status, canva_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric, pre_release_note");
+    // Round 402 — this was a bare `.select()` with no `.range()` AND no
+    // fetchAllRows guard: PostgREST's default 1000-row cap silently
+    // truncates a plain select() past that, the exact bug Round 59/60
+    // fixed everywhere else in the app (see DATA_FIXES.md) — this page
+    // just never got the same fix. Releases is well past 1000 rows now,
+    // so this was very likely already silently dropping releases from
+    // the list. fetchAllRows pages through in 1000-row batches instead.
+    const { data: rels } = await fetchAllRows(() =>
+      supabase
+        .from("releases")
+        // Round 158 — artist_pick_status moved to Re-Check Phase 2 (see
+        // app/workstation/confirm/page.js), per explicit request. No longer
+        // fetched/rendered here — the underlying releases column is
+        // unchanged, this page just stopped being its edit surface.
+        // Round 165 — link_lbm added per explicit request, so LBM/Labelmaster
+        // URL is visible and editable from this workstation too (same
+        // releases.link_lbm column the Re-Check workstation's LbmCell and
+        // the release detail page's URL tab already read/write — one shared
+        // field, just another edit surface, same pattern as Musixmatch Link
+        // already being editable from both this page and the detail page).
+        .select("id, did, title, main_artist, release_date, release_time, link_lbm, canva_mv_status, canva_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric, pre_release_note")
+        .order("id")
+    );
     setReleases(rels || []);
 
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
