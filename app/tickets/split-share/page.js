@@ -34,6 +34,12 @@ export default function SplitShareTicketList() {
   const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
+  // Round 397 — "clicking on each row of request now pop up the detailed
+  // data of which label and percentage (same one noted in the dashboard
+  // detail page)": which ticket's read-only split-share detail popup is
+  // open, if any. Same onOpenDetail/handleRowClick pattern as Round 388's
+  // Report Conflict row-click popup.
+  const [openTicket, setOpenTicket] = useState(null);
 
   const isExecutorView = !profile?.segment || isExecutorSegment(profile.segment, "Legal");
 
@@ -59,7 +65,10 @@ export default function SplitShareTicketList() {
 
     const dids = [...new Set((tix || []).map((t) => t.data?.releaseId).filter(Boolean))];
     if (dids.length > 0) {
-      const { data: rels } = await supabase.from("releases").select("id, did, title, main_artist").in("did", dids);
+      // Round 397 — split_share_entries pulled alongside so the row-click
+      // popup can show the same label/percentage/scope data the release
+      // detail page's Split Share popup shows.
+      const { data: rels } = await supabase.from("releases").select("id, did, title, main_artist, split_share_entries").in("did", dids);
       const map = {};
       (rels || []).forEach((r) => (map[r.did] = r));
       setReleases(map);
@@ -156,8 +165,17 @@ export default function SplitShareTicketList() {
                 {pagedTickets.map((t) => {
                   const color = statusColor(t.status);
                   const rel = releases[t.data?.releaseId];
+                  // Round 397 — row click opens the split-share detail
+                  // popup, unless the click landed on an interactive
+                  // control (PIC select, status select, date input, or the
+                  // release link) — same guard idiom as Round 388's Report
+                  // Conflict row click.
+                  function handleRowClick(e) {
+                    if (e.target.closest("input, select, textarea, button, a, label")) return;
+                    setOpenTicket(t);
+                  }
                   return (
-                    <tr key={t.id}>
+                    <tr key={t.id} onClick={handleRowClick} style={{ cursor: "pointer" }}>
                       <td>
                         {rel ? (
                           <Link href={`/releases/${rel.id}`} className={styles.rowLink}>
@@ -205,6 +223,75 @@ export default function SplitShareTicketList() {
           )}
         </div>
       </div>
+      {/* Round 397 — read-only detail popup: same label/percentage/scope
+          data GateFields.js's Split Share popup shows on the release
+          detail page, keyed off releases.split_share_entries. Read-only
+          because this ticket type doesn't own that data — the inline %/
+          Shared Label/Scope editor on the release detail page (Legal
+          Request group) is the only place it's actually edited. */}
+      {openTicket && (
+        <SplitShareDetailModal
+          ticket={openTicket}
+          release={releases[openTicket.data?.releaseId]}
+          onClose={() => setOpenTicket(null)}
+        />
+      )}
     </AppShell>
+  );
+}
+
+const SCOPE_LABELS = {
+  only_new_release: "Only New Release",
+  include_derivative: "Include Derivative",
+};
+
+function SplitShareDetailModal({ ticket, release, onClose }) {
+  const entries = release?.split_share_entries || [];
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: "var(--bg-body)", border: "1px solid var(--border)", borderRadius: 12, maxWidth: 560, width: "100%", maxHeight: "90vh", overflowY: "auto", padding: 24 }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+          <div>
+            <div className={styles.eyebrow}>// Ticket Detail</div>
+            <h1 className={styles.title} style={{ marginBottom: 0 }}>Split Share</h1>
+          </div>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
+          {release ? (
+            <>{release.title} <span style={{ color: "var(--text-faint)" }}>({release.did}) — {release.main_artist}</span></>
+          ) : (
+            `Release ${ticket.data?.releaseId} (not found)`
+          )}
+        </div>
+
+        <div className={styles.subheading}>Split Share Entries</div>
+        {entries.length === 0 ? (
+          <div style={{ fontSize: 12, color: "var(--text-faint)" }}>No entries recorded on this release.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {entries.map((e, i) => (
+              <div key={i} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                <div style={{ fontSize: 13 }}>
+                  <span style={{ fontWeight: 700 }}>{e.shared_label || "—"}</span>
+                  <span style={{ color: "var(--text-faint)" }}> ({e.percentage || "?"}%)</span>
+                </div>
+                <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{SCOPE_LABELS[e.scope] || e.scope || "—"}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "1px solid var(--border-strong)", color: "var(--text-muted)", borderRadius: 6, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

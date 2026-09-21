@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
-import { fmtDate, formatDetailText } from "../../../lib/helpers";
+import { fmtDate, formatDetailText, fetchAllRows } from "../../../lib/helpers";
 import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, GATE_TICKET_TYPES, CO_TRONG_NET_DRAFT_DEFAULTS, GatePopupShell, GatePanelTrigger } from "../../../lib/GateFields";
 import { META_ITEMS, REQUIRED_META_KEYS } from "../../../lib/metadataChecklist";
 import QuickCreate from "../../../lib/QuickCreate";
@@ -2410,6 +2410,16 @@ function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requir
   const [channels, setChannels] = useState([]);
   const [artistsList, setArtistsList] = useState([]);
   const [labelsList, setLabelsList] = useState([]);
+  // Round 396 — distinct shared_label values already used across every
+  // release's split_share_entries, feeding GateFields' new SharedLabelInput
+  // ("splitshare label field now searchable (by typing in)"). Fetched
+  // once per page load, not per release — the whole point is catching a
+  // typo'd near-duplicate against what's ALREADY out there app-wide, not
+  // just this one release's own history. split_share_entries is a jsonb
+  // array column, not a plain scalar, so this can't be a single indexed
+  // SQL DISTINCT — fetchAllRows pages past Supabase's row cap pulling
+  // just that one column, then the distinct/sort happens client-side.
+  const [sharedLabels, setSharedLabels] = useState([]);
   const [labelDraft, setLabelDraft] = useState(form.label || "");
   // Round 173 — MV type (canva_status) used to reveal its picker inline the
   // moment meta_mv was ticked "Yes". Per explicit request ("every tick...
@@ -2466,6 +2476,11 @@ function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requir
       });
     supabase.from("artists").select("id, stage_name, labels(label_name)").order("stage_name").then(({ data }) => setArtistsList(data || []));
     supabase.from("labels").select("label_name").order("label_name").then(({ data }) => setLabelsList(data || []));
+    fetchAllRows(() => supabase.from("releases").select("split_share_entries").not("split_share_entries", "is", null)).then(({ data }) => {
+      const set = new Set();
+      (data || []).forEach((r) => (r.split_share_entries || []).forEach((e) => { if (e?.shared_label?.trim()) set.add(e.shared_label.trim()); }));
+      setSharedLabels([...set].sort((a, b) => a.localeCompare(b)));
+    });
   }, []);
 
   return (
@@ -3036,6 +3051,7 @@ function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requir
           ticketMap={gateTicketMap}
           sonyPublishMetaReady={requiredMetaDoneLive === REQUIRED_META_KEYS.length}
           publishingHdLocked={publishingHdLocked}
+          sharedLabels={sharedLabels}
         />
 
         {/* Moved here from the old "Pre-release & Note" tab, right before

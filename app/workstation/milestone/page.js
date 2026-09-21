@@ -140,7 +140,11 @@ function findPriorRows(entries, platform, chart, today) {
 // and its Telegram digest); AR/Marketing get read-only Log access only
 // (see TEAM_WORKSTATION_TYPES's round-235 comment in lib/teamTypes.js).
 // dev sees everything, same as every other team-gated page in this app.
-const FULL_ACCESS_TABS = [["input", "Input"], ["report", "Report"], ["log", "Log"]];
+// Round 396 — "Implement" added: one-off milestones that aren't on any
+// of the fixed Input charts (see ImplementPanel below for the full
+// reasoning). Same OPS-only gate as Input/Report — this is active data
+// entry, not the read-only history Log gives AR/Marketing.
+const FULL_ACCESS_TABS = [["input", "Input"], ["implement", "Implement"], ["report", "Report"], ["log", "Log"]];
 const LOG_ONLY_TABS = [["log", "Log"]];
 
 // Round 242 — how far back the eager Report/Input load reaches. Report's
@@ -675,6 +679,8 @@ export default function MilestoneWorkstation() {
                 </button>
               ))}
             </div>
+          ) : tab === "implement" ? (
+            <ImplementPanel styles={styles} onSaved={refreshAfterSave} />
           ) : tab === "report" ? (
             <ReportAndHighlight digest={digest} highlight={highlight} report={report} highlightConfig={highlightConfig} />
           ) : (
@@ -1182,6 +1188,151 @@ function AutoGrowField({ value, onChange, style, ...props }) {
       style={{ resize: "none", overflow: "hidden", whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.4, ...style }}
       {...props}
     />
+  );
+}
+
+// Round 396 — "add a tab for implement. Like if its not in any of the
+// chart item. and it's just a one off. No repeat or low repeat. They can
+// add it somewhere and it will register in the log". Every existing save
+// path (saveRows above) is built around the fixed PLATFORM_CHARTS
+// structure — pick a platform, pick one of ITS predefined charts, one row
+// per song. That's the wrong shape for a genuine one-off ("we hit #1 on
+// some platform/list that isn't in the regular rotation, this won't
+// repeat, just log it") — forcing it through the regular Input flow would
+// mean either inventing a fake permanent chart entry for something that
+// happens once, or not recording it at all.
+//
+// No schema change needed: milestone_chart_entries.platform/chart are
+// already plain free text (see sql/reference/prod_schema_clean.sql — only
+// entry_date/track_title/artist/rank are constrained), so this just
+// writes a normal row with whatever platform/chart text the person types,
+// same table, same unique key (chart, track_title, artist, entry_date)
+// as every other row. The Log tab already renders every
+// milestone_chart_entries row with no PLATFORM_CHARTS filtering (see
+// logTableEl/LogTable above) — a one-off row shows up there automatically
+// the moment it's saved, exactly per "it will register in the log", with
+// zero changes needed to Log itself.
+//
+// Deliberately its own plain insert, not saveRows' delete-then-upsert —
+// that function clears every OTHER row already saved for the same
+// (platform, chart, date) before writing, which is correct for "here's
+// today's full, authoritative list for this recurring chart" but wrong
+// for "add one more one-off note without touching anything else."
+function ImplementPanel({ styles, onSaved }) {
+  const EMPTY = { platform: "", chart: "", track_title: "", artist: "", rank: "1", entry_date: todayStr(), did: "", drive_link: "" };
+  const [form, setForm] = useState(EMPTY);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  // Session-only feedback list ("what did I just log?") — not a second
+  // source of truth, Log itself is that; this just saves a trip over
+  // there to confirm the last few one-offs actually saved. Cleared on
+  // page reload, same as any other purely-local UI state in this file.
+  const [justAdded, setJustAdded] = useState([]);
+
+  function set(key, value) {
+    setForm((f) => ({ ...f, [key]: value }));
+    setError(null);
+  }
+
+  async function handleSave() {
+    const chart = form.chart.trim();
+    const track_title = form.track_title.trim();
+    const rank = parseInt(form.rank, 10);
+    if (!chart) return setError("What happened / chart name can't be blank — this is what tells it apart from a regular chart in the Log.");
+    if (!track_title) return setError("Track title can't be blank.");
+    if (!Number.isFinite(rank)) return setError("Rank has to be a number — if there's no real rank for this one-off, any placeholder number (e.g. 1) is fine, it's just a required column.");
+
+    setSaving(true);
+    const row = {
+      platform: form.platform.trim() || null,
+      chart,
+      track_title,
+      artist: form.artist.trim(),
+      rank,
+      entry_date: form.entry_date || todayStr(),
+      did: form.did.trim() || null,
+      drive_link: form.drive_link.trim() || null,
+    };
+    const { error: insertError } = await supabase.from("milestone_chart_entries").insert(row);
+    setSaving(false);
+    if (insertError) {
+      // 23505 = the same natural-key unique constraint every other save
+      // in this file relies on (chart, track_title, artist, entry_date) —
+      // most likely cause here is clicking Save twice on the same entry.
+      setError(
+        insertError.code === "23505"
+          ? "Already logged — a row with this exact chart/song/artist/date is already saved."
+          : `Failed to save: ${insertError.message}`
+      );
+      return;
+    }
+    setJustAdded((prev) => [{ ...row }, ...prev].slice(0, 10));
+    setForm((f) => ({ ...EMPTY, entry_date: f.entry_date })); // keep the date, clear everything else
+    onSaved();
+  }
+
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: 0 }}>
+        For a one-off milestone that isn't on any of the regular Input charts and isn't expected to repeat (or repeats too rarely to earn its own
+        permanent chart) — log it here once and it shows up in the Log tab like any other entry, no new chart needed.
+      </p>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div className={styles.field} style={{ minWidth: 160 }}>
+          <label className={styles.fieldLabel}>Platform (optional)</label>
+          <input className={styles.input} value={form.platform} onChange={(e) => set("platform", e.target.value)} placeholder="e.g. TikTok, or leave blank" />
+        </div>
+        <div className={styles.field} style={{ flex: 1, minWidth: 220 }}>
+          <label className={styles.fieldLabel}>What happened / Chart name</label>
+          <input className={styles.input} value={form.chart} onChange={(e) => set("chart", e.target.value)} placeholder="e.g. Featured on XYZ Editorial Playlist" />
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+        <div className={styles.field} style={{ flex: 1, minWidth: 200 }}>
+          <label className={styles.fieldLabel}>Track Title</label>
+          <input className={styles.input} value={form.track_title} onChange={(e) => set("track_title", e.target.value)} />
+        </div>
+        <div className={styles.field} style={{ flex: 1, minWidth: 160 }}>
+          <label className={styles.fieldLabel}>Artist (optional)</label>
+          <input className={styles.input} value={form.artist} onChange={(e) => set("artist", e.target.value)} />
+        </div>
+        <div className={styles.field} style={{ width: 90 }}>
+          <label className={styles.fieldLabel}>Rank</label>
+          <input className={styles.input} value={form.rank} onChange={(e) => set("rank", e.target.value)} placeholder="1" />
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+        <div className={styles.field} style={{ width: 160 }}>
+          <label className={styles.fieldLabel}>Date</label>
+          <input type="date" className={styles.input} value={form.entry_date} onChange={(e) => set("entry_date", e.target.value)} />
+        </div>
+        <div className={styles.field} style={{ flex: 1, minWidth: 140 }}>
+          <label className={styles.fieldLabel}>DID (optional)</label>
+          <input className={styles.input} value={form.did} onChange={(e) => set("did", e.target.value)} />
+        </div>
+        <div className={styles.field} style={{ flex: 1, minWidth: 160 }}>
+          <label className={styles.fieldLabel}>Drive Link (optional)</label>
+          <input className={styles.input} value={form.drive_link} onChange={(e) => set("drive_link", e.target.value)} />
+        </div>
+      </div>
+      {error && <p style={{ color: "var(--error-fg)", fontSize: 12, marginTop: 8 }}>{error}</p>}
+      <button className={styles.btnPrimary} style={{ marginTop: 12 }} onClick={handleSave} disabled={saving}>
+        {saving ? "Saving…" : "+ Log It"}
+      </button>
+
+      {justAdded.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 6 }}>Logged just now (this session) — also in the Log tab:</div>
+          {justAdded.map((r, i) => (
+            <div key={i} style={{ fontSize: 12, padding: "6px 10px", borderBottom: "1px solid var(--border)", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ color: "var(--text-faint)" }}>{r.entry_date}</span>
+              <span>{r.platform ? `${r.platform} — ` : ""}{r.chart}</span>
+              <span style={{ color: "var(--text-muted)" }}>{r.track_title}{r.artist ? ` · ${r.artist}` : ""}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

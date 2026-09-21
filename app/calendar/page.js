@@ -326,6 +326,12 @@ export default function CalendarPage() {
       if (!groups[lane]) groups[lane] = [];
       groups[lane].push(r);
     });
+    // Round 397 — "per group of week, sort by date later date on top": within
+    // each lane, show the latest release_date first instead of inheriting the
+    // original ascending query order.
+    Object.keys(groups).forEach((lane) => {
+      groups[lane].sort((a, b) => new Date(b.release_date) - new Date(a.release_date));
+    });
     return Object.keys(groups).sort(laneSort).map((lane) => ({ lane, items: groups[lane] }));
   }
 

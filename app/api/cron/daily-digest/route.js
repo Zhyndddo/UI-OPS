@@ -148,22 +148,48 @@ async function buildDigest(supabase) {
     if (count !== null) workstationRows.push({ label: WORKSTATION_TYPE_LABELS[key] || key, count });
   }
 
+  // Round 396 — "digest email: also add ticket counter table". The
+  // existing `ticketRows` above is TODAY's activity only (sent today /
+  // completed today) — this is different: the total currently-open
+  // (not-done) count per ticket type, right now, regardless of when it
+  // was created. Same getNotDoneCount("ticket", ...) helper the Report
+  // Conflict/task-table pages already use for exactly this number (kind
+  // "ticket" was already implemented there, just never called from this
+  // route) — { role: "dev" } for the same "full picture, not filtered to
+  // one team's view" reason workstationRows already uses it above, not
+  // any real signed-in caller.
+  const ticketNotDoneRows = [];
+  for (const tab of tabs || []) {
+    const count = await getNotDoneCount("ticket", tab.key, { role: "dev" });
+    if (count !== null) ticketNotDoneRows.push({ label: TICKET_TYPE_LABELS[tab.key] || tab.label, count });
+  }
+
   const missingDataRows = await buildMissingDataRows(supabase);
 
-  return { date, ticketRows, workstationRows, missingDataRows };
+  return { date, ticketRows, ticketNotDoneRows, workstationRows, missingDataRows };
 }
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function renderDigestHtml({ date, ticketRows, workstationRows, missingDataRows }, customNote) {
+function renderDigestHtml({ date, ticketRows, ticketNotDoneRows, workstationRows, missingDataRows }, customNote) {
   const ticketTable = ticketRows.length
     ? `<table cellpadding="6" style="border-collapse:collapse;width:100%">
         <tr style="text-align:left;border-bottom:1px solid #ccc"><th>Ticket Type</th><th>Sent Today</th><th>Completed Today</th></tr>
         ${ticketRows.map((r) => `<tr style="border-bottom:1px solid #eee"><td>${escapeHtml(r.label)}</td><td>${r.sent}</td><td>${r.completed}</td></tr>`).join("")}
       </table>`
     : `<p style="color:#888">No ticket activity today.</p>`;
+
+  // Round 396 — separate from ticketTable above: total currently-open
+  // count per ticket type (not just what moved today), same idiom as
+  // workstationTable right below it.
+  const ticketCounterTable = (ticketNotDoneRows || []).length
+    ? `<table cellpadding="6" style="border-collapse:collapse;width:100%">
+        <tr style="text-align:left;border-bottom:1px solid #ccc"><th>Ticket Type</th><th>Not Done</th></tr>
+        ${ticketNotDoneRows.map((r) => `<tr style="border-bottom:1px solid #eee"><td>${escapeHtml(r.label)}</td><td>${r.count}</td></tr>`).join("")}
+      </table>`
+    : `<p style="color:#888">No ticket counts available.</p>`;
 
   const workstationTable = workstationRows.length
     ? `<table cellpadding="6" style="border-collapse:collapse;width:100%">
@@ -203,6 +229,8 @@ function renderDigestHtml({ date, ticketRows, workstationRows, missingDataRows }
       ${customNote ? `<p style="background:#f5f5f5;border-radius:6px;padding:10px 14px;white-space:pre-wrap">${escapeHtml(customNote)}</p>` : ""}
       <h3>Tickets</h3>
       ${ticketTable}
+      <h3 style="margin-top:24px">Ticket Counter — Not Done</h3>
+      ${ticketCounterTable}
       <h3 style="margin-top:24px">Workstation — Not Done</h3>
       ${workstationTable}
       <h3 style="margin-top:24px">Missing Data</h3>

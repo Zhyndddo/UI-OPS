@@ -131,6 +131,11 @@ const RELEASE_COLUMNS = [
   // Round 302 — the dashboard's own AR PIC, separate from the New Release
   // Setup/Upload workstation's own OPS PIC (workstation_assignments).
   "ar_pic_profile_id",
+  // Round 396 — Split Share's entries (lib/GateFields.js's split_share_
+  // entries editor), for the small "label (%), label2 (%)" subrow under
+  // the Label column's main value — see splitShareSummary()/case "label"
+  // below.
+  "split_share_entries",
 ].join(", ");
 
 // Mirrors app/workstation/pitching/page.js's DONE_VALUE/CANCEL_VALUES so the
@@ -148,6 +153,18 @@ function pitchingStatusFor(release, key) {
   if (key === "nct") return release?.pitching_status_nct;
   if (key === "zing") return release?.pitching_status_zing;
   return null;
+}
+
+// Round 396 — "on the dashboard index, inside column label -> add label
+// marked in share syntax 'label (%), label 2 (%)' smaller under main
+// label". Same summary format lib/GateFields.js's own Split Share panel
+// already shows above its "Split Share →" button
+// (`${e.shared_label || "—"} (${e.percentage || "?"}%)`) — reused here
+// verbatim so the two places agree on how a split reads, rather than
+// inventing a second phrasing for the same data.
+function splitShareSummary(entries) {
+  if (!entries || entries.length === 0) return null;
+  return entries.map((e) => `${e.shared_label || "—"} (${e.percentage || "?"}%)`).join(", ");
 }
 
 // "Status Pitching" summary for a release, given the selected types from its
@@ -880,8 +897,15 @@ export default function ReleasesDashboard() {
             )}
           </td>
         );
-      case "label":
-        return <td key="label">{r.label || "—"}</td>;
+      case "label": {
+        const splitShare = splitShareSummary(r.split_share_entries);
+        return (
+          <td key="label">
+            {r.label || "—"}
+            {splitShare && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{splitShare}</div>}
+          </td>
+        );
+      }
       case "name":
         return (
           <td
