@@ -18,12 +18,16 @@ import styles from "../../shared.module.css";
 import pageStyles from "./page.module.css";
 
 // Round 317 — fixed platform display order for the new per-platform
-// counter strip (item 1) — same order app/booking-channels/page.js's own
-// BOOKING_PLATFORMS uses, so this page's summary reads in the same order
-// the admin page's own filters do. A platform value outside this list
-// (shouldn't happen, but never silently drop data) is appended after,
-// alphabetical.
-const PLATFORM_ORDER = ["TikTok", "Facebook", "Instagram", "YouTube", "Thread"];
+// counter strip (item 1) — originally matched app/booking-channels/
+// page.js's own BOOKING_PLATFORMS order 1:1. Round 398 — "new rule for
+// the table sort: platform facebook goes first", explicit request
+// scoped to this VSounder magic link page only (Facebook moved to the
+// front; the admin booking-channels page's own BOOKING_PLATFORMS order
+// is untouched, so the two intentionally diverge now). Feeds both the
+// counter strip above the table and the table's own row sort
+// (sortChannelRows below). A platform value outside this list (shouldn't
+// happen, but never silently drop data) is appended after, alphabetical.
+const PLATFORM_ORDER = ["Facebook", "TikTok", "Instagram", "YouTube", "Thread"];
 
 // Round 305 — public, no-login magic link for the channel reference list,
 // per explicit request ("generate a vercel magiclink for the table...

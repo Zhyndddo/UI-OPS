@@ -1,14 +1,12 @@
 "use client";
 
 import AppShell from "../../lib/AppShell";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import QuickCreate from "../../lib/QuickCreate";
 import UrlField from "../../lib/UrlField";
-import { fetchAllRows } from "../../lib/helpers";
-import { usePagination } from "../../lib/usePagination";
 import Pagination from "../../lib/Pagination";
-import SearchBox, { matchesQuery } from "../../lib/SearchBox";
+import SearchBox from "../../lib/SearchBox";
 import styles from "../shared.module.css";
 
 const DSP_FIELDS = [
@@ -34,42 +32,96 @@ const ARTIST_COLUMNS = [
   "spotify_url", "apple_url", "tiktok_url", "facebook_url", "zing_url", "nct_url",
 ].join(", ");
 
+// Round 398 — real server-side pagination (see project doc
+// "server-side-pagination-pitch.md"). This page used to pull the ENTIRE
+// artists table (fetchAllRows, no .range()) on every visit — every one of
+// this Supabase project's tables costs egress bandwidth on every fetch,
+// and this page was one of the still-unconverted ~25 the pitch doc flags.
+// Same shape as the Round 247 conversion of app/releases/page.js, just
+// simpler: no stat cards, no multi-dimension filters, no sort toggle here
+// (this page never had one) — just a paginated + searched fetch.
+//
+// Search used to be lib/SearchBox.js's matchesQuery — a client-side
+// JSON.stringify(row).includes(query) match against EVERY field, which
+// only worked because the whole table was already in memory. Server-side
+// that has no equivalent (can't ilike a JSON blob across a join
+// cheaply), so search here is now scoped to the fields someone would
+// actually type an artist search against — stage_name, real_name, email,
+// note — same "narrow to the fields that matter" tradeoff Round 247 made
+// for the Dashboard's title/main_artist/label search.
+function escapeOrFilterValue(v) {
+  return `"${String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function buildArtistsQuery({ page, pageSize, searchTerm }) {
+  let q = supabase.from("artists").select(`${ARTIST_COLUMNS}, labels(label_name)`, { count: "exact" });
+  if (searchTerm) {
+    const val = escapeOrFilterValue(`%${searchTerm}%`);
+    q = q.or(`stage_name.ilike.${val},real_name.ilike.${val},email.ilike.${val},note.ilike.${val}`);
+  }
+  q = q.order("stage_name").order("id");
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+  return q.range(from, to);
+}
+
 export default function ArtistsPage() {
-  const [artists, setArtists] = useState([]);
+  const [artists, setArtists] = useState([]); // current PAGE only, not the whole table
+  const [totalRows, setTotalRows] = useState(0);
   const [labels, setLabels] = useState([]);
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState(null);
-  // Round 113 — quick index / search box, same shared pattern as the
-  // Labels reference table (lib/SearchBox.js's matchesQuery — pure
-  // client-side substring match against the row). Filtering happens
-  // before pagination so "page 1 of 3" reflects the filtered set, not
-  // the full table.
+  const [loading, setLoading] = useState(true);
+  // Round 113 — quick index / search box. Round 398 — now fires a real
+  // query (debounced) instead of filtering an already-fully-loaded array.
   const [searchQuery, setSearchQuery] = useState("");
-  const filteredArtists = artists.filter((a) => matchesQuery(a, searchQuery));
-  const { pageRows: pagedArtists, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(filteredArtists);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
 
-  async function load() {
-    // Round 112 — was a plain select() with no pagination anywhere: past
-    // Supabase/PostgREST's 1000-row default cap this silently truncated
-    // the list (same bug class as Round 59/60's Dashboard fix — see
-    // fetchAllRows' comment in lib/helpers.js), and even under 1000 rows,
-    // mounting every row into the DOM at once (each with 6 stateful
-    // UrlField DSP-link inputs) is what was making the page laggy to load.
-    // fetchAllRows fixes the truncation; usePagination below (same
-    // pattern as app/booking/page.js and app/releases/page.js) fixes the
-    // render-time lag by only mounting one page of rows at a time.
-    // Round 113 — select(ARTIST_COLUMNS) instead of select("*") cuts the
-    // payload down to what's actually rendered (see ARTIST_COLUMNS above).
-    const { data: a } = await fetchAllRows(() =>
-      supabase.from("artists").select(`${ARTIST_COLUMNS}, labels(label_name)`).order("stage_name").order("id")
-    );
-    const { data: l } = await supabase.from("labels").select("id, label_name").order("label_name");
-    setArtists(a || []);
-    setLabels(l || []);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery), 350);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  // Search change snaps back to page 1 — same behavior the old client
+  // filter got for free via usePagination's own re-clamp effect.
+  const firstSearchRunRef = useRef(true);
+  useEffect(() => {
+    if (firstSearchRunRef.current) { firstSearchRunRef.current = false; return; }
+    setPage(1);
+  }, [debouncedSearch]);
+
+  async function load({ page: p = page, pageSize: ps = pageSize, searchTerm = debouncedSearch } = {}) {
+    setLoading(true);
+    const { data, count, error: err } = await buildArtistsQuery({ page: p, pageSize: ps, searchTerm });
+    if (!err) {
+      setArtists(data || []);
+      setTotalRows(count || 0);
+      // A delete (or a search/pageSize change) narrowing the result set
+      // while sitting on a later page — snap back into range instead of
+      // an empty table with no obvious way back. Same guard app/releases/
+      // page.js's Round 247 conversion uses.
+      const totalPagesNow = Math.max(1, Math.ceil((count || 0) / ps));
+      if (p > totalPagesNow) setPage(totalPagesNow);
+    }
+    setLoading(false);
   }
 
   useEffect(() => {
-    if (supabase) load();
+    if (!supabase) return;
+    load({ page, pageSize, searchTerm: debouncedSearch });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize, debouncedSearch]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    // Labels stay a plain full fetch — it's a small reference table (one
+    // row per label, not per release/artist), nowhere near the size that
+    // makes pagination worthwhile, and every row is needed anyway to
+    // populate the Label dropdown/autocomplete.
+    supabase.from("labels").select("id, label_name").order("label_name").then(({ data }) => setLabels(data || []));
   }, []);
 
   async function addArtist(e) {
@@ -84,7 +136,11 @@ export default function ArtistsPage() {
     if (err) setError(err.message);
     else {
       setForm(EMPTY);
-      load();
+      // Jump to page 1 (alphabetical order, so a fresh artist could land
+      // anywhere) so the person sees it landed instead of wondering
+      // whether the add actually worked.
+      setPage(1);
+      load({ page: 1, pageSize, searchTerm: debouncedSearch });
     }
   }
 
@@ -106,7 +162,11 @@ export default function ArtistsPage() {
       window.alert(`Couldn't delete: ${err.message}`);
       return;
     }
-    setArtists((prev) => prev.filter((a) => a.id !== artist.id));
+    // Refetch the current page rather than just filtering the deleted row
+    // out locally — with server-side pagination the next row down needs
+    // to slide in from the server, and the total count needs to stay
+    // accurate for the Pagination footer.
+    load();
   }
 
   return (
@@ -155,14 +215,19 @@ export default function ArtistsPage() {
           DSP links and Note are editable directly in the table below, after creating.
         </p>
 
-        {artists.length > 0 && (
-          <SearchBox value={searchQuery} onChange={(v) => { setSearchQuery(v); setPage(1); }} placeholder="Search artists…" />
+        {/* Round 398 — was gated on `artists.length > 0` (the full table);
+            now `artists` only ever holds the current page, so that check
+            can't tell "empty table" from "just haven't fetched yet" —
+            show the box once loading settles, keep it up while a search
+            is active even if it currently matches nothing. */}
+        {!loading && (totalRows > 0 || debouncedSearch) && (
+          <SearchBox value={searchQuery} onChange={(v) => setSearchQuery(v)} placeholder="Search artists…" />
         )}
 
-        {artists.length === 0 ? (
-          <div className={styles.emptyState}>No artists yet.</div>
-        ) : filteredArtists.length === 0 ? (
-          <div className={styles.emptyState}>No artists match this search.</div>
+        {loading ? (
+          <div className={styles.emptyState}>Loading…</div>
+        ) : totalRows === 0 ? (
+          <div className={styles.emptyState}>{debouncedSearch ? "No artists match this search." : "No artists yet."}</div>
         ) : (
           <>
           <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
@@ -175,7 +240,7 @@ export default function ArtistsPage() {
               </tr>
             </thead>
             <tbody>
-              {pagedArtists.map((a) => (
+              {artists.map((a) => (
                 <ArtistRow key={a.id} artist={a} labels={labels} onUpdateField={updateField} onUpdateLabel={updateLabel} onDelete={deleteArtist} />
               ))}
             </tbody>
