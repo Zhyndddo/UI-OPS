@@ -171,6 +171,16 @@ function bumpItem(map, memberKey, colId, item) {
   map[key][colId].push(item);
 }
 
+// Round 412 — same idea as bumpItem, but for a plain per-member SET of
+// values (used for AR's "Projects" count below, which needs distinct
+// RELEASES, not a growing list of ticket rows — a member with 3 tickets
+// on the same release should count that release once, not three times).
+function addToSet(map, memberKey, value) {
+  const key = memberKey || UNASSIGNED;
+  if (!map[key]) map[key] = new Set();
+  map[key].add(value);
+}
+
 // Round 281 — requester-side attribution alongside the existing PIC/executor
 // one, see claude/audit-log-and-requester-attribution.md. requesterMap is
 // shaped exactly like the existing executor `map` (reuses bumpItem/countOf
@@ -191,9 +201,15 @@ function requesterColKey(tabKey, done) {
 // synchronously once ITS query resolves (JS has no real threads — two
 // `await`s never interleave mid-forEach), so nothing here needed to
 // change beyond how the queries are kicked off.
-async function loadTicketCounts(map, requesterMap) {
+// Round 412 — arProjectsMap param added: AR's "Projects" count, per
+// explicit formula ("every release input count as one (fill all check aka
+// no TBU left considered done), any request send out count as 1 per
+// project"). Filled from the SAME ticket rows this function already
+// fetches, same pattern as requesterMap — no extra queries.
+async function loadTicketCounts(map, requesterMap, arProjectsMap) {
   const { data: tabs } = await supabase.from("ticket_tabs").select("id, key").in("key", TICKET_KEYS);
   if (!tabs) return;
+  const arOwnedTypes = new Set(TEAM_TICKET_TYPES.AR || []);
   await Promise.all(tabs.map(async (tab) => {
     // Round 389 — .gte("created_at", ...) excludes June 2026-and-earlier
     // tickets straight from the query (created_at is never null, unlike a
@@ -210,6 +226,28 @@ async function loadTicketCounts(map, requesterMap) {
       if (t.requester_profile_id) {
         const item = { id: t.id, label: pickTicketLabel(t.data, t.id), href: TICKET_ROUTES[tab.key] };
         bumpItem(requesterMap, t.requester_profile_id, requesterColKey(tab.key, !isTicketUndone(tab.key, t.status)), item);
+
+        // Round 412 — "any request send out count as 1 per project": every
+        // AR-owned ticket type's requester contributes the release it's on
+        // (deduped by addToSet, ANY status — a sent-out request counts
+        // whether or not it's been resolved yet).
+        if (arOwnedTypes.has(tab.key) && t.data?.releaseId) {
+          addToSet(arProjectsMap, t.requester_profile_id, t.data.releaseId);
+        }
+      }
+
+      // Round 412 — "every release input count as one (fill all check aka
+      // no TBU left considered done)": a COMPLETE Bổ Sung DATA ticket means
+      // its PIC(s) filled in that release's Metadata Checklist — counted
+      // for the PIC regardless of who requested it (requester there is
+      // usually OPS, see TEAM_TICKET_TYPES.OPS's comment above). Checked
+      // ahead of the isTicketUndone() early-return below, since COMPLETE is
+      // itself the "done" state this is supposed to count.
+      if (tab.key === "bo_sung_data" && t.status === "COMPLETE" && t.data?.releaseId) {
+        const completerIds = t.pic_profile_ids && t.pic_profile_ids.length > 0 ? t.pic_profile_ids : [t.pic_profile_id];
+        completerIds.forEach((picId) => {
+          if (picId) addToSet(arProjectsMap, picId, t.data.releaseId);
+        });
       }
 
       if (!isTicketUndone(tab.key, t.status)) return;
@@ -383,6 +421,16 @@ function countOf(memberItems, memberId, colId) {
   return (memberItems[memberId || UNASSIGNED]?.[colId] || []).length;
 }
 
+// Round 412 — total requested-ticket count (open + done, every ticket
+// type) for TeamSection's new "Requested" column. Reuses requesterItems as-
+// is (same map RequestedSection already reads) — just summed across every
+// ticket:<key>:open/:done bucket instead of shown per-type, since the org-
+// wide table has no room for one column per ticket type per team.
+function requesterTotal(requesterItems, memberId) {
+  const perColumn = requesterItems[memberId] || {};
+  return Object.keys(perColumn).reduce((sum, colId) => (colId.startsWith("ticket:") ? sum + (perColumn[colId]?.length || 0) : sum), 0);
+}
+
 // Round 281 — which ticket-type columns to show in a person's "Requested by
 // You" section. Deliberately NOT columnsForTeam(profile.segment) — a
 // requester's own team and the team that executes their ticket is often a
@@ -412,11 +460,21 @@ function requesterColumnsWithData(requesterItems, profileId) {
 
 // ---- Old-style org-wide section (dev/admin/teamlead's whole view, and the
 // "My Team" tab's single-team version) ----
-function TeamSection({ segment, members, memberItems, title }) {
+// Round 412 — requesterItems/arProjectsCounts params added, per the
+// explicit complaint that AR/Marketing's org-wide sections look "stale"
+// (executor-only, and AR is structurally a requester-side team for almost
+// everything it owns — see claude/pending-tasks.md's Round 412 note). Two
+// additive columns, both placed BEFORE the existing Total so Total's
+// existing meaning (sum of the executor columns) doesn't change:
+//  - "Requested" — every team, per "every team (Recommended)" answer.
+//  - "Projects" — AR only, per the user's own counting formula (see
+//    loadTicketCounts's arProjectsMap comments above).
+function TeamSection({ segment, members, memberItems, title, requesterItems, arProjectsCounts }) {
   const columns = columnsForTeam(segment);
   const unsupported = unsupportedWorkstationsForTeam(segment);
   const sortedMembers = [...members].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   const teamHasUnassigned = columns.some((c) => countOf(memberItems, UNASSIGNED, c.id) > 0);
+  const isAR = resolveTeamKey(segment) === "AR";
 
   return (
     <div style={{ marginBottom: 32 }}>
@@ -430,6 +488,8 @@ function TeamSection({ segment, members, memberItems, title }) {
               <tr>
                 <th>Member</th>
                 {columns.map((c) => <th key={c.id}>{c.name}</th>)}
+                <th>Requested</th>
+                {isAR && <th>Projects</th>}
                 <th>Total</th>
               </tr>
             </thead>
@@ -443,6 +503,8 @@ function TeamSection({ segment, members, memberItems, title }) {
                       const n = countOf(memberItems, m.id, c.id);
                       return <td key={c.id}>{n ? <Link href={c.href} className={styles.rowLink}>{n}</Link> : <span style={{ color: "var(--text-faint)" }}>0</span>}</td>;
                     })}
+                    <td>{(() => { const n = requesterTotal(requesterItems, m.id); return n ? n : <span style={{ color: "var(--text-faint)" }}>0</span>; })()}</td>
+                    {isAR && <td>{(() => { const n = arProjectsCounts?.[m.id] || 0; return n ? n : <span style={{ color: "var(--text-faint)" }}>0</span>; })()}</td>}
                     <td style={{ fontWeight: 700 }}>{total}</td>
                   </tr>
                 );
@@ -454,6 +516,8 @@ function TeamSection({ segment, members, memberItems, title }) {
                     const n = countOf(memberItems, UNASSIGNED, c.id);
                     return <td key={c.id}>{n ? <Link href={c.href} className={styles.rowLink}>{n}</Link> : <span style={{ color: "var(--text-faint)" }}>0</span>}</td>;
                   })}
+                  <td style={{ color: "var(--text-faint)" }}>0</td>
+                  {isAR && <td style={{ color: "var(--text-faint)" }}>0</td>}
                   <td style={{ fontWeight: 700 }}>{columns.reduce((sum, c) => sum + countOf(memberItems, UNASSIGNED, c.id), 0)}</td>
                 </tr>
               )}
@@ -827,6 +891,10 @@ export default function TaskTablePage() {
   // (loadTicketCounts fills both in one pass over the same ticket rows) —
   // see RequestedSection/requesterColumnsWithData below.
   const [requesterItems, setRequesterItems] = useState({});
+  // Round 412 — AR's "Projects" column, keyed by profile id to a plain
+  // count (converted from arProjectsMap's per-member Sets right after
+  // load — TeamSection just needs the number, not the dedup machinery).
+  const [arProjectsCounts, setArProjectsCounts] = useState({});
   const [loading, setLoading] = useState(true);
 
   // "mine" | "team" — only meaningful for role "exc"; dev/admin/teamlead
@@ -857,9 +925,11 @@ export default function TaskTablePage() {
       setProfiles(profs || []);
       const map = {};
       const reqMap = {};
-      await Promise.all([loadTicketCounts(map, reqMap), loadWorkstationCounts(map), loadSubteamProjectCounts(map, profs || [])]);
+      const arProjectsMap = {};
+      await Promise.all([loadTicketCounts(map, reqMap, arProjectsMap), loadWorkstationCounts(map), loadSubteamProjectCounts(map, profs || [])]);
       setMemberItems(map);
       setRequesterItems(reqMap);
+      setArProjectsCounts(Object.fromEntries(Object.entries(arProjectsMap).map(([id, set]) => [id, set.size])));
       setLoading(false);
     })();
   }, []);
@@ -951,6 +1021,8 @@ export default function TaskTablePage() {
                   segment={isOpsAdminSplit ? "OPS" : segment}
                   members={profiles.filter((p) => (isOpsAdminSplit ? p.segment === "OPS" && p.subteam === segment : p.segment === segment) && p.name.toLowerCase().includes(memberQuery.trim().toLowerCase()))}
                   memberItems={memberItems}
+                  requesterItems={requesterItems}
+                  arProjectsCounts={arProjectsCounts}
                   title={segment}
                 />
               ))
@@ -958,10 +1030,10 @@ export default function TaskTablePage() {
           ) : (
             <>
               {sections.map((segment) => (
-                <TeamSection key={segment} segment={segment} members={profiles.filter((p) => p.segment === segment && p.name.toLowerCase().includes(memberQuery.trim().toLowerCase()))} memberItems={memberItems} />
+                <TeamSection key={segment} segment={segment} members={profiles.filter((p) => p.segment === segment && p.name.toLowerCase().includes(memberQuery.trim().toLowerCase()))} memberItems={memberItems} requesterItems={requesterItems} arProjectsCounts={arProjectsCounts} />
               ))}
               {noSegmentProfiles.filter((p) => p.name.toLowerCase().includes(memberQuery.trim().toLowerCase())).length > 0 && (
-                <TeamSection segment="No Team" members={noSegmentProfiles.filter((p) => p.name.toLowerCase().includes(memberQuery.trim().toLowerCase()))} memberItems={memberItems} title="No Team" />
+                <TeamSection segment="No Team" members={noSegmentProfiles.filter((p) => p.name.toLowerCase().includes(memberQuery.trim().toLowerCase()))} memberItems={memberItems} requesterItems={requesterItems} arProjectsCounts={arProjectsCounts} title="No Team" />
               )}
             </>
           )}

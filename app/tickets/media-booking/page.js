@@ -2837,6 +2837,8 @@ function PackagesPanel({
                   Board already has (see app/booking/page.js), now also
                   reachable from inside the ticket itself instead of only
                   from the board. */}
+              {/* Round 413 — relabeled from "🔗 Linkfire", same URL source
+                  (see app/booking/page.js's matching button). */}
               <a
                 href={linkfireUrl}
                 target="_blank"
@@ -2844,7 +2846,7 @@ function PackagesPanel({
                 className={styles.btnSecondary}
                 style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
               >
-                🔗 Linkfire
+                🔗 Short Links
               </a>
               <button onClick={onHide} title="Hide this panel — the package stays as-is" style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer" }}>✕</button>
             </div>

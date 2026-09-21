@@ -1131,6 +1131,10 @@ export default function BookingBoard() {
                 this app, this is just a fast door to it. URL is now
                 admin-editable (Config → External Tool Links) rather than
                 hardcoded — see linkfireUrl/load() above. */}
+            {/* Round 413 — relabeled from "🔗 Linkfire" — same button, same
+                admin-editable URL (Tools Directory → Short Links Tool
+                card), just pointed at the team's own internal short-link
+                tool now instead of Linkfire's dashboard. */}
             <a
               href={linkfireUrl}
               target="_blank"
@@ -1138,7 +1142,7 @@ export default function BookingBoard() {
               className={styles.btnSecondary}
               style={{ textDecoration: "none", display: "inline-flex", alignItems: "center" }}
             >
-              🔗 Linkfire
+              🔗 Short Links
             </a>
             <button className={styles.btnSecondary} onClick={exportCsv}>⇩ Export CSV</button>
           </div>

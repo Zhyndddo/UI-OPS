@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
@@ -10,6 +10,9 @@ import {
   DEFAULT_TOOL_DIRECTORY,
   mergeToolDirectory,
   TEAM_LABELS,
+  DIRECTORY_TEAMS,
+  makeBucketKey,
+  makeToolKey,
 } from "../../lib/toolDirectory";
 import { MILESTONE_CHART_LINKS } from "../../lib/milestoneChartLinks";
 import { buildZingPitchNote } from "../../lib/zingPitchNote";
@@ -33,8 +36,12 @@ export default function ToolDirectoryPage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const teams = useMemo(() => [...new Set(Object.values(DEFAULT_TOOL_DIRECTORY).map((b) => b.team))], []);
+  // Round 413 — fixed team list (see DIRECTORY_TEAMS's comment) instead of
+  // derived from whichever buckets happen to exist — AR/Marketing/Legal
+  // now show up as real tabs even with zero page groups yet.
+  const teams = DIRECTORY_TEAMS;
   const [activeTeam, setActiveTeam] = useState(null);
+  const [newGroupLabel, setNewGroupLabel] = useState("");
 
   useEffect(() => {
     if (!supabase) return;
@@ -54,7 +61,7 @@ export default function ToolDirectoryPage() {
       discoveryMode: artistRow?.value?.discoveryMode || "",
       linkfire: artistRow?.value?.linkfire || "",
     });
-    if (!activeTeam) setActiveTeam([...new Set(Object.values(DEFAULT_TOOL_DIRECTORY).map((b) => b.team))][0]);
+    if (!activeTeam) setActiveTeam(DIRECTORY_TEAMS[0]);
     setLoading(false);
   }
 
@@ -66,6 +73,46 @@ export default function ToolDirectoryPage() {
         tools: prev[bucketKey].tools.map((t) => (t.key === toolKey ? { ...t, ...patch } : t)),
       },
     }));
+  }
+
+  // Round 413 — "add new tools via a vanilla new button that redirect to
+  // the url i edit in the tool tables until i hardcode it in with
+  // behavior": a plain {key, label, url} tool, blank url, editable
+  // immediately via the same ToolCard input updateTool already writes
+  // through — no code change needed to add one. If a tool later needs
+  // real behavior (like Pitching's Zing generator above), that's still a
+  // code change — adding a `generator` key to this same object, same as
+  // the hardcoded ones — but the URL stays editable either way, per the
+  // explicit ask.
+  function addTool(bucketKey) {
+    const label = "New Tool";
+    setDirectory((prev) => ({
+      ...prev,
+      [bucketKey]: { ...prev[bucketKey], tools: [...prev[bucketKey].tools, { key: makeToolKey(label), label, url: "" }] },
+    }));
+  }
+
+  function removeTool(bucketKey, toolKey) {
+    setDirectory((prev) => ({
+      ...prev,
+      [bucketKey]: { ...prev[bucketKey], tools: prev[bucketKey].tools.filter((t) => t.key !== toolKey) },
+    }));
+  }
+
+  // Round 413 — lets a dev create a brand-new page group (bucket) under any
+  // team, not just edit the hardcoded OPS ones — this is what makes AR/
+  // Marketing/Legal actually usable instead of just showing an empty tab.
+  // route is left blank: TOOLS_BUTTON_ROUTES (lib/toolDirectory.js) is a
+  // separate hardcoded map for the per-page topbar button, and wiring a
+  // brand-new bucket into THAT still needs a real code change (which route
+  // it should show on) — an ad hoc bucket is reachable from this directory
+  // page only, which is exactly what was asked for here.
+  function addPageGroup(team) {
+    const label = newGroupLabel.trim();
+    if (!label) return;
+    const key = makeBucketKey(label);
+    setDirectory((prev) => ({ ...prev, [key]: { team, pageLabel: label, route: null, tools: [] } }));
+    setNewGroupLabel("");
   }
 
   async function save() {
@@ -136,6 +183,10 @@ export default function ToolDirectoryPage() {
                 ))}
               </div>
 
+              {bucketsForTeam.length === 0 && (
+                <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 20 }}>No page groups yet for this team.</div>
+              )}
+
               {bucketsForTeam.map(([bucketKey, bucket]) => (
                 <div key={bucketKey} style={{ marginBottom: 28 }}>
                   <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>{bucket.pageLabel}</div>
@@ -149,6 +200,7 @@ export default function ToolDirectoryPage() {
                         tool={tool}
                         editing={editing}
                         onChange={(patch) => updateTool(bucketKey, tool.key, patch)}
+                        onRemove={() => removeTool(bucketKey, tool.key)}
                       />
                     ))}
                     {bucketKey === "artistProfile" && (
@@ -156,11 +208,35 @@ export default function ToolDirectoryPage() {
                         <LegacyLinkCard label="Spotify for Artists" value={artistLinks.spotify} editing={editing} onChange={(v) => setArtistLinks((p) => ({ ...p, spotify: v }))} />
                         <LegacyLinkCard label="Apple Music for Artists" value={artistLinks.apple} editing={editing} onChange={(v) => setArtistLinks((p) => ({ ...p, apple: v }))} />
                         <LegacyLinkCard label="Discovery Mode Clip Tool" value={artistLinks.discoveryMode} editing={editing} onChange={(v) => setArtistLinks((p) => ({ ...p, discoveryMode: v }))} />
+                        {/* Round 413 — was write-only before this (Booking
+                            Board / Media Booking ticket both read this same
+                            "linkfire" field, but nothing in the UI could
+                            edit it — see externalTools.js's DEFAULT_
+                            LINKFIRE_URL comment). Restored here so "we
+                            change to shortlink recently" doesn't need
+                            another round next time it changes again. */}
+                        <LegacyLinkCard label="Short Links Tool (Booking Board / Media Booking)" value={artistLinks.linkfire} editing={editing} onChange={(v) => setArtistLinks((p) => ({ ...p, linkfire: v }))} />
                       </>
+                    )}
+                    {editing && (
+                      <button className={styles.btnSmall} style={{ alignSelf: "flex-start" }} onClick={() => addTool(bucketKey)}>+ Add Tool</button>
                     )}
                   </div>
                 </div>
               ))}
+
+              {editing && (
+                <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
+                  <input
+                    className={styles.input}
+                    style={{ fontSize: 12, maxWidth: 240 }}
+                    placeholder="New page group name…"
+                    value={newGroupLabel}
+                    onChange={(e) => setNewGroupLabel(e.target.value)}
+                  />
+                  <button className={styles.btnSmall} onClick={() => addPageGroup(activeTeam)} disabled={!newGroupLabel.trim()}>+ Add Page Group</button>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -169,7 +245,7 @@ export default function ToolDirectoryPage() {
   );
 }
 
-function ToolCard({ tool, editing, onChange }) {
+function ToolCard({ tool, editing, onChange, onRemove }) {
   if (tool.generator === "zingPitchNote") {
     return <ZingPitchCard tool={tool} />;
   }
@@ -177,8 +253,24 @@ function ToolCard({ tool, editing, onChange }) {
     return <NewReleasePreviewCard tool={tool} />;
   }
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 220 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{tool.label}</div>
+    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 220, position: "relative" }}>
+      {editing && onRemove && (
+        <button
+          onClick={onRemove}
+          title="Remove this tool"
+          style={{ position: "absolute", top: 4, right: 6, background: "none", border: "none", color: "var(--text-faint)", fontSize: 13, cursor: "pointer", lineHeight: 1 }}
+        >
+          ✕
+        </button>
+      )}
+      {/* Round 413 — label is now editable too (was URL-only), so a "+ Add
+          Tool" row (which starts as a bare "New Tool" placeholder) can
+          actually be renamed without touching code. */}
+      {editing ? (
+        <input className={styles.input} style={{ fontSize: 12, fontWeight: 700, marginBottom: 4, paddingRight: 20 }} value={tool.label || ""} onChange={(e) => onChange({ label: e.target.value })} placeholder="Tool name…" />
+      ) : (
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{tool.label}</div>
+      )}
       {editing ? (
         <input className={styles.input} style={{ fontSize: 11 }} value={tool.url || ""} onChange={(e) => onChange({ url: e.target.value })} placeholder="https://…" />
       ) : tool.url ? (
