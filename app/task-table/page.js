@@ -182,10 +182,19 @@ function requesterColKey(tabKey, done) {
   return `ticket:${tabKey}:${done ? "done" : "open"}`;
 }
 
+// Round 411 — was a `for (const tab of tabs) { await ... }` loop: ~29
+// ticket types, one sequential round-trip each, waiting for each query to
+// finish before starting the next. That's the main reason this page loads
+// slowly. Same query, same per-tab work, just fired concurrently via
+// Promise.all now instead of one at a time — bumpItem's map/requesterMap
+// mutations are still safe done this way: each tab's own `.forEach` runs
+// synchronously once ITS query resolves (JS has no real threads — two
+// `await`s never interleave mid-forEach), so nothing here needed to
+// change beyond how the queries are kicked off.
 async function loadTicketCounts(map, requesterMap) {
   const { data: tabs } = await supabase.from("ticket_tabs").select("id, key").in("key", TICKET_KEYS);
   if (!tabs) return;
-  for (const tab of tabs) {
+  await Promise.all(tabs.map(async (tab) => {
     // Round 389 — .gte("created_at", ...) excludes June 2026-and-earlier
     // tickets straight from the query (created_at is never null, unlike a
     // release's release_date, so this can filter server-side).
@@ -215,7 +224,7 @@ async function loadTicketCounts(map, requesterMap) {
         bumpItem(map, picId, `ticket:${tab.key}`, { id: t.id, label: pickTicketLabel(t.data, t.id), href: TICKET_ROUTES[tab.key] });
       });
     });
-  }
+  }));
 }
 
 async function loadAssignMap(workstationKeys) {
@@ -229,23 +238,35 @@ async function loadAssignMap(workstationKeys) {
   return out;
 }
 
+// Round 411 — these 4 queries don't depend on each other's results (each
+// reads its own set of releases/assignments independently, and only gets
+// combined via the shared `map` below), so they don't need to run one
+// after another either — same Promise.all fix as loadTicketCounts above.
 async function loadWorkstationCounts(map) {
-  const assignMap = await loadAssignMap(["upload", "confirm_phase1", "confirm_phase2", "pre_release"]);
+  const [assignMap, uploadsRes, confirmRes, preReleaseRes] = await Promise.all([
+    loadAssignMap(["upload", "confirm_phase1", "confirm_phase2", "pre_release"]),
+    // Round 389 — "release_date" added to every releases select below so
+    // isRecent() (see its comment up top) has something to check; filtered
+    // in JS rather than a query .gte() since release_date CAN be null
+    // (undated release) and null must stay IN, not be excluded by a plain
+    // date comparison.
+    supabase.from("releases").select("id, did, title, release_date, upload_status, link_lbm, link_share, smartlink, link_preorder, gate_pre_order").eq("requested", true),
+    fetchAllRows(() =>
+      supabase.from("releases").select([...DSP_CHECK_FIELDS, "id", "did", "title", "release_date", "link_lbm", "confirm_tag", "smartlink", "confirm_insta_sound", "confirm_tiktok_sound_updated", "confirm_smartlink_updated"].join(", ")).order("id")
+    ),
+    fetchAllRows(() =>
+      supabase.from("releases").select("id, did, title, release_date, canva_mv_status, canva_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric").order("id")
+    ),
+  ]);
+  const uploads = uploadsRes.data;
+  const confirmRows = confirmRes.data;
+  const preReleaseRows = preReleaseRes.data;
 
-  // Round 389 — "release_date" added to every releases select below so
-  // isRecent() (see its comment up top) has something to check; filtered
-  // in JS rather than a query .gte() since release_date CAN be null
-  // (undated release) and null must stay IN, not be excluded by a plain
-  // date comparison.
-  const { data: uploads } = await supabase.from("releases").select("id, did, title, release_date, upload_status, link_lbm, link_share, smartlink, link_preorder, gate_pre_order").eq("requested", true);
   (uploads || []).filter((r) => isRecent(r.release_date)).forEach((r) => {
     const pic = assignMap.upload?.[r.id];
     if (pic !== undefined && !isUploadDone(r)) bumpItem(map, pic, "workstation:upload", { id: r.id, label: releaseLabel(r), href: WORKSTATION_ROUTES.upload });
   });
 
-  const { data: confirmRows } = await fetchAllRows(() =>
-    supabase.from("releases").select([...DSP_CHECK_FIELDS, "id", "did", "title", "release_date", "link_lbm", "confirm_tag", "smartlink", "confirm_insta_sound", "confirm_tiktok_sound_updated", "confirm_smartlink_updated"].join(", ")).order("id")
-  );
   (confirmRows || []).filter((r) => isRecent(r.release_date)).forEach((r) => {
     // Round 250 — kept as two distinct columns (workstation:confirm_phase1
     // / _phase2) instead of the old merged "workstation:confirm" id, so
@@ -262,9 +283,6 @@ async function loadWorkstationCounts(map) {
     }
   });
 
-  const { data: preReleaseRows } = await fetchAllRows(() =>
-    supabase.from("releases").select("id, did, title, release_date, canva_mv_status, canva_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric").order("id")
-  );
   (preReleaseRows || []).filter((r) => isRecent(r.release_date)).forEach((r) => {
     const pic = assignMap.pre_release?.[r.id];
     if (pic !== undefined && !isPreReleaseDone(r)) bumpItem(map, pic, "workstation:pre_release", { id: r.id, label: releaseLabel(r), href: WORKSTATION_ROUTES.pre_release });

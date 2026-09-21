@@ -15,15 +15,16 @@ import styles from "../shared.module.css";
 // taking the result from the recent 3 weeks, last-this-next for data."
 // Clarified in follow-up: cards = releases, anchored to release_date.
 //
-// Layout: 3 columns (Last Week / This Week / Next Week, Mon–Sun), each a
-// mini kanban board — releases falling in that week are grouped into
-// lanes by project_type (the same field that drives the pipeline
-// everywhere else in this app — see PIPELINE_STAGES in
-// app/releases/[id]/page.js and lib/packageSimulator.js), lane order
-// matches the real pipeline order (BRIEF & DATA → SENT TO MARKETING →
-// DEALING) followed by every resolved package type alphabetically, "no
-// package yet" last. Tapping a card opens that release's detail page.
-const PIPELINE_ORDER = ["BRIEF & DATA", "SENT TO MARKETING", "DEALING"];
+// Layout: 3 columns (Last Week / This Week / Next Week, Mon–Sun). Each
+// column groups its releases by release DATE (Round 410 — was grouped
+// into lanes by project_type/pipeline stage before; per explicit request
+// ("sort the table and group not by type but by date") that's gone —
+// project_type is now folded into each card itself instead, as the
+// release's package/pipeline-stage label, rather than being the thing
+// cards are bucketed under. Date groups within a column are ordered
+// latest-first, matching Round 397's existing "later date on top"
+// convention this replaces. Tapping a card opens that release's detail
+// page.
 const MS_DAY = 24 * 60 * 60 * 1000;
 
 // Round 255 item 3 — per-team completion pills, one per project card, per
@@ -207,15 +208,6 @@ function fmtRange(start, end) {
   return `${start.toLocaleDateString("vi-VN", opts)} – ${end.toLocaleDateString("vi-VN", opts)}`;
 }
 
-function laneSort(a, b) {
-  const ia = PIPELINE_ORDER.indexOf(a);
-  const ib = PIPELINE_ORDER.indexOf(b);
-  if (a === "—" ) return 1;
-  if (b === "—") return -1;
-  if (ia !== -1 || ib !== -1) return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-  return a.localeCompare(b);
-}
-
 export default function CalendarPage() {
   const [releases, setReleases] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -319,20 +311,25 @@ export default function CalendarPage() {
     }).filter((r) => matchesQuery(r, query));
   }
 
-  function laneGroups(weekReleases) {
+  // Round 410 — replaces the old lane-by-project_type grouping. Groups by
+  // release_date itself (one group per calendar day present that week),
+  // ordered latest-first — same direction Round 397 established for the
+  // old lane grouping, just applied to date groups instead of lanes now.
+  // Within a date group every item shares the same release_date, so the
+  // tiebreak is alphabetical by title rather than by date.
+  function dateGroups(weekReleases) {
     const groups = {};
     weekReleases.forEach((r) => {
-      const lane = r.project_type || "—";
-      if (!groups[lane]) groups[lane] = [];
-      groups[lane].push(r);
+      const date = r.release_date || "—";
+      if (!groups[date]) groups[date] = [];
+      groups[date].push(r);
     });
-    // Round 397 — "per group of week, sort by date later date on top": within
-    // each lane, show the latest release_date first instead of inheriting the
-    // original ascending query order.
-    Object.keys(groups).forEach((lane) => {
-      groups[lane].sort((a, b) => new Date(b.release_date) - new Date(a.release_date));
+    Object.keys(groups).forEach((date) => {
+      groups[date].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
     });
-    return Object.keys(groups).sort(laneSort).map((lane) => ({ lane, items: groups[lane] }));
+    return Object.keys(groups)
+      .sort((a, b) => (a === "—" ? 1 : b === "—" ? -1 : new Date(b) - new Date(a)))
+      .map((date) => ({ date, items: groups[date] }));
   }
 
   return (
@@ -342,7 +339,7 @@ export default function CalendarPage() {
           <div className={styles.eyebrow}>// Overview</div>
           <h1 className={styles.title}>Calendar</h1>
           <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -16, marginBottom: 24 }}>
-            Releases by release date — last, this, and next week, grouped by pipeline stage.
+            Releases by release date — last, this, and next week, grouped by date. Each card shows its package/stage.
           </p>
 
           {!loading && <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />}
@@ -353,7 +350,7 @@ export default function CalendarPage() {
             <div style={{ display: "flex", gap: 16, alignItems: "flex-start", overflowX: "auto" }}>
               {weeks.map((week) => {
                 const weekReleases = releasesForWeek(week);
-                const groups = laneGroups(weekReleases);
+                const groups = dateGroups(weekReleases);
                 return (
                   <div key={week.key} style={{ flex: "1 1 0", minWidth: 280, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
                     <div style={{ marginBottom: 10 }}>
@@ -365,10 +362,10 @@ export default function CalendarPage() {
                       <div style={{ fontSize: 12, color: "var(--text-faint)" }}>No releases this week.</div>
                     ) : (
                       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                        {groups.map(({ lane, items }) => (
-                          <div key={lane}>
+                        {groups.map(({ date, items }) => (
+                          <div key={date}>
                             <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 6 }}>
-                              {lane} <span style={{ fontWeight: 400 }}>({items.length})</span>
+                              {date === "—" ? "No Date" : fmtDate(date)} <span style={{ fontWeight: 400 }}>({items.length})</span>
                             </div>
                             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                               {items.map((r) => {
@@ -393,6 +390,14 @@ export default function CalendarPage() {
                                     <div style={{ fontSize: 12, fontWeight: 700 }}>{r.title || "—"}</div>
                                     <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist || "—"}</div>
                                     <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{fmtDate(r.release_date)} · {r.did || "—"}</div>
+                                    {/* Round 410 — "fold the package name into each entry too": this
+                                        used to be the lane header every card sat under (project_type —
+                                        either the pipeline stage it's still in, or the resolved
+                                        package name once locked); now it's just a small tag on the
+                                        card itself, since cards are grouped by date instead. */}
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginTop: 2 }}>
+                                      {r.project_type || "No Package Yet"}
+                                    </div>
                                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
                                       <TeamPill label="Data" percent={dataP.percent} details={dataP.details} />
                                       <TeamPill label="Ops" percent={opsP.percent} details={opsP.details} />
