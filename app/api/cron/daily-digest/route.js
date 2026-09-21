@@ -41,6 +41,25 @@ function todayUTC() {
   return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 }
 
+// Round 401 — per explicit request: this route fires in the morning (see
+// vercel.json's cron schedule / the NOTE above on Hobby's fixed fire
+// time), before today has had any chance to accumulate its own sent/
+// completed tickets — "today" was therefore always reporting on a day
+// that had barely started. "Sent"/"Completed" now report on the last
+// FULL day (yesterday) instead.
+function yesterdayUTC() {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// Round 401 — "Ticket Counter — Not Done" and "Workstation — Not Done"
+// should stop counting genuinely old backlog rows ("exclude anything
+// (created or release date) before august of 2026"). Threaded through to
+// getNotDoneCount's optional sinceDate (see lib/notDoneCounts.js) — scoped
+// to just these two sections, nothing else in the app is affected.
+const NOT_DONE_SINCE_DATE = "2026-08-01";
+
 // Round 232 — "Missing Data" section, per explicit request: same 6-item
 // checklist as the release detail page's Metadata Checklist (see that
 // page's METADATA_ITEMS — these labels are copied verbatim from there so
@@ -100,17 +119,22 @@ async function buildMissingDataRows(supabase) {
     const daysLeft = Math.round((new Date(r.release_date) - new Date(today)) / 86400000);
     rows.push({ title: r.title, artist: r.main_artist, missing, releaseDate: r.release_date, daysLeft });
   }
-  // Most urgent (soonest / most overdue) first — a release already past
-  // its date with data still missing is exactly what this section exists
-  // to surface first.
-  rows.sort((a, b) => a.daysLeft - b.daysLeft);
+  // Round 401 — per explicit request, reversed: furthest-out release date
+  // first, working down toward soonest/most-overdue last, instead of the
+  // original most-urgent-first ordering.
+  rows.sort((a, b) => b.daysLeft - a.daysLeft);
   return rows;
 }
 
 async function buildDigest(supabase) {
   const date = todayUTC();
-  const dayStart = `${date}T00:00:00.000Z`;
-  const dayEnd = `${date}T23:59:59.999Z`;
+  // Round 401 — "Sent"/"Completed" now scoped to yesterday, not today (see
+  // yesterdayUTC's comment above) — date (today) is still used for the
+  // email's own header/subject and for Missing Data's days-left math,
+  // which is genuinely about today.
+  const activityDate = yesterdayUTC();
+  const dayStart = `${activityDate}T00:00:00.000Z`;
+  const dayEnd = `${activityDate}T23:59:59.999Z`;
 
   const { data: tabs } = await supabase.from("ticket_tabs").select("id, key, label").order("sort_order");
   const ticketRows = [];
@@ -122,64 +146,72 @@ async function buildDigest(supabase) {
       .gte("created_at", dayStart)
       .lte("created_at", dayEnd);
 
-    // Completed-today = status_log has a COMPLETE timestamp landing today
-    // — not just "status is currently COMPLETE," since a ticket could've
-    // completed today and been reopened since. jsonb ->> gives text; cast
-    // to timestamptz for the range compare.
+    // Completed-yesterday = status_log has a COMPLETE timestamp landing on
+    // activityDate — not just "status is currently COMPLETE," since a
+    // ticket could've completed that day and been reopened since. jsonb
+    // ->> gives text; cast to timestamptz for the range compare.
     const { data: completedRows } = await supabase
       .from("tickets")
       .select("id, status_log")
       .eq("tab_id", tab.id)
       .not("status_log->COMPLETE", "is", null);
-    const completedToday = (completedRows || []).filter((t) => {
+    const completedYesterday = (completedRows || []).filter((t) => {
       const ts = t.status_log?.COMPLETE;
-      return ts && ts.slice(0, 10) === date;
+      return ts && ts.slice(0, 10) === activityDate;
     }).length;
 
-    if ((sentCount || 0) > 0 || completedToday > 0) {
-      ticketRows.push({ label: TICKET_TYPE_LABELS[tab.key] || tab.label, sent: sentCount || 0, completed: completedToday });
+    if ((sentCount || 0) > 0 || completedYesterday > 0) {
+      ticketRows.push({ label: TICKET_TYPE_LABELS[tab.key] || tab.label, sent: sentCount || 0, completed: completedYesterday });
     }
   }
 
   const workstationRows = [];
   const allWorkstations = [...new Set(Object.values(TEAM_WORKSTATION_TYPES).flat())];
   for (const key of allWorkstations) {
-    const count = await getNotDoneCount("workstation", key, { role: "dev" });
+    // Round 401 — excludes anything (by release_date) before August 2026,
+    // per explicit request; see NOT_DONE_SINCE_DATE and
+    // lib/notDoneCounts.js's scopeReleaseDate.
+    const count = await getNotDoneCount("workstation", key, { role: "dev" }, { sinceDate: NOT_DONE_SINCE_DATE });
     if (count !== null) workstationRows.push({ label: WORKSTATION_TYPE_LABELS[key] || key, count });
   }
 
   // Round 396 — "digest email: also add ticket counter table". The
-  // existing `ticketRows` above is TODAY's activity only (sent today /
-  // completed today) — this is different: the total currently-open
-  // (not-done) count per ticket type, right now, regardless of when it
-  // was created. Same getNotDoneCount("ticket", ...) helper the Report
-  // Conflict/task-table pages already use for exactly this number (kind
-  // "ticket" was already implemented there, just never called from this
-  // route) — { role: "dev" } for the same "full picture, not filtered to
-  // one team's view" reason workstationRows already uses it above, not
-  // any real signed-in caller.
+  // existing `ticketRows` above is YESTERDAY's activity only (sent /
+  // completed) — this is different: the total currently-open (not-done)
+  // count per ticket type, right now, regardless of when it was created
+  // (Round 401 — except now excluding anything created before August
+  // 2026, same reasoning as workstationRows above). Same
+  // getNotDoneCount("ticket", ...) helper the Report Conflict/task-table
+  // pages already use for exactly this number (kind "ticket" was already
+  // implemented there, just never called from this route) — { role: "dev" }
+  // for the same "full picture, not filtered to one team's view" reason
+  // workstationRows already uses it above, not any real signed-in caller.
   const ticketNotDoneRows = [];
   for (const tab of tabs || []) {
-    const count = await getNotDoneCount("ticket", tab.key, { role: "dev" });
+    const count = await getNotDoneCount("ticket", tab.key, { role: "dev" }, { sinceDate: NOT_DONE_SINCE_DATE });
     if (count !== null) ticketNotDoneRows.push({ label: TICKET_TYPE_LABELS[tab.key] || tab.label, count });
   }
 
   const missingDataRows = await buildMissingDataRows(supabase);
 
-  return { date, ticketRows, ticketNotDoneRows, workstationRows, missingDataRows };
+  return { date, activityDate, ticketRows, ticketNotDoneRows, workstationRows, missingDataRows };
 }
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function renderDigestHtml({ date, ticketRows, ticketNotDoneRows, workstationRows, missingDataRows }, customNote) {
+function renderDigestHtml({ date, activityDate, ticketRows, ticketNotDoneRows, workstationRows, missingDataRows }, customNote) {
+  // Round 401 — "Sent"/"Completed" now report on activityDate (yesterday,
+  // full day) rather than "today," since this email goes out in the
+  // morning before today has any activity of its own yet. Column headers
+  // spell out the actual date so it's never ambiguous which day this is.
   const ticketTable = ticketRows.length
     ? `<table cellpadding="6" style="border-collapse:collapse;width:100%">
-        <tr style="text-align:left;border-bottom:1px solid #ccc"><th>Ticket Type</th><th>Sent Today</th><th>Completed Today</th></tr>
+        <tr style="text-align:left;border-bottom:1px solid #ccc"><th>Ticket Type</th><th>Sent (${escapeHtml(activityDate)})</th><th>Completed (${escapeHtml(activityDate)})</th></tr>
         ${ticketRows.map((r) => `<tr style="border-bottom:1px solid #eee"><td>${escapeHtml(r.label)}</td><td>${r.sent}</td><td>${r.completed}</td></tr>`).join("")}
       </table>`
-    : `<p style="color:#888">No ticket activity today.</p>`;
+    : `<p style="color:#888">No ticket activity on ${escapeHtml(activityDate)}.</p>`;
 
   // Round 396 — separate from ticketTable above: total currently-open
   // count per ticket type (not just what moved today), same idiom as
