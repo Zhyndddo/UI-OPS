@@ -10,6 +10,8 @@ import ReleasePicker from "../../../../lib/ReleasePicker";
 import styles from "../../../shared.module.css";
 // Round 281 — audit log / requester attribution
 import { logTicketCreate } from "../../../../lib/auditLog";
+// Round 404 item 4 — one-time Secret Message to AR admins on creation.
+import { sendBoSungDataCreatedPing } from "../../../../lib/boSungDataDigest";
 
 // Round 280 — Bổ Sung DATA's creation form. Per explicit spec, this is
 // deliberately just a release picker — "only need the OPS to choose the
@@ -110,6 +112,9 @@ function BoSungDataNewTicketInner() {
     else {
       // Round 281 — audit log / requester attribution
       logTicketCreate({ actor: profile?.id, ticketId: newTicket?.id });
+      // Round 404 item 4 — one-time ping, fire-and-forget (never blocks
+      // navigation on it).
+      sendBoSungDataCreatedPing(supabase, { ticket: newTicket, release }).catch((e) => console.error(e));
       router.push("/tickets/bo-sung-data");
     }
   }

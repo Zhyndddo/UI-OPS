@@ -39,6 +39,7 @@ import { CopyrightSummaryBar, CopyrightRowStatus } from "../../../lib/CopyrightR
 import { copyrightChecklistIsComplete } from "../../../lib/copyrightChecklist";
 import { findDuplicateTicketKeys } from "../../../lib/duplicateTicketGuard";
 import DuplicateTicketWarning from "../../../lib/DuplicateTicketWarning";
+import { RELEASE_CRITICAL_FIELDS, notifyReleaseCriticalChange } from "../../../lib/releaseChangeNotify";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -775,6 +776,30 @@ export default function ReleaseDetailPage() {
         setSaving(false);
         setError(err.message);
         return;
+      }
+
+      // Round 404 item 3 — "when a release get change the required info
+      // (release date + time, main artist, feature artist, title)".
+      // Diffed against `release` (the last-loaded/saved values, same
+      // baseline the dirty-patch write itself diffs against) rather than
+      // just checking dirtyKeysRef, so a field that was edited and then
+      // edited back to its original value before Save doesn't fire a
+      // false "changed" notice. Fire-and-forget — a failure here must
+      // never block or roll back the release write that already
+      // succeeded above.
+      const changedCriticalFields = {};
+      Object.keys(RELEASE_CRITICAL_FIELDS).forEach((k) => {
+        if (!(k in releasePatch)) return;
+        const from = release?.[k] ?? null;
+        const to = releasePatch[k] ?? null;
+        if (from !== to) changedCriticalFields[k] = { from, to };
+      });
+      if (Object.keys(changedCriticalFields).length > 0) {
+        notifyReleaseCriticalChange(supabase, {
+          release: { ...release, id, did: didChanged ? newDid : oldDid },
+          changedFields: changedCriticalFields,
+          actorProfileId: profile?.id,
+        }).catch((e) => console.error("notifyReleaseCriticalChange failed:", e));
       }
     }
 

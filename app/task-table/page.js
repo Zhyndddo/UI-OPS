@@ -12,9 +12,13 @@ import {
 } from "../../lib/teamTypes";
 import { TASK_PHASES, phaseForColumn } from "../../lib/taskPhases";
 import { effectiveSubteamTags } from "../../lib/releaseTags";
-import { SUBTEAM_TAG_TEAM } from "../../lib/permissions";
+import { SUBTEAM_TAG_TEAM, isAdminOrAbove, isDev } from "../../lib/permissions";
 import SearchBox from "../../lib/SearchBox";
 import styles from "../shared.module.css";
+// Round 404 item 1 — Weekly Tasks: admin-assigned free-text recurring
+// tasks, one popup-once-a-day reminder (see lib/Sidebar.js) plus the
+// actual management UI here.
+import { currentWeekStartStr, rollForwardIfNeeded, persistRollForward } from "../../lib/weeklyTasks";
 
 // Round 172 — rebuilt per explicit request: "update the task table to fit
 // for each member, by filtering the undone from workstations and tickets,
@@ -665,6 +669,138 @@ function RequestedSection({ profile, requesterItems }) {
   );
 }
 
+// Round 404 item 1 — Weekly Tasks. Per explicit decision: "admin role can
+// add to everyone of their own team (except dev)" — so the assignee
+// picker is scoped to teamProfiles (already filtered to profile.segment,
+// dev excluded since dev has no segment to begin with). The counter
+// ("bộ đếm cho các task lập lại") shows repeat_count — "how many times
+// it's repeated," per explicit answer, not a completion streak, so it
+// keeps climbing even across a done→undone→done cycle. Rolls forward on
+// mount (same lazy, no-cron pattern as lib/Sidebar.js's own rollover —
+// duplicated here rather than threaded through props, since this section
+// can mount independently of Sidebar's own effect having already run).
+function WeeklyTasksSection({ profile, teamProfiles }) {
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [assigneeId, setAssigneeId] = useState("");
+  const [text, setText] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState(null);
+
+  const canAdd = isAdminOrAbove(profile) && !isDev(profile);
+  const assignable = teamProfiles.filter((p) => p.role !== "dev");
+
+  useEffect(() => {
+    if (!supabase || !profile?.segment) return;
+    load();
+  }, [profile?.segment]);
+
+  async function load() {
+    setLoading(true);
+    const { data } = await supabase
+      .from("weekly_tasks")
+      .select("*, assignee:profiles!weekly_tasks_assignee_profile_id_fkey(name)")
+      .eq("team", profile.segment)
+      .eq("active", true)
+      .order("created_at", { ascending: false });
+    const rows = data || [];
+    const { rolled, patches } = rollForwardIfNeeded(rows);
+    if (patches.length > 0) await persistRollForward(supabase, patches);
+    setTasks(rolled);
+    setLoading(false);
+  }
+
+  async function addTask(e) {
+    e.preventDefault();
+    if (!text.trim() || !assigneeId) return;
+    setAdding(true);
+    setError(null);
+    const { error: err } = await supabase.from("weekly_tasks").insert({
+      team: profile.segment,
+      assignee_profile_id: assigneeId,
+      created_by: profile.id,
+      text: text.trim(),
+      week_start: currentWeekStartStr(),
+    });
+    setAdding(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    setText("");
+    setAssigneeId("");
+    load();
+  }
+
+  async function toggleDone(t) {
+    const { error: err } = await supabase.from("weekly_tasks").update({ done: !t.done }).eq("id", t.id);
+    if (!err) setTasks((prev) => prev.map((x) => (x.id === t.id ? { ...x, done: !t.done } : x)));
+  }
+
+  async function removeTask(t) {
+    const { error: err } = await supabase.from("weekly_tasks").update({ active: false }).eq("id", t.id);
+    if (!err) setTasks((prev) => prev.filter((x) => x.id !== t.id));
+  }
+
+  if (loading) return null;
+  if (tasks.length === 0 && !canAdd) return null;
+
+  return (
+    <div style={{ marginBottom: 28, border: "1px solid var(--border-strong)", borderRadius: 8, padding: 16, background: "var(--bg-card)" }}>
+      <h3 style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+        Weekly Tasks — {profile.segment}
+      </h3>
+
+      {tasks.length === 0 ? (
+        <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: canAdd ? 12 : 0 }}>No weekly tasks yet.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: canAdd ? 16 : 0 }}>
+          {tasks.map((t) => (
+            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 6 }}>
+              <input type="checkbox" checked={!!t.done} onChange={() => toggleDone(t)} style={{ cursor: "pointer" }} />
+              <div style={{ flex: 1, fontSize: 13, color: "var(--text)", textDecoration: t.done ? "line-through" : "none", opacity: t.done ? 0.6 : 1 }}>
+                {t.text}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{t.assignee?.name || "—"}</div>
+              <div style={{ fontSize: 11, color: "var(--accent)", fontWeight: 700, whiteSpace: "nowrap" }} title="Weekly cycles repeated">
+                ×{t.repeat_count || 1}
+              </div>
+              {canAdd && (
+                <button
+                  onClick={() => removeTask(t)}
+                  style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 6, padding: "2px 8px", color: "var(--text-faint)", cursor: "pointer", fontSize: 11 }}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {canAdd && (
+        <form onSubmit={addTask} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <select className={styles.select} value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} style={{ maxWidth: 200 }}>
+            <option value="">— assign to —</option>
+            {assignable.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <input
+            className={styles.input}
+            style={{ flex: 1, minWidth: 200 }}
+            placeholder="Task text…"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <button className={styles.btnPrimary} type="submit" disabled={adding || !text.trim() || !assigneeId}>
+            {adding ? "Adding…" : "+ Add"}
+          </button>
+        </form>
+      )}
+      {error && <div style={{ color: "var(--error-fg)", fontSize: 12, marginTop: 8 }}>{error}</div>}
+    </div>
+  );
+}
+
 export default function TaskTablePage() {
   const { profile } = useAuth();
   const [profiles, setProfiles] = useState([]);
@@ -780,6 +916,10 @@ export default function TaskTablePage() {
           ) : hasPersonalView ? (
             mainTab === "mine" ? (
               <>
+                {/* Round 404 item 1 — Weekly Tasks: own team's list, plus an
+                    add control for admin-and-up (never dev, per explicit
+                    decision — dev also has no segment to scope this to). */}
+                <WeeklyTasksSection profile={profile} teamProfiles={profiles.filter((p) => p.segment === profile.segment)} />
                 <MyTasksView profile={profile} memberItems={memberItems} activeItemTab={activeItemTab} setActiveItemTab={setActiveItemTab} />
                 {/* Round 281 — additive, not gated by columnsForTeam/segment
                     like MyTasksView above it: a requester's team and the
