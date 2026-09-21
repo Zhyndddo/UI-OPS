@@ -40,6 +40,10 @@ import { copyrightChecklistIsComplete } from "../../../lib/copyrightChecklist";
 import { findDuplicateTicketKeys } from "../../../lib/duplicateTicketGuard";
 import DuplicateTicketWarning from "../../../lib/DuplicateTicketWarning";
 import { RELEASE_CRITICAL_FIELDS, notifyReleaseCriticalChange } from "../../../lib/releaseChangeNotify";
+// Round 409 — auto-fires when an existing release's Category flips to
+// "Remarketing" here, same hook point as notifyReleaseCriticalChange just
+// above. See its own header comment for the full behavior.
+import { ensureRemarketingIntPackage } from "../../../lib/remarketingIntPackage";
 import styles from "../../shared.module.css";
 
 const TABS = [
@@ -800,6 +804,19 @@ export default function ReleaseDetailPage() {
           changedFields: changedCriticalFields,
           actorProfileId: profile?.id,
         }).catch((e) => console.error("notifyReleaseCriticalChange failed:", e));
+      }
+
+      // Round 409 — Category flipping to "Remarketing" on an existing
+      // release. Only fires on an actual change (release?.release_category
+      // was something else, or unset) — a save that leaves an
+      // already-Remarketing release as Remarketing doesn't re-fire (though
+      // ensureRemarketingIntPackage would just no-op harmlessly either way,
+      // since it always checks for an existing ticket/lock first).
+      if ("release_category" in releasePatch && releasePatch.release_category === "Remarketing" && release?.release_category !== "Remarketing") {
+        ensureRemarketingIntPackage(supabase, {
+          release: { id, did: didChanged ? newDid : oldDid, title: form.title },
+          actorProfileId: profile?.id,
+        }).catch((e) => console.error("ensureRemarketingIntPackage failed:", e));
       }
     }
 

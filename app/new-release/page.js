@@ -25,6 +25,9 @@ import CopyrightChecklistFields from "../../lib/CopyrightChecklistFields";
 import NewReleaseTemplateTools from "../../lib/NewReleaseTemplateTools";
 import { canEditProjectRightsType } from "../../lib/permissions";
 import ProjectRightsTypeTag from "../../lib/ProjectRightsTypeTag";
+// Round 409 — auto-fires when a release is created straight into Category
+// "Remarketing". See its own header comment for the full behavior.
+import { ensureRemarketingIntPackage } from "../../lib/remarketingIntPackage";
 import styles from "./styles.module.css";
 
 const EMPTY_FORM = {
@@ -437,6 +440,17 @@ export default function NewReleasePage() {
 
     // Round 281 — audit log / requester attribution
     logAudit({ actor: profile?.id, action: "create", entity: "release", entityId: data.id });
+
+    // Round 409 — created straight into Category "Remarketing". Fire-and-
+    // forget, same as every other side-effect ticket creation in this
+    // function — a failure here must never block the release from having
+    // been created.
+    if (payload.release_category === "Remarketing") {
+      ensureRemarketingIntPackage(supabase, {
+        release: { id: data.id, did: data.did, title: payload.title },
+        actorProfileId: profile?.id,
+      }).catch((e) => console.error("ensureRemarketingIntPackage failed:", e));
+    }
 
     // gate_pitching = "true" means pitching is required — create the real
     // Pitching ticket now, holding which of the 4 types were chosen.
