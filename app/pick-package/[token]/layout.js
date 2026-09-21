@@ -33,50 +33,69 @@
 // and a share-preview snippet renders before whoever's chat app even
 // opens the link, unlike the page itself which is only reachable via
 // the token.
+//
+// Round 393 — BUG FIX: this shipped claiming "best-effort / fail-open,
+// same convention readChannelReferenceIntro uses" in the comment above,
+// but the code underneath never actually did that — no `if (!supabase)`
+// guard, no try/catch around either query, unlike
+// lib/channelReferenceIntro.js's readChannelReferenceIntro, which has
+// both. generateMetadata throwing is a hard 500 (Next.js has no
+// error.js boundary for a layout's own metadata generation — it fails
+// the whole request), and because /<slug> short links that point in-app
+// REWRITE rather than redirect (see app/[slug]/route.js), the crash
+// surfaced under the SHORT link's URL, not visibly under
+// /pick-package/<token> — reported as "internal.vieent.com ... HTTP
+// ERROR 500" on an /<slug> link that pointed at a package offer.
+// Wrapped the whole lookup in try/catch and added the same
+// `if (!supabase) return fallback` guard every other public magic-link
+// page in this app already has, so an unknown token, a revoked/missing
+// release, an RLS denial, or any other Supabase hiccup all fall back to
+// the generic title/description instead of crashing the page.
 import { supabase } from "../../../lib/supabaseClient";
 
 const SITE_URL = "https://internal.vieent.com";
 const FALLBACK_TITLE = "Package Offer — VIEENT";
 const FALLBACK_DESCRIPTION = "A VIEENT distribution support package offer.";
+const FALLBACK_METADATA = { title: FALLBACK_TITLE, description: FALLBACK_DESCRIPTION };
 
 export async function generateMetadata({ params }) {
-  const { data: link } = await supabase.from("magic_links").select("release_id").eq("token", params.token).maybeSingle();
+  if (!supabase) return FALLBACK_METADATA;
 
-  if (!link) {
-    return { title: FALLBACK_TITLE, description: FALLBACK_DESCRIPTION };
-  }
+  try {
+    const { data: link } = await supabase.from("magic_links").select("release_id").eq("token", params.token).maybeSingle();
+    if (!link) return FALLBACK_METADATA;
 
-  const { data: release } = await supabase
-    .from("releases")
-    .select("title, main_artist, media_report_status")
-    .eq("id", link.release_id)
-    .maybeSingle();
+    const { data: release } = await supabase
+      .from("releases")
+      .select("title, main_artist, media_report_status")
+      .eq("id", link.release_id)
+      .maybeSingle();
+    if (!release) return FALLBACK_METADATA;
 
-  if (!release) {
-    return { title: FALLBACK_TITLE, description: FALLBACK_DESCRIPTION };
-  }
+    const kind = release.media_report_status ? "Media Report" : "Package Offer";
+    const title = `${kind} — ${release.title}`;
+    const description = release.main_artist ? `${release.main_artist} · VIEENT distribution support` : FALLBACK_DESCRIPTION;
+    const url = `${SITE_URL}/pick-package/${params.token}`;
 
-  const kind = release.media_report_status ? "Media Report" : "Package Offer";
-  const title = `${kind} — ${release.title}`;
-  const description = release.main_artist ? `${release.main_artist} · VIEENT distribution support` : FALLBACK_DESCRIPTION;
-  const url = `${SITE_URL}/pick-package/${params.token}`;
-
-  return {
-    title,
-    description,
-    openGraph: {
+    return {
       title,
       description,
-      url,
-      siteName: "VIEENT Task Tracking",
-      type: "website",
-    },
-    twitter: {
-      card: "summary_large_image",
-      title,
-      description,
-    },
-  };
+      openGraph: {
+        title,
+        description,
+        url,
+        siteName: "VIEENT Task Tracking",
+        type: "website",
+      },
+      twitter: {
+        card: "summary_large_image",
+        title,
+        description,
+      },
+    };
+  } catch {
+    return FALLBACK_METADATA;
+  }
 }
 
 export default function PickPackageTokenLayout({ children }) {
