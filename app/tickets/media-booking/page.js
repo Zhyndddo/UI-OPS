@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
@@ -8,9 +8,8 @@ import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
-import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
-import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import SearchBox from "../../../lib/SearchBox";
 import styles from "../../shared.module.css";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import YoutubeAdsFields from "../../../lib/YoutubeAdsFields";
@@ -84,42 +83,106 @@ function ThousandInput({ value, onCommit, style, className }) {
 // pick a template, edit the itemized numbers live, generate the magic
 // link as a final check. The executor flipping status PROCESS -> DONE is
 // what actually sends that link forward to the release's detail page.
+// Round 400 — real server-side pagination via the media_booking_ticket_page()
+// Postgres function (see sql/pending/add-round400-media-booking-ticket-
+// pagination.sql for why this needed a real SQL function rather than a
+// plain .range() swap — this list's sort and search both key off the
+// release joined through ticket.data->>'releaseId', which PostgREST can't
+// order/filter by directly). The function returns only a page of ticket
+// ids + a total count; the full ticket rows (with the two profiles joins)
+// and the matching releases are fetched separately, scoped to just that
+// page — same two-pass shape as the Round 303 Booking Board conversion.
+const TICKET_COLUMNS = "*, profiles!tickets_pic_profile_id_fkey(name), requesterProfile:profiles!tickets_requester_profile_id_fkey(name)";
+const RELEASE_COLUMNS_FOR_TICKETS = "id, did, title, main_artist, label, release_date, release_time, drive_link, link_media_report, link_media_report_custom";
+
 export default function MediaBookingList() {
   const { profile } = useAuth();
   const [tab, setTab] = useState(null);
-  const [tickets, setTickets] = useState([]);
+  const [tickets, setTickets] = useState([]); // current PAGE only, full rows
+  const [totalRows, setTotalRows] = useState(0);
   const [profiles, setProfiles] = useState([]);
-  const [releasesByDid, setReleasesByDid] = useState({});
+  const [releasesByDid, setReleasesByDid] = useState({}); // scoped to current page's dids
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
   const [openTicket, setOpenTicket] = useState(null);
   const [query, setQuery] = useState(""); // round 76 — quick index search box
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   const isExecutorView = !profile?.segment || profile.segment === "Marketing";
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), 350);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  // Search/status-filter change snaps back to page 1 — same guard every
+  // other pagination-rollout conversion added.
+  const firstFilterRunRef = useRef(true);
+  useEffect(() => {
+    if (firstFilterRunRef.current) { firstFilterRunRef.current = false; return; }
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery, statusFilter]);
 
   useEffect(() => {
     if (!supabase) return;
-    load();
+    loadTab();
     supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "Marketing"))); // round 78
   }, []);
 
-  async function load() {
-    setLoading(true);
+  async function loadTab() {
     const { data: tabRow } = await supabase.from("ticket_tabs").select("*").eq("key", "media_booking").single();
     setTab(tabRow);
     if (tabRow && !statusFilter) setStatusFilter(tabRow.status_options[0]);
-    // Round 288 — requesterProfile joined in too (explicit FK per the
-    // Round 283 fix — a bare profiles(name) here would be ambiguous now
-    // that tickets has two FKs to profiles), so the list can show a real
-    // Requester column. new/page.js has written requester_profile_id on
-    // every ticket created since Round 281 — this list just never
-    // displayed it until now.
-    const { data } = tabRow
-      ? await supabase.from("tickets").select("*, profiles!tickets_pic_profile_id_fkey(name), requesterProfile:profiles!tickets_requester_profile_id_fkey(name)").eq("tab_id", tabRow.id).is("deleted_at", null).order("created_at", { ascending: false })
-      : { data: [] };
-    setTickets(data || []);
+  }
 
-    const dids = [...new Set((data || []).map((t) => t.data?.releaseId).filter(Boolean))];
+  // Fires once `tab` (and, for the executor view, `statusFilter`) is
+  // known, and again on every page/pageSize/search/status change.
+  useEffect(() => {
+    if (!supabase || !tab) return;
+    if (isExecutorView && !statusFilter) return; // still waiting on loadTab's default
+    loadPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, statusFilter, isExecutorView, debouncedQuery, page, pageSize]);
+
+  async function loadPage() {
+    setLoading(true);
+    const { data: rpcResult, error: rpcError } = await supabase.rpc("media_booking_ticket_page", {
+      p_tab_id: tab.id,
+      p_status: isExecutorView ? statusFilter : null,
+      p_is_executor: isExecutorView,
+      p_search: debouncedQuery || null,
+      p_page: page,
+      p_page_size: pageSize,
+    });
+    if (rpcError) {
+      // Round 400's migration hasn't been run yet (or failed) — fall back
+      // to an empty page rather than a hard crash, same "fail open, don't
+      // throw" spirit as everywhere else in this codebase that has to
+      // assume a pending migration might not be live yet.
+      setTickets([]);
+      setTotalRows(0);
+      setLoading(false);
+      return;
+    }
+    const ids = rpcResult?.ticket_ids || [];
+    setTotalRows(rpcResult?.total || 0);
+    if (ids.length === 0) {
+      setTickets([]);
+      setReleasesByDid({});
+      setLoading(false);
+      return;
+    }
+    const { data } = await supabase.from("tickets").select(TICKET_COLUMNS).in("id", ids);
+    const byId = {};
+    (data || []).forEach((t) => { byId[t.id] = t; });
+    const pageTickets = ids.map((id) => byId[id]).filter(Boolean);
+    setTickets(pageTickets);
+
+    const dids = [...new Set(pageTickets.map((t) => t.data?.releaseId).filter(Boolean))];
     if (dids.length > 0) {
       // Round 68 — item 7: link_lbm added so the ticket list can show a URL
       // column next to Release, same field/pattern every other ticket
@@ -135,10 +198,12 @@ export default function MediaBookingList() {
       // popup's "Custom package url" field (see PackagesPanel further
       // down). `id` is now selected too so this list can write straight
       // to that release row without a second lookup.
-      const { data: rels } = await supabase.from("releases").select("id, did, title, main_artist, label, release_date, release_time, drive_link, link_media_report, link_media_report_custom").in("did", dids);
+      const { data: rels } = await supabase.from("releases").select(RELEASE_COLUMNS_FOR_TICKETS).in("did", dids);
       const map = {};
       (rels || []).forEach((r) => { map[r.did] = r; });
       setReleasesByDid(map);
+    } else {
+      setReleasesByDid({});
     }
     setLoading(false);
   }
@@ -153,7 +218,11 @@ export default function MediaBookingList() {
     await supabase.from("tickets").update(patch).eq("id", t.id);
     // Round 281 — audit log / requester attribution
     logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id, after: profileId });
-    load();
+    // Round 400 — a status change here (auto-advance off default_status)
+    // can move this ticket out of the currently active status tab; reload
+    // this page from the server so it actually leaves the visible list
+    // instead of lingering until the next unrelated reload.
+    loadPage();
   }
 
   // Round 148 — "Linkfire url" column: a manual input straight on the list
@@ -232,42 +301,20 @@ export default function MediaBookingList() {
         }
       }
     }
+    // Round 400 — the executor view's status tabs are now a server-side
+    // filter (see media_booking_ticket_page()), so a status change needs a
+    // real reload to actually leave the currently-active tab; run this
+    // last so it doesn't race the COMPLETE-handling releasesByDid updates
+    // just above.
+    if (isExecutorView) loadPage();
   }
 
-  // Auto-sort by release date, farthest-out first (descending — per
-  // explicit request, e.g. 31/12/2026 before 01/01/2026) instead of the
-  // query's default created_at desc. Tickets with no matching release
-  // (releaseId missing, or the release wasn't found in releasesByDid) sort
-  // last regardless of direction, rather than being pulled to the top by a
-  // missing/undefined date. "for now" per your ask — a real column-picker
-  // sort can replace this later if release date isn't always the right
-  // axis.
-  function byReleaseDate(a, b) {
-    const da = releasesByDid[a.data?.releaseId]?.release_date;
-    const db = releasesByDid[b.data?.releaseId]?.release_date;
-    if (!da && !db) return 0;
-    // Missing dates always sort last, in EITHER direction — a ticket with
-    // no matched release shouldn't jump to the top just because "no date"
-    // technically sorts high in a descending compare.
-    if (!da) return 1;
-    if (!db) return -1;
-    // Descending — farthest-out release date first (e.g. 31/12/2026 before
-    // 01/01/2026), per explicit request.
-    return db.localeCompare(da);
-  }
-
-  const visibleTickets = useMemo(() => {
-    if (!tab) return [];
-    const base = isExecutorView
-      ? tickets.filter((t) => t.status === statusFilter).sort(byReleaseDate)
-      // Sort by release date first, then a STABLE re-sort pulling REFUND
-      // tickets to the top — Array.sort is stable, so the release-date
-      // order survives within each of the two groups.
-      : [...tickets].sort(byReleaseDate).sort((a, b) => (a.status === "REFUND" ? 0 : 1) - (b.status === "REFUND" ? 0 : 1));
-    return base.filter((t) => matchesQuery({ ...t, release: releasesByDid[t.data?.releaseId] }, query));
-  }, [tickets, tab, isExecutorView, statusFilter, releasesByDid, query]);
-
-  const { pageRows: pagedTickets, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleTickets);
+  // Round 400 — sort (release date, farthest-out first; REFUND pulled to
+  // top for the requester view) and filter (status tab, search) both now
+  // happen server-side in media_booking_ticket_page() — `tickets` is
+  // already exactly the current page, in the right order. See that
+  // function (sql/pending/add-round400-media-booking-ticket-pagination.sql)
+  // for the exact logic this replaces.
 
   return (
     <AppShell>
@@ -296,7 +343,7 @@ export default function MediaBookingList() {
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
-          ) : visibleTickets.length === 0 ? (
+          ) : tickets.length === 0 ? (
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (
             <>
@@ -305,7 +352,7 @@ export default function MediaBookingList() {
                 <tr><th>Release (DID)</th><th>Release</th><th>URL Drive</th><th>Package Url</th><th>Propose Package</th><th>PIC</th><th>Linkfire url</th><th>Requester</th><th>Status</th></tr>
               </thead>
               <tbody>
-                {pagedTickets.map((t) => {
+                {tickets.map((t) => {
                   const color = statusColor(t.status);
                   const rel = releasesByDid[t.data?.releaseId];
                   return (

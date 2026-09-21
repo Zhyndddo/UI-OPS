@@ -29,13 +29,55 @@ import styles from "../../shared.module.css";
 
 const UPLOAD_STATUS_OPTS = ["Running", "Pending", "Cancel"];
 
+// Round 399 — egress reduction (see project doc "server-side-pagination-
+// pitch.md" — this workstation was next in the confirmed rollout order
+// after Booking Board, which turned out to already be done). Full
+// query-parameter-pushdown (like app/releases/page.js's Round 247
+// conversion) isn't a safe fit here: "done"/"not done" depends on
+// uploadPercent() — several nullable URL columns plus a conditional
+// gate_pre_order check — and matchesQuery searches the whole row
+// (lib/SearchBox.js). Replicating that filter logic as a Postgres
+// `.or()`/`.and()` string with zero live-DB testing available this
+// session was judged too risky to ship untested.
+//
+// Instead: a two-pass fetch that changes zero filter/sort/search
+// behavior (same JS logic, same fields it already ran against) and gets
+// the egress win from WHAT gets pulled at each pass:
+//  1. loadClassify() pulls every `requested=true` release, but only the
+//     ~12 skinny columns isDone()/isCancel()/sort/search actually need
+//     (SKINNY_COLUMNS below) — not the full ~19-column row. This still
+//     scans the whole matching set (a real aggregate count needs a
+//     Postgres view/RPC — flagged as future work, same open item
+//     load-reduction-additional-ideas.md already tracks), but at a
+//     fraction of the per-row payload.
+//  2. Existing filter (isDone/isCancel/showDone/matchesQuery) and sort
+//     (useSortableRows) run UNCHANGED against those skinny rows —
+//     nothing about what shows up or in what order is different.
+//  3. Once the page's slice of ROW IDS is known (usePagination, also
+//     unchanged), a second fetch pulls the FULL column set (drive_link,
+//     link_lbm, note fields, copyright_checklist, etc.) for just those
+//     ~50 ids via `.in("id", ids)` — this is the only place the full
+//     payload crosses the wire, and only for what's actually rendered.
+//
+// Search note: matchesQuery's JSON.stringify(row) match now runs
+// against the skinny row (title/main_artist/did/upc/upload_status —
+// see SKINNY_COLUMNS), not the full row — a URL/note field is no longer
+// a search hit. Same "narrow search to the fields that matter" tradeoff
+// Round 247/398 made for /releases and /artists.
+const SKINNY_COLUMNS = [
+  "id", "did", "title", "main_artist", "upc", "release_date",
+  "upload_status", "link_lbm", "link_share", "smartlink", "link_preorder", "gate_pre_order",
+].join(", ");
+
 // Converted from a ticket into a workstation — SEND UPLOAD still creates
 // the Newrelease Upload ticket for record-keeping, but the actual work
 // (filling in the URLs OPS returns) happens here, matching the same
 // ticket-triggers/workstation-does-the-work split as Package/Media
 // Booking. Every field except PIC maps straight back to the release.
 export default function UploadWorkstation() {
-  const [releases, setReleases] = useState([]);
+  const [classifyRows, setClassifyRows] = useState([]); // ALL matching releases, skinny columns only (see SKINNY_COLUMNS)
+  const [releases, setReleases] = useState([]); // current PAGE only, full columns
+  const [pageLoading, setPageLoading] = useState(false);
   const [profiles, setProfiles] = useState([]);
   const [defaultPic, setDefaultPic] = useState(null);
   const [assignments, setAssignments] = useState({}); // release_id -> pic_profile_id
@@ -70,22 +112,18 @@ export default function UploadWorkstation() {
     // single query rather than the sum of all 3. No query/column/filter
     // behavior changed. See project doc "load-reduction-additional-ideas.md".
     const [{ data: rels }, { data: profs }, { data: assigns }, { data: pitchTab }] = await Promise.all([
-      supabase
-        .from("releases")
-        .select(
-          "id, did, title, main_artist, release_date, release_time, upc, apple_id, drive_link, link_lbm, link_lbm_source, link_share, smartlink, link_preorder, upload_status, " +
-          "link_ugc, link_media_report, requester_segment, linkshare_tiktok_timing, linkshare_facebook_timing, needs_update, " +
-          // Round 88 2nd follow-up — Copyright popup column
-          "single_album_ep, copyright_checklist"
-        )
-        .eq("requested", true),
+      // Round 399 — skinny classify pass (see SKINNY_COLUMNS comment
+      // above) instead of the full ~19-column row for every matching
+      // release. The full row set is now fetched per-page, separately —
+      // see loadPageReleases() below.
+      supabase.from("releases").select(SKINNY_COLUMNS).eq("requested", true),
       supabase.from("profiles").select("id, name, segment, role").order("name"),
       supabase.from("workstation_assignments").select("release_id, pic_profile_id, auto_assigned").eq("workstation", "upload"),
       // Round 274 — same tab lookup app/workstation/pitching/page.js does,
       // run alongside the 3 queries above instead of after them.
       supabase.from("ticket_tabs").select("id").eq("key", "pitching").single(),
     ]);
-    setReleases(rels || []);
+    setClassifyRows(rels || []);
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
 
     const map = {};
@@ -179,8 +217,18 @@ export default function UploadWorkstation() {
     setLoading(false);
   }
 
+  // Round 399 — fields uploadPercent()/isDone() actually read. When one of
+  // these changes, classifyRows (the skinny state counts/showDone-filter
+  // derive from) needs the same patch mirrored into it, or a field edit
+  // that finishes a row would keep showing it as outstanding (and the
+  // StatusCounter numbers would go stale) until the next full reload.
+  const CLASSIFY_RELEVANT_FIELDS = ["upload_status", "link_lbm", "link_share", "smartlink", "link_preorder"];
+
   async function updateField(release, field, value) {
     setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, [field]: value } : r)));
+    if (CLASSIFY_RELEVANT_FIELDS.includes(field)) {
+      setClassifyRows((prev) => prev.map((r) => (r.id === release.id ? { ...r, [field]: value } : r)));
+    }
     await supabase.from("releases").update({ [field]: value }).eq("id", release.id);
   }
 
@@ -249,13 +297,17 @@ export default function UploadWorkstation() {
 
   const counts = useMemo(() => {
     let done = 0, notDone = 0, cancel = 0;
-    releases.forEach((r) => {
+    // Round 399 — now counts across classifyRows (every matching release,
+    // skinny columns) instead of the old full-table `releases` — same
+    // fields isDone/isCancel actually read (upload_status + the URL
+    // columns) are still present, just not the ~13 unused ones.
+    classifyRows.forEach((r) => {
       if (isCancel(r)) cancel++;
       else if (isDone(r)) done++;
       else notDone++;
     });
     return { done, notDone, cancel };
-  }, [releases]);
+  }, [classifyRows]);
 
   // Round 325 — per explicit request ("any canceled also count as done and
   // filtered out"): a Cancel-status release used to stay stuck in the
@@ -269,12 +321,48 @@ export default function UploadWorkstation() {
   // Cancel rows when toggled on (unchanged — it was already the full,
   // unfiltered list in that state).
   const filteredReleases = useMemo(() => {
-    const base = showDone ? releases : releases.filter((r) => !isDone(r) && !isCancel(r));
+    // Round 399 — now filters classifyRows (skinny) instead of the old
+    // full-table `releases` — isDone/isCancel only ever read upload_status
+    // + the URL columns, all still present. matchesQuery now sees fewer
+    // fields per row (see SKINNY_COLUMNS comment above) — a search hit on
+    // a note/URL field is the one behavior change, same tradeoff Round
+    // 247/398 made converting /releases and /artists.
+    const base = showDone ? classifyRows : classifyRows.filter((r) => !isDone(r) && !isCancel(r));
     return base.filter((r) => matchesQuery(r, query));
-  }, [releases, showDone, query]);
+  }, [classifyRows, showDone, query]);
 
   const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
-  const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleReleases);
+  const { pageRows: pagedSkinny, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleReleases);
+
+  // Round 399 — the only full-column (~19-field) fetch left: just the
+  // current page's ids, once the skinny filter+sort+slice above settles
+  // on which rows those are. Re-ordered after the fetch since `.in()`
+  // doesn't preserve the id list's order.
+  const pageIdsKey = pagedSkinny.map((r) => r.id).join(",");
+  useEffect(() => {
+    if (!supabase || pagedSkinny.length === 0) { setReleases([]); return; }
+    let cancelled = false;
+    setPageLoading(true);
+    const ids = pagedSkinny.map((r) => r.id);
+    supabase
+      .from("releases")
+      .select(
+        "id, did, title, main_artist, release_date, release_time, upc, apple_id, drive_link, link_lbm, link_lbm_source, link_share, smartlink, link_preorder, upload_status, " +
+        "link_ugc, link_media_report, requester_segment, linkshare_tiktok_timing, linkshare_facebook_timing, needs_update, " +
+        // Round 88 2nd follow-up — Copyright popup column
+        "single_album_ep, copyright_checklist"
+      )
+      .in("id", ids)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const byId = {};
+        (data || []).forEach((r) => { byId[r.id] = r; });
+        setReleases(ids.map((id) => byId[id]).filter(Boolean));
+        setPageLoading(false);
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageIdsKey]);
 
   return (
     <AppShell>
@@ -306,7 +394,9 @@ export default function UploadWorkstation() {
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
           ) : visibleReleases.length === 0 ? (
-            <div className={styles.emptyState}>{releases.length === 0 ? "No releases have had SEND UPLOAD clicked yet." : "Nothing outstanding — everything's done."}</div>
+            <div className={styles.emptyState}>{classifyRows.length === 0 ? "No releases have had SEND UPLOAD clicked yet." : "Nothing outstanding — everything's done."}</div>
+          ) : pageLoading || releases.length === 0 ? (
+            <div className={styles.emptyState}>Loading…</div>
           ) : (
             <>
             <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
@@ -342,7 +432,7 @@ export default function UploadWorkstation() {
                 </tr>
               </thead>
               <tbody>
-                {pagedReleases.map((r) =>
+                {releases.map((r) =>
                   sonyPublishDids.has(r.did) ? (
                     <SonyPublishLockRow key={r.id} colSpan={8} />
                   ) : (

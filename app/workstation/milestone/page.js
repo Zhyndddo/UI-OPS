@@ -12,6 +12,7 @@ import { isOpsTeam } from "../../../lib/teamTypes";
 import { MILESTONE_HIGHLIGHT_SETTING_KEY, DEFAULT_MILESTONE_HIGHLIGHT_CONFIG, parseMilestoneHighlightConfig } from "../../../lib/milestoneHighlight";
 import { MILESTONE_CHART_LINKS } from "../../../lib/milestoneChartLinks";
 import { TOOL_DIRECTORY_SETTING_KEY, mergeToolDirectory } from "../../../lib/toolDirectory";
+import { SharedLabelInput } from "../../../lib/ReferenceInputs";
 import styles from "../../shared.module.css";
 
 // Real platform → chart lists, straight from v1's MILESTONE_PLATFORM_TABS.
@@ -1218,6 +1219,56 @@ function AutoGrowField({ value, onChange, style, ...props }) {
 // (platform, chart, date) before writing, which is correct for "here's
 // today's full, authoritative list for this recurring chart" but wrong
 // for "add one more one-off note without touching anything else."
+// Round 400 — Implement tab, item 1: Track Title / Artist / DID each
+// independently searchable against the existing releases table, same
+// free-text-with-suggestions idiom as lib/ReferenceInputs.js's
+// LabelInput/ArtistInput (not a hard foreign key — a one-off milestone
+// can be for something that isn't even a release row, e.g. a cover or a
+// non-catalog placement, so typing something that matches nothing is
+// still allowed). Picking a DID suggestion additionally auto-fills
+// Artist and Track Title from that release (the literal ask: "if choose
+// DID auto fetch the artist and song name") — the Track Title and Artist
+// fields' own suggestions only ever fill their own field.
+function ImplementReleaseField({ value, onChange, releases, matchKey, placeholder, styles }) {
+  const [open, setOpen] = useState(false);
+  const trimmed = (value || "").trim().toLowerCase();
+  const matches = (trimmed.length > 0 ? releases.filter((r) => (r[matchKey] || "").toLowerCase().includes(trimmed)) : releases).slice(0, 8);
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        className={styles.input}
+        placeholder={placeholder}
+        value={value || ""}
+        onChange={(e) => { onChange({ value: e.target.value }); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)} // lets a click on a suggestion register first
+      />
+      {open && matches.length > 0 && (
+        <div
+          style={{
+            position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10,
+            background: "var(--bg-hover)", border: "1px solid #333", borderRadius: 6,
+            marginTop: 4, maxHeight: 220, overflowY: "auto",
+          }}
+        >
+          {matches.map((r) => (
+            <div
+              key={r.id}
+              onClick={() => { onChange({ value: r[matchKey], release: r }); setOpen(false); }}
+              onMouseDown={(e) => e.preventDefault()}
+              style={{ padding: "8px 12px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid var(--border)" }}
+            >
+              <div style={{ fontWeight: 700 }}>{r[matchKey] || "—"}</div>
+              <div style={{ color: "var(--text-faint)", fontSize: 11 }}>{r.title} · {r.main_artist} · {r.did}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ImplementPanel({ styles, onSaved }) {
   const EMPTY = { platform: "", chart: "", track_title: "", artist: "", rank: "1", entry_date: todayStr(), did: "", drive_link: "" };
   const [form, setForm] = useState(EMPTY);
@@ -1228,10 +1279,66 @@ function ImplementPanel({ styles, onSaved }) {
   // there to confirm the last few one-offs actually saved. Cleared on
   // page reload, same as any other purely-local UI state in this file.
   const [justAdded, setJustAdded] = useState([]);
+  // Round 400 item 1 — a light, one-time fetch of recent releases to back
+  // the Track Title / Artist / DID suggestion dropdowns, same shape/limit
+  // as lib/ReleasePicker.js (id, did, title, main_artist, newest first,
+  // capped at 200 — a one-off milestone is almost always for something
+  // recently released, and this stays a single cheap query for the whole
+  // panel instead of a per-field fetch).
+  const [releaseOptions, setReleaseOptions] = useState([]);
+  // Round 400 item 2 — platform free text -> a picker. 'picker' shows the
+  // fixed PLATFORMS list (same list Input's regular charts use) plus a
+  // "+" for a custom one-off platform name; 'custom' shows a plain text
+  // input instead. Starts in 'custom' only if there's already a saved
+  // platform value that isn't one of the fixed ones (shouldn't normally
+  // happen on a fresh EMPTY form, but keeps the picker honest if this
+  // component is ever seeded with a non-empty form later).
+  const [platformMode, setPlatformMode] = useState(() => (form.platform && !PLATFORMS.includes(form.platform) ? "custom" : "picker"));
+  // Round 400 item 3 — chart-name suggestions, backed by the new
+  // milestone_chart_names table (sql/pending/add-round400-milestone-
+  // chart-names.sql), seeded with every PLATFORM_CHARTS name plus every
+  // distinct historical chart value. Fetched once on mount; handleSave
+  // below upserts any brand-new typed value into it so it's suggested
+  // again next time without a second migration.
+  const [chartNameOptions, setChartNameOptions] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from("releases")
+      .select("id, did, title, main_artist")
+      .order("created_at", { ascending: false })
+      .limit(200)
+      .then(({ data }) => { if (!cancelled) setReleaseOptions(data || []); });
+    supabase
+      .from("milestone_chart_names")
+      .select("name")
+      .order("name")
+      .then(({ data, error: fetchError }) => {
+        // Table may not exist yet if sql/pending/add-round400-milestone-
+        // chart-names.sql hasn't been run — fail quiet, SharedLabelInput
+        // just shows no suggestions rather than breaking the field.
+        if (!cancelled && !fetchError) setChartNameOptions((data || []).map((r) => r.name));
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   function set(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
     setError(null);
+  }
+
+  // Only the DID field's own suggestions auto-fill Artist/Track Title —
+  // per the literal request ("if choose DID auto fetch the artist and
+  // song name"); picking a Track Title or Artist suggestion just fills
+  // that one field, same as typing it by hand.
+  function handleReleaseFieldChange(field, { value, release }) {
+    if (field === "did" && release) {
+      setForm((f) => ({ ...f, did: release.did || value, artist: release.main_artist || f.artist, track_title: release.title || f.track_title }));
+      setError(null);
+      return;
+    }
+    set(field, value);
   }
 
   async function handleSave() {
@@ -1266,8 +1373,20 @@ function ImplementPanel({ styles, onSaved }) {
       );
       return;
     }
+    // Round 400 item 3 — "if they made a new chart, they can choose it
+    // again later": upsert whatever chart name was just typed into
+    // milestone_chart_names so it shows up as a suggestion next time,
+    // with no second migration needed. on conflict do nothing (the table's
+    // own unique constraint on name) makes this a no-op for anything
+    // already there. Fire-and-forget-ish but awaited so chartNameOptions
+    // below reflects it immediately; failure here (e.g. table doesn't
+    // exist yet) is silently ignored — it must never block the entry
+    // itself from having saved.
+    const { error: chartNameError } = await supabase.from("milestone_chart_names").upsert({ name: chart, platform: row.platform }, { onConflict: "name", ignoreDuplicates: true });
+    if (!chartNameError) setChartNameOptions((prev) => (prev.includes(chart) ? prev : [...prev, chart].sort()));
     setJustAdded((prev) => [{ ...row }, ...prev].slice(0, 10));
     setForm((f) => ({ ...EMPTY, entry_date: f.entry_date })); // keep the date, clear everything else
+    setPlatformMode("picker");
     onSaved();
   }
 
@@ -1280,21 +1399,76 @@ function ImplementPanel({ styles, onSaved }) {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <div className={styles.field} style={{ minWidth: 160 }}>
           <label className={styles.fieldLabel}>Platform (optional)</label>
-          <input className={styles.input} value={form.platform} onChange={(e) => set("platform", e.target.value)} placeholder="e.g. TikTok, or leave blank" />
+          {platformMode === "custom" ? (
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input className={styles.input} value={form.platform} onChange={(e) => set("platform", e.target.value)} placeholder="Custom platform name" autoFocus />
+              <button
+                type="button"
+                onClick={() => { setPlatformMode("picker"); set("platform", ""); }}
+                title="Back to the platform list"
+                style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: 6, color: "var(--text-faint)", cursor: "pointer", padding: "8px 10px", fontSize: 12, flexShrink: 0 }}
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <select
+              className={styles.select}
+              value={PLATFORMS.includes(form.platform) ? form.platform : ""}
+              onChange={(e) => {
+                if (e.target.value === "__custom__") { setPlatformMode("custom"); set("platform", ""); return; }
+                set("platform", e.target.value);
+              }}
+            >
+              <option value="">— none —</option>
+              {PLATFORMS.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+              {/* Round 400 item 2 — "+" for a custom free-text platform;
+                  per explicit request, nothing validates what's typed once
+                  chosen ("this will be on them if they choose + and write
+                  wrong platform"). */}
+              <option value="__custom__">+ Custom…</option>
+            </select>
+          )}
         </div>
         <div className={styles.field} style={{ flex: 1, minWidth: 220 }}>
           <label className={styles.fieldLabel}>What happened / Chart name</label>
-          <input className={styles.input} value={form.chart} onChange={(e) => set("chart", e.target.value)} placeholder="e.g. Featured on XYZ Editorial Playlist" />
+          {/* Round 400 item 3 — backed by milestone_chart_names, seeded
+              from every hardcoded PLATFORM_CHARTS name plus every distinct
+              value already logged historically; handleSave() upserts any
+              new typed value in so it's suggested again next time. */}
+          <SharedLabelInput
+            value={form.chart}
+            onChange={(v) => set("chart", v)}
+            options={chartNameOptions}
+            placeholder="e.g. Featured on XYZ Editorial Playlist"
+            styles={styles}
+          />
         </div>
       </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
         <div className={styles.field} style={{ flex: 1, minWidth: 200 }}>
           <label className={styles.fieldLabel}>Track Title</label>
-          <input className={styles.input} value={form.track_title} onChange={(e) => set("track_title", e.target.value)} />
+          <ImplementReleaseField
+            value={form.track_title}
+            onChange={(v) => handleReleaseFieldChange("track_title", v)}
+            releases={releaseOptions}
+            matchKey="title"
+            placeholder="Search existing releases, or type freely"
+            styles={styles}
+          />
         </div>
         <div className={styles.field} style={{ flex: 1, minWidth: 160 }}>
           <label className={styles.fieldLabel}>Artist (optional)</label>
-          <input className={styles.input} value={form.artist} onChange={(e) => set("artist", e.target.value)} />
+          <ImplementReleaseField
+            value={form.artist}
+            onChange={(v) => handleReleaseFieldChange("artist", v)}
+            releases={releaseOptions}
+            matchKey="main_artist"
+            placeholder="Search existing releases, or type freely"
+            styles={styles}
+          />
         </div>
         <div className={styles.field} style={{ width: 90 }}>
           <label className={styles.fieldLabel}>Rank</label>
@@ -1308,7 +1482,17 @@ function ImplementPanel({ styles, onSaved }) {
         </div>
         <div className={styles.field} style={{ flex: 1, minWidth: 140 }}>
           <label className={styles.fieldLabel}>DID (optional)</label>
-          <input className={styles.input} value={form.did} onChange={(e) => set("did", e.target.value)} />
+          {/* Round 400 item 1 — picking a suggestion here also fills
+              Artist and Track Title from the matched release ("if choose
+              DID auto fetch the artist and song name"). */}
+          <ImplementReleaseField
+            value={form.did}
+            onChange={(v) => handleReleaseFieldChange("did", v)}
+            releases={releaseOptions}
+            matchKey="did"
+            placeholder="Search existing releases, or paste a DID"
+            styles={styles}
+          />
         </div>
         <div className={styles.field} style={{ flex: 1, minWidth: 160 }}>
           <label className={styles.fieldLabel}>Drive Link (optional)</label>
