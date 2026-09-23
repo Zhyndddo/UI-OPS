@@ -12,23 +12,44 @@
 // ASCII copy (no Vietnamese diacritics) deliberately — next/og's default
 // font doesn't cover Vietnamese combining marks, and a share-card is not
 // the place to discover missing glyphs as boxes/dropped accents.
+//
+// Round 424 tried a dark card with the VSounder cover photo as a full
+// background — explicitly rejected ("im not happy with the og vsounder
+// preview5 png you send... let me clarify it"). Round 425 replaces that
+// with the spec given in that follow-up, verbatim:
+//   - light theme background (no watermark)
+//   - the orange VIEENT [mark] — from the "vieent badge" folder
+//   - "Channel Reference" title -> the VSOUNDER logo
+//   - the Platforms/Followers/... line stays, just darker for light theme
+//   - remove the last sentence (the "Distribution Support — Media
+//     Booking 2026" pill)
+//
+// Round 426 — "remove the top icon too (i forgot vsounder already have
+// the logo right under it)": the standalone orange VIEENT mark Round 425
+// put above the wordmark was redundant — VSOUNDER_WORDMARK_LIGHT_DATA_URI
+// already has its own small VIEENT badge baked into the "empowered by
+// VIEENT" tagline under the logo. Removed; VIEENT_BADGE_ORANGE_DATA_URI
+// is no longer imported here (still exported from lib/brandAssets.js in
+// case it's wanted elsewhere later).
 import { ImageResponse } from "next/og";
+import { VSOUNDER_WORDMARK_LIGHT_DATA_URI } from "../../../lib/brandAssets";
 
 export const runtime = "edge";
-export const alt = "VIEENT Channel Reference";
+export const alt = "VSounder — Channel Reference";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-// Same dark palette as app/globals.css's :root theme (--bg / --bg-card /
-// --border / --text / --text-muted / --accent) — kept as literal hex here
-// since next/og renders in an isolated environment that can't read the
-// app's CSS custom properties.
+// app/globals.css's light-theme :root vars (see that file's [data-theme
+// light]-equivalent block), kept as literal hex here since next/og
+// renders in an isolated environment that can't read the app's CSS
+// custom properties.
 const COLORS = {
-  bg: "#0a0a0a",
-  card: "#121212",
-  border: "#262626",
-  text: "#f4f4f4",
-  muted: "#999999",
+  bg: "#f7f3ee",
+  border: "#ddd6c8",
+  // "keep, just darker color for the light theme" — --text-faint from
+  // globals.css's light block, a dark warm grey rather than the
+  // near-black --text (that stays reserved for real headings).
+  muted: "#3a3527",
   accent: "#ff6b1a",
 };
 
@@ -44,78 +65,25 @@ export default async function Image() {
           justifyContent: "center",
           padding: "72px",
           background: COLORS.bg,
-          backgroundImage: `radial-gradient(circle at 82% 18%, rgba(255,107,26,0.16), rgba(10,10,10,0) 55%)`,
           fontFamily: "sans-serif",
         }}
       >
+        <img
+          src={VSOUNDER_WORDMARK_LIGHT_DATA_URI}
+          width={520}
+          height={221}
+          style={{ display: "flex" }}
+        />
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            gap: "12px",
-            marginBottom: "36px",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              width: "14px",
-              height: "14px",
-              borderRadius: "999px",
-              background: COLORS.accent,
-            }}
-          />
-          <div
-            style={{
-              display: "flex",
-              fontSize: "26px",
-              fontWeight: 800,
-              letterSpacing: "1px",
-              textTransform: "uppercase",
-              color: COLORS.accent,
-            }}
-          >
-            VIEENT
-          </div>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            fontSize: "68px",
-            fontWeight: 800,
-            letterSpacing: "-0.02em",
-            color: COLORS.text,
-            lineHeight: 1.08,
-          }}
-        >
-          Channel Reference
-        </div>
-        <div
-          style={{
-            display: "flex",
-            marginTop: "22px",
+            marginTop: "28px",
             fontSize: "30px",
             fontWeight: 600,
             color: COLORS.muted,
           }}
         >
           Platforms · Followers · Distribution Support booking
-        </div>
-        <div
-          style={{
-            display: "flex",
-            marginTop: "56px",
-            padding: "14px 26px",
-            border: `1px solid ${COLORS.border}`,
-            borderRadius: "10px",
-            background: COLORS.card,
-            fontSize: "24px",
-            fontWeight: 700,
-            color: COLORS.text,
-            alignSelf: "flex-start",
-          }}
-        >
-          Distribution Support — Media Booking 2026
         </div>
       </div>
     ),

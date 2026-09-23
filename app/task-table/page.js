@@ -363,6 +363,48 @@ async function loadSubteamProjectCounts(map, profiles) {
   });
 }
 
+// Round 422 — per explicit request ("remove the task that the team is not
+// executor out of their table, even though their view may have the ticket
+// or workstation"): TEAM_TICKET_TYPES (lib/teamTypes.js) says which types a
+// team's Tickets/Workstation SWITCHER shows — a visibility/navigation
+// concern — but columnsForTeam below was also reusing it, unchanged, to
+// decide which ticket-type columns render as EXECUTOR performance columns
+// (PIC-based counts via memberItems). Those aren't the same thing: several
+// types are listed under a team only because that team REQUESTS them, not
+// because they execute them, and an executor column for a type nobody on
+// that team is ever actually PIC'd on just shows a permanent wall of
+// zeros — the exact "stale" symptom Round 412 diagnosed for AR (and found,
+// tracing the code, applies to a couple of OPS's own listed types too).
+//
+// This is the exclusion list — every (team, type) pair from
+// TEAM_TICKET_TYPES verified NOT to be that team's real executor, checked
+// against each type's actual PIC-assignment gate: lib/ticketConfigs.js's
+// executorTeam for every dual-view type, and each bespoke ticket page's own
+// PIC-pool restriction (filterProfilesByTeam/EXECUTOR_TEAM/isExecutorView)
+// for the rest. The type stays fully visible in that team's own ticket
+// list/switcher and on the requester side below — only removed as an
+// EXECUTOR column here.
+//   AR: every dual-view type routes its executorTeam elsewhere (OPS or
+//     Legal — see lib/ticketConfigs.js), report_conflict/pitching are
+//     EXECUTOR_TEAM/isOpsTeam-gated to OPS, phu_luc's PIC pool is Legal,
+//     publishing's PIC pool is ["Legal","OPS"]. AR's only real PIC pools
+//     are bo_sung_data and pitching_info (both filterProfilesByTeam "AR")
+//     plus stream_update (no team-gated PIC pool at all — self-serve).
+//   OPS: pitching_info's PIC pool is actually AR, not OPS (see above,
+//     despite OPS's TEAM_TICKET_TYPES entry), and bo_sung_data's real
+//     executor is AR (Round 280 — "OPS picks the release, AR is the
+//     executor"). Every other OPS-listed type checked out as real.
+// Marketing/Design/Legal needed no exclusions — every type each of them
+// owns is one they're genuinely PIC'd on.
+const NOT_EXECUTOR_OVERRIDES = {
+  AR: [
+    "phai_sinh", "manual_claim", "report_conflict", "artist_profile", "phu_luc", "pitching",
+    "co_trong_net_youtube", "pre_order_itunes", "priority_sync_lyric", "mv_spotify",
+    "discovery_mode_spotify", "sony_publish", "split_share", "phu_luc_mg", "phu_luc_publishing", "publishing",
+  ],
+  OPS: ["pitching_info", "bo_sung_data"],
+};
+
 // Same team/type ownership lookup as before, except "confirm" (Re-Check)
 // now expands into its two real phase columns instead of one merged one —
 // see the Round 250 comment on loadWorkstationCounts above.
@@ -379,7 +421,8 @@ function columnsForTeam(segment) {
       }
       return [{ id: `workstation:${k}`, name: WORKSTATION_TYPE_LABELS[k] || k, href: WORKSTATION_ROUTES[k] }];
     });
-  const ticketCols = TICKET_KEYS.filter((k) => (TEAM_TICKET_TYPES[resolved] || []).includes(k)).map((k) => ({ id: `ticket:${k}`, name: TICKET_TYPE_LABELS[k] || k, href: TICKET_ROUTES[k] }));
+  const notExecutor = new Set(NOT_EXECUTOR_OVERRIDES[resolved] || []);
+  const ticketCols = TICKET_KEYS.filter((k) => (TEAM_TICKET_TYPES[resolved] || []).includes(k) && !notExecutor.has(k)).map((k) => ({ id: `ticket:${k}`, name: TICKET_TYPE_LABELS[k] || k, href: TICKET_ROUTES[k] }));
   // Round 325 — "Khác" ("khac") is deliberately NOT in TEAM_TICKET_TYPES
   // for any team (it's shared/"Tất cả" — see lib/teamTypes.js's
   // SHARED_TICKET_TYPES), so it's added here directly instead, for every
@@ -421,14 +464,38 @@ function countOf(memberItems, memberId, colId) {
   return (memberItems[memberId || UNASSIGNED]?.[colId] || []).length;
 }
 
-// Round 412 — total requested-ticket count (open + done, every ticket
-// type) for TeamSection's new "Requested" column. Reuses requesterItems as-
-// is (same map RequestedSection already reads) — just summed across every
-// ticket:<key>:open/:done bucket instead of shown per-type, since the org-
-// wide table has no room for one column per ticket type per team.
-function requesterTotal(requesterItems, memberId) {
-  const perColumn = requesterItems[memberId] || {};
-  return Object.keys(perColumn).reduce((sum, colId) => (colId.startsWith("ticket:") ? sum + (perColumn[colId]?.length || 0) : sum), 0);
+// Round 422 — replaces requesterTotal's single lump sum. Per explicit
+// request ("instead of a requested column for all the thing they
+// requested, it's more like a same column as the executioner but for
+// requester"): one column PER ticket type, same shape as columnsForTeam's
+// executor columns, just reading requesterItems (open+done, all statuses —
+// same totals requesterTotal used to sum together) instead of memberItems
+// (open-only, PIC-based). Computed once for the whole team (not per row)
+// so every member's row lines up under the same column set: the union of
+// ticket types ANY member of this team has requester-side data for, minus
+// whatever's already an executor column for this team — a type they
+// execute themselves isn't a "sent out" request, and would just duplicate
+// the executor column right next to it.
+function requestedColumnsForTeam(members, requesterItems, executorColumnIds) {
+  const excluded = new Set(executorColumnIds);
+  const keysWithData = new Set();
+  members.forEach((m) => {
+    const perColumn = requesterItems[m.id] || {};
+    Object.keys(perColumn).forEach((colId) => {
+      const match = colId.match(/^ticket:(.+):(open|done)$/);
+      if (match && perColumn[colId]?.length > 0) keysWithData.add(match[1]);
+    });
+  });
+  return TICKET_KEYS.filter((k) => keysWithData.has(k) && !excluded.has(`ticket:${k}`)).map((k) => ({
+    id: `req:${k}`,
+    typeKey: k,
+    name: TICKET_TYPE_LABELS[k] || k,
+    href: TICKET_ROUTES[k],
+  }));
+}
+
+function requesterCount(requesterItems, memberId, typeKey) {
+  return countOf(requesterItems, memberId, requesterColKey(typeKey, false)) + countOf(requesterItems, memberId, requesterColKey(typeKey, true));
 }
 
 // Round 281 — which ticket-type columns to show in a person's "Requested by
@@ -463,10 +530,12 @@ function requesterColumnsWithData(requesterItems, profileId) {
 // Round 412 — requesterItems/arProjectsCounts params added, per the
 // explicit complaint that AR/Marketing's org-wide sections look "stale"
 // (executor-only, and AR is structurally a requester-side team for almost
-// everything it owns — see claude/pending-tasks.md's Round 412 note). Two
-// additive columns, both placed BEFORE the existing Total so Total's
-// existing meaning (sum of the executor columns) doesn't change:
-//  - "Requested" — every team, per "every team (Recommended)" answer.
+// everything it owns — see claude/pending-tasks.md's Round 412 note).
+// Round 422 — the single lump "Requested" column replaced with one column
+// per ticket type (requestedColumnsForTeam), same shape as the executor
+// columns to its left, visually separated by a divider border — placed
+// BEFORE the existing Total so Total's existing meaning (sum of the
+// executor columns only) still doesn't change.
 //  - "Projects" — AR only, per the user's own counting formula (see
 //    loadTicketCounts's arProjectsMap comments above).
 function TeamSection({ segment, members, memberItems, title, requesterItems, arProjectsCounts }) {
@@ -475,20 +544,33 @@ function TeamSection({ segment, members, memberItems, title, requesterItems, arP
   const sortedMembers = [...members].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   const teamHasUnassigned = columns.some((c) => countOf(memberItems, UNASSIGNED, c.id) > 0);
   const isAR = resolveTeamKey(segment) === "AR";
+  const requestedColumns = requestedColumnsForTeam(sortedMembers, requesterItems, columns.map((c) => c.id));
+  const dividerStyle = { borderLeft: "2px solid var(--border-strong)" };
 
   return (
     <div style={{ marginBottom: 32 }}>
       <h2 style={{ fontSize: 15, marginBottom: 8 }}>{title || segment}</h2>
-      {columns.length === 0 ? (
+      {columns.length === 0 && requestedColumns.length === 0 ? (
         <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 8 }}>No tracked task types own by this team.</div>
       ) : (
         <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
           <table className={styles.table}>
             <thead>
+              {requestedColumns.length > 0 && (
+                <tr>
+                  <th></th>
+                  {columns.length > 0 && <th colSpan={columns.length}></th>}
+                  <th colSpan={requestedColumns.length} style={{ ...dividerStyle, textAlign: "center", fontWeight: 400, fontSize: 10, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                    Requested (sent to another team)
+                  </th>
+                  {isAR && <th></th>}
+                  <th></th>
+                </tr>
+              )}
               <tr>
                 <th>Member</th>
                 {columns.map((c) => <th key={c.id}>{c.name}</th>)}
-                <th>Requested</th>
+                {requestedColumns.map((c, i) => <th key={c.id} style={i === 0 ? dividerStyle : undefined}>{c.name}</th>)}
                 {isAR && <th>Projects</th>}
                 <th>Total</th>
               </tr>
@@ -503,7 +585,10 @@ function TeamSection({ segment, members, memberItems, title, requesterItems, arP
                       const n = countOf(memberItems, m.id, c.id);
                       return <td key={c.id}>{n ? <Link href={c.href} className={styles.rowLink}>{n}</Link> : <span style={{ color: "var(--text-faint)" }}>0</span>}</td>;
                     })}
-                    <td>{(() => { const n = requesterTotal(requesterItems, m.id); return n ? n : <span style={{ color: "var(--text-faint)" }}>0</span>; })()}</td>
+                    {requestedColumns.map((c, i) => {
+                      const n = requesterCount(requesterItems, m.id, c.typeKey);
+                      return <td key={c.id} style={i === 0 ? dividerStyle : undefined}>{n ? <Link href={c.href} className={styles.rowLink}>{n}</Link> : <span style={{ color: "var(--text-faint)" }}>0</span>}</td>;
+                    })}
                     {isAR && <td>{(() => { const n = arProjectsCounts?.[m.id] || 0; return n ? n : <span style={{ color: "var(--text-faint)" }}>0</span>; })()}</td>}
                     <td style={{ fontWeight: 700 }}>{total}</td>
                   </tr>
@@ -516,7 +601,7 @@ function TeamSection({ segment, members, memberItems, title, requesterItems, arP
                     const n = countOf(memberItems, UNASSIGNED, c.id);
                     return <td key={c.id}>{n ? <Link href={c.href} className={styles.rowLink}>{n}</Link> : <span style={{ color: "var(--text-faint)" }}>0</span>}</td>;
                   })}
-                  <td style={{ color: "var(--text-faint)" }}>0</td>
+                  {requestedColumns.map((c, i) => <td key={c.id} style={{ color: "var(--text-faint)", ...(i === 0 ? dividerStyle : {}) }}>0</td>)}
                   {isAR && <td style={{ color: "var(--text-faint)" }}>0</td>}
                   <td style={{ fontWeight: 700 }}>{columns.reduce((sum, c) => sum + countOf(memberItems, UNASSIGNED, c.id), 0)}</td>
                 </tr>

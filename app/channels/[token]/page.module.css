@@ -36,6 +36,30 @@
   flex-shrink: 0;
 }
 
+/* Round 424 — the Linkedin-Cover banner that sits to the right of
+   .brandWordmark on the title line, filling whatever width the wordmark
+   doesn't use. flex: 1 + min-width: 0 is the standard fix for a flex
+   item that must shrink below its image's intrinsic width instead of
+   overflowing the row; height matches .brandWordmark exactly (67px) so
+   the two line up. Hidden below the same 768px breakpoint the rest of
+   this page's mobile layout uses (see the media query at the bottom of
+   this file) — a cropped decorative banner squeezed onto a narrow title
+   row next to the actual wordmark isn't worth the space on mobile. */
+.titleCoverImg {
+  flex: 1;
+  min-width: 0;
+  height: 67px;
+  width: 100%;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+@media (max-width: 768px) {
+  .titleCoverImg {
+    display: none;
+  }
+}
+
 /* Round 346 — "revert time... remove the tabs entirely" reverts the
    title back to a single plain eyebrow + <h1> (the wordmark image IS the
    heading content, same as Round 335), replacing Round 340's whole

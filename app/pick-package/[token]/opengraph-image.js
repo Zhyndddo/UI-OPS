@@ -15,7 +15,13 @@
 // time. Plain ASCII copy (no Vietnamese diacritics) for the same reason
 // channels/[token]'s image is ASCII-only: next/og's default font doesn't
 // cover Vietnamese combining marks.
+//
+// Round 423 — per explicit request, the orange-dot + "VIEENT" text
+// wordmark below is replaced with the real badge artwork (the same one
+// BottomBar.js renders), pulled in as a data URI from lib/brandAssets.js
+// since next/og's edge runtime can't read /public directly.
 import { ImageResponse } from "next/og";
+import { VIEENT_BADGE_DATA_URI } from "../../../lib/brandAssets";
 
 export const runtime = "edge";
 export const alt = "VIEENT Package Offer";
@@ -50,36 +56,12 @@ export default async function Image() {
           fontFamily: "sans-serif",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
-            marginBottom: "36px",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              width: "14px",
-              height: "14px",
-              borderRadius: "999px",
-              background: COLORS.accent,
-            }}
-          />
-          <div
-            style={{
-              display: "flex",
-              fontSize: "26px",
-              fontWeight: 800,
-              letterSpacing: "1px",
-              textTransform: "uppercase",
-              color: COLORS.accent,
-            }}
-          >
-            VIEENT
-          </div>
-        </div>
+        <img
+          src={VIEENT_BADGE_DATA_URI}
+          width={260}
+          height={53}
+          style={{ display: "flex", marginBottom: "36px" }}
+        />
         <div
           style={{
             display: "flex",

@@ -1055,14 +1055,45 @@ export default function ChannelReferenceSharePage() {
   const otherGroups = groupOrder.filter((g) => !COLUMN_ASSIGNED_GROUPS.has(g) && g !== DISTRIBUTION_GROUP);
 
   return (
-    <div className={styles.page} data-theme={themeLock || undefined}>
+    <div className={styles.page} data-theme={themeLock || undefined} style={{ position: "relative", overflow: "hidden" }}>
+      {/* Round 424 — "add that like a watermark" (the vsounder cover art,
+          public/brand/vsounder-cover-spotify.jpg (despite its origin as
+          a "Spotify-Cover-Profile-VIEENT.png" download, the actual bytes
+          are JPEG — renamed to match so the static file server sends the
+          right Content-Type), same image now used as
+          the share-preview background — see opengraph-image.js) as a
+          faint background watermark behind the whole page. position:
+          relative + overflow: hidden goes on the .page div above (inline,
+          not in the shared CSS class, so it's scoped to just this route)
+          so this absolutely-positioned image has something to anchor to
+          and can't push the page wider than the viewport; zIndex: -1
+          keeps it behind every other (statically-positioned) child in
+          this stacking context without needing to touch their z-index.
+          Opacity starts at 0.1 per explicit instruction ("faint but like
+          10%, i'll tell you if it too faint or too thick") — adjust here
+          if asked. */}
+      <img
+        src="/brand/vsounder-cover-spotify.jpg"
+        alt=""
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          opacity: 0.1,
+          zIndex: -1,
+          pointerEvents: "none",
+        }}
+      />
       <div className={styles.container} style={{ maxWidth: 1200 }}>
         {/* Round 346 — "revert time... remove the tabs entirely. only 1
             page now": back to a single plain title (eyebrow + wordmark
             <h1>, no tab switcher, no visually-hidden duplicate heading —
             there's only one section for it to name now). */}
         <div className={pageStyles.eyebrow}>// Channel Reference</div>
-        <h1 className={pageStyles.pageTitle}>
+        <h1 className={pageStyles.pageTitle} style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           {wordmarkFailed ? (
             <span className={pageStyles.pageTitleText}>{intro.title || "VSounder"}</span>
           ) : (
@@ -1073,6 +1104,18 @@ export default function ChannelReferenceSharePage() {
               onError={() => setWordmarkFailed(true)}
             />
           )}
+          {/* Round 424 — "the longer (Linkedin-Cover pic) to add to the
+              right of the vsounder title picture to cover the rest of
+              that line (same height i mean)": flex: 1 fills whatever
+              width the wordmark doesn't use, height locked to
+              .brandWordmark's 67px so the two sit flush on one line,
+              objectFit: cover crops the banner (1128x191 source) rather
+              than squashing its aspect ratio. */}
+          <img
+            src="/brand/vsounder-cover-linkedin.jpg"
+            alt=""
+            className={pageStyles.titleCoverImg}
+          />
         </h1>
 
         {/* Round 346 — "pull the intro text and canva embed right under
