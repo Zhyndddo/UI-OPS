@@ -94,7 +94,7 @@ function ThousandInput({ value, onCommit, style, className }) {
 // and the matching releases are fetched separately, scoped to just that
 // page — same two-pass shape as the Round 303 Booking Board conversion.
 const TICKET_COLUMNS = "*, profiles!tickets_pic_profile_id_fkey(name), requesterProfile:profiles!tickets_requester_profile_id_fkey(name)";
-const RELEASE_COLUMNS_FOR_TICKETS = "id, did, title, main_artist, label, release_date, release_time, drive_link, link_media_report, link_media_report_custom";
+const RELEASE_COLUMNS_FOR_TICKETS = "id, did, title, main_artist, label, release_date, release_time, drive_link, link_media_report";
 
 export default function MediaBookingList() {
   const { profile } = useAuth();
@@ -192,13 +192,9 @@ export default function MediaBookingList() {
       // "URL LBM") per explicit request. Round 75 — item 2: link_media_report
       // added too, for the new "Package Url" column (the magic link itself,
       // shown once one's been generated for fast access).
-      // Round 148 — item: "Linkfire url" column added (see below), reading
-      // and writing releases.link_media_report_custom directly — the same
-      // field already editable as "Custom Domain — Package Offer" on the
-      // release detail page's URL tab and inside the Package Builder
-      // popup's "Custom package url" field (see PackagesPanel further
-      // down). `id` is now selected too so this list can write straight
-      // to that release row without a second lookup.
+      // Round 148's "Linkfire url" column (and its release write-through)
+      // was removed per explicit request — see the removal note further
+      // down, where that column used to render.
       const { data: rels } = await supabase.from("releases").select(RELEASE_COLUMNS_FOR_TICKETS).in("did", dids);
       const map = {};
       (rels || []).forEach((r) => { map[r.did] = r; });
@@ -224,18 +220,6 @@ export default function MediaBookingList() {
     // this page from the server so it actually leaves the visible list
     // instead of lingering until the next unrelated reload.
     loadPage();
-  }
-
-  // Round 148 — "Linkfire url" column: a manual input straight on the list
-  // (not part of the ticket's own data/fields, and not gated by
-  // canEditMediaBookingTicket — this is a plain release field, same as
-  // Package Url/URL Drive next to it, not a package-builder write). Writes
-  // directly to the release row, so this is genuinely the same value as
-  // "Custom Domain — Package Offer" on the release detail page's URL tab.
-  async function updateLinkfireUrl(rel, value) {
-    if (!rel) return;
-    setReleasesByDid((prev) => (prev[rel.did] ? { ...prev, [rel.did]: { ...prev[rel.did], link_media_report_custom: value } } : prev));
-    await supabase.from("releases").update({ link_media_report_custom: value }).eq("id", rel.id);
   }
 
   async function updateStatus(t, newStatus) {
@@ -350,7 +334,7 @@ export default function MediaBookingList() {
             <>
             <table className={styles.table}>
               <thead>
-                <tr><th>Release (DID)</th><th>Release</th><th>URL Drive</th><th>Package Url</th><th>Propose Package</th><th>PIC</th><th>Linkfire url</th><th>Requester</th><th>Status</th></tr>
+                <tr><th>Release (DID)</th><th>Release</th><th>URL Drive</th><th>Package Url</th><th>Propose Package</th><th>PIC</th><th>Requester</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {tickets.map((t) => {
@@ -402,21 +386,21 @@ export default function MediaBookingList() {
                           </select>
                         ) : (t.profiles?.name || "—")}
                       </td>
-                      {/* Round 148 — "Linkfire url" replaces Deadline
-                          (never used on this list). Manual input, not part
-                          of the ticket's own fields — writes straight to
-                          the release's link_media_report_custom, same
-                          value as "Custom Domain — Package Offer" on the
-                          release detail page's URL tab. No release match
-                          (rel missing) means there's nothing to write to
-                          yet, so it falls back to a plain dash. */}
-                      <td onClick={(e) => e.stopPropagation()} style={{ maxWidth: 160 }}>
-                        {rel ? (
-                          <LinkfireUrlCell release={rel} onUpdate={updateLinkfireUrl} />
-                        ) : (
-                          <span style={{ color: "var(--text-dim)" }}>—</span>
-                        )}
-                      </td>
+                      {/* Round 148's "Linkfire url" column removed per
+                          explicit request ("mấy cái ô để điền link CUSTOM
+                          với linkfire url anh bỏ giúp em để em báo team các
+                          bạn khỏi bị nhầm ạ" — the CUSTOM/Linkfire boxes
+                          were causing team confusion; the real magic-link
+                          "Package Url" column above is the one link they
+                          actually want people using). This column, the
+                          release detail page's "Custom Domain — Package
+                          Offer/Media Report" field, and the Package
+                          Builder popup's "Custom package url" field all
+                          edited the exact same releases.
+                          link_media_report_custom — all 3 removed together
+                          so there's nowhere left to accidentally fill it
+                          in. The column itself stays in the DB, just
+                          unedited from anywhere now. */}
                       {/* Round 288 — requester_profile_id has been written
                           on every ticket created here since Round 281 (the
                           creator of the ticket — see new/page.js — there's
@@ -607,16 +591,6 @@ function CategoryCountsPopup({ isTikTokChannel, isAds, brandList, currentBrand, 
       <strong style={{ fontSize: 15 }}>{categoryTotals[""] || 0}</strong>
     </div>
   );
-}
-
-// Round 148 — the list's "Linkfire url" column. Same local-draft-then-
-// commit-on-blur pattern every other inline URL cell in this app uses
-// (e.g. Re-Check workstation's LbmCell) — local state so typing doesn't
-// fight the row's own re-render on every keystroke, committed to the
-// release row on blur.
-function LinkfireUrlCell({ release, onUpdate }) {
-  const [draft, setDraft] = useState(release?.link_media_report_custom || "");
-  return <UrlField styles={styles} value={draft} onChange={setDraft} onBlur={() => onUpdate(release, draft)} />;
 }
 
 // This is the corrected, from-scratch rebuild, now living inside the
@@ -2885,29 +2859,11 @@ function PackagesPanel({
             {release?.recording_studio_included ? "✓ Recording Studio included" : "+ Recording Studio"}
           </button>
 
-          {/* Round 125 — item 2: "Custom package url" — same field as the
-              release detail page's URL tab ("Custom Domain — Package
-              Offer" / "Custom Domain — Media Report", releases.
-              link_media_report_custom), just also editable from here so
-              the team doesn't have to leave the ticket to fill it in.
-              Same generic saveYoutubeAdsField patcher (passed down as
-              onSaveField) both places write through, so this is
-              genuinely the same value edited on both sides, not a copy. */}
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>
-              Custom package url
-            </div>
-            <UrlField
-              styles={styles}
-              wide
-              value={release?.link_media_report_custom}
-              onChange={(v) => onSaveField("link_media_report_custom", v)}
-              placeholder="https://your-custom-domain.com/…"
-            />
-            <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 3 }}>
-              Same field as "Custom Domain — Package Offer" on the release's URL tab — editable here too.
-            </div>
-          </div>
+          {/* Round 125 item 2's "Custom package url" field removed per
+              explicit request — see the removal note above the ticket
+              list's old "Linkfire url" column for the full reasoning; this
+              was the same releases.link_media_report_custom field, just a
+              third editing surface for it. */}
 
           <div style={{ display: "flex", gap: 4, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
             {packages.map((p) => (
