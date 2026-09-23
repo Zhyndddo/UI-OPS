@@ -13,12 +13,49 @@ import { fetchProductTagSets, ProductTagPills } from "../../lib/productTags";
 import { copyrightChecklistSummary } from "../../lib/copyrightChecklist";
 import DateRangeFilter, { matchesDateRange } from "../../lib/DateRangeFilter";
 import { useAuth } from "../../lib/AuthContext";
-import { visibleSubteamsFor, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewReleaseTags, canViewReleaseArPic, canEditReleaseArPic } from "../../lib/permissions";
+import { visibleSubteamsFor, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewReleaseTags, canViewReleaseArPic, canEditReleaseArPic, isAdminOrAbove } from "../../lib/permissions";
 import { subteamTagPillClass, MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
 import { effectiveReleaseTags, releaseTagInfo, releaseTagPillClass, displayTagsWithLblFallback, getDisplayTags, getFreeTags, allCategoryTagOptions, effectiveSubteamTags, toggledSubteamTags } from "../../lib/releaseTags";
 import { filterProfilesByTeam } from "../../lib/workstationHelpers";
 import { logPicReassign } from "../../lib/auditLog";
+// Round 417 — universal export button + bulk legacy-data import, per
+// explicit request. See lib/spreadsheetExport.js's header for why this
+// exists as shared infra rather than another bespoke CSV writer, and
+// lib/BulkReleaseImport.js's header for how it differs from the existing
+// single-release "Fast Input" template on the New Release create form.
+import ExportButton from "../../lib/spreadsheetExport";
+import BulkReleaseImportPopup from "../../lib/BulkReleaseImport";
 import styles from "../shared.module.css";
+
+// Round 417 — Releases dashboard export column set. Deliberately a
+// curated subset of RELEASE_COLUMNS (below), not every raw DB column —
+// this is meant to read as a clean spreadsheet a human opens, not a
+// table dump. format() reuses the exact same helpers/summaries the page
+// itself renders with, so the exported numbers/labels always agree with
+// what's on screen.
+function releaseStageLabel(r) {
+  const b = calendarBounds();
+  const d = r.release_date;
+  if (!d) return "—";
+  if (d > dateStr(b.now)) return "Pre-release";
+  if (d >= dateStr(b.sevenDaysAgo)) return "Release";
+  return "Post-release";
+}
+const EXPORT_COLUMNS = [
+  { key: "did", label: "DID" },
+  { key: "title", label: "Title" },
+  { key: "main_artist", label: "Main Artist" },
+  { key: "label", label: "Label" },
+  { key: "release_category", label: "Category" },
+  { key: "project_type", label: "Type" },
+  { key: "release_date", label: "Release Date" },
+  { key: "requester_segment", label: "Channel" },
+  { key: "stage", label: "Stage", format: (_, r) => releaseStageLabel(r) },
+  { key: "meta", label: "Metadata %", format: (_, r) => `${metadataPercent(r)}%` },
+  { key: "upload", label: "Upload %", format: (_, r) => `${uploadPercent(r)}%` },
+  { key: "tags", label: "Tags" },
+  { key: "created_at", label: "Created At", format: (v) => fmtDate(v) },
+];
 
 const CHANNELS = ["VIEENT", "ENVI"];
 
@@ -385,6 +422,9 @@ export default function ReleasesDashboard() {
   const [summaryPopupFor, setSummaryPopupFor] = useState(null); // release id whose admin summary popup is open
   const [hoverRelease, setHoverRelease] = useState(null);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
+  // Round 417 — Bulk Import Releases popup visibility, admin-gated (see
+  // the trigger button in the topRow below).
+  const [showBulkImport, setShowBulkImport] = useState(false);
 
   const { profile } = useAuth();
   // Per explicit correction — "tags only for marketing please", then
@@ -514,6 +554,29 @@ export default function ReleasesDashboard() {
     const result = await buildListQuery({ page, pageSize, sort, filters, searchMode: "substring", searchQuery: "" });
     if (result.error) throw result.error;
     return { rows: result.data || [], total: result.count || 0 };
+  }
+
+  // Round 417 — export whatever the CURRENT filters/search/sort match,
+  // not just this page's on-screen slice (this page moved to real
+  // server-side pagination in Round 247 — see that round's comment block
+  // above RELEASE_COLUMNS — so `releases` in state is only ever one
+  // page). Reuses fetchListPage's own query-building + regex-fallback
+  // logic verbatim, just paged at 1000/request instead of the UI's
+  // pageSize, accumulating until a page comes back short (same loop
+  // shape as lib/helpers.js's fetchAllRows, adapted here since the
+  // query needs the live filters/sort/search, not a fixed builder).
+  async function exportMatchingReleases() {
+    const EXPORT_PAGE_SIZE = 1000;
+    let all = [];
+    let p = 1;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { rows } = await fetchListPage({ page: p, pageSize: EXPORT_PAGE_SIZE, sort, filters, searchTerm: debouncedSearch });
+      all = all.concat(rows);
+      if (rows.length < EXPORT_PAGE_SIZE) break;
+      p++;
+    }
+    return all;
   }
 
   // Booking %, pitching status, and parent-album title — scoped to just
@@ -1006,7 +1069,18 @@ export default function ReleasesDashboard() {
             <div className={styles.eyebrow}>// Overview</div>
             <h1 className={styles.title} style={{ marginBottom: 0 }}>New Release</h1>
           </div>
-          <Link href="/new-release" className={styles.btnPrimary}>+ New Release</Link>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {/* Round 417 — admin-only, per explicit request ("Im doing
+                import old data soon enough too"): a real data migration
+                tool, scoped to the smaller admin group rather than
+                anyone who can view this dashboard. */}
+            {isAdminOrAbove(profile) && (
+              <button type="button" className={styles.btnSecondary} onClick={() => setShowBulkImport(true)}>
+                Import Releases
+              </button>
+            )}
+            <Link href="/new-release" className={styles.btnPrimary}>+ New Release</Link>
+          </div>
         </div>
 
         <div className={styles.statRow}>
@@ -1082,9 +1156,22 @@ export default function ReleasesDashboard() {
           >
             {refreshing ? "Refreshing…" : "↻ Refresh"}
           </button>
+          {/* Round 417 — exports whatever the current filters/search/sort
+              match (see exportMatchingReleases above), not just this
+              page's on-screen 25/50/100 rows. */}
+          <ExportButton columns={EXPORT_COLUMNS} filename={`releases-export-${dateStr(new Date())}`} fetchRows={exportMatchingReleases} />
         </div>
 
         {error && <div className={styles.errorBox}>{error}</div>}
+
+        {showBulkImport && (
+          <BulkReleaseImportPopup
+            styles={styles}
+            profile={profile}
+            onClose={() => setShowBulkImport(false)}
+            onImported={() => refresh()}
+          />
+        )}
 
         {loading ? (
           <div className={styles.emptyState}>Loading…</div>

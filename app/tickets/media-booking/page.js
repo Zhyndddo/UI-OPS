@@ -25,6 +25,7 @@ import { runOne } from "../../../lib/packageSimulator";
 import { ARTIST_PROFILE_LINKS_SETTING_KEY, DEFAULT_LINKFIRE_URL } from "../../../lib/externalTools";
 import UrlField from "../../../lib/UrlField";
 import { canEditMediaBookingTicket } from "../../../lib/permissions";
+import { resyncReleasePackages } from "../../../lib/mediaBookingResync";
 
 function fmtVnd(n) {
   if (n === null || n === undefined || n === "") return "—";
@@ -841,6 +842,16 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       }
     }
 
+    // Round 418 — per explicit request ("no resync needed, cloning already
+    // do it"): a clone carries the SOURCE release's package lines over
+    // as-is, brand_column_quantities/metric_quantities included, which is
+    // exactly what goes stale when the source predates this per-platform
+    // breakdown or was itself never re-Summarized after its own grid last
+    // changed (see lib/mediaBookingResync.js's file header for the full
+    // HIRAKI II story). Recomputing here — from the entries that were JUST
+    // copied in above — means a fresh clone never needs a manual Summarize
+    // pass just to make the Booking Board's per-platform numbers real.
+    await resyncReleasePackages(release.id);
     await loadAll();
   }
 

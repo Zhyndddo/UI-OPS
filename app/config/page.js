@@ -21,6 +21,7 @@ import { RELEASE_TAG_CATEGORIES } from "../../lib/releaseTags";
 import { MAGIC_LINK_THEME_LOCK_KEY, LOCKABLE_THEMES, serializeMagicLinkThemeLock } from "../../lib/magicLinkThemeLock";
 import { MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
 import { TEAM_SUBTEAMS } from "../../lib/teamTypes";
+import { resyncManyReleases, releasesWithPackages } from "../../lib/mediaBookingResync";
 import styles from "../shared.module.css";
 
 const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
@@ -138,7 +139,12 @@ export default function ConfigPage() {
               {section === "team" && <TeamSection profile={profile} />}
               {section === "picDefaults" && <PicDefaultsSection />}
               {section === "packageTerms" && <PackageTermsSection />}
-              {section === "mediaBookingPricing" && <MediaBookingPricingSection />}
+              {section === "mediaBookingPricing" && (
+                <>
+                  <MediaBookingPricingSection />
+                  <MediaBookingResyncSection />
+                </>
+              )}
               {section === "platforms" && <PlatformsSection />}
               {section === "designTypes" && <DesignTypesSection />}
               {section === "sizes" && <SizesSection />}
@@ -1145,6 +1151,87 @@ function MediaBookingPricingSection() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Round 418 — "simulate clicking Summarize" without opening every release's
+// ticket, per explicit request ("one click resync all so its apply"). Full
+// story lives in lib/mediaBookingResync.js's file header: "Clone from
+// another product" can carry stale/pre-per-platform-breakdown package
+// lines into a new release, which is what caused HIRAKI II's Booking Board
+// cells to read "—" even though its DSP grid had real numbers. Clone now
+// resyncs itself automatically (see cloneFromRelease in
+// app/tickets/media-booking/page.js) — this panel is the second gate: a
+// manual, admin-gated bulk pass over every release that already has a
+// built package, for whatever went stale before that fix existed (and for
+// the old-data import that's coming). Same conservative rules as the
+// per-release version: only refreshes a bracket that has real grid entries,
+// never inserts a new line, never touches unit_price or a line's own
+// Chi Tiết (other than YouTube Ads' fixed one).
+function MediaBookingResyncSection() {
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState(null); // { i, total }
+  const [result, setResult] = useState(null); // { releases, linesUpdated, rollupsWritten, touched }
+  const [confirming, setConfirming] = useState(false);
+
+  async function runResync() {
+    setConfirming(false);
+    setRunning(true);
+    setResult(null);
+    const ids = await releasesWithPackages();
+    setProgress({ i: 0, total: ids.length });
+    const reports = await resyncManyReleases(ids, {
+      onProgress: (i, total) => setProgress({ i, total }),
+    });
+    const touchedReports = reports.filter((r) => r.linesUpdated > 0 || r.rollupsWritten > 0);
+    setResult({
+      releases: ids.length,
+      touched: touchedReports.length,
+      linesUpdated: reports.reduce((sum, r) => sum + r.linesUpdated, 0),
+      rollupsWritten: reports.reduce((sum, r) => sum + r.rollupsWritten, 0),
+    });
+    setRunning(false);
+    setProgress(null);
+  }
+
+  return (
+    <div style={{ marginTop: 36, paddingTop: 24, borderTop: "1px solid var(--border)" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
+        Resync Package Quantities
+      </div>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16, maxWidth: 640 }}>
+        Re-derives every release's Social/Community/TikTok Channel/Ads package line quantities (and per-platform
+        breakdown, the number the Booking Board actually reads) straight from that release's own DSP grid — the same
+        thing clicking "Summarize" on every Hạng Mục does, just run across every release with a built package in one
+        pass. Only touches a Hạng Mục/brand that has real grid rows entered; never creates a package or a new line,
+        never changes Đơn Giá or a Chi Tiết someone typed by hand. Safe to re-run — running it again with nothing
+        changed just re-writes the same numbers.
+      </p>
+      {!confirming && !running && (
+        <button type="button" className={styles.btnPrimary} onClick={() => setConfirming(true)}>
+          Resync All Releases
+        </button>
+      )}
+      {confirming && !running && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 12, color: "var(--text-faint)" }}>This will write to every release with a built package. Continue?</span>
+          <button type="button" className={styles.btnPrimary} onClick={runResync}>Yes, resync</button>
+          <button type="button" className={styles.btnSmall} onClick={() => setConfirming(false)}>Cancel</button>
+        </div>
+      )}
+      {running && (
+        <div style={{ fontSize: 12, color: "var(--text-faint)" }}>
+          Resyncing… {progress ? `${progress.i} / ${progress.total} releases` : "starting"}
+        </div>
+      )}
+      {result && (
+        <div style={{ marginTop: 12, fontSize: 12, color: "var(--success-fg)" }}>
+          Scanned {result.releases} release{result.releases === 1 ? "" : "s"} with a built package — {result.touched}{" "}
+          had a Hạng Mục/brand refreshed: {result.rollupsWritten} rollup row{result.rollupsWritten === 1 ? "" : "s"} and{" "}
+          {result.linesUpdated} package line{result.linesUpdated === 1 ? "" : "s"} updated.
+        </div>
+      )}
     </div>
   );
 }
