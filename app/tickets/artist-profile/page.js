@@ -182,7 +182,11 @@ export default function ArtistProfileTicketList() {
                           {legacy && <span style={{ marginLeft: 6, fontSize: 10, color: "var(--text-faint)", fontWeight: 400 }}>(legacy)</span>}
                         </div>
                         <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
-                          {legacy ? "NEW Profile" : requestTypeLabel(requestType)} · {t.data?.platform || "—"}
+                          {/* Round 414 — verification/new tickets created from
+                              the release-detail popup now hold data.platforms
+                              (multi-select array); every other type/source
+                              still writes the older singular data.platform. */}
+                          {legacy ? "NEW Profile" : requestTypeLabel(requestType)} · {(t.data?.platforms || []).join(", ") || t.data?.platform || "—"}
                           {t.deadline && <> · Due {fmtDate(t.deadline)}</>}
                         </div>
                         <div style={{ fontSize: 11, color: "var(--text-faint)" }}>

@@ -28,6 +28,12 @@ import ProjectRightsTypeTag from "../../lib/ProjectRightsTypeTag";
 // Round 409 — auto-fires when a release is created straight into Category
 // "Remarketing". See its own header comment for the full behavior.
 import { ensureRemarketingIntPackage } from "../../lib/remarketingIntPackage";
+import { ARTIST_VERIFY_CARD_TYPES, isArtistVerifyRowComplete, artistVerifyKey, requestTypeLabel, REQUEST_TYPES, validateManagementFields, buildManagementTicketData } from "../../lib/artistProfileRequestTypes";
+
+// Round 415 (Phase 2) — same derivation as the release detail page's copy.
+const MANAGEMENT_REQUEST_TYPE_KEYS = REQUEST_TYPES.filter((t) => t.group === "management").map((t) => t.key);
+import { findDuplicateTicketKeys } from "../../lib/duplicateTicketGuard";
+import DuplicateTicketWarning from "../../lib/DuplicateTicketWarning";
 import styles from "./styles.module.css";
 
 const EMPTY_FORM = {
@@ -113,7 +119,8 @@ const EMPTY_FORM = {
 // Round 106 item 5 — 4 merged top-level keys (was 5) — see
 // lib/GateFields.js's PITCHING_TYPES comment for the merge mapping.
 const EMPTY_PITCHING_TYPES = { priority: false, spotifyBanner: false, spotifyS4a: false, domestic: false };
-const EMPTY_ARTIST_PROFILE_TYPES = { spotify: false, tiktok: false, apple: false };
+// Round 414 — { [requestType]: { [artistName]: { checked, platforms: [], ...fields } } }, see lib/ArtistProfileVerifyPopup.js's header.
+const EMPTY_ARTIST_PROFILE_DRAFT = { verification: {}, new: {} };
 
 const META_ITEMS = [
   { key: "meta_audio", label: "Audio" },
@@ -135,19 +142,29 @@ export default function NewReleasePage() {
   const { profile } = useAuth();
   const [form, setForm] = useState(EMPTY_FORM);
   const [pitchingTypes, setPitchingTypes] = useState(EMPTY_PITCHING_TYPES);
-  const [artistProfileTypes, setArtistProfileTypes] = useState(EMPTY_ARTIST_PROFILE_TYPES);
-  // Round 97 — which of the release's own Main/Feature Artist tags AR has
-  // picked to send an Artist Profile ticket for (ArtistProfileVerifyPanel).
-  // Defaults to "all tags" the first time the panel has something to show,
-  // via the effect below — AR can then uncheck ones they don't want.
-  // artistProfileVerifyTouched (round 97 follow-up) — same "touched" idiom
-  // as labelTouched below: once AR has manually checked/unchecked anything
-  // in the panel, the auto-default-to-all-selected effect stops
-  // overriding their choice on every subsequent tag add/remove. Resets
-  // when the gate goes back to "false" so ticking it "Yes" again later
-  // starts fresh at "everyone selected."
-  const [artistProfileVerifySelected, setArtistProfileVerifySelected] = useState([]);
-  const [artistProfileVerifyTouched, setArtistProfileVerifyTouched] = useState(false);
+  // Round 97 — per-artist Artist Profile requests (ArtistProfileVerifyPopup).
+  // Round 414 — rework: one draft per (requestType, artistName) pair, each
+  // holding its own platforms + fields, instead of one shared "selected
+  // names" list + one shared platform draft. No more "default every tag
+  // to selected" — each artist's info is filled in by hand.
+  const [artistProfileDraft, setArtistProfileDraft] = useState(EMPTY_ARTIST_PROFILE_DRAFT);
+  function updateArtistProfileDraft(requestType, artistName, patch) {
+    setArtistProfileDraft((prev) => ({
+      ...prev,
+      [requestType]: { ...prev[requestType], [artistName]: { ...(prev[requestType]?.[artistName] || { checked: false, platforms: [] }), ...patch } },
+    }));
+  }
+  // Round 415 (Phase 2) — Profile Management's shared platform picker +
+  // per-action draft, same shape as the release detail page's own copy.
+  const [managementPlatforms, setManagementPlatforms] = useState([]);
+  const [managementDraft, setManagementDraft] = useState({});
+  function updateManagementDraft(requestType, patch) {
+    setManagementDraft((prev) => ({ ...prev, [requestType]: { ...(prev[requestType] || { checked: false }), ...patch } }));
+  }
+  // Round 167/414 — same warning-only "one ticket per key" popup pattern
+  // as the release detail page; this form has no release row yet at
+  // insert time, so a collision here would only ever be a re-used DID.
+  const [artistProfileDuplicateWarning, setArtistProfileDuplicateWarning] = useState(null);
   const [coTrongNetDraft, setCoTrongNetDraft] = useState(CO_TRONG_NET_DRAFT_DEFAULTS);
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
@@ -304,30 +321,12 @@ export default function NewReleasePage() {
     }
   }
 
-  // Round 97 — Artist Profile Verify's artist checklist. artistTags is the
+  // Round 97 — Artist Profile Verify's artist tag list. artistTags is the
   // deduped union of both tag fields — a name could technically be tagged
-  // as both Main and Feature, only shown once here. Defaults to "every tag
-  // selected" the first time the panel has something to show (gate ticked
-  // "Yes" and at least one tag exists) — AR can uncheck from there.
+  // as both Main and Feature, only shown once here. Round 414 — no more
+  // "default every tag selected" effect (see EMPTY_ARTIST_PROFILE_DRAFT's
+  // comment above).
   const artistProfileArtistTags = [...new Set([...(form.main_artist_tags || []), ...(form.feature_artist_tags || [])])];
-  useEffect(() => {
-    if (form.gate_artist_profile_verify !== "true") {
-      // Gate went back to "false" — reset so the next time it's ticked
-      // "Yes" starts fresh at "everyone selected" again, not stuck on
-      // whatever was last unchecked.
-      if (artistProfileVerifyTouched) setArtistProfileVerifyTouched(false);
-      return;
-    }
-    if (!artistProfileVerifyTouched && artistProfileArtistTags.length > 0) {
-      setArtistProfileVerifySelected(artistProfileArtistTags);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.gate_artist_profile_verify, form.main_artist_tags, form.feature_artist_tags]);
-
-  function toggleArtistProfileArtist(name, checked) {
-    setArtistProfileVerifyTouched(true);
-    setArtistProfileVerifySelected((prev) => (checked ? [...new Set([...prev, name])] : prev.filter((n) => n !== name)));
-  }
 
 
   // navMode: 'detail' (normal Tạo Release button — always land on the new
@@ -409,9 +408,9 @@ export default function NewReleasePage() {
   function resetFormForAnother() {
     setForm(EMPTY_FORM);
     setPitchingTypes(EMPTY_PITCHING_TYPES);
-    setArtistProfileTypes(EMPTY_ARTIST_PROFILE_TYPES);
-    setArtistProfileVerifySelected([]);
-    setArtistProfileVerifyTouched(false);
+    setArtistProfileDraft(EMPTY_ARTIST_PROFILE_DRAFT);
+    setManagementPlatforms([]);
+    setManagementDraft({});
     setCoTrongNetDraft(CO_TRONG_NET_DRAFT_DEFAULTS);
     setLabelTouched(false);
     setAutofillNote(null);
@@ -505,29 +504,86 @@ export default function NewReleasePage() {
     }
 
     // Round 97 — gate_artist_profile_verify = "true" means one Artist
-    // Profile ticket per artist checked in ArtistProfileVerifyPanel (not
-    // one shared ticket for the whole release anymore — see that panel's
-    // comment for why). Email left blank for OPS to fill in either way;
-    // spotify/tiktok/apple carry the "set up on which platforms" picker's
-    // state, applied identically to every ticket created here.
-    if (form.gate_artist_profile_verify === "true" && artistProfileVerifySelected.length > 0) {
-      const { data: apTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
-      if (apTab) {
-        await Promise.all(
-          artistProfileVerifySelected.map(async (artistName) => {
-            const { data: newTicket } = await supabase.from("tickets").insert({
-              tab_id: apTab.id,
-              data: { releaseId: data.did, artistName, email: "", ...artistProfileTypes },
-              status: apTab.default_status,
-              status_log: { [apTab.default_status]: new Date().toISOString() },
-              requester_segment: form.requester_segment || null,
+    // Profile ticket per artist checked in the popup (not one shared
+    // ticket for the whole release). Round 414 — one REAL request-type
+    // ticket per (artist, type) pair now (was always the flat legacy
+    // shape before). A brand-new release can't already have an Artist
+    // Profile ticket UNLESS its DID happens to match an existing release
+    // (re-used/typo'd DID) — the same live dedup check the release detail
+    // page runs is applied here too, for that edge case, same warning-only
+    // popup (no bypass).
+    {
+      const toCreate = [];
+      ARTIST_VERIFY_CARD_TYPES.forEach((type) => {
+        Object.entries(artistProfileDraft?.[type] || {}).forEach(([artistName, row]) => {
+          if (isArtistVerifyRowComplete(type, row)) toCreate.push({ type, artistName, row });
+        });
+      });
+      if (toCreate.length > 0) {
+        const { data: apTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
+        if (apTab) {
+          const dupCandidates = toCreate.map(({ type, artistName }) => ({
+            label: artistVerifyKey(artistName, type),
+            filters: { releaseId: data.did, artistName, requestType: type },
+          }));
+          const dupes = await findDuplicateTicketKeys(supabase, apTab.id, dupCandidates);
+          const dupeKeys = new Set(dupes.map((d) => d.label));
+          if (dupeKeys.size > 0) {
+            setArtistProfileDuplicateWarning(
+              [...dupeKeys].map((k) => {
+                const [artistName, type] = k.split("::");
+                return `${artistName} — ${requestTypeLabel(type)}`;
+              })
+            );
+          }
+          const actuallyCreate = toCreate.filter(({ type, artistName }) => !dupeKeys.has(artistVerifyKey(artistName, type)));
+          await Promise.all(
+            actuallyCreate.map(async ({ type, artistName, row }) => {
+              const { data: newTicket } = await supabase.from("tickets").insert({
+                tab_id: apTab.id,
+                data: { releaseId: data.did, requestType: type, artistName, platforms: row.platforms, ...Object.fromEntries(Object.entries(row).filter(([k]) => k !== "checked" && k !== "platforms")) },
+                status: apTab.default_status,
+                status_log: { [apTab.default_status]: new Date().toISOString() },
+                requester_segment: form.requester_segment || null,
+                // Round 281 — audit log / requester attribution
+                requester_profile_id: profile?.id || null,
+              }).select("id").single();
               // Round 281 — audit log / requester attribution
-              requester_profile_id: profile?.id || null,
-            }).select("id").single();
-            // Round 281 — audit log / requester attribution
-            if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
-          })
-        );
+              if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
+            })
+          );
+        }
+      }
+    }
+
+    // Round 415 (Phase 2) — Profile Management, same rules as the release
+    // detail page's own copy: each checked action that passes
+    // validateManagementFields becomes its own ticket, no dedup check
+    // (deliberate — see that file's comment for why).
+    {
+      const managementToCreate = MANAGEMENT_REQUEST_TYPE_KEYS
+        .map((type) => ({ type, row: managementDraft?.[type] }))
+        .filter(({ row }) => row?.checked)
+        .map(({ type, row }) => ({ type, row, validation: validateManagementFields(type, managementPlatforms, row) }))
+        .filter(({ validation }) => validation.ok);
+      if (managementToCreate.length > 0) {
+        const { data: apTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "artist_profile").single();
+        if (apTab) {
+          await Promise.all(
+            managementToCreate.map(async ({ type, row }) => {
+              const { data: newTicket } = await supabase.from("tickets").insert({
+                tab_id: apTab.id,
+                data: { releaseId: data.did, ...buildManagementTicketData(type, managementPlatforms, row) },
+                status: apTab.default_status,
+                status_log: { [apTab.default_status]: new Date().toISOString() },
+                requester_segment: form.requester_segment || null,
+                // Round 281 — audit log / requester attribution
+                requester_profile_id: profile?.id || null,
+              }).select("id").single();
+              if (newTicket) logTicketCreate({ actor: profile?.id, ticketId: newTicket.id });
+            })
+          );
+        }
       }
     }
 
@@ -1290,11 +1346,13 @@ export default function NewReleasePage() {
             update={update}
             pitchingTypes={pitchingTypes}
             onPitchingToggle={(key, checked) => setPitchingTypes((p) => ({ ...p, [key]: checked }))}
-            artistProfileTypes={artistProfileTypes}
-            onArtistProfileToggle={(key, checked) => setArtistProfileTypes((p) => ({ ...p, [key]: checked }))}
             artistProfileArtistTags={artistProfileArtistTags}
-            artistProfileSelected={artistProfileVerifySelected}
-            onToggleArtistProfileArtist={toggleArtistProfileArtist}
+            artistProfileDraft={artistProfileDraft}
+            onArtistProfileDraftChange={updateArtistProfileDraft}
+            managementPlatforms={managementPlatforms}
+            onManagementPlatformsChange={setManagementPlatforms}
+            managementDraft={managementDraft}
+            onManagementDraftChange={updateManagementDraft}
             coTrongNetDraft={coTrongNetDraft}
             onCoTrongNetChange={(key, value) => setCoTrongNetDraft((p) => ({ ...p, [key]: value }))}
             suppressUrlFor={["gate_pre_order"]}
@@ -1319,7 +1377,9 @@ export default function NewReleasePage() {
               onClick={() => {
                 setForm(EMPTY_FORM);
                 setPitchingTypes(EMPTY_PITCHING_TYPES);
-                setArtistProfileTypes(EMPTY_ARTIST_PROFILE_TYPES);
+                setArtistProfileDraft(EMPTY_ARTIST_PROFILE_DRAFT);
+                setManagementPlatforms([]);
+                setManagementDraft({});
                 setCoTrongNetDraft(CO_TRONG_NET_DRAFT_DEFAULTS);
                 setError(null);
                 setCreatedDid(null);
@@ -1447,6 +1507,12 @@ export default function NewReleasePage() {
         )}
       </div>
     </div>
+    <DuplicateTicketWarning
+      items={artistProfileDuplicateWarning}
+      onClose={() => setArtistProfileDuplicateWarning(null)}
+      title="Artist Profile ticket already exists — skipped"
+      note="This release's DID already has an Artist Profile ticket for one of these artist+request combinations, so it wasn't created again."
+    />
     </AppShell>
   );
 }
