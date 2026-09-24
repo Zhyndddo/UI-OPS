@@ -2117,6 +2117,17 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
   const [editError, setEditError] = useState(null);
   const added = cellEntries.length;
   const isDone = booked != null && booked > 0 && added >= booked;
+  // Round 431 — "nothing is ever booked in that bracket" should read as a
+  // bare "—", the same way a release with no package/target at all reads
+  // elsewhere on this board. Before this, an untouched bracket (no target,
+  // nothing added) still rendered "0 / —" — a real added count next to a
+  // dash for the missing target — which is exactly what confused the team
+  // report behind Round 429 (a bracket that was added then fully deleted
+  // still looked like "there should be a number" instead of "nothing here
+  // at all"). A real target (booked > 0), or anything actually added,
+  // still gets the normal "added / booked" readout below — this only
+  // collapses the true-empty case.
+  const hasNothingBooked = (booked == null || booked <= 0) && added === 0;
   const hasChannelCol = !column.platform;
   // Round 142 — item 2: TikTok Channel columns get ONE status for the
   // whole column instead of a per-URL cycle button — see cycleStatusAll's
@@ -2334,6 +2345,8 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
       >
         {isDone ? (
           <span style={{ color: "#7ee6a8" }}>DONE</span>
+        ) : hasNothingBooked ? (
+          <span style={{ color: "var(--text-faint)" }}>—</span>
         ) : booked != null ? (
           <span style={{ color: "var(--text-muted)" }}>{added} / {booked}</span>
         ) : (
