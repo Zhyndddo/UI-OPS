@@ -27,7 +27,7 @@ import { useAuth } from "../../../lib/AuthContext";
 // Round 300/302 added the first one — see updateArPic below — so
 // logPicReassign is now imported too.
 import { logTicketCreate, logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
-import { isDev, isAdminOrAbove, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewReleaseTags, canEditReleaseTags, canViewReleaseArPic, canEditReleaseArPic } from "../../../lib/permissions";
+import { isDev, isAdminOrAbove, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewReleaseTags, canEditReleaseTags, canViewReleaseArPicReadOnly, canEditReleaseArPic } from "../../../lib/permissions";
 import { ReleaseTagsRow, effectiveReleaseTags, getCategoryTag, getFreeTags, releaseTagInfo, releaseTagPillClass, resolveLblTag, effectiveSubteamTags, setSubteamTagValue, toggledSubteamTags } from "../../../lib/releaseTags";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { subteamTagPillClass, MARKETING_SUBTEAM_TAGS } from "../../../lib/projectTags";
@@ -401,6 +401,46 @@ export default function ReleaseDetailPage() {
         // Fresh load — nothing edited yet against this baseline.
         dirtyKeysRef.current = new Set();
 
+        // Round 430 — "Chosen Package — Itemized" below (and bookedFor())
+        // used to read release_package_items, a one-time snapshot copied
+        // in at confirmChoice()/artist-pick time and never touched again —
+        // so any number Marketing later changed via the Package Builder's
+        // Summarize (media_booking_package_lines, the live source of
+        // truth the Booking Board and Package Builder both read) never
+        // reached this page. That's why the team's fix "isn't saving" here
+        // — it saved fine, this table just kept showing the old snapshot.
+        // Same staleness Round 168 already fixed on the artist-facing
+        // pick-package page; same fix here — read the confirmed package's
+        // LIVE lines instead of the frozen snapshot. Matched by name
+        // against project_type, which is set straight to "INT MEDIA" once
+        // that follow-up is locked in (see sendIntPackage below), so no
+        // separate override is needed here the way pick-package's
+        // followUpBuilt handles it.
+        const { data: confirmedPkg } = await supabase
+          .from("media_booking_packages")
+          .select("*, media_booking_package_lines(*)")
+          .eq("release_id", id)
+          .eq("name", data.project_type)
+          .order("sort_order", { foreignTable: "media_booking_package_lines" })
+          .maybeSingle();
+        if (confirmedPkg) {
+          const { data: pkgCats } = await supabase.from("package_categories").select("id, name");
+          const categoryNameById = {};
+          (pkgCats || []).forEach((c) => (categoryNameById[c.id] = c.name));
+          setPackageItems(
+            (confirmedPkg.media_booking_package_lines || []).map((l) => ({
+              id: l.id,
+              category: (categoryNameById[l.category_id] || l.platform || "—") + (l.brand ? ` — ${l.brand}` : ""),
+              unit: l.unit,
+              quantity: l.quantity,
+              detail: l.detail,
+              amount: l.amount,
+            }))
+          );
+        } else {
+          setPackageItems([]);
+        }
+
         // Round 260 — automatic Indie-channel flag, ported in Round 262 to
         // write subteam_tags.INDIE instead of the retired single-cycling
         // project_tag column. Fires only when nobody has ever manually
@@ -547,12 +587,6 @@ export default function ReleaseDetailPage() {
           }
         }
       });
-    supabase
-      .from("release_package_items")
-      .select("*")
-      .eq("release_id", id)
-      .order("sort_order")
-      .then(({ data }) => setPackageItems(data || []));
     supabase
       .from("media_booking_entries")
       .select("*")
@@ -1839,9 +1873,17 @@ export default function ReleaseDetailPage() {
                     team (releases.ar_pic_profile_id — see updateArPic
                     above; NOT the New Release Setup/Upload workstation's
                     separate OPS PIC, which lives entirely on that
-                    workstation's own page). Only shown to AR/dev/admin,
-                    same gate as who can edit it. */}
-                {canViewReleaseArPic(profile) && (
+                    workstation's own page).
+                    Round 427 — "now also show to anyone as read only":
+                    used to be gated by canViewReleaseArPic (AR/dev/admin
+                    only, the same check as who can edit it), so nobody
+                    outside AR ever even saw the pill. Now gated by the
+                    wide-open canViewReleaseArPicReadOnly (any signed-in
+                    profile) so every team sees it; canEdit below still
+                    uses canEditReleaseArPic, unchanged — AR/dev/admin can
+                    still change it, everyone else gets PicHeaderField's
+                    plain read-only "PIC: <name>" pill. */}
+                {canViewReleaseArPicReadOnly(profile) && (
                   <PicHeaderField
                     styles={styles}
                     value={form.ar_pic_profile_id || ""}
@@ -3747,11 +3789,13 @@ function MediaBookingTab({ form, update, onSave, saving, entries, categories, pa
   const roundEntries = round ? entries.filter((e) => e.booking_round === round) : [];
   const feedbackText = mediaBookingTicket?.data?.feedback?.text;
 
-  // "Booked" per Hạng Mục, read off the confirmed package (release_package_items
-  // — set once the magic link is picked). Its `category` field is either
-  // "CategoryName" or "CategoryName — Brand", so matching by prefix sums
-  // every brand under that Hạng Mục, same aggregate the Booking Board's
-  // "All" column computes from the live package lines.
+  // "Booked" per Hạng Mục, read off the confirmed package's LIVE lines
+  // (packageItems, built from media_booking_package_lines — see Round 430
+  // above; no longer the frozen release_package_items snapshot). Its
+  // `category` field is either "CategoryName" or "CategoryName — Brand",
+  // so matching by prefix sums every brand under that Hạng Mục, same
+  // aggregate the Booking Board's "All" column computes from the live
+  // package lines.
   function bookedFor(categoryName) {
     const matching = packageItems.filter((it) => it.category === categoryName || (it.category || "").startsWith(`${categoryName} — `));
     if (matching.length === 0) return null;

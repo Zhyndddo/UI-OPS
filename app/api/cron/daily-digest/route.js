@@ -58,7 +58,9 @@ function yesterdayUTC() {
 // (created or release date) before august of 2026"). Threaded through to
 // getNotDoneCount's optional sinceDate (see lib/notDoneCounts.js) — scoped
 // to just these two sections, nothing else in the app is affected.
-const NOT_DONE_SINCE_DATE = "2026-08-01";
+// Round 428 — "say anything before 8/8 is excluded": pushed forward one
+// week, same fixed-date mechanism, no other change.
+const NOT_DONE_SINCE_DATE = "2026-08-08";
 
 // Round 403 — "Ticket Counter — Not Done" ticket types with no reachable
 // UI to ever clear them through, per explicit request. newrelease_upload

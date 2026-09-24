@@ -1227,6 +1227,45 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     return (activePackage?.media_booking_package_lines || []).find((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
   }
 
+  // Round 429 — "add a number then delete it, Summarize twice, Booking
+  // Board still shows the old target instead of the usual dash": traced
+  // the render path (app/booking/page.js's bookedFor -> a line's
+  // brand_column_quantities) and syncPackageLine's write path below both
+  // look correct in isolation — a real re-Summarize DOES recompute and
+  // overwrite brand_column_quantities with the fresh (now-empty) numbers.
+  // But media_booking_package_lines (unlike media_booking_package_
+  // categories, which has a real UNIQUE(release_id, category_id, brand)
+  // constraint — see sql/reference/prod_schema_clean.sql) has NO unique
+  // constraint on (package_id, category_id, brand) — only a bare `id`
+  // primary key. lineFor above is a plain client-side `.find()` against
+  // local state, so if a DUPLICATE line for the same category/brand ever
+  // exists (e.g. from a timing edge case around package creation), a
+  // fresh re-Summarize can update the WRONG one while the OTHER, stale
+  // duplicate keeps sitting there — and which one bookedFor()/lineFor()
+  // happen to pick up first is whatever order Supabase happened to
+  // return them in, not "the one that was just updated." This couldn't
+  // be confirmed against production data (no live DB access from here),
+  // but it's a real structural gap that matches the reported symptom
+  // exactly, so this closes it at the one place a duplicate can actually
+  // cause visible harm: every write from now on collapses any duplicates
+  // for this (category, brand) down to one row FIRST, then writes into
+  // that single survivor — self-healing the next time anyone Summarizes
+  // an affected bracket again, no manual SQL required. See
+  // sql/pending/add-round429-media-booking-package-lines-dedup-check.sql
+  // for a READ-ONLY diagnostic query to confirm whether this ever
+  // actually happened in production, and for the missing UNIQUE
+  // constraint (left commented out — only safe to add after confirming
+  // zero duplicates remain).
+  async function dedupeLinesFor(categoryId, brand) {
+    const matches = (activePackage?.media_booking_package_lines || []).filter((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
+    if (matches.length <= 1) return matches[0] || null;
+    const [keep, ...extras] = matches;
+    const extraIds = extras.map((l) => l.id);
+    await supabase.from("media_booking_package_lines").delete().in("id", extraIds);
+    setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.filter((l) => !extraIds.includes(l.id)) })));
+    return keep;
+  }
+
   // Round 287 — read-only per-package history of the grid, keyed by the
   // same REAL brand Summarize itself groups by (a TikTok Channel
   // sub-brand, a Social/Community bracket, an Ads platform brand, or ''
@@ -1347,7 +1386,12 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // can't clobber an edit someone already made in the building panel.
   async function syncPackageLine(group) {
     if (!activePackage || !group) return;
-    const existing = lineFor(group.categoryId, group.brand);
+    // Round 429 — dedupeLinesFor instead of the plain lineFor lookup;
+    // see that function's comment above for why. Collapses any
+    // duplicate line for this (category, brand) down to one survivor
+    // BEFORE the patch below is computed/applied, so the fresh numbers
+    // always land on a single, now-correct row.
+    const existing = await dedupeLinesFor(group.categoryId, group.brand);
     if (group.isAds) {
       // Ads mushes into one line PER BRAND with a pre-computed Chi Tiết +
       // Thành Tiền straight from Summarize's per-brand pricing — no unit,
