@@ -1172,7 +1172,7 @@ function MediaBookingPricingSection() {
 function MediaBookingResyncSection() {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(null); // { i, total }
-  const [result, setResult] = useState(null); // { releases, linesUpdated, rollupsWritten, touched }
+  const [result, setResult] = useState(null); // { releases, linesUpdated, rollupsWritten, touched, lockedLinesSkipped, releasesWithLockedSkip }
   const [confirming, setConfirming] = useState(false);
 
   async function runResync() {
@@ -1181,6 +1181,10 @@ function MediaBookingResyncSection() {
     setResult(null);
     const ids = await releasesWithPackages();
     setProgress({ i: 0, total: ids.length });
+    // Round 433 — skipLockedPackage defaults to true inside
+    // resyncReleasePackages; this bulk admin tool relies on that default so
+    // it never overwrites the one package the Booking Board actually reads
+    // from (see lib/mediaBookingResync.js for the full story).
     const reports = await resyncManyReleases(ids, {
       onProgress: (i, total) => setProgress({ i, total }),
     });
@@ -1190,6 +1194,8 @@ function MediaBookingResyncSection() {
       touched: touchedReports.length,
       linesUpdated: reports.reduce((sum, r) => sum + r.linesUpdated, 0),
       rollupsWritten: reports.reduce((sum, r) => sum + r.rollupsWritten, 0),
+      lockedLinesSkipped: reports.reduce((sum, r) => sum + (r.lockedLinesSkipped || 0), 0),
+      releasesWithLockedSkip: reports.filter((r) => (r.lockedLinesSkipped || 0) > 0).length,
     });
     setRunning(false);
     setProgress(null);
@@ -1207,6 +1213,11 @@ function MediaBookingResyncSection() {
         pass. Only touches a Hạng Mục/brand that has real grid rows entered; never creates a package or a new line,
         never changes Đơn Giá or a Chi Tiết someone typed by hand. Safe to re-run — running it again with nothing
         changed just re-writes the same numbers.
+      </p>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16, maxWidth: 640 }}>
+        Round 433 — skips whichever package is the one the Booking Board actually reads for that release (the
+        artist-locked/confirmed one). That package's numbers only change from a human clicking Summarize while it's
+        the active package — never from this bulk tool.
       </p>
       {!confirming && !running && (
         <button type="button" className={styles.btnPrimary} onClick={() => setConfirming(true)}>
@@ -1227,9 +1238,18 @@ function MediaBookingResyncSection() {
       )}
       {result && (
         <div style={{ marginTop: 12, fontSize: 12, color: "var(--success-fg)" }}>
-          Scanned {result.releases} release{result.releases === 1 ? "" : "s"} with a built package — {result.touched}{" "}
-          had a Hạng Mục/brand refreshed: {result.rollupsWritten} rollup row{result.rollupsWritten === 1 ? "" : "s"} and{" "}
-          {result.linesUpdated} package line{result.linesUpdated === 1 ? "" : "s"} updated.
+          <div>
+            Scanned {result.releases} release{result.releases === 1 ? "" : "s"} with a built package — {result.touched}{" "}
+            had a Hạng Mục/brand refreshed: {result.rollupsWritten} rollup row{result.rollupsWritten === 1 ? "" : "s"} and{" "}
+            {result.linesUpdated} package line{result.linesUpdated === 1 ? "" : "s"} updated.
+          </div>
+          {result.lockedLinesSkipped > 0 && (
+            <div style={{ marginTop: 4, color: "var(--text-faint)" }}>
+              Left {result.lockedLinesSkipped} line{result.lockedLinesSkipped === 1 ? "" : "s"} untouched across{" "}
+              {result.releasesWithLockedSkip} release{result.releasesWithLockedSkip === 1 ? "" : "s"}' locked/Booking-Board
+              package.
+            </div>
+          )}
         </div>
       )}
     </div>

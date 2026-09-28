@@ -825,7 +825,13 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     // HIRAKI II story). Recomputing here — from the entries that were JUST
     // copied in above — means a fresh clone never needs a manual Summarize
     // pass just to make the Booking Board's per-platform numbers real.
-    await resyncReleasePackages(release.id);
+    // Round 433 — skipLockedPackage: false. Right after a clone, EVERY
+    // package on this release (including one that happens to share a name
+    // with this release's own project_type) is carrying the SOURCE
+    // release's numbers and needs the fresh recompute — nothing here has
+    // actually been human-confirmed yet, so there's no locked package to
+    // protect. See lib/mediaBookingResync.js for the full Round 433 story.
+    await resyncReleasePackages(release.id, { skipLockedPackage: false });
     await loadAll();
   }
 

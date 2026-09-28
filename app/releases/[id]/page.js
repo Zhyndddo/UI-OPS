@@ -3551,16 +3551,26 @@ function UrlTab({ form, update, onSave, saving, did, releaseId }) {
             </div>
           )}
         </Field>
-        {/* Round 88 follow-up 5's "Custom Domain — Package Offer/Media
-            Report" field (releases.link_media_report_custom) removed per
-            explicit request: "vậy anh để lại cho em cái short link là
-            được rồi ạ. Còn mấy cái ô để điền link CUSTOM với linkfire url
-            anh bỏ giúp em để em báo team các bạn khỏi bị nhầm ạ" — this
-            field, the Media Booking ticket list's old "Linkfire url"
-            column, and the Package Builder popup's "Custom package url"
-            field all edited this exact same value; all 3 removed
-            together so the real Link Media Report/Package Offer field
-            above is the only one left to fill in. */}
+        {/* Round 432 — "Custom Domain — Package Offer/Media Report"
+            (releases.link_media_report_custom) restored, per explicit
+            request, ONLY here on the release detail page's URL tab. Round
+            88 follow-up 5 removed this field (plus the Media Booking
+            ticket list's old "Linkfire url" column and the Package
+            Builder popup's "Custom package url" field — all 3 edited this
+            same value) because having 3 boxes for one link was causing
+            people to fill in the wrong one — see that removal's own
+            comment, still accurate history, just no longer the whole
+            story. This isn't reversing that reasoning: the other 2 edit
+            surfaces (ticket list, Package Builder popup) and the Booking
+            Board stay exactly as they are, still with no custom-url
+            field. This is narrower — a batch of older tracks still
+            actively in progress need their own custom/aesthetic link
+            because the new auto-generated Link Media Report doesn't fit
+            them, and the detail page is the one place ops needs to be
+            able to set that per release. */}
+        <Field label="Custom Domain — Package Offer/Media Report">
+          <UrlField styles={styles} wide value={form.link_media_report_custom} onChange={(v) => update("link_media_report_custom", v)} />
+        </Field>
         {urlFields.map(([key, label]) =>
           key === "smartlink" && form.needs_update ? (
             <Field key={key} label={label}>
