@@ -372,7 +372,40 @@ function MobileTabbedPackages({ options, selectedValue, confirmed, isLocked, pic
 }
 
 export default function PickPackagePage() {
-  const { token } = useParams();
+  // Round 434 — "used to work now it doesn't" for any DID/token
+  // containing a non-ASCII initial (Vietnamese accented capitals like Đ,
+  // Ư, Ơ — routine since Round 390 switched magic_links.token to the
+  // release's own DID). Confirmed by reproducing in a real browser and
+  // reading the actual outbound Supabase request: it was
+  // `token=eq.EC%25C4%2590L-...` — DOUBLE percent-encoded. That only
+  // happens if the JS `token` value itself was still the raw encoded
+  // string "EC%C4%90L-..." (literal % characters) when supabase-js
+  // encoded it a second time to build the query string, instead of the
+  // real decoded "ECĐL-...". Root cause: `useParams()` in a Client
+  // Component ("use client", top of this file) does not URI-decode a
+  // dynamic segment containing a multi-byte UTF-8 character — Next.js
+  // 14's App Router only guarantees that for a Server Component's
+  // `params` prop, not this hook. Every ASCII-only DID/token (the vast
+  // majority — most Vietnamese words' *first letter* has no diacritic)
+  // was never affected, which is why this looked like an isolated,
+  // one-off broken link rather than a systemic bug.
+  //
+  // decodeURIComponent is safe to apply unconditionally here: every
+  // token this app ever mints is letters/digits/dash (the '#' -> 'x'
+  // substitution in set_magic_link_token() already strips the one
+  // reserved character that used to show up), so there's never a
+  // legitimate raw '%' in a real token — a string with none decodes to
+  // itself. Guarded in case a future token shape ever breaks that
+  // assumption and decodeURIComponent throws on it.
+  const { token: rawToken } = useParams();
+  let token = rawToken;
+  if (rawToken) {
+    try {
+      token = decodeURIComponent(rawToken);
+    } catch {
+      token = rawToken;
+    }
+  }
   const [magicLink, setMagicLink] = useState(null);
   const [release, setRelease] = useState(null);
   const [pickOptions, setPickOptions] = useState([]); // real built packages + the 3 simple ones
