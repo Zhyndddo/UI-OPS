@@ -10,7 +10,7 @@ import SortableTh, { ResetSortButton } from "../../lib/SortableTh";
 import ColumnVisibilityButton, { useColumnVisibility } from "../../lib/ColumnVisibility";
 import Pagination, { PAGE_SIZE_OPTIONS } from "../../lib/Pagination";
 import { fetchProductTagSets, ProductTagPills } from "../../lib/productTags";
-import { copyrightChecklistSummary } from "../../lib/copyrightChecklist";
+import { copyrightChecklistSummary, copyrightChecklistIsComplete } from "../../lib/copyrightChecklist";
 import DateRangeFilter, { matchesDateRange } from "../../lib/DateRangeFilter";
 import { useAuth } from "../../lib/AuthContext";
 import { visibleSubteamsFor, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewReleaseTags, canViewReleaseArPic, canEditReleaseArPic, isAdminOrAbove } from "../../lib/permissions";
@@ -154,6 +154,11 @@ const RELEASE_COLUMNS = [
   "priority_pitching", "pitching_status_spotify", "pitching_status_apple", "pitching_status_nct", "pitching_status_zing",
   // Round 88 — Copyright Checklist compiled summary subrow
   "copyright_checklist",
+  // Round 435 — needed so the summary subrow below can tell whether
+  // copyright_checklist is actually this release's live source of truth
+  // (Single) or a stale, no-longer-edited leftover (EP/Album — see the
+  // Round 435 fix comment right below).
+  "single_album_ep",
   // Round 261 — per-subteam tags, {subteamName: boolean}. Round 262
   // retired the single cycling project_tag/project_tag_locked columns
   // (Round 258/260) in favor of this generic map — Marketing's old
@@ -399,6 +404,7 @@ export default function ReleasesDashboard() {
   const [pitchingData, setPitchingData] = useState({}); // did -> pitching ticket's data, scoped to current page
   const [albumNameByDid, setAlbumNameByDid] = useState(new Map()); // scoped to current page's parent DIDs
   const [labelTagsByName, setLabelTagsByName] = useState({}); // Round 320 — label_name -> { default_lbl_tag }, scoped to current page
+  const [trackCopyrightByRelease, setTrackCopyrightByRelease] = useState({}); // Round 435 — release_id -> {declared, total}, EP/Album only, scoped to current page
   const [labels, setLabels] = useState([]);
   const [typeOptions, setTypeOptions] = useState([]);
   const [productTagSets, setProductTagSets] = useState({}); // small, unfiltered — see fetchProductTagSets
@@ -592,12 +598,20 @@ export default function ReleasesDashboard() {
     // entirely for a viewer who can't see the Tags column at all
     // (includeLabelTags is showReleaseTagsColumn from the caller).
     const labelNames = includeLabelTags ? [...new Set(rows.map((r) => r.label).filter(Boolean))] : [];
+    // Round 435 — this page's own EP/Album rows, whose "name" cell shows an
+    // "x/y tracks declared" count instead of the (stale, no-longer-edited)
+    // release-level copyright summary — see the render-side comment further
+    // down for why. Single releases don't need this fetch at all.
+    const epAlbumReleaseIds = rows.filter((r) => r.single_album_ep && r.single_album_ep !== "Single").map((r) => r.id);
 
-    const [bookingsResult, pitchTabResult, parentsResult, labelTagsResult] = await Promise.all([
+    const [bookingsResult, pitchTabResult, parentsResult, labelTagsResult, trackCopyrightResult] = await Promise.all([
       releaseIds.length ? supabase.from("media_booking_entries").select("release_id, status").in("release_id", releaseIds) : Promise.resolve({ data: [] }),
       supabase.from("ticket_tabs").select("id").eq("key", "pitching").single(),
       parentDids.length ? supabase.from("releases").select("did, title").in("did", parentDids) : Promise.resolve({ data: [] }),
       labelNames.length ? supabase.from("labels").select("label_name, default_lbl_tag").in("label_name", labelNames) : Promise.resolve({ data: [] }),
+      epAlbumReleaseIds.length
+        ? supabase.from("release_tracks").select("release_id, copyright_checklist").in("release_id", epAlbumReleaseIds)
+        : Promise.resolve({ data: [] }),
     ]);
 
     const grouped = {};
@@ -630,7 +644,18 @@ export default function ReleasesDashboard() {
     const labelTagsMap = {};
     (labelTagsResult.data || []).forEach((l) => { labelTagsMap[l.label_name] = l; });
 
-    return { bookingPct: pctMap, pitchingData: pitchingMap, albumNameByDid: albumMap, labelTagsByName: labelTagsMap };
+    // Round 435 — same "fully complete" bar the release detail page's own
+    // Copyrights tab badge uses (Owner + Contract + Validity Period all
+    // filled in, not just started — see copyrightChecklistIsComplete),
+    // so this count means the same thing here as it does there.
+    const trackCopyrightMap = {};
+    (trackCopyrightResult.data || []).forEach((t) => {
+      if (!trackCopyrightMap[t.release_id]) trackCopyrightMap[t.release_id] = { declared: 0, total: 0 };
+      trackCopyrightMap[t.release_id].total++;
+      if (copyrightChecklistIsComplete(t.copyright_checklist)) trackCopyrightMap[t.release_id].declared++;
+    });
+
+    return { bookingPct: pctMap, pitchingData: pitchingMap, albumNameByDid: albumMap, labelTagsByName: labelTagsMap, trackCopyrightByRelease: trackCopyrightMap };
   }
 
   async function runLoad({ page, pageSize, sort, filters, searchTerm, isRefresh } = {}) {
@@ -643,6 +668,7 @@ export default function ReleasesDashboard() {
       setPitchingData(joins.pitchingData);
       setAlbumNameByDid(joins.albumNameByDid);
       setLabelTagsByName(joins.labelTagsByName);
+      setTrackCopyrightByRelease(joins.trackCopyrightByRelease);
       // A filter/search narrowed things (or pageSize changed) while sitting
       // on a later page — snap back into range instead of an empty table
       // with no obvious way back. Same guard usePagination used to do
@@ -983,10 +1009,46 @@ export default function ReleasesDashboard() {
               </div>
             )}
             <ProductTagPills styles={styles} release={r} tagSets={productTagSets} style={{ marginTop: 4 }} />
-            {copyrightChecklistSummary(r.copyright_checklist) && (
-              <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 4 }}>
-                {copyrightChecklistSummary(r.copyright_checklist)}
-              </div>
+            {/* Round 435 — "Em Muốn" (EMPQ-27092026-0071) showed a stale
+                "Q1: TBU · Q2: TBU · Q3: TBU" here despite having all 5
+                tracks' rights fully declared. Root cause: this subrow
+                always read the release-level `copyright_checklist` column,
+                but that column is only the real source of truth for a
+                Single — for EP/Album, the team fills copyright in PER
+                TRACK instead (see release detail page's own
+                isSingleForUpload branch and CopyrightsTab, which stop
+                showing/editing the release-level checklist for EP/Album
+                for exactly this reason). This release started out with
+                placeholder text typed into the release-level Owner fields
+                before it was set up with tracks; nothing ever cleared it,
+                and the per-track data it was replaced by was never
+                reflected here because this subrow didn't know the
+                distinction existed.
+                Matching the release detail page's own rule: Single still
+                shows the release-level Q1/Q2/Q3 summary (unchanged);
+                EP/Album shows an "x/y tracks declared" count instead
+                (confirmed by the user as sufficient — no per-right
+                breakdown needed here), using the exact same
+                copyrightChecklistIsComplete bar the Copyrights tab's own
+                "x/y tracks fully declared" badge uses, so the two never
+                disagree. total === 0 means no tracks added yet — shown
+                as-is rather than "0/0", which would read as done. */}
+            {(!r.single_album_ep || r.single_album_ep === "Single") ? (
+              copyrightChecklistSummary(r.copyright_checklist) && (
+                <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 4 }}>
+                  {copyrightChecklistSummary(r.copyright_checklist)}
+                </div>
+              )
+            ) : (
+              (() => {
+                const tc = trackCopyrightByRelease[r.id];
+                if (!tc || tc.total === 0) return null;
+                return (
+                  <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 4 }}>
+                    {tc.declared}/{tc.total} tracks declared
+                  </div>
+                );
+              })()
             )}
           </td>
         );
