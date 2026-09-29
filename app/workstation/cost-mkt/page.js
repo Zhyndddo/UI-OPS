@@ -7,6 +7,7 @@ import { supabase } from "../../../lib/supabaseClient";
 import { useAuth } from "../../../lib/AuthContext";
 import { fetchAllRows } from "../../../lib/helpers";
 import UrlField from "../../../lib/UrlField";
+import PillSwitch from "../../../lib/PillSwitch";
 import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS, buildPackageByRelease, makeBookedFor, makeAddedFor } from "../../booking/page";
 import styles from "../../shared.module.css";
 
@@ -50,6 +51,44 @@ function costEntryKey(releaseId, fundedBy, channelKind, brand) {
   return `${releaseId}:${fundedBy}:${channelKind}:${brand}`;
 }
 
+// Round 436 — "This Month" counter + the Is_thismonth override switch.
+// sameMonth compares calendar month+year only (local time, same getter
+// idiom app/releases/page.js's calendarBounds() uses), not a 30-day
+// window or anything date-range-shaped — matches "this month = release
+// month" literally.
+function sameMonth(dateLike, now) {
+  if (!dateLike) return false;
+  const d = new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+}
+
+// override_month (when set) stands in for release_date entirely, not
+// alongside it — per explicit request ("use it in place of release date
+// for the counter"). It's a timestamp, not a boolean, specifically so an
+// override made last month quietly stops counting this month on its own
+// (see the Round 436 SQL migration's comment) — sameMonth against `now`
+// is what makes that happen; a stale non-null override_month from a prior
+// month is not treated as "this month" here.
+function isThisMonth(release, entry, now) {
+  const effective = entry?.override_month || release.release_date;
+  return sameMonth(effective, now);
+}
+
+// The Is_thismonth switch's own checked state — deliberately NOT the same
+// as isThisMonth() above. isThisMonth() answers "does this row count
+// toward This Month right now" (true either from release_date alone, or
+// from an active override); this answers "is a manual override
+// currently the reason." Using isThisMonth() for the switch would make a
+// release whose OWN release_date already falls in this month show
+// checked with no override present, and unchecking it would instantly
+// snap back to checked next render (falling straight back to
+// release_date) — confusing, and not what was asked for. This switch
+// only reflects/sets the override itself.
+function overrideActive(entry, now) {
+  return !!(entry?.override_month && sameMonth(entry.override_month, now));
+}
+
 // The editable cost fields every row gets, TikTok or Ads alike (Sup
 // Cashback included, per this round's explicit follow-up).
 const COST_FIELDS = [
@@ -83,6 +122,13 @@ export default function WorkstationCostMkt() {
   const [partnerBrand, setPartnerBrand] = useState(TIKTOK_PARTNERS[0]);
   const [adsBrand, setAdsBrand] = useState(ADS_BRANDS[0]);
   const brand = channelKind === "tiktok" ? partnerBrand : adsBrand;
+
+  // Round 436 — "This Month" / "All" counters (click "This Month" to
+  // filter the table below to just those rows, same click-to-filter/
+  // click-again-to-clear idiom app/releases/page.js's own stat cards
+  // use) + the Is_thismonth override column toggle.
+  const [monthFilterActive, setMonthFilterActive] = useState(false);
+  const [showOverrideColumn, setShowOverrideColumn] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
@@ -204,7 +250,12 @@ export default function WorkstationCostMkt() {
   // locked. A release with only a booked target and 0 posts so far still
   // shows (hasSomething also checks totalBooked), same visibility rule
   // Booking Board itself uses.
+  // Round 436 — evaluated once per build of `rows` rather than once per
+  // row (`new Date()` inside the .map would still be "now" for every row
+  // in one render anyway, but a single shared value makes that explicit
+  // and is one less allocation per row).
   const rows = useMemo(() => {
+    const now = new Date();
     return releases
       .map((r) => {
         const values = columns.map((col) => {
@@ -222,11 +273,29 @@ export default function WorkstationCostMkt() {
         const totalBooked = values.reduce((sum, v) => sum + (v.booked || 0), 0);
         const entry = costEntries[costEntryKey(r.id, fundedBy, channelKind, brand)];
         const hasEntry = !!entry && Object.values(entry).some((v) => v !== null && v !== undefined && v !== "" && typeof v !== "object");
-        return { release: r, values, totalPost, entry, hasSomething: totalPost > 0 || totalBooked > 0 || hasEntry };
+        return {
+          release: r,
+          values,
+          totalPost,
+          entry,
+          hasSomething: totalPost > 0 || totalBooked > 0 || hasEntry,
+          isThisMonth: isThisMonth(r, entry, now),
+          overrideActive: overrideActive(entry, now),
+        };
       })
       .filter((row) => row.hasSomething);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [releases, columns, fundedBy, channelKind, brand, bookedFor, addedFor, entries, costEntries, ticketsByDid]);
+
+  // Round 436 — This Month / All counters + the click-to-filter table
+  // view. thisMonthCount/allCount are always over the FULL current-tab
+  // row set (not already narrowed by monthFilterActive), same "counters
+  // don't move just because you clicked them" rule the Releases page's
+  // own stat cards follow. displayedRows is what the table actually
+  // renders.
+  const thisMonthCount = useMemo(() => rows.filter((row) => row.isThisMonth).length, [rows]);
+  const allCount = rows.length;
+  const displayedRows = monthFilterActive ? rows.filter((row) => row.isThisMonth) : rows;
 
   async function saveField(release, field, value) {
     const key = costEntryKey(release.id, fundedBy, channelKind, brand);
@@ -245,6 +314,10 @@ export default function WorkstationCostMkt() {
       vieent_ho_tro: existing?.vieent_ho_tro ?? null,
       artist_tra: existing?.artist_tra ?? null,
       sup_cashback: existing?.sup_cashback ?? null,
+      // Round 436 — the Is_thismonth override switch's stored value; see
+      // isThisMonth()/sameMonth() above. Included here like every other
+      // field so toggling it (or any other field) doesn't clobber it.
+      override_month: existing?.override_month ?? null,
       [field]: value,
       updated_at: new Date().toISOString(),
       updated_by: profile?.id || null,
@@ -261,6 +334,16 @@ export default function WorkstationCostMkt() {
       .select()
       .single();
     if (!error && data) setCostEntries((prev) => ({ ...prev, [key]: data }));
+  }
+
+  // Round 436 — Is_thismonth switch. Ticking ON stamps "now" into
+  // override_month (its month is what makes the row count as "this
+  // month" — see isThisMonth()); ticking OFF clears it back to NULL,
+  // which falls back to the release's own release_date. Reuses saveField
+  // so the rest of the row's fields round-trip through the exact same
+  // optimistic-update/upsert path as everything else on this page.
+  function toggleOverrideMonth(release, checked) {
+    saveField(release, "override_month", checked ? new Date().toISOString() : null);
   }
 
   // ── Top summary card — always all-time, across every entry regardless
@@ -336,18 +419,43 @@ export default function WorkstationCostMkt() {
             ))}
           </div>
 
+          {/* Round 436 — This Month / All counters, scoped to the
+              currently selected tab/brand above (same rows the table
+              below shows), not all-time like SummaryCard. Click "This
+              Month" to narrow the table to just those rows; click it
+              again (or click "All") to clear. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <MonthStatCard label="This Month" value={thisMonthCount} active={monthFilterActive} onClick={() => setMonthFilterActive((v) => !v)} />
+              <MonthStatCard label="All" value={allCount} active={!monthFilterActive} onClick={() => setMonthFilterActive(false)} />
+            </div>
+            <button
+              onClick={() => setShowOverrideColumn((v) => !v)}
+              className={`${styles.tabBtn} ${showOverrideColumn ? styles.tabBtnActive : ""}`}
+              style={{ border: showOverrideColumn ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: showOverrideColumn ? "rgba(255,107,26,0.1)" : "transparent", fontSize: 12 }}
+              title="Show a per-row switch to manually count a release toward this month, regardless of its release date"
+            >
+              Is_thismonth
+            </button>
+          </div>
+
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
-          ) : rows.length === 0 ? (
+          ) : displayedRows.length === 0 ? (
             <div className={styles.emptyState}>
-              Nothing booked yet for {channelKind === "tiktok" ? shortPartnerLabel(brand) : brand}
-              {fundedBy === "artist" ? " (or no Booking Không Trong Package ticket matches this Brand/Hạng Mục yet)." : "."}
+              {monthFilterActive
+                ? `No releases counted for this month yet for ${channelKind === "tiktok" ? shortPartnerLabel(brand) : brand}.`
+                : <>Nothing booked yet for {channelKind === "tiktok" ? shortPartnerLabel(brand) : brand}
+                  {fundedBy === "artist" ? " (or no Booking Không Trong Package ticket matches this Brand/Hạng Mục yet)." : "."}</>}
             </div>
           ) : (
             <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
               <table className={styles.table}>
                 <thead>
                   <tr>
+                    {/* Round 436 — "pops out" on the left when Is_thismonth
+                        is toggled on, ahead of Release. */}
+                    {showOverrideColumn && <th title="Manually count this release toward this month">This Month?</th>}
                     <th>Release</th>
                     {columns.map((c) => <th key={c}>{c}</th>)}
                     {channelKind === "tiktok" && <th>Total Post</th>}
@@ -356,8 +464,17 @@ export default function WorkstationCostMkt() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map(({ release, values, totalPost, entry }) => (
+                  {displayedRows.map(({ release, values, totalPost, entry, overrideActive: rowOverrideActive }) => (
                     <tr key={release.id}>
+                      {showOverrideColumn && (
+                        <td style={{ textAlign: "center" }} title="On = manually counted toward this month, using today's date in place of the release date">
+                          <PillSwitch
+                            size="sm"
+                            checked={rowOverrideActive}
+                            onChange={(checked) => toggleOverrideMonth(release, checked)}
+                          />
+                        </td>
+                      )}
                       <td style={{ minWidth: 160 }}>
                         <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
                         <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release.main_artist}</div>
@@ -386,6 +503,30 @@ export default function WorkstationCostMkt() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+// Round 436 — This Month / All counter, click-to-filter. Small version of
+// app/releases/page.js's own StatCard (same active/click idiom — click to
+// select, click the active one again to go back to "All" — but no
+// separate ✕ clear button since there are only ever these two states).
+function MonthStatCard({ label, value, active, onClick }) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        cursor: "pointer",
+        minWidth: 90,
+        background: active ? "rgba(255,107,26,0.08)" : undefined,
+        border: active ? "1px solid var(--accent)" : "1px solid var(--border)",
+        borderRadius: 8,
+        padding: "10px 14px",
+      }}
+      className={active ? undefined : styles.statCard}
+    >
+      <div className={styles.statLabel}>{label}</div>
+      <div className={styles.statValue}>{value}</div>
+    </div>
   );
 }
 
