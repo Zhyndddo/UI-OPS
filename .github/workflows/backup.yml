@@ -2,12 +2,11 @@ name: Data Backup
 
 on:
   schedule:
-    # Every 2 hours, on the hour (UTC) — 12 runs/day. Bumped up from once
-    # daily on 2026-08-20 after a production data-loss incident where the
-    # only available backup was ~24h stale; this narrows the worst-case
-    # recovery gap to ~2h. See scripts/backup.js for the per-run filename
-    # format this relies on (one file per run, not one per day).
-    - cron: "0 */2 * * *"
+    # Every 3 hours, on the hour (UTC) — 8 runs/day. Was every 2h (12/day)
+    # from 2026-08-20 to 2026-09-30; set back to 3h on 2026-09-30. See
+    # scripts/backup.js for the per-run filename format this relies on
+    # (one file per run, not one per day).
+    - cron: "0 */3 * * *"
   workflow_dispatch: {} # lets anyone run a backup on demand from the Actions tab
 
 permissions:
