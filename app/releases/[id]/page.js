@@ -462,6 +462,14 @@ export default function ReleaseDetailPage() {
         // the brand-text vocabulary or test this join without a live DB
         // connection.
         if (!(data.subteam_tags_locked || {}).INDIE) {
+          // Round 442 — media_booking_package_categories is now
+          // package-scoped, so this release-wide query can return one row
+          // PER PACKAGE for the same indie brand. Left unfiltered by
+          // package_id on purpose: hasIndieCategory below is a plain
+          // .some() presence check ("does ANY package have a real indie
+          // number"), not a sum, so extra per-package rows don't change
+          // the result — any package having indie content is enough to
+          // fire this auto-tag, same as before this round.
           const [catRes, pkgRes] = await Promise.all([
             supabase.from("media_booking_package_categories").select("total_posts, brand").eq("release_id", id).ilike("brand", "%indie%"),
             supabase.from("media_booking_packages").select("id, media_booking_package_lines(quantity, brand)").eq("release_id", id),

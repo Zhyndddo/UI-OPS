@@ -703,6 +703,13 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     if (extLinks?.value?.linkfire) setLinkfireUrl(extLinks.value.linkfire);
 
     if (rel) {
+      // Round 442 — media_booking_package_categories is now package-scoped,
+      // so this fetch (still release-wide, every package's rows) is filtered
+      // down to just the chosen/active package's own rows below, right
+      // after `pkgs` tells us which package that is. Fetching release-wide
+      // here (rather than adding .eq("package_id", ...) up front) avoids a
+      // second round trip, since we don't know the active package id until
+      // pkgs comes back in this same Promise.all.
       const [{ data: rollups }, { data: pkgs }, { data: tiers }, { data: link }] = await Promise.all([
         supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", rel.id),
         // Round 287 — media_booking_package_entry_snapshots joined in
@@ -713,14 +720,6 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         supabase.from("contract_type_packages").select("contract_type, items"),
         supabase.from("magic_links").select("token").eq("release_id", rel.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       ]);
-      setSummarizedRows(rollups || []);
-      setSummarizedCategoryIds(new Set((rollups || []).map((r) => r.category_id)));
-      // A category can have both a real (non-skipped) row and a skipped
-      // row across different brands — only treat it as "skipped" in the
-      // sidebar if every row for it is a skip, not a real Summarize.
-      const byCategory = {};
-      (rollups || []).forEach((r) => { byCategory[r.category_id] = byCategory[r.category_id] ?? true; byCategory[r.category_id] = byCategory[r.category_id] && r.skipped; });
-      setSkippedCategoryIds(new Set(Object.keys(byCategory).filter((id) => byCategory[id])));
       setPackages(pkgs || []);
       // Round 266 — default to whichever package's name matches
       // release.project_type (the one Booking Board's packageByRelease
@@ -734,10 +733,29 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       // board until someone happened to land on the right tab and
       // re-Summarized. Falls back to pkgs[0] when nothing matches (e.g.
       // project_type not decided yet), same as before.
+      let chosenPackageId = null;
       if (pkgs && pkgs.length > 0) {
         const chosen = pkgs.find((p) => p.name === rel.project_type);
-        setActivePackageId((chosen || pkgs[0]).id);
+        chosenPackageId = (chosen || pkgs[0]).id;
+        setActivePackageId(chosenPackageId);
       }
+      // Round 442 — summarizedRows / summarizedCategoryIds / skippedCategoryIds
+      // now reflect only the CHOSEN/active package's own rollup rows, not
+      // every package's on this release — each package has its own
+      // independent set of rows now, so the sidebar's "already summarized"/
+      // "skipped" indicators (and everything downstream that builds/syncs
+      // package lines from summarizedRows: groupSummarizedRows,
+      // currentGroup, createPackage's non-clone seed) should describe THIS
+      // package's grid state, not some other package's.
+      const scopedRollups = chosenPackageId ? (rollups || []).filter((r) => r.package_id === chosenPackageId) : [];
+      setSummarizedRows(scopedRollups);
+      setSummarizedCategoryIds(new Set(scopedRollups.map((r) => r.category_id)));
+      // A category can have both a real (non-skipped) row and a skipped
+      // row across different brands — only treat it as "skipped" in the
+      // sidebar if every row for it is a skip, not a real Summarize.
+      const byCategory = {};
+      scopedRollups.forEach((r) => { byCategory[r.category_id] = byCategory[r.category_id] ?? true; byCategory[r.category_id] = byCategory[r.category_id] && r.skipped; });
+      setSkippedCategoryIds(new Set(Object.keys(byCategory).filter((id) => byCategory[id])));
       setReferenceTiers(tiers || []);
       setMagicLinkUrl(link ? `${window.location.origin}/pick-package/${link.token}` : null);
     }
@@ -797,23 +815,40 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       supabase.from("media_booking_packages").delete().eq("release_id", release.id),
     ]);
 
-    if (srcEntries && srcEntries.length > 0) {
-      const rows = srcEntries.map(({ id, release_id, created_at, ...rest }) => ({ ...rest, release_id: release.id }));
-      await supabase.from("media_booking_content_entries").insert(rows);
-    }
-    if (srcRollups && srcRollups.length > 0) {
-      const rows = srcRollups.map(({ id, release_id, updated_at, ...rest }) => ({ ...rest, release_id: release.id }));
-      await supabase.from("media_booking_package_categories").insert(rows);
-    }
+    // Round 442 — media_booking_content_entries/media_booking_package_categories
+    // are now package-scoped (package_id NOT NULL), so packages must be
+    // created FIRST here (used to happen last) to get an old-package-id ->
+    // new-package-id map, then entries/rollups are copied PER SOURCE
+    // PACKAGE into their mapped new package — instead of the old
+    // release-wide "copy everything, no package_id" bulk insert, which
+    // would now violate the NOT NULL constraint and would re-collapse every
+    // package back onto shared numbers anyway (the exact bug this round
+    // fixes). Each new package starts with its own independent copy of the
+    // source package's entries/rollups, same as the migration's backfill.
+    const pkgIdMap = new Map(); // srcPkg.id -> newPkg.id
     if (srcPkgs && srcPkgs.length > 0) {
       for (const pkg of srcPkgs) {
         const { id, release_id, created_at, media_booking_package_lines, ...pkgRest } = pkg;
         const { data: newPkg } = await supabase.from("media_booking_packages").insert({ ...pkgRest, release_id: release.id }).select().single();
-        if (newPkg && media_booking_package_lines && media_booking_package_lines.length > 0) {
+        if (!newPkg) continue;
+        pkgIdMap.set(id, newPkg.id);
+        if (media_booking_package_lines && media_booking_package_lines.length > 0) {
           const lineRows = media_booking_package_lines.map(({ id: lineId, package_id, ...lineRest }) => ({ ...lineRest, package_id: newPkg.id }));
           await supabase.from("media_booking_package_lines").insert(lineRows);
         }
       }
+    }
+    if (srcEntries && srcEntries.length > 0) {
+      const rows = srcEntries
+        .filter((e) => pkgIdMap.has(e.package_id)) // drop any orphaned row with no matching new package
+        .map(({ id, release_id, created_at, package_id, ...rest }) => ({ ...rest, release_id: release.id, package_id: pkgIdMap.get(package_id) }));
+      if (rows.length > 0) await supabase.from("media_booking_content_entries").insert(rows);
+    }
+    if (srcRollups && srcRollups.length > 0) {
+      const rows = srcRollups
+        .filter((r) => pkgIdMap.has(r.package_id))
+        .map(({ id, release_id, updated_at, package_id, ...rest }) => ({ ...rest, release_id: release.id, package_id: pkgIdMap.get(package_id) }));
+      if (rows.length > 0) await supabase.from("media_booking_package_categories").insert(rows);
     }
 
     // Round 418 — per explicit request ("no resync needed, cloning already
@@ -840,14 +875,20 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // package-building data always reflect the latest Summarize, without a
   // full-page reload.
   async function refreshSummarizedRows() {
-    if (!release) return [];
-    const { data: rollups } = await supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", release.id);
+    // Round 442 — package-scoped: no active package means nothing to
+    // summarize into, same guard syncPackageLine/saveEntrySnapshot use.
+    if (!release || !activePackage) return [];
+    const { data: rollups } = await supabase.from("media_booking_package_categories").select("*, package_categories(name)").eq("release_id", release.id).eq("package_id", activePackage.id);
     setSummarizedRows(rollups || []);
     return rollups || [];
   }
 
   useEffect(() => {
-    if (!selectedCategoryId || !release) return;
+    // Round 442 — the DSP grid (media_booking_content_entries) is now
+    // package-scoped, so there's nothing to fetch/edit until a package
+    // exists and is active. See the "No active package" empty state added
+    // to the grid render below.
+    if (!selectedCategoryId || !release || !activePackage) return;
     (async () => {
       if (isTikTokChannel) {
         // Rows are user-added now (picker of the 5 sub-channel names, same
@@ -857,6 +898,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
           .from("media_booking_content_entries")
           .select("*")
           .eq("release_id", release.id)
+          .eq("package_id", activePackage.id)
           .eq("category_id", selectedCategoryId)
           .eq("brand", tiktokBrand)
           .order("sort_order");
@@ -864,7 +906,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         setSummary(null);
 
         // Live totals for every brand, for the comparison popup below Summarize.
-        const { data: rollups } = await supabase.from("media_booking_package_categories").select("brand, total_posts").eq("release_id", release.id).eq("category_id", selectedCategoryId);
+        const { data: rollups } = await supabase.from("media_booking_package_categories").select("brand, total_posts").eq("release_id", release.id).eq("package_id", activePackage.id).eq("category_id", selectedCategoryId);
         const totals = {};
         TIKTOK_ALL_BRANDS.forEach((b) => (totals[b] = 0));
         (rollups || []).forEach((r) => { if (r.brand) totals[r.brand] = r.total_posts; });
@@ -876,7 +918,8 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         return;
       }
 
-      let query = supabase.from("media_booking_content_entries").select("*").eq("release_id", release.id).eq("category_id", selectedCategoryId);
+      // Round 442 — package-scoped.
+      let query = supabase.from("media_booking_content_entries").select("*").eq("release_id", release.id).eq("package_id", activePackage.id).eq("category_id", selectedCategoryId);
       if (isSocial) query = query.eq("brand", brand);
       if (isCommunity) query = query.eq("brand", communityBrand);
       const { data } = await query.order("sort_order");
@@ -887,19 +930,25 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       // below Summarize. Social/Community have real brand brackets; Ads
       // always rolls up under the empty-string brand — see lesson in §7
       // about NULL vs '' inside the composite unique constraint.
-      const { data: rollups } = await supabase.from("media_booking_package_categories").select("brand, total_posts").eq("release_id", release.id).eq("category_id", selectedCategoryId);
+      const { data: rollups } = await supabase.from("media_booking_package_categories").select("brand, total_posts").eq("release_id", release.id).eq("package_id", activePackage.id).eq("category_id", selectedCategoryId);
       const totals = {};
       if (brandList) brandList.forEach((b) => (totals[b] = 0));
       else totals[""] = 0;
       (rollups || []).forEach((r) => { totals[r.brand ?? ""] = r.total_posts; });
       setCategoryTotals(totals);
     })();
-  }, [selectedCategoryId, brand, communityBrand, tiktokBrand, release]);
+    // Round 442 — activePackage added to deps: the grid now needs to
+    // re-fetch when the user switches package tabs, since content_entries
+    // is package-scoped (used to be release-wide, so a package switch never
+    // needed to touch this effect).
+  }, [selectedCategoryId, brand, communityBrand, tiktokBrand, release, activePackage]);
 
   // brandOverride is only used by Ads — its "brand" is picked per-click
   // (which of the 4 colored ad-group mini-tables the + button lives in),
   // not from a single selected-brand state like every other category.
   async function addRow(platform, brandOverride) {
+    // Round 442 — no active package, nowhere to put a new grid row.
+    if (!activePackage) return;
     const rowBrand = brandOverride ?? (isSocial ? brand : isCommunity ? communityBrand : isTikTokChannel ? tiktokBrand : "");
     // Round 54 — Ads rows seed their Đơn Giá from the configured default
     // for this (ad brand, metric) pair instead of starting at 0, so
@@ -909,7 +958,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     const defaultUnitPrice = isAds ? priceDefaultsRef.current.ads[rowBrand]?.[platform] ?? null : null;
     const { data } = await supabase
       .from("media_booking_content_entries")
-      .insert({ release_id: release.id, category_id: selectedCategoryId, platform, brand: rowBrand, unit_price: defaultUnitPrice, sort_order: entries.length })
+      .insert({ release_id: release.id, package_id: activePackage.id, category_id: selectedCategoryId, platform, brand: rowBrand, unit_price: defaultUnitPrice, sort_order: entries.length })
       .select()
       .single();
     if (data) setEntries((prev) => [...prev, data]);
@@ -937,6 +986,9 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // (sum of phases) × channel count, not just an additive row count) and
   // rolls up per-brand instead of per-platform.
   async function handleSummarize() {
+    // Round 442 — no active package, nothing to Summarize into (grid and
+    // rollup are both package-scoped now).
+    if (!activePackage) return;
     // Round 117 — "recheck" per explicit request: re-fetch Config's Đơn
     // Giá defaults fresh, right before this Summarize, instead of trusting
     // whatever was loaded when this tab first opened. See priceDefaultsRef's
@@ -966,9 +1018,13 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         subchannelTotals[r.platform] = (subchannelTotals[r.platform] || 0) + r.totalPosts;
       });
 
+      // Round 442 — package_id added to payload + onConflict target, per
+      // the new UNIQUE(release_id, package_id, category_id, brand)
+      // constraint — this rollup row is now this PACKAGE's own, not shared
+      // release-wide across every package.
       await supabase.from("media_booking_package_categories").upsert(
-        { release_id: release.id, category_id: selectedCategoryId, brand: tiktokBrand, total_posts: brandTotal, platform_quantities: Object.keys(subchannelTotals).length > 0 ? subchannelTotals : null, skipped: false, updated_at: new Date().toISOString() },
-        { onConflict: "release_id,category_id,brand" }
+        { release_id: release.id, package_id: activePackage.id, category_id: selectedCategoryId, brand: tiktokBrand, total_posts: brandTotal, platform_quantities: Object.keys(subchannelTotals).length > 0 ? subchannelTotals : null, skipped: false, updated_at: new Date().toISOString() },
+        { onConflict: "release_id,package_id,category_id,brand" }
       );
       setTiktokBrandTotals((prev) => ({ ...prev, [tiktokBrand]: brandTotal }));
       setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
@@ -1029,9 +1085,10 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         // never built yet — carries the real per-metric numbers too,
         // instead of only the brand that happened to be re-Summarized
         // interactively.
+        // Round 442 — package-scoped, see the TikTok Channel branch above.
         await supabase.from("media_booking_package_categories").upsert(
-          { release_id: release.id, category_id: selectedCategoryId, brand: adsBrandKey, total_posts: totalQty, total_money: totalMoney, detail_text: detailText || null, metric_quantities: Object.keys(metricQuantities).length > 0 ? metricQuantities : null, skipped: false, updated_at: new Date().toISOString() },
-          { onConflict: "release_id,category_id,brand" }
+          { release_id: release.id, package_id: activePackage.id, category_id: selectedCategoryId, brand: adsBrandKey, total_posts: totalQty, total_money: totalMoney, detail_text: detailText || null, metric_quantities: Object.keys(metricQuantities).length > 0 ? metricQuantities : null, skipped: false, updated_at: new Date().toISOString() },
+          { onConflict: "release_id,package_id,category_id,brand" }
         );
         // Ads never mushes brands together — sync this brand's own line
         // straight in, using the numbers just computed (no refetch needed).
@@ -1077,9 +1134,10 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     // entry per platform with its own totalPosts.
     const platformTotals = {};
     rows.forEach((r) => { platformTotals[r.platform] = r.totalPosts; });
+    // Round 442 — package-scoped, see the TikTok Channel branch above.
     await supabase.from("media_booking_package_categories").upsert(
-      { release_id: release.id, category_id: selectedCategoryId, brand: rollupBrand, total_posts: totalPosts, platform_quantities: Object.keys(platformTotals).length > 0 ? platformTotals : null, skipped: false, updated_at: new Date().toISOString() },
-      { onConflict: "release_id,category_id,brand" }
+      { release_id: release.id, package_id: activePackage.id, category_id: selectedCategoryId, brand: rollupBrand, total_posts: totalPosts, platform_quantities: Object.keys(platformTotals).length > 0 ? platformTotals : null, skipped: false, updated_at: new Date().toISOString() },
+      { onConflict: "release_id,package_id,category_id,brand" }
     );
     setCategoryTotals((prev) => ({ ...prev, [rollupBrand]: totalPosts }));
     setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
@@ -1102,10 +1160,12 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // entries. Disabled once real rows exist (see the button below) so it
   // can't accidentally stomp real data with a 0.
   async function handleSkip() {
+    // Round 442 — package-scoped: a Skip is only ever "for this package".
+    if (!activePackage) return;
     const rollupBrand = isTikTokChannel ? "" : isSocial ? brand : isCommunity ? communityBrand : "";
     await supabase.from("media_booking_package_categories").upsert(
-      { release_id: release.id, category_id: selectedCategoryId, brand: rollupBrand, total_posts: 0, skipped: true, updated_at: new Date().toISOString() },
-      { onConflict: "release_id,category_id,brand" }
+      { release_id: release.id, package_id: activePackage.id, category_id: selectedCategoryId, brand: rollupBrand, total_posts: 0, skipped: true, updated_at: new Date().toISOString() },
+      { onConflict: "release_id,package_id,category_id,brand" }
     );
     setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
     setSkippedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
@@ -1165,6 +1225,32 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
         const { data: inserted } = await supabase.from("media_booking_package_lines").insert(cloneRows).select();
         lines = inserted || [];
       }
+      // Round 442 — content_entries/package_categories are now
+      // package-scoped, so "Clone Package" (this same-release clone, not
+      // cloneFromRelease's cross-release one above) must ALSO duplicate the
+      // source package's own DSP grid rows + rollup rows into the new
+      // package, not just its built lines — otherwise the new package
+      // would start with a real Package tab (copied lines) but a
+      // completely empty Data Entry grid, which is inconsistent and means
+      // re-Summarizing the new package can't reproduce the numbers it was
+      // just cloned with. This is the right call: it mirrors the
+      // migration's own backfill strategy below (each package gets an
+      // independent COPY of the numbers, not a shared reference), so the
+      // clone starts as a real independent snapshot the user can diverge
+      // from immediately, same as before this fix except now genuinely
+      // independent instead of secretly shared.
+      const [{ data: srcPkgEntries }, { data: srcPkgRollups }] = await Promise.all([
+        supabase.from("media_booking_content_entries").select("*").eq("package_id", cloneFromId),
+        supabase.from("media_booking_package_categories").select("*").eq("package_id", cloneFromId),
+      ]);
+      if (srcPkgEntries && srcPkgEntries.length > 0) {
+        const entryRows = srcPkgEntries.map(({ id, package_id, created_at, ...rest }) => ({ ...rest, package_id: pkg.id }));
+        await supabase.from("media_booking_content_entries").insert(entryRows);
+      }
+      if (srcPkgRollups && srcPkgRollups.length > 0) {
+        const rollupRows = srcPkgRollups.map(({ id, package_id, updated_at, ...rest }) => ({ ...rest, package_id: pkg.id }));
+        await supabase.from("media_booking_package_categories").insert(rollupRows);
+      }
     } else {
       // Round 61 — a brand-new (non-cloned) package used to start
       // completely empty even if every Hạng Mục had already been
@@ -1178,6 +1264,18 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       // for a brand-new line, just computed for every group at once
       // instead of one at a time. Skipped Hạng Mục are excluded, same as
       // Summarize itself never syncs a Skip.
+      //
+      // Round 442 — this branch (cloneFromId falsy) only ever runs to
+      // create a release's VERY FIRST package (see the render below:
+      // "+ Create Package" only shows when packages.length === 0; once one
+      // exists, the button becomes "Clone Package" and always passes
+      // cloneFromId). Since content_entries/media_booking_package_categories
+      // are now package-scoped and nothing can be Summarized before a
+      // package exists (see the grid's "Create a package first" guard),
+      // `summarizedRows` is always empty the first time this runs — this
+      // seed effectively becomes a no-op now, left in place (harmless) for
+      // whatever edge case might still reach it rather than deleting a
+      // working code path.
       const groups = groupSummarizedRows(summarizedRows.filter((r) => !r.skipped));
       const insertRows = groups.map((g, i) => {
         if (g.isAds) {
@@ -1568,10 +1666,16 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // sync itself changed.
   async function syncYoutubeAdsLine(line, field, value) {
     const adsCategoryId = line.category_id;
+    // Round 442 — package-scoped: `line` is one specific package's own
+    // media_booking_package_lines row (line.package_id), so its mirrored
+    // content_entries row must be looked up/created under that SAME
+    // package, not release-wide — otherwise this could read or create an
+    // entry belonging to a different package's YouTube Ads bracket.
     const { data: existingEntry } = await supabase
       .from("media_booking_content_entries")
       .select("*")
       .eq("release_id", release.id)
+      .eq("package_id", line.package_id)
       .eq("category_id", adsCategoryId)
       .eq("brand", "YouTube Ads")
       .order("sort_order")
@@ -1584,7 +1688,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
       entryAfter = { ...existingEntry, [field]: value };
     } else {
       const insertPayload = {
-        release_id: release.id, category_id: adsCategoryId, brand: "YouTube Ads", platform: "Thruplay (Views)",
+        release_id: release.id, package_id: line.package_id, category_id: adsCategoryId, brand: "YouTube Ads", platform: "Thruplay (Views)",
         count_posts: field === "count_posts" ? value : 0,
         unit_price: field === "unit_price" ? value : priceDefaultsRef.current.ads["YouTube Ads"]?.["Thruplay (Views)"] ?? null,
         sort_order: 0,
@@ -1606,9 +1710,10 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
     });
 
     const totalMoney = (entryAfter.count_posts || 0) * (entryAfter.unit_price || 0);
+    // Round 442 — package-scoped rollup, same reasoning as the entry lookup above.
     await supabase.from("media_booking_package_categories").upsert(
-      { release_id: release.id, category_id: adsCategoryId, brand: "YouTube Ads", total_posts: entryAfter.count_posts || 0, total_money: totalMoney, skipped: false, updated_at: new Date().toISOString() },
-      { onConflict: "release_id,category_id,brand" }
+      { release_id: release.id, package_id: line.package_id, category_id: adsCategoryId, brand: "YouTube Ads", total_posts: entryAfter.count_posts || 0, total_money: totalMoney, skipped: false, updated_at: new Date().toISOString() },
+      { onConflict: "release_id,package_id,category_id,brand" }
     );
 
     // Round 103 — Chi Tiết isn't touched here on purpose: it's always the
@@ -1892,6 +1997,14 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   </div>
                 </div>
 
+                {/* Round 442 — the DSP grid is now package-scoped
+                    (media_booking_content_entries.package_id), so there's
+                    nowhere to save a row until a package exists and is
+                    active. Guards addRow/handleSummarize/handleSkip too. */}
+                {!activePackage ? (
+                  <div className={styles.emptyState}>Create a package first (see the Package panel) — the grid saves into whichever package is active.</div>
+                ) : (
+                <>
                 {!isAds && (
                   <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
                     {rowOptions.map((p) => <button key={p} className={styles.btnSmall} onClick={() => addRow(p)}>+ {p}</button>)}
@@ -2094,6 +2207,11 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
                   >
                     Skip
                   </button>
+                </div>
+                </>
+                )}
+
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                   {/* Round 54 — no separate "Add to Package"/"Remove" button
                       anymore: Summarize itself syncs straight into whichever
                       package tab is active (see syncPackageLine). This just

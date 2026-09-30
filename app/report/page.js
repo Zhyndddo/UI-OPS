@@ -368,6 +368,19 @@ function ReportPageInner() {
     const withLink = releases.filter((r) => r.link_media_report);
     return groupCounts(withLink, (r) => (r.media_report_status === "sent" ? "Artist Sent" : r.media_report_status === "ready" ? "Ready (not sent)" : "Not converted"));
   }, [releases]);
+  // Round 442 — media_booking_package_categories is now package-scoped
+  // (see sql/pending/add-round442-package-scope-content-entries.sql), so a
+  // release with 2+ packages now has MULTIPLE rows per category+brand
+  // here (one per package) instead of one shared row. Left unfiltered by
+  // package_id on purpose: this chart only counts DISTINCT release_ids per
+  // category via the Set below, never sums a quantity, so a release with
+  // several packages that all touched a category still counts once here,
+  // same as before this round. Flagging for review anyway since this is
+  // exactly the kind of release-wide-across-packages read the task asked
+  // to double-check — if a future addition to this report ever sums
+  // total_posts/total_money across these rows, it needs an explicit
+  // package_id filter (or a deliberate per-package breakdown) or it will
+  // double/triple count releases with multiple packages.
   const categoryBreadthChart = useMemo(() => {
     const byCategory = {};
     rollups.forEach((row) => {
