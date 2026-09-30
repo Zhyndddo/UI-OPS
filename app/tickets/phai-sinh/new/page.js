@@ -153,10 +153,10 @@ export default function PhaiSinhNewTicket() {
     if (!supabase) return;
 
     if (isBatch) {
-      if (importedRows.length === 0) {
-        setError("Paste or import at least one song first — nothing parsed yet.");
-        return;
-      }
+      // Round 438 — zero parsed songs no longer blocks ticket creation,
+      // per explicit request: the team can create the ticket now and add
+      // real songs later once the file is ready, instead of being forced
+      // to wait for one.
       setSubmitting(true);
       const { data: tab, error: tabErr } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "phai_sinh").single();
       if (tabErr || !tab) {
@@ -186,14 +186,20 @@ export default function PhaiSinhNewTicket() {
       }
       // Round 282 — audit log / requester attribution
       logTicketCreate({ actor: profile?.id, ticketId: created.id });
-      const { error: itemsErr } = await supabase.from("phai_sinh_batch_items").insert(
-        importedRows.map((r) => ({ ...r, batch_ticket_id: created.id }))
-      );
-      setSubmitting(false);
-      if (itemsErr) {
-        setError(`Ticket created, but songs failed to import: ${itemsErr.message}. Open it and use "+ Add" to retry.`);
-        return;
+      // Round 438 — skip the insert entirely when there's nothing to
+      // insert; an empty-array insert isn't needed and the ticket is
+      // already created either way.
+      if (importedRows.length > 0) {
+        const { error: itemsErr } = await supabase.from("phai_sinh_batch_items").insert(
+          importedRows.map((r) => ({ ...r, batch_ticket_id: created.id }))
+        );
+        if (itemsErr) {
+          setSubmitting(false);
+          setError(`Ticket created, but songs failed to import: ${itemsErr.message}. Open it and use "+ Add" to retry.`);
+          return;
+        }
       }
+      setSubmitting(false);
       router.push(`/tickets/batch-phai-sinh/${created.id}`);
       return;
     }

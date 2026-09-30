@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, fetchAllRows } from "../../../lib/helpers";
@@ -145,7 +146,16 @@ function findPriorRows(entries, platform, chart, today) {
 // of the fixed Input charts (see ImplementPanel below for the full
 // reasoning). Same OPS-only gate as Input/Report — this is active data
 // entry, not the read-only history Log gives AR/Marketing.
-const FULL_ACCESS_TABS = [["input", "Input"], ["implement", "Implement"], ["report", "Report"], ["log", "Log"]];
+// Round 437 — "Viral Posts" added, per explicit request. Full-access
+// (OPS/dev) gets it alongside everything else; Marketing specifically
+// (not AR — the two used to be lumped together as "Log-only") gets it
+// plus Log, a step up from AR's still-plain Log-only view. Marketing owns
+// this data the same way it owns Cost Marketing (see TEAM_WORKSTATION_TYPES'
+// own round-315 comment) — social-post tracking is a Marketing job, not
+// an OPS one, so it's deliberately NOT folded into FULL_ACCESS_TABS'
+// existing Input/Implement/Report (those stay OPS-only daily chart work).
+const FULL_ACCESS_TABS = [["input", "Input"], ["implement", "Implement"], ["viralPosts", "Viral Posts"], ["report", "Report"], ["log", "Log"]];
+const MARKETING_TABS = [["viralPosts", "Viral Posts"], ["log", "Log"]];
 const LOG_ONLY_TABS = [["log", "Log"]];
 
 // Round 242 — how far back the eager Report/Input load reaches. Report's
@@ -171,13 +181,19 @@ const LOG_SECTION_DAYS = 30;
 export default function MilestoneWorkstation() {
   const { profile } = useAuth();
   const hasFullAccess = isDev(profile) || isOpsTeam(profile?.segment);
+  // Round 437 — Marketing gets Viral Posts + Log; everyone else who isn't
+  // full-access (AR) stays Log-only, unchanged.
+  const isMarketing = profile?.segment === "Marketing";
+  const tabsForRole = hasFullAccess ? FULL_ACCESS_TABS : isMarketing ? MARKETING_TABS : LOG_ONLY_TABS;
   const [tab, setTab] = useState("input");
-  // Once the profile's loaded, a Log-only viewer can never land on/stay on
-  // Input or Report — covers both the initial "input" default above and
-  // anyone who had a tab other than Log picked up from a stale render.
+  // Once the profile's loaded, a viewer can never land on/stay on a tab
+  // their role doesn't have — covers both the initial "input" default
+  // above and anyone who had a now-disallowed tab picked up from a stale
+  // render. Falls back to that role's own first tab (Log for AR, Viral
+  // Posts for Marketing, Input for full access).
   useEffect(() => {
-    if (profile && !hasFullAccess && tab !== "log") setTab("log");
-  }, [profile, hasFullAccess, tab]);
+    if (profile && !tabsForRole.some(([k]) => k === tab)) setTab(tabsForRole[0][0]);
+  }, [profile, tabsForRole, tab]);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   // Round 243 — Log tab's own section-by-section pagination state,
@@ -648,7 +664,7 @@ export default function MilestoneWorkstation() {
           <h1 className={styles.title} style={{ marginBottom: 16 }}>Milestone</h1>
 
           <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
-            {(hasFullAccess ? FULL_ACCESS_TABS : LOG_ONLY_TABS).map(([k, label]) => (
+            {tabsForRole.map(([k, label]) => (
               <button key={k} onClick={() => setTab(k)} className={`${styles.tabBtn} ${tab === k ? styles.tabBtnActive : ""}`} style={{ border: tab === k ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: tab === k ? "rgba(255,107,26,0.1)" : "transparent" }}>
                 {label}
               </button>
@@ -657,18 +673,7 @@ export default function MilestoneWorkstation() {
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
-          ) : !hasFullAccess ? (
-            // Round 235 — Log-only viewer (AR/Marketing): render Log
-            // directly rather than trusting `tab` state, so there's no
-            // one-render flash of the Input grid before the effect above
-            // catches up.
-            // Round 243 — Log now reads from `logEntries` (seeded from the
-            // rolling window, paginated further back section-by-section as
-            // the user scrolls) — a log-only viewer's whole reason for
-            // being on this page is browsing history, so `seedLog()`'s
-            // trigger effect above fires for them immediately.
-            logTableEl
-          ) : tab === "input" ? (
+          ) : tab === "input" && hasFullAccess ? (
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {PLATFORMS.map((p) => (
                 <button
@@ -680,12 +685,17 @@ export default function MilestoneWorkstation() {
                 </button>
               ))}
             </div>
-          ) : tab === "implement" ? (
+          ) : tab === "implement" && hasFullAccess ? (
             <ImplementPanel styles={styles} onSaved={refreshAfterSave} />
-          ) : tab === "report" ? (
+          ) : tab === "viralPosts" && (hasFullAccess || isMarketing) ? (
+            <ViralPostsPanel styles={styles} />
+          ) : tab === "report" && hasFullAccess ? (
             <ReportAndHighlight digest={digest} highlight={highlight} report={report} highlightConfig={highlightConfig} />
           ) : (
-            // tab === "log"
+            // tab === "log" (or a tab this role isn't allowed on — the
+            // tabsForRole effect above will already be steering `tab` back
+            // to something valid; this is just what's on screen for the
+            // one render before that effect catches up).
             logTableEl
           )}
         </div>
@@ -1013,27 +1023,47 @@ function LogTable({ entries, hasMore, loadingMore, onSentinelChange }) {
   const [searchResults, setSearchResults] = useState(null);
   const [searching, setSearching] = useState(false);
   const searchTokenRef = useRef(0);
+  // Round 437 — same search, second table. When the artist/song filter is
+  // active, also pull matching milestone_viral_posts rows (same ilike-
+  // on-artist/track_title idiom as the chart-entries query right above,
+  // same debounce/staleness guard via searchTokenRef) and collapse them
+  // to one row per url (bestPerUrl — highest views) for display below the
+  // main results, per explicit request ("show all the url for each url in
+  // one line but each time they update with new (higher number per url)
+  // use that").
+  const [viralPostResults, setViralPostResults] = useState(null);
 
   useEffect(() => {
     if (!hasFilter || !supabase) {
       setSearchResults(null);
+      setViralPostResults(null);
       setSearching(false);
       return;
     }
     const token = ++searchTokenRef.current;
     setSearching(true);
     setSearchResults(null);
+    setViralPostResults(null);
     const artist = artistFilter.trim();
     const song = songFilter.trim();
     const handle = setTimeout(async () => {
-      const { data } = await fetchAllRows(() => {
-        let q = supabase.from("milestone_chart_entries").select("*");
-        if (artist) q = q.ilike("artist", `%${artist}%`);
-        if (song) q = q.ilike("track_title", `%${song}%`);
-        return q.order("entry_date", { ascending: false }).order("id", { ascending: false });
-      });
+      const [{ data }, { data: viralData }] = await Promise.all([
+        fetchAllRows(() => {
+          let q = supabase.from("milestone_chart_entries").select("*");
+          if (artist) q = q.ilike("artist", `%${artist}%`);
+          if (song) q = q.ilike("track_title", `%${song}%`);
+          return q.order("entry_date", { ascending: false }).order("id", { ascending: false });
+        }),
+        fetchAllRows(() => {
+          let q = supabase.from("milestone_viral_posts").select("*");
+          if (artist) q = q.ilike("artist", `%${artist}%`);
+          if (song) q = q.ilike("track_title", `%${song}%`);
+          return q.order("created_at", { ascending: false });
+        }),
+      ]);
       if (searchTokenRef.current !== token) return; // superseded by a newer filter — drop this stale response
       setSearchResults(data || []);
+      setViralPostResults(bestPerUrl(viralData || []));
       setSearching(false);
     }, 300);
     return () => clearTimeout(handle);
@@ -1128,9 +1158,9 @@ function LogTable({ entries, hasMore, loadingMore, onSentinelChange }) {
           </>
         )}
       </div>
-      {displayRows.length === 0 ? (
+      {displayRows.length === 0 && (!hasFilter || !viralPostResults || viralPostResults.length === 0) ? (
         <div className={styles.emptyState}>{searching ? "Searching…" : "No results."}</div>
-      ) : (
+      ) : displayRows.length === 0 ? null : (
         <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
           <table className={styles.table}>
             <thead><tr><th>Date</th><th>Chart</th><th>Song</th><th>Artist</th><th>Rank</th><th>Platform</th><th>DID</th></tr></thead>
@@ -1148,6 +1178,40 @@ function LogTable({ entries, hasMore, loadingMore, onSentinelChange }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {/* Round 437 — Viral Posts: only ever shown while actively
+          filtered/searched (per explicit request), collapsed to one row
+          per url already (viralPostResults comes in pre-collapsed via
+          bestPerUrl in the search effect above). Kept as its own labeled
+          section rather than merged into the table above — the two data
+          sets don't share a column shape (rank/chart vs url/views/
+          reactions). */}
+      {hasFilter && viralPostResults && viralPostResults.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", marginBottom: 6, textTransform: "uppercase" }}>
+            Viral Posts ({viralPostResults.length})
+          </div>
+          <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+            <table className={styles.table}>
+              <thead><tr><th>Channel</th><th>URL</th><th>View</th><th>Reaction</th><th>Song</th><th>Artist</th><th>Last Checked</th></tr></thead>
+              <tbody>
+                {viralPostResults.map((p) => (
+                  <tr key={p.id}>
+                    <td style={{ fontSize: 12 }}>{p.channel_name || p.platform || "—"}</td>
+                    <td style={{ fontSize: 11, maxWidth: 260, wordBreak: "break-all" }}>
+                      <a href={p.url} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a" }}>{p.url}</a>
+                    </td>
+                    <td>{p.views ?? "—"}</td>
+                    <td>{p.reactions ?? "—"}</td>
+                    <td>{p.track_title || "—"}</td>
+                    <td>{p.artist || "—"}</td>
+                    <td style={{ fontSize: 11, color: "var(--text-faint)" }}>{fmtDate(p.entry_date)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
       {!hasFilter && (
@@ -1229,7 +1293,12 @@ function AutoGrowField({ value, onChange, style, ...props }) {
 // Artist and Track Title from that release (the literal ask: "if choose
 // DID auto fetch the artist and song name") — the Track Title and Artist
 // fields' own suggestions only ever fill their own field.
-function ImplementReleaseField({ value, onChange, releases, matchKey, placeholder, styles }) {
+// Round 437 — added an optional onBlur passthrough (fires alongside the
+// existing dropdown-close-on-blur behavior, not instead of it) so
+// ViralPostPopup's DID field can resolve an exact hand-typed DID on blur,
+// the same way ChartEntryPopup's own row-level DID field already does —
+// without duplicating this whole component for one extra callback.
+function ImplementReleaseField({ value, onChange, releases, matchKey, placeholder, styles, onBlur }) {
   const [open, setOpen] = useState(false);
   const trimmed = (value || "").trim().toLowerCase();
   const matches = (trimmed.length > 0 ? releases.filter((r) => (r[matchKey] || "").toLowerCase().includes(trimmed)) : releases).slice(0, 8);
@@ -1242,7 +1311,7 @@ function ImplementReleaseField({ value, onChange, releases, matchKey, placeholde
         value={value || ""}
         onChange={(e) => { onChange({ value: e.target.value }); setOpen(true); }}
         onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)} // lets a click on a suggestion register first
+        onBlur={() => { setTimeout(() => setOpen(false), 150); onBlur?.(); }} // lets a click on a suggestion register first
       />
       {open && matches.length > 0 && (
         <div
@@ -1515,6 +1584,416 @@ function ImplementPanel({ styles, onSaved }) {
             </div>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+// Round 437 — "Viral Posts" tab. Every reader of milestone_viral_posts
+// (this panel's own Channel:url column, Log tab's search-result section,
+// and the pick-package magic link's new section) needs the exact same
+// collapse: many snapshot rows can share one url (that's the whole point
+// — each check-in is its own row, see the table's own comment), and every
+// place that shows "the" number for a url wants the highest-views one,
+// not the most recent. One shared helper so all three agree.
+function bestPerUrl(rows) {
+  const byUrl = new Map();
+  (rows || []).forEach((r) => {
+    const existing = byUrl.get(r.url);
+    if (!existing || (Number(r.views) || 0) > (Number(existing.views) || 0)) byUrl.set(r.url, r);
+  });
+  return [...byUrl.values()];
+}
+
+// Round 437 — one row of the popup's platform/channel/url/view/reaction
+// table. Plain controlled inputs, no autocomplete — unlike the DID/Title/
+// Artist fields above it (which lean on the existing releases table),
+// there's no existing catalog of "channels" to suggest from.
+function ViralPostRow({ row, onChange, onRemove, canRemove, styles }) {
+  const set = (field) => (e) => onChange({ ...row, [field]: e.target.value });
+  return (
+    <tr>
+      <td><input className={styles.input} style={{ width: 110, fontSize: 12 }} value={row.platform} onChange={set("platform")} placeholder="TikTok…" /></td>
+      <td><input className={styles.input} style={{ width: 140, fontSize: 12 }} value={row.channel_name} onChange={set("channel_name")} placeholder="Channel name" /></td>
+      <td><input className={styles.input} style={{ width: 220, fontSize: 12 }} value={row.url} onChange={set("url")} placeholder="https://…" /></td>
+      <td><input className={styles.input} style={{ width: 90, fontSize: 12 }} type="number" value={row.views} onChange={set("views")} placeholder="0" /></td>
+      <td><input className={styles.input} style={{ width: 90, fontSize: 12 }} type="number" value={row.reactions} onChange={set("reactions")} placeholder="0" /></td>
+      <td>
+        {canRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            title="Remove this row"
+            style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 14, padding: "0 6px" }}
+          >
+            ✕
+          </button>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+const EMPTY_VIRAL_ROW = { platform: "", channel_name: "", url: "", views: "", reactions: "" };
+
+// Round 437 — the popup itself: DID/Title/Artist up top (mimics
+// ImplementPanel's own ImplementReleaseField trio exactly — per explicit
+// request, "mimic the implement feature already there" — picking a DID
+// suggestion auto-fills Title/Artist the same way), then the snapshot
+// rows table underneath. `initialRelease` pre-fills all three when opened
+// from a specific release row on the main table (see ViralPostsPanel);
+// null when opened from the panel's own standalone "+ Log Viral Post"
+// button, same blank-start the DID field's free typing already supports.
+//
+// Deliberately requires a REAL release match (not free-text-only, unlike
+// Implement's fields) — a viral post with no release_id has nowhere to
+// show up on the main table or the media report magic link, the two
+// places this data is actually meant to surface. handleDidBlur below
+// mirrors ChartEntryPopup's own same-named function: an exact DID typed
+// by hand (not clicked from the suggestion dropdown) still resolves on
+// blur, same as that popup's row-level DID field already does.
+function ViralPostPopup({ initialRelease, releaseOptions, onClose, onSaved, styles }) {
+  const isMobile = useIsMobile();
+  const [did, setDid] = useState(initialRelease?.did || "");
+  const [trackTitle, setTrackTitle] = useState(initialRelease?.title || "");
+  const [artist, setArtist] = useState(initialRelease?.main_artist || "");
+  const [matchedRelease, setMatchedRelease] = useState(initialRelease || null);
+  const [rows, setRows] = useState([{ ...EMPTY_VIRAL_ROW }]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  function handleReleaseFieldChange(field, { value, release }) {
+    setError(null);
+    if (field === "did") {
+      setDid(value);
+      if (release) {
+        setMatchedRelease(release);
+        setTrackTitle(release.title || trackTitle);
+        setArtist(release.main_artist || artist);
+      } else {
+        setMatchedRelease(null);
+      }
+      return;
+    }
+    if (field === "track_title") setTrackTitle(value);
+    if (field === "artist") setArtist(value);
+    // Typing Title/Artist directly (not via a suggestion click) doesn't
+    // change which release is matched — same as ImplementPanel, only the
+    // DID field's own selection drives the match.
+  }
+
+  async function handleDidBlur() {
+    if (matchedRelease || !did.trim()) return;
+    const { data } = await supabase.from("releases").select("id, did, title, main_artist").eq("did", did.trim()).maybeSingle();
+    if (data) {
+      setMatchedRelease(data);
+      setTrackTitle((t) => t || data.title || "");
+      setArtist((a) => a || data.main_artist || "");
+    }
+  }
+
+  function updateRow(i, next) {
+    setRows((prev) => prev.map((r, idx) => (idx === i ? next : r)));
+  }
+  function removeRow(i) {
+    setRows((prev) => prev.filter((_, idx) => idx !== i));
+  }
+  function addRow() {
+    setRows((prev) => [...prev, { ...EMPTY_VIRAL_ROW }]);
+  }
+
+  async function handleSave() {
+    if (!matchedRelease) return setError("Pick a real release by DID first — Viral Posts need a matched release to show up on this table or the media report link.");
+    const payload = rows
+      .filter((r) => r.url.trim())
+      .map((r) => ({
+        release_id: matchedRelease.id,
+        did: matchedRelease.did,
+        track_title: trackTitle.trim() || matchedRelease.title,
+        artist: artist.trim() || matchedRelease.main_artist,
+        platform: r.platform.trim() || null,
+        channel_name: r.channel_name.trim() || null,
+        url: r.url.trim(),
+        views: r.views === "" ? null : Number(r.views),
+        reactions: r.reactions === "" ? null : Number(r.reactions),
+      }));
+    if (payload.length === 0) return setError("Add at least one row with a URL.");
+    setSaving(true);
+    const { error: insertError } = await supabase.from("milestone_viral_posts").insert(payload);
+    setSaving(false);
+    if (insertError) {
+      setError(`Failed to save: ${insertError.message}`);
+      return;
+    }
+    onSaved();
+    onClose();
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div
+        style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, width: isMobile ? "100%" : "min(900px, calc(100vw - 40px))", maxHeight: "85vh", overflowY: "auto" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 800 }}>Log Viral Posts</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer" }}>✕</button>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div className={styles.field} style={{ flex: 1, minWidth: 160 }}>
+            <label className={styles.fieldLabel}>DID</label>
+            <ImplementReleaseField
+              value={did}
+              onChange={(v) => handleReleaseFieldChange("did", v)}
+              releases={releaseOptions}
+              matchKey="did"
+              placeholder="Search existing releases, or paste a DID"
+              styles={styles}
+              onBlur={handleDidBlur}
+            />
+          </div>
+          <div className={styles.field} style={{ flex: 1, minWidth: 200 }}>
+            <label className={styles.fieldLabel}>Release Name</label>
+            <ImplementReleaseField
+              value={trackTitle}
+              onChange={(v) => handleReleaseFieldChange("track_title", v)}
+              releases={releaseOptions}
+              matchKey="title"
+              placeholder="Search existing releases"
+              styles={styles}
+            />
+          </div>
+          <div className={styles.field} style={{ flex: 1, minWidth: 160 }}>
+            <label className={styles.fieldLabel}>Artist</label>
+            <ImplementReleaseField
+              value={artist}
+              onChange={(v) => handleReleaseFieldChange("artist", v)}
+              releases={releaseOptions}
+              matchKey="main_artist"
+              placeholder="Search existing releases"
+              styles={styles}
+            />
+          </div>
+        </div>
+        {matchedRelease ? (
+          <div style={{ fontSize: 11, color: "var(--success-fg)", marginTop: 6 }}>✓ Matched release: {matchedRelease.title} — {matchedRelease.did}</div>
+        ) : (
+          <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>Pick a DID suggestion (or type an exact one and click out of the field) to match a release.</div>
+        )}
+
+        <div style={{ marginTop: 18 }}>
+          <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Platform</th>
+                  <th>Channel Name</th>
+                  <th>URL</th>
+                  <th>View</th>
+                  <th>Reaction</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => (
+                  <ViralPostRow
+                    key={i}
+                    row={row}
+                    onChange={(next) => updateRow(i, next)}
+                    onRemove={() => removeRow(i)}
+                    canRemove={rows.length > 1}
+                    styles={styles}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button type="button" className={styles.btnSmall} style={{ marginTop: 8 }} onClick={addRow}>+ Add Row</button>
+        </div>
+
+        {error && <p style={{ color: "var(--error-fg)", fontSize: 12, marginTop: 10 }}>{error}</p>}
+        <button className={styles.btnPrimary} style={{ marginTop: 14 }} onClick={handleSave} disabled={saving}>
+          {saving ? "Saving…" : "+ Log It"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Round 437 — main Viral Posts tab: one row per release regardless of
+// package, as long as it has a UPC (per explicit request — that's the
+// same "actually released" bar app/workstation/confirm/page.js already
+// uses for its own release-readiness check). Package name/link reuse the
+// exact same data Booking Board itself reads (buildPackageByRelease for
+// the locked package's name; release.link_media_report for the magic
+// link — see app/booking/page.js's own MediaReportCell for that same
+// field). Channel:url column shows this release's viral posts collapsed
+// to one line per url (bestPerUrl, highest views) — clicking that cell
+// (or the standalone button above the table) opens ViralPostPopup,
+// pre-filled with this row's release when clicked from a row.
+function ViralPostsPanel({ styles }) {
+  const [loading, setLoading] = useState(true);
+  const [releases, setReleases] = useState([]);
+  const [packages, setPackages] = useState([]);
+  const [viralPosts, setViralPosts] = useState([]);
+  const [search, setSearch] = useState("");
+  const [popupRelease, setPopupRelease] = useState(undefined); // undefined = closed; null = open blank; object = open pre-filled
+
+  async function load() {
+    setLoading(true);
+    const [{ data: rels }, { data: posts }] = await Promise.all([
+      fetchAllRows(() =>
+        supabase
+          .from("releases")
+          .select("id, did, title, main_artist, upc, link_media_report, project_type")
+          .not("upc", "is", null)
+          .neq("upc", "")
+          .order("release_date", { ascending: false })
+      ),
+      fetchAllRows(() => supabase.from("milestone_viral_posts").select("*").order("created_at", { ascending: false })),
+    ]);
+    const releaseList = rels || [];
+    setReleases(releaseList);
+    setViralPosts(posts || []);
+    const releaseIds = releaseList.map((r) => r.id);
+    const { data: pkgs } = releaseIds.length
+      ? await supabase.from("media_booking_packages").select("id, release_id, name").in("release_id", releaseIds)
+      : { data: [] };
+    setPackages(pkgs || []);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    if (!supabase) return;
+    load();
+  }, []);
+
+  // Same DID/Title/Artist suggestion source ImplementPanel uses, capped
+  // the same way (200, newest first) — this panel already has the full
+  // UPC'd release list loaded for its own table, but that's filtered to
+  // UPC'd-only and could still be large; the popup's own lighter, capped
+  // fetch keeps typing-to-search snappy regardless of how big the main
+  // table gets.
+  const [releaseOptions, setReleaseOptions] = useState([]);
+  useEffect(() => {
+    if (!supabase) return;
+    supabase
+      .from("releases")
+      .select("id, did, title, main_artist")
+      .order("created_at", { ascending: false })
+      .limit(200)
+      .then(({ data }) => setReleaseOptions(data || []));
+  }, []);
+
+  const packageNameByRelease = useMemo(() => {
+    const map = {};
+    packages.forEach((p) => {
+      // First package found per release, same "one locked package" idea
+      // Booking Board's own buildPackageByRelease resolves more precisely
+      // (project_type-aware) — this panel only needs a label, not the
+      // booked/added machinery, so the simpler "first row" is enough here.
+      if (!map[p.release_id]) map[p.release_id] = p.name;
+    });
+    return map;
+  }, [packages]);
+
+  const viralPostsByRelease = useMemo(() => {
+    const map = {};
+    viralPosts.forEach((v) => {
+      (map[v.release_id] = map[v.release_id] || []).push(v);
+    });
+    const collapsed = {};
+    Object.entries(map).forEach(([releaseId, rows]) => { collapsed[releaseId] = bestPerUrl(rows); });
+    return collapsed;
+  }, [viralPosts]);
+
+  const filteredReleases = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return releases;
+    return releases.filter((r) => (r.title || "").toLowerCase().includes(q) || (r.main_artist || "").toLowerCase().includes(q) || (r.did || "").toLowerCase().includes(q));
+  }, [releases, search]);
+
+  function refresh() {
+    load();
+  }
+
+  if (loading) return <div className={styles.emptyState}>Loading…</div>;
+
+  return (
+    <div>
+      <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: 0, maxWidth: 760 }}>
+        Every release with a UPC, regardless of package. Click a release's Channel:URL cell to log a new viral-post snapshot for it — the same
+        entries also show up on that release's media report magic link and in the Log tab when searched.
+      </p>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
+        <input className={styles.input} style={{ maxWidth: 260 }} placeholder="Filter by title, artist, or DID…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <button className={styles.btnPrimary} onClick={() => setPopupRelease(null)}>+ Log Viral Post</button>
+      </div>
+      {filteredReleases.length === 0 ? (
+        <div className={styles.emptyState}>No UPC'd releases match.</div>
+      ) : (
+        <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Release</th>
+                <th>Package</th>
+                <th>Media Report Link</th>
+                <th>Channel : URL</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredReleases.map((r) => {
+                const posts = viralPostsByRelease[r.id] || [];
+                return (
+                  <tr key={r.id}>
+                    <td style={{ minWidth: 160 }}>
+                      <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
+                      <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist} · {r.did}</div>
+                    </td>
+                    <td style={{ fontSize: 12 }}>{packageNameByRelease[r.id] || "—"}</td>
+                    <td style={{ fontSize: 11, maxWidth: 200 }}>
+                      {r.link_media_report ? (
+                        <a href={r.link_media_report} target="_blank" rel="noopener noreferrer" style={{ color: "#ff9d5c", wordBreak: "break-all" }}>{r.link_media_report}</a>
+                      ) : (
+                        <span style={{ color: "var(--text-faint)" }}>—</span>
+                      )}
+                    </td>
+                    <td
+                      onClick={() => setPopupRelease(r)}
+                      style={{ cursor: "pointer", fontSize: 11, maxWidth: 260, minWidth: 180 }}
+                      title="Click to log a viral-post snapshot for this release"
+                    >
+                      {posts.length === 0 ? (
+                        <span style={{ color: "var(--text-faint)" }}>— + Add</span>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          {posts.map((p) => (
+                            <div key={p.id} style={{ wordBreak: "break-all" }}>
+                              <span style={{ color: "var(--text)", fontWeight: 700 }}>{p.channel_name || p.platform || "—"}: </span>
+                              <span style={{ color: "#ff6b1a" }}>{p.url}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {popupRelease !== undefined && (
+        <ViralPostPopup
+          initialRelease={popupRelease}
+          releaseOptions={releaseOptions}
+          onClose={() => setPopupRelease(undefined)}
+          onSaved={refresh}
+          styles={styles}
+        />
       )}
     </div>
   );

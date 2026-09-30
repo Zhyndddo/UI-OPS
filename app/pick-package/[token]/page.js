@@ -16,6 +16,22 @@ function fmtVnd(n) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
+// Round 437 — same collapse app/workstation/milestone/page.js's own
+// bestPerUrl uses (that file's copy is the canonical comment — this is a
+// standalone public page with its own small dependency list, so it's a
+// deliberate duplicate rather than a cross-import into a workstation
+// page). Many snapshot rows can share one url (milestone_viral_posts is
+// append-only, one row per check-in); this keeps only the highest-views
+// row per url.
+function bestPerUrl(rows) {
+  const byUrl = new Map();
+  (rows || []).forEach((r) => {
+    const existing = byUrl.get(r.url);
+    if (!existing || (Number(r.views) || 0) > (Number(existing.views) || 0)) byUrl.set(r.url, r);
+  });
+  return [...byUrl.values()];
+}
+
 // Only "Chỉ Phát Hành" remains as an always-offered plain pick (no
 // itemized breakdown) — "Không Độc Quyền" was removed entirely per
 // request. "Int Media" used to be a 3rd entry here as a fake quick-pick;
@@ -445,6 +461,10 @@ export default function PickPackagePage() {
   // Round 106 item 4a — youtube_ads tickets matched to this release by
   // relatedDid, shown as their own card next to the package display.
   const [youtubeAdsTickets, setYoutubeAdsTickets] = useState([]);
+  // Round 437 — Viral Posts (app/workstation/milestone/page.js's new
+  // Marketing tab), matched by release_id, shown collapsed to one row per
+  // url in a section right above Package.
+  const [viralPosts, setViralPosts] = useState([]);
   // Confirm button now opens a warning popup instead of committing
   // directly — per explicit request, to prevent a misclick locking in the
   // wrong package (Cancel here just closes the popup, the earlier
@@ -741,6 +761,12 @@ export default function PickPackagePage() {
       }
     }
 
+    // Round 437 — every snapshot row for this release (append-only, one
+    // row per check-in — see the table's own migration comment); the
+    // render below collapses these to one per url via bestPerUrl.
+    const { data: viralRows } = await supabase.from("milestone_viral_posts").select("*").eq("release_id", link.release_id).order("created_at", { ascending: false });
+    setViralPosts(viralRows || []);
+
     supabase.from("magic_links").update({ last_used_at: new Date().toISOString() }).eq("id", link.id);
     setLoading(false);
   }
@@ -980,6 +1006,9 @@ export default function PickPackagePage() {
   // gates item B.3's default-collapsed sections below.
   const isMediaReport = !!release?.media_report_status;
   const linkName = isMediaReport ? "Media Report" : "Package Offer";
+  // Round 437 — Viral Posts, collapsed to one row per url (highest
+  // views — see bestPerUrl's own comment).
+  const viralPostsBest = bestPerUrl(viralPosts);
   const isPipelineStage = ["BRIEF & DATA", "SENT TO MARKETING", "DEALING"].includes(release?.project_type);
   // Round 175 — per explicit report: INT and Đợt 2 tabs were showing up
   // (and rendering the exact same category cards as Đợt 1) even for a
@@ -1090,6 +1119,36 @@ export default function PickPackagePage() {
           <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16, marginTop: 0 }}>
             Current stage: <span style={{ color: "#ff9d5c" }}>{release?.project_type}</span>
           </p>
+        )}
+
+        {/* Round 437 — Viral Posts, per explicit request ("add a new
+            section right above the result of the package, return these
+            links too: once per link, highest number"). Only rendered when
+            there's actually something to show — same "skip the section
+            entirely rather than an empty card" convention as the YouTube
+            Ads card just below. Not collapsible like Package/Tro Gia
+            Booking/etc. below — there's no "locked-in decision" here to
+            hide, it's just a short reference list. */}
+        {viralPostsBest.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div className={styles.subheading} style={{ marginTop: 0 }}>Viral Posts</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {viralPostsBest.map((p) => (
+                <div key={p.id} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 10, fontSize: 12 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 2 }}>
+                    {p.channel_name || p.platform || "—"}
+                    {p.platform && p.channel_name && <span style={{ color: "var(--text-faint)", fontWeight: 400 }}> · {p.platform}</span>}
+                  </div>
+                  <a href={p.url} target="_blank" rel="noopener noreferrer" style={{ color: "#ff6b1a", wordBreak: "break-all" }}>{p.url}</a>
+                  <div style={{ color: "var(--text-faint)", marginTop: 4 }}>
+                    {p.views != null && <span>{Number(p.views).toLocaleString()} views</span>}
+                    {p.views != null && p.reactions != null && <span> · </span>}
+                    {p.reactions != null && <span>{Number(p.reactions).toLocaleString()} reactions</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         {/* Round 54 — item B.3: once this link has been converted to a
@@ -1532,6 +1591,25 @@ export default function PickPackagePage() {
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b1a", marginBottom: 8, textTransform: "uppercase" }}>
                       {c.name}
                     </div>
+                    {/* Round 437 — per explicit request: the Ads card
+                        warns the artist/label up front when YouTube Ads
+                        specifically can't run on this release, same gate
+                        Booking Board's own YouTube Ads column already
+                        reads (release.gate_co_trong_net_youtube — see
+                        that page's ctnLocked). "Not ticked" covers both
+                        an explicit "No" and the default untouched/TBU
+                        state — anything short of an explicit "Yes" means
+                        the channel isn't confirmed to be in VIEENT's
+                        YouTube net yet. Shown unconditionally on the Ads
+                        card whenever that's the case (this page combines
+                        every Ads brand into one card, not a separate one
+                        per brand), regardless of whether YouTube Ads is
+                        actually part of this release's booked package. */}
+                    {c.name === "Ads" && release?.gate_co_trong_net_youtube !== "true" && (
+                      <div style={{ fontSize: isMobile ? 12 : 11, color: "#ffca4d", marginBottom: 8, lineHeight: 1.4 }}>
+                        Ads youtube không thể chạy vì kênh nghệ sĩ không thuộc net youtube VIEENT.
+                      </div>
+                    )}
                     {doneLinks.length > 0 ? (
                       // Round 168 — a bunch of clickable links instead of
                       // a bare "DONE" label, per explicit request, so the
