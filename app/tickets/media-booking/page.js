@@ -644,6 +644,19 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   const [summarizedRows, setSummarizedRows] = useState([]); // full media_booking_package_categories rows (with category name) for package building
   const [packages, setPackages] = useState([]);
   const [activePackageId, setActivePackageId] = useState(null);
+  // Round 442 hotfix — activePackage moved up here (was declared much
+  // further down, around the old line 1194) because Round 442 started
+  // referencing it inside an earlier useEffect's dependency array (the
+  // DSP-grid-refetch effect). A `const` referenced above its declaration
+  // in the same component scope is a temporal-dead-zone ReferenceError at
+  // runtime ("Cannot access '<minified-name>' before initialization") —
+  // React's dependency-array evaluation runs at the effect's call site,
+  // top-to-bottom, same as any other expression, so the old declaration
+  // position crashed this page on every render, for every release, the
+  // instant activePackage was added to that deps array. Declaring it here
+  // (right after the two state values it derives from) puts it before
+  // every usage in the file.
+  const activePackage = packages.find((p) => p.id === activePackageId);
   const [referenceTiers, setReferenceTiers] = useState([]);
   const [namePopup, setNamePopup] = useState(null); // null | "create" | "clone"
   const [generatingLink, setGeneratingLink] = useState(false);
@@ -1191,7 +1204,9 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // action, instead of two separate overlays with their own duplicate
   // "Summarized Hạng Mục" picker in between. ---
 
-  const activePackage = packages.find((p) => p.id === activePackageId);
+  // Round 442 hotfix — activePackage declaration moved up near the
+  // packages/activePackageId state (see there for why); this duplicate
+  // removed.
   // Round 86 follow-up item 2 — INT MEDIA used to have its own `isIntMedia`
   // flag here, driving a "mushed" read-only list in PackagesPanel (Hạng
   // Mục names only, no quantities/pricing/detail at all). Per explicit
