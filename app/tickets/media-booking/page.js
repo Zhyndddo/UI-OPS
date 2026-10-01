@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
@@ -96,8 +97,24 @@ function ThousandInput({ value, onCommit, style, className }) {
 const TICKET_COLUMNS = "*, profiles!tickets_pic_profile_id_fkey(name), requesterProfile:profiles!tickets_requester_profile_id_fkey(name)";
 const RELEASE_COLUMNS_FOR_TICKETS = "id, did, title, main_artist, label, release_date, release_time, drive_link, link_media_report";
 
+// Round 442 — shareable deep link to a specific ticket's Package Builder
+// popup. Reading the URL requires useSearchParams(), which Next.js
+// requires to sit inside a <Suspense> boundary on a page component (same
+// fix as app/report/page.js's Round 61 note) — split into a thin wrapper
+// + the real component so the default export can provide that boundary.
 export default function MediaBookingList() {
+  return (
+    <Suspense fallback={<AppShell><div className={styles.page}><div className={styles.container}>Loading…</div></div></AppShell>}>
+      <MediaBookingListInner />
+    </Suspense>
+  );
+}
+
+function MediaBookingListInner() {
   const { profile } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState(null);
   const [tickets, setTickets] = useState([]); // current PAGE only, full rows
   const [totalRows, setTotalRows] = useState(0);
@@ -113,6 +130,43 @@ export default function MediaBookingList() {
 
   const isExecutorView = !profile?.segment || profile.segment === "Marketing";
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+
+  // Round 442 — shareable "Package Offer" link, teammate-facing version.
+  // Opening a ticket's Package Builder popup now pushes ?ticket=<id> (plus
+  // &package=/&build=1 once a package's been built/selected — see
+  // PackageBuilderPopup below) into the URL, so copying the address bar
+  // and sending it to another logged-in teammate reopens this exact
+  // ticket/package/popup state instead of just landing on the bare list.
+  // openTicketById re-fetches a full ticket row by id (same columns
+  // TICKET_COLUMNS gives the list) so a deep-linked load — which only has
+  // an id from the URL, not the row the list query already has in memory
+  // — can reconstruct the same `ticket` shape PackageBuilderPopup expects.
+  async function openTicketById(id) {
+    const { data } = await supabase.from("tickets").select(TICKET_COLUMNS).eq("id", id).maybeSingle();
+    if (data) setOpenTicket(data);
+  }
+
+  function openTicketAndSync(t) {
+    setOpenTicket(t);
+    router.push(`${pathname}?ticket=${t.id}`);
+  }
+
+  function closeTicketAndSync() {
+    setOpenTicket(null);
+    router.push(pathname);
+  }
+
+  // Deep-link entry point — runs once on load if the URL already names a
+  // ticket (someone opened a shared link). Intentionally NOT re-run on
+  // every searchParams change: this page's own openTicketAndSync/
+  // closeTicketAndSync already keep state and URL in sync going forward,
+  // so re-reading the param on every change would just re-fetch a ticket
+  // we already have open.
+  useEffect(() => {
+    const ticketId = searchParams.get("ticket");
+    if (ticketId) openTicketById(ticketId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(query), 350);
@@ -341,7 +395,7 @@ export default function MediaBookingList() {
                   const color = statusColor(t.status);
                   const rel = releasesByDid[t.data?.releaseId];
                   return (
-                    <tr key={t.id} onClick={() => setOpenTicket(t)} style={{ cursor: "pointer" }}>
+                    <tr key={t.id} onClick={() => openTicketAndSync(t)} style={{ cursor: "pointer" }}>
                       <td><span className={styles.rowLink}>{t.data?.releaseId}</span></td>
                       <td style={{ fontSize: 11, lineHeight: 1.5 }}>
                         {rel ? (
@@ -435,8 +489,21 @@ export default function MediaBookingList() {
       {openTicket && (
         <PackageBuilderPopup
           ticket={openTicket}
-          onClose={() => setOpenTicket(null)}
+          onClose={closeTicketAndSync}
           onStatusChange={(newStatus) => { updateStatus(openTicket, newStatus); setOpenTicket((t) => ({ ...t, status: newStatus })); }}
+          // Round 442 — initial package/build-popup state from a deep
+          // link (ignored if absent — PackageBuilderPopup just opens
+          // normally), plus a callback it calls whenever the user opens/
+          // changes the Package panel or active package, so the URL stays
+          // a live, shareable snapshot of exactly what's on screen.
+          initialPackageId={searchParams.get("package")}
+          initialShowBuild={searchParams.get("build") === "1"}
+          onDeepLinkChange={({ packageId, showBuild }) => {
+            const params = new URLSearchParams(searchParams.toString());
+            if (showBuild) params.set("build", "1"); else params.delete("build");
+            if (packageId) params.set("package", packageId); else params.delete("package");
+            router.replace(`${pathname}?${params.toString()}`);
+          }}
         />
       )}
     </AppShell>
@@ -597,7 +664,7 @@ function CategoryCountsPopup({ isTikTokChannel, isAds, brandList, currentBrand, 
 // Media Booking ticket (replacing the old Template/Content-Plan modes
 // entirely) — gated the same way the ticket itself always was, not by
 // Send Upload.
-function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
+function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId, initialShowBuild, onDeepLinkChange }) {
   const { profile } = useAuth();
   const canEdit = canEditMediaBookingTicket(profile);
   const [release, setRelease] = useState(null);
@@ -623,7 +690,10 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // the setting row is read.
   const [linkfireUrl, setLinkfireUrl] = useState(DEFAULT_LINKFIRE_URL);
   const [loading, setLoading] = useState(true);
-  const [showBuildPopup, setShowBuildPopup] = useState(false);
+  // Round 442 — initial value seeded from the deep-link URL (if someone
+  // opened this ticket via a shared "Package Offer" link with &build=1),
+  // otherwise the same false default as before.
+  const [showBuildPopup, setShowBuildPopup] = useState(!!initialShowBuild);
   // Round 87 — mobile plan phase 3/4: this popup used to always show the
   // Hạng Mục picker + DSP grid ("left panel") side by side with the
   // Packages panel ("right panel") once Build Package was open — fine at
@@ -657,6 +727,33 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange }) {
   // (right after the two state values it derives from) puts it before
   // every usage in the file.
   const activePackage = packages.find((p) => p.id === activePackageId);
+  // Round 442 — apply a deep-linked initialPackageId exactly once, the
+  // first time `packages` actually has something in it (right after
+  // loadAll's initial fetch). Guarded by a ref rather than re-checking
+  // initialPackageId on every packages change, since packages legitimately
+  // changes on every edit afterward and re-forcing activePackageId back to
+  // the URL's original value on each of those would fight the user's own
+  // later clicks between package tabs.
+  const appliedInitialPackageRef = useRef(false);
+  useEffect(() => {
+    if (appliedInitialPackageRef.current) return;
+    if (loading) return; // loadAll still running — packages isn't final yet
+    appliedInitialPackageRef.current = true;
+    if (initialPackageId && packages.some((p) => p.id === initialPackageId)) {
+      setActivePackageId(initialPackageId);
+    }
+  }, [loading, packages]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Round 442 — keep the URL in sync as a live, shareable snapshot of
+  // this popup's state. Skipped until the initial deep-link package has
+  // had its chance to apply (see ref above) so this doesn't overwrite
+  // &package=... in the URL with "undefined" for the one render before
+  // that effect runs.
+  useEffect(() => {
+    if (!onDeepLinkChange) return;
+    if (!appliedInitialPackageRef.current) return;
+    onDeepLinkChange({ packageId: activePackageId || null, showBuild: showBuildPopup });
+  }, [activePackageId, showBuildPopup]); // eslint-disable-line react-hooks/exhaustive-deps
   const [referenceTiers, setReferenceTiers] = useState([]);
   const [namePopup, setNamePopup] = useState(null); // null | "create" | "clone"
   const [generatingLink, setGeneratingLink] = useState(false);

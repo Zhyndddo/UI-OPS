@@ -71,6 +71,18 @@ alter table media_booking_content_entries
 alter table media_booking_package_categories
   add column if not exists package_id uuid references media_booking_packages(id) on delete cascade;
 
+-- ── 1b. Drop the OLD UNIQUE(release_id, category_id, brand) constraint
+--       BEFORE the backfill below -- the backfill deliberately inserts
+--       several rows that share the same (release_id, category_id, brand)
+--       (one per package), which is exactly what this old constraint
+--       exists to prevent. Dropping it here, rather than down in step 5
+--       where it originally lived, is the actual fix for the
+--       "duplicate key value violates ... release_id_category_id_brand_key"
+--       error this migration hit on its first real run -- the old
+--       constraint can't still be in place while the backfill runs. ──────
+alter table media_booking_package_categories
+  drop constraint if exists media_booking_package_categori_release_id_category_id_brand_key;
+
 -- ── 2. Backfill: duplicate every still-unscoped row once per package the
 --       row's release already has. Guarded by "package_id is null" on the
 --       SOURCE side, so a second run of this script (after the first run
@@ -161,15 +173,14 @@ alter table media_booking_package_categories
 drop index if exists idx_mb_content_entries_lookup;
 create index idx_mb_content_entries_lookup on media_booking_content_entries (release_id, package_id, category_id);
 
--- ── 5. Replace package_categories' old UNIQUE(release_id, category_id,
---       brand) with one that includes package_id -- this is the actual
---       constraint that used to silently force every package on a release
---       to share one row per category+brand; the new key is what makes
---       Summarize's upsert (onConflict:
+-- ── 5. Add the NEW unique constraint, including package_id -- the old one
+--       was already dropped in step 1b above, before the backfill ran.
+--       This is what makes Summarize's upsert (onConflict:
 --       "release_id,package_id,category_id,brand") land on a row scoped
---       to just the active package. ──────────────────────────────────────
+--       to just the active package. Guarded so a second run (constraint
+--       already added) doesn't error. ───────────────────────────────────
 alter table media_booking_package_categories
-  drop constraint if exists media_booking_package_categori_release_id_category_id_brand_key;
+  drop constraint if exists media_booking_package_categories_release_package_category_brand_key;
 
 alter table media_booking_package_categories
   add constraint media_booking_package_categories_release_package_category_brand_key
