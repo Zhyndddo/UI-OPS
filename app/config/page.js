@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
@@ -287,6 +287,18 @@ function TeamSection({ profile }) {
   // spot that form used to occupy.
   const [addOpen, setAddOpen] = useState(false);
   const [search, setSearch] = useState("");
+  // Round 449 — sortable column headers, per explicit request ("allow to
+  // sort by the column titles"). Click a header to sort by it ascending;
+  // click the same one again to flip to descending; click a different
+  // header to switch columns (back to ascending). null sortKey = roster
+  // order (profiles.created_at, the query's own default), same as before
+  // this round.
+  const [sortKey, setSortKey] = useState(null);
+  const [sortDir, setSortDir] = useState("asc");
+  function toggleSort(key) {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("asc"); }
+  }
 
   useEffect(() => {
     if (!supabase) return;
@@ -435,6 +447,31 @@ function TeamSection({ profile }) {
     ? visibleProfiles.filter((p) => `${p.name} ${p.email}`.toLowerCase().includes(search.trim().toLowerCase()))
     : visibleProfiles;
 
+  // Round 449 — one comparable value per sortable column; "Signed In"
+  // sorts Not yet before Yes ascending (false < true), same as every
+  // other column's plain ascending-by-value meaning.
+  const SORT_VALUE = {
+    name: (p) => (p.name || "").toLowerCase(),
+    email: (p) => (p.email || "").toLowerCase(),
+    role: (p) => (ROLE_LABELS[p.role] || p.role || "").toLowerCase(),
+    segment: (p) => (p.segment || "").toLowerCase(),
+    subteam: (p) => (p.subteam || "").toLowerCase(),
+    signedIn: (p) => (p.auth_id ? 1 : 0),
+  };
+  const sortedProfiles = useMemo(() => {
+    if (!sortKey) return searchedProfiles;
+    const getValue = SORT_VALUE[sortKey];
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...searchedProfiles].sort((a, b) => {
+      const va = getValue(a);
+      const vb = getValue(b);
+      if (va < vb) return -1 * dir;
+      if (va > vb) return 1 * dir;
+      return 0;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchedProfiles, sortKey, sortDir]);
+
   return (
     <div>
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 20 }}>
@@ -474,9 +511,19 @@ function TeamSection({ profile }) {
         <div className={styles.emptyState}>No one matches "{search}".</div>
       ) : (
         <table className={styles.table}>
-          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Team</th><th>Subteam</th><th>Signed In</th><th></th></tr></thead>
+          <thead>
+            <tr>
+              <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={sortDir} onClick={toggleSort} />
+              <SortableTh label="Email" sortKey="email" activeKey={sortKey} dir={sortDir} onClick={toggleSort} />
+              <SortableTh label="Role" sortKey="role" activeKey={sortKey} dir={sortDir} onClick={toggleSort} />
+              <SortableTh label="Team" sortKey="segment" activeKey={sortKey} dir={sortDir} onClick={toggleSort} />
+              <SortableTh label="Subteam" sortKey="subteam" activeKey={sortKey} dir={sortDir} onClick={toggleSort} />
+              <SortableTh label="Signed In" sortKey="signedIn" activeKey={sortKey} dir={sortDir} onClick={toggleSort} />
+              <th></th>
+            </tr>
+          </thead>
           <tbody>
-            {searchedProfiles.map((p) => {
+            {sortedProfiles.map((p) => {
               // A person can only be re-assigned to a role the CALLER is
               // allowed to grant — plus their own current role, so the
               // select still shows what they actually are even if the
@@ -624,6 +671,24 @@ function TeamSection({ profile }) {
         </div>
       )}
     </div>
+  );
+}
+
+// Round 449 — clickable, sortable column header. Shared by any Config
+// table that wants one (currently just TeamSection's roster) — a plain
+// <th> that shows a ▲/▼ arrow when it's the active sort column, and
+// toggles ascending/descending on click, same click-to-sort/click-again-
+// to-flip idiom as this app's other sortable tables.
+function SortableTh({ label, sortKey, activeKey, dir, onClick }) {
+  const active = activeKey === sortKey;
+  return (
+    <th
+      onClick={() => onClick(sortKey)}
+      style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}
+      title={`Sort by ${label}`}
+    >
+      {label}{active && <span style={{ marginLeft: 4, color: "var(--accent)" }}>{dir === "asc" ? "▲" : "▼"}</span>}
+    </th>
   );
 }
 

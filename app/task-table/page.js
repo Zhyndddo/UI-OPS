@@ -12,6 +12,7 @@ import {
 } from "../../lib/teamTypes";
 import { TASK_PHASES, phaseForColumn } from "../../lib/taskPhases";
 import { effectiveSubteamTags } from "../../lib/releaseTags";
+import { MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
 import { SUBTEAM_TAG_TEAM, isAdminOrAbove, isDev } from "../../lib/permissions";
 import SearchBox from "../../lib/SearchBox";
 import styles from "../shared.module.css";
@@ -206,10 +207,41 @@ function requesterColKey(tabKey, done) {
 // no TBU left considered done), any request send out count as 1 per
 // project"). Filled from the SAME ticket rows this function already
 // fetches, same pattern as requesterMap — no extra queries.
-async function loadTicketCounts(map, requesterMap, arProjectsMap) {
+async function loadTicketCounts(map, requesterMap, arProjectsMap, profiles) {
   const { data: tabs } = await supabase.from("ticket_tabs").select("id, key").in("key", TICKET_KEYS);
   if (!tabs) return;
   const arOwnedTypes = new Set(TEAM_TICKET_TYPES.AR || []);
+
+  // Round 450 — "YouTube Ads" per explicit request: "remove the task that
+  // doesn't even concern them ... for each release, if a brand/column that
+  // has a subteam name, add that for the whole subteam." A youtube_ads
+  // ticket's relatedDid (when filled in) names the release it's for, and
+  // an ads run genuinely belongs to whichever subteam owns that release's
+  // brand (INDIE/VPOP/ENVI/VIEENT/CAPCUT), not whoever happened to get
+  // tagged PIC on the ticket — same mechanic loadSubteamProjectCounts
+  // already uses for the "Dự Án" column (bump the same item onto every
+  // member of the matching subteam, shared count). Built here (not a
+  // separate function) so it can skip the generic PIC-based bump below for
+  // the tickets it handles, rather than double-counting both ways.
+  // Falls back to the original PIC-based bump for any youtube_ads ticket
+  // with no relatedDid, or whose release carries no subteam tag — never
+  // silently dropped.
+  const marketingMembersBySubteam = {};
+  (profiles || []).forEach((p) => {
+    if (p.segment !== SUBTEAM_TAG_TEAM || !p.subteam) return;
+    if (!marketingMembersBySubteam[p.subteam]) marketingMembersBySubteam[p.subteam] = [];
+    marketingMembersBySubteam[p.subteam].push(p.id);
+  });
+  const releaseSubteamsByDid = {};
+  if (tabs.some((t) => t.key === "youtube_ads")) {
+    const { data: releases } = await fetchAllRows(() => supabase.from("releases").select("id, did, title, tags").order("id"));
+    (releases || []).forEach((r) => {
+      if (!r.did) return;
+      const subteams = effectiveSubteamTags(r);
+      if (subteams.length > 0) releaseSubteamsByDid[r.did] = subteams;
+    });
+  }
+
   await Promise.all(tabs.map(async (tab) => {
     // Round 389 — .gte("created_at", ...) excludes June 2026-and-earlier
     // tickets straight from the query (created_at is never null, unlike a
@@ -251,6 +283,22 @@ async function loadTicketCounts(map, requesterMap, arProjectsMap) {
       }
 
       if (!isTicketUndone(tab.key, t.status)) return;
+
+      // Round 450 — subteam-wide attribution for youtube_ads, see the big
+      // comment above loadTicketCounts. Only takes over when the ticket
+      // actually resolves to a subteam-tagged release; otherwise falls
+      // through to the normal PIC-based bump below.
+      if (tab.key === "youtube_ads") {
+        const subteams = t.data?.relatedDid ? releaseSubteamsByDid[t.data.relatedDid] : null;
+        if (subteams && subteams.length > 0) {
+          const item = { id: t.id, label: pickTicketLabel(t.data, t.id), href: TICKET_ROUTES.youtube_ads };
+          subteams.forEach((subteamName) => {
+            (marketingMembersBySubteam[subteamName] || []).forEach((memberId) => bumpItem(map, memberId, "ticket:youtube_ads", item));
+          });
+          return;
+        }
+      }
+
       // Round 279 — PIC is now a tag list on pages converted to the tag
       // UI (pic_profile_ids); a ticket tagged with several people counts
       // toward EACH of them here, not just the first. Falls back to the
@@ -541,7 +589,27 @@ function requesterColumnsWithData(requesterItems, profileId) {
 function TeamSection({ segment, members, memberItems, title, requesterItems, arProjectsCounts }) {
   const columns = columnsForTeam(segment);
   const unsupported = unsupportedWorkstationsForTeam(segment);
-  const sortedMembers = [...members].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  // Round 450 — Marketing's roster is grouped by subteam (INDIE/VPOP/ENVI/
+  // VIEENT/CAPCUT), per explicit request ("relayout for marketing, instead
+  // each individual, group them by subteam ... just visually add a merged
+  // column on the left of the member column"). A merged cell to the left
+  // of Member names the subteam each row-block belongs to, instead of one
+  // flat alphabetical list. Every other team is unaffected — groupBySubteam
+  // is false, and subteamGroups collapses to the single old flat list.
+  // Members with no subteam set (or one outside the 5 known tags) land in
+  // a trailing "No Subteam" group rather than being silently dropped.
+  const groupBySubteam = resolveTeamKey(segment) === SUBTEAM_TAG_TEAM;
+  const subteamGroups = groupBySubteam
+    ? [...MARKETING_SUBTEAM_TAGS, null]
+        .map((tag) => ({
+          label: tag || "No Subteam",
+          members: members
+            .filter((m) => (tag ? m.subteam === tag : !MARKETING_SUBTEAM_TAGS.includes(m.subteam)))
+            .sort((a, b) => (a.name || "").localeCompare(b.name || "")),
+        }))
+        .filter((g) => g.members.length > 0)
+    : [{ label: null, members: [...members].sort((a, b) => (a.name || "").localeCompare(b.name || "")) }];
+  const sortedMembers = subteamGroups.flatMap((g) => g.members);
   const teamHasUnassigned = columns.some((c) => countOf(memberItems, UNASSIGNED, c.id) > 0);
   const isAR = resolveTeamKey(segment) === "AR";
   const requestedColumns = requestedColumnsForTeam(sortedMembers, requesterItems, columns.map((c) => c.id));
@@ -558,6 +626,7 @@ function TeamSection({ segment, members, memberItems, title, requesterItems, arP
             <thead>
               {requestedColumns.length > 0 && (
                 <tr>
+                  {groupBySubteam && <th></th>}
                   <th></th>
                   {columns.length > 0 && <th colSpan={columns.length}></th>}
                   <th colSpan={requestedColumns.length} style={{ ...dividerStyle, textAlign: "center", fontWeight: 400, fontSize: 10, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
@@ -568,6 +637,7 @@ function TeamSection({ segment, members, memberItems, title, requesterItems, arP
                 </tr>
               )}
               <tr>
+                {groupBySubteam && <th>Subteam</th>}
                 <th>Member</th>
                 {columns.map((c) => <th key={c.id}>{c.name}</th>)}
                 {requestedColumns.map((c, i) => <th key={c.id} style={i === 0 ? dividerStyle : undefined}>{c.name}</th>)}
@@ -576,10 +646,13 @@ function TeamSection({ segment, members, memberItems, title, requesterItems, arP
               </tr>
             </thead>
             <tbody>
-              {sortedMembers.map((m) => {
+              {subteamGroups.flatMap((g) => g.members.map((m, idx) => {
                 const total = columns.reduce((sum, c) => sum + countOf(memberItems, m.id, c.id), 0);
                 return (
                   <tr key={m.id}>
+                    {groupBySubteam && idx === 0 && (
+                      <td rowSpan={g.members.length} style={{ fontWeight: 600, fontSize: 12, verticalAlign: "top", background: "var(--surface-sunken, rgba(127,127,127,0.06))" }}>{g.label}</td>
+                    )}
                     <td>{m.name}{m.role === "exc" ? <span style={{ marginLeft: 6, fontSize: 10, color: "var(--text-faint)" }}>(exc)</span> : null}</td>
                     {columns.map((c) => {
                       const n = countOf(memberItems, m.id, c.id);
@@ -593,9 +666,10 @@ function TeamSection({ segment, members, memberItems, title, requesterItems, arP
                     <td style={{ fontWeight: 700 }}>{total}</td>
                   </tr>
                 );
-              })}
+              }))}
               {teamHasUnassigned && (
                 <tr>
+                  {groupBySubteam && <td></td>}
                   <td style={{ color: "var(--text-faint)" }}>— Unassigned —</td>
                   {columns.map((c) => {
                     const n = countOf(memberItems, UNASSIGNED, c.id);
@@ -1006,12 +1080,18 @@ export default function TaskTablePage() {
   useEffect(() => {
     if (!supabase) return;
     (async () => {
-      const [{ data: profs }] = await Promise.all([supabase.from("profiles").select("id, name, segment, role").order("name")]);
+      // Round 450 — "subteam" added to this select: loadSubteamProjectCounts's
+      // Dự Án column (Round 325) and the new youtube_ads subteam attribution
+      // both key off profile.subteam, which this query was never actually
+      // fetching — every marketingMembersBySubteam bucket has been silently
+      // empty since Round 325, so Dự Án has shown 0 for everyone this whole
+      // time. Fixed here, not just for the new feature.
+      const [{ data: profs }] = await Promise.all([supabase.from("profiles").select("id, name, segment, role, subteam").order("name")]);
       setProfiles(profs || []);
       const map = {};
       const reqMap = {};
       const arProjectsMap = {};
-      await Promise.all([loadTicketCounts(map, reqMap, arProjectsMap), loadWorkstationCounts(map), loadSubteamProjectCounts(map, profs || [])]);
+      await Promise.all([loadTicketCounts(map, reqMap, arProjectsMap, profs || []), loadWorkstationCounts(map), loadSubteamProjectCounts(map, profs || [])]);
       setMemberItems(map);
       setRequesterItems(reqMap);
       setArProjectsCounts(Object.fromEntries(Object.entries(arProjectsMap).map(([id, set]) => [id, set.size])));
