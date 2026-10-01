@@ -20,6 +20,7 @@ const NOTES = {
   milestone: "Chart rank tracking — IN/REMAIN/RETURN/OUT + streaks",
   package_price: "Not built yet",
   cost_mkt: "TikTok/Ads booking cost tracking, Vieent Trả vs Artist Trả",
+  non_package_booking: "Booking Board, shaped the same way, for Booking Không Trong Package (Nghệ Sĩ Trả)",
 };
 
 export default function WorkstationIndex() {

@@ -129,11 +129,28 @@ function overrideActive(entry, now) {
 
 // The editable cost fields every row gets, TikTok or Ads alike (Sup
 // Cashback included, per this round's explicit follow-up).
+//
+// Round 447 — "report_link" is relabeled "URL Ads Perform" and no longer
+// its own per-row value: it now reads/writes releases.ads_perform_url —
+// the SAME url already shared across Booking Board's Ads popups and the
+// release detail page's URL tab (see app/booking/page.js's Round 308
+// comment — "exactly ONE url per release"). Per explicit request ("merge
+// and link to the url field already in dashboard detail page... all of
+// the section in the cost marketing now share this one URL instead of
+// fragmented like before"), every funded_by/channel_kind/brand combo for
+// a release — TikTok Channel or Ads, Vieent or Artist — now shows and
+// edits that one shared value, not a separate url per combo. The `key`
+// stays "report_link" for this array's own bookkeeping (column
+// matching/order), but it's handled as a special case everywhere it's
+// actually read or saved — see saveAdsPerformUrl below and the render
+// loop's `f.key === "report_link"` branch, which always uses EditableCell
+// against `release.ads_perform_url`, same as Cost Dự Kiến, regardless of
+// Is_installment (a url can't be "per payment month").
 const COST_FIELDS = [
   { key: "cost_du_kien", label: "Cost Dự Kiến", type: "number" },
   { key: "cost_thuc_chay", label: "Cost Thực Chạy", type: "number" },
   { key: "thang_chi_tra", label: "Tháng Chi Trả", type: "text", placeholder: "vd: 08/2026" },
-  { key: "report_link", label: "Report Link", type: "url" },
+  { key: "report_link", label: "URL Ads Perform", type: "url" },
   { key: "vieent_ho_tro", label: "Vieent Hỗ Trợ", type: "number" },
   { key: "artist_tra", label: "Artist Trả", type: "number" },
   { key: "sup_cashback", label: "Sup Cashback", type: "number" },
@@ -145,16 +162,15 @@ const POST_FIELDS = [
   { key: "no_support_post", label: "No. Support Post" },
 ];
 
-// Round 446 — the 5 fields that move INTO a per-installment row once a
+// Round 446 — the fields that move INTO a per-installment row once a
 // release's Is_installment switch is on; everything else in COST_FIELDS
 // (Cost Dự Kiến — the estimate, never per-payment; Tháng Chi Trả — now the
-// installment picker itself, not a value of its own) stays exactly where
-// it was. Same key/label/type shape as COST_FIELDS on purpose so
-// InstallmentEditableCell can reuse EditableCell's own input rendering
-// unchanged.
+// installment picker itself; URL Ads Perform — Round 447, one shared url
+// per release, never per-payment either) stays exactly where it was. Same
+// key/label/type shape as COST_FIELDS on purpose so InstallmentEditableCell
+// can reuse EditableCell's own input rendering unchanged.
 const INSTALLMENT_FIELDS = [
   { key: "cost_thuc_chay", label: "Cost Thực Chạy", type: "number" },
-  { key: "report_link", label: "Report Link", type: "url" },
   { key: "vieent_ho_tro", label: "Vieent Hỗ Trợ", type: "number" },
   { key: "artist_tra", label: "Artist Trả", type: "number" },
   { key: "sup_cashback", label: "Sup Cashback", type: "number" },
@@ -215,14 +231,25 @@ export default function WorkstationCostMkt() {
     [showSupCashback]
   );
 
-  // Round 436 — "This Month" / "All" counters (click "This Month" to
-  // filter the table below to just those rows, same click-to-filter/
-  // click-again-to-clear idiom app/releases/page.js's own stat cards
-  // use). Round 446 — the per-row switch this toggle reveals is renamed
-  // Is_installment and repurposed (see toggleInstallmentMode below); the
-  // toggle button itself still just shows/hides that column, same as
-  // before.
+  // Round 436 introduced "This Month" / "All" counters (This Month = the
+  // real current calendar month, not pickable). Round 447 replaces "This
+  // Month" with an actual month FILTER, per explicit request ("drop the
+  // filter this month, instead, add filter for month... click on the
+  // button open a popup to pick month, then filter base on that month
+  // instead") — filterMonth is the picked "YYYY-MM" (defaults to the
+  // current month so the page is still useful before anyone touches the
+  // picker), monthFilterActive is still the same on/off switch "All" used
+  // to flip, now just driven by picking a month (or clearing back to All)
+  // instead of a fixed toggle. Same click-to-filter/click-again-to-clear
+  // idiom app/releases/page.js's own stat cards use — "All" still clears
+  // it the same way it always did.
+  const [filterMonth, setFilterMonth] = useState(() => currentMonthInputValue());
   const [monthFilterActive, setMonthFilterActive] = useState(false);
+  const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const filterMonthDate = useMemo(() => {
+    const [y, m] = filterMonth.split("-").map(Number);
+    return new Date(y, (m || 1) - 1, 1);
+  }, [filterMonth]);
   const [showOverrideColumn, setShowOverrideColumn] = useState(false);
 
   // Round 446 — which installment is currently showing per row (keyed by
@@ -244,7 +271,7 @@ export default function WorkstationCostMkt() {
     setLoading(true);
     const [{ data: rels }, { data: cats }, { data: tabRow }, { data: costEntryRows }, { data: installmentRows }] = await Promise.all([
       fetchAllRows(() =>
-        supabase.from("releases").select("id, did, title, main_artist, release_date, project_type").order("release_date", { ascending: false })
+        supabase.from("releases").select("id, did, title, main_artist, release_date, project_type, ads_perform_url").order("release_date", { ascending: false })
       ),
       supabase.from("package_categories").select("id, name"),
       supabase.from("ticket_tabs").select("id").eq("key", BOOKING_NOT_IN_PACKAGE_TAB_KEY).maybeSingle(),
@@ -374,17 +401,31 @@ export default function WorkstationCostMkt() {
   // locked. A release with only a booked target and 0 posts so far still
   // shows (hasSomething also checks totalBooked), same visibility rule
   // Booking Board itself uses.
-  // Round 436 — evaluated once per build of `rows` rather than once per
-  // row (`new Date()` inside the .map would still be "now" for every row
-  // in one render anyway, but a single shared value makes that explicit
-  // and is one less allocation per row).
+  // Round 447 — isThisMonth is now evaluated against the PICKED filter
+  // month (filterMonthDate), not always "today" — see filterMonth's own
+  // comment above. The field name stays isThisMonth to minimize churn;
+  // it now means "matches the currently selected month filter."
   const rows = useMemo(() => {
-    const now = new Date();
     return releases
       .map((r) => {
         const values = columns.map((col) => {
           const platform = channelKind === "ads" ? col : null;
           const subchannelType = channelKind === "tiktok" ? col : null;
+          // Round 447 — Thru Play (YouTube Ads' one and only metric) now
+          // shows ONLY the package's own quantity — the number the artist
+          // picked when choosing the package — per explicit request
+          // ("take from the package chosen by artist instead of the input
+          // from booking board"). Booking Board's own "added" count (what
+          // ops actually typed in as the ads ran) is no longer read here
+          // at all for this one column; every other Ads metric and every
+          // TikTok Channel column is unchanged. Stored in `added` (not
+          // `booked`) so the existing "{added}{ / booked}" cell render,
+          // totalPost sum, and hasSomething check all keep working with no
+          // further changes — pkgSourced just lets the cell pick a
+          // different title/tooltip.
+          if (channelKind === "ads" && brand === "YouTube Ads" && col === "Thruplay (Views)") {
+            return { added: bookedFor(r, categoryName, brand, platform, subchannelType), booked: null, pkgSourced: true };
+          }
           if (fundedBy === "vieent") {
             return {
               added: addedFor(r, categoryName, brand, platform, subchannelType, entries),
@@ -406,19 +447,21 @@ export default function WorkstationCostMkt() {
           entry,
           installments,
           hasSomething: totalPost > 0 || totalBooked > 0 || hasEntry || installments.length > 0,
-          isThisMonth: isThisMonth(entry, installments, now),
+          isThisMonth: isThisMonth(entry, installments, filterMonthDate),
         };
       })
       .filter((row) => row.hasSomething);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [releases, columns, fundedBy, channelKind, brand, bookedFor, addedFor, entries, costEntries, installmentsByKey, ticketsByDid]);
+  }, [releases, columns, fundedBy, channelKind, brand, bookedFor, addedFor, entries, costEntries, installmentsByKey, ticketsByDid, filterMonthDate]);
 
-  // Round 436 — This Month / All counters + the click-to-filter table
-  // view. thisMonthCount/allCount are always over the FULL current-tab
-  // row set (not already narrowed by monthFilterActive), same "counters
-  // don't move just because you clicked them" rule the Releases page's
-  // own stat cards follow. displayedRows is what the table actually
-  // renders.
+  // Round 436 introduced This Month / All counters; Round 447 keeps the
+  // same two-card/click-to-filter shape but "This Month" is now "the
+  // picked month" (thisMonthCount/isThisMonth really mean "matches
+  // filterMonth" now — see that state's comment above). Counters are
+  // always over the FULL current-tab row set (not already narrowed by
+  // monthFilterActive), same "counters don't move just because you
+  // clicked them" rule the Releases page's own stat cards follow.
+  // displayedRows is what the table actually renders.
   const thisMonthCount = useMemo(() => rows.filter((row) => row.isThisMonth).length, [rows]);
   const allCount = rows.length;
   const displayedRows = monthFilterActive ? rows.filter((row) => row.isThisMonth) : rows;
@@ -450,7 +493,12 @@ export default function WorkstationCostMkt() {
   async function fetchExportRows() {
     return rows.map(({ release, entry }) => {
       const out = { did: release.did, title: release.title };
-      importExportColumns.slice(2).forEach((c) => { out[c.key] = entry?.[c.key] ?? ""; });
+      importExportColumns.slice(2).forEach((c) => {
+        // Round 447 — URL Ads Perform exports/imports from the release
+        // itself (releases.ads_perform_url), not the per-row cost entry —
+        // see COST_FIELDS' report_link comment.
+        out[c.key] = c.key === "report_link" ? (release.ads_perform_url ?? "") : (entry?.[c.key] ?? "");
+      });
       return out;
     });
   }
@@ -468,6 +516,18 @@ export default function WorkstationCostMkt() {
     });
   }
 
+  // Round 447 — the Import popup's other half: URL Ads Perform values it
+  // parsed land on `releases`, not a cost entry (see
+  // lib/CostMktImport.js's adsPerformUrlByReleaseId) — merge those into
+  // local `releases` state the same immediate way.
+  function handleAdsPerformUrlsImported(updatedReleases) {
+    setReleases((prev) => {
+      const byId = {};
+      updatedReleases.forEach((r) => { byId[r.id] = r.ads_perform_url; });
+      return prev.map((r) => (r.id in byId ? { ...r, ads_perform_url: byId[r.id] } : r));
+    });
+  }
+
   async function saveField(release, field, value) {
     const key = costEntryKey(release.id, fundedBy, channelKind, brand);
     const existing = costEntries[key];
@@ -481,7 +541,11 @@ export default function WorkstationCostMkt() {
       cost_du_kien: existing?.cost_du_kien ?? null,
       cost_thuc_chay: existing?.cost_thuc_chay ?? null,
       thang_chi_tra: existing?.thang_chi_tra ?? null,
-      report_link: existing?.report_link ?? null,
+      // Round 447 — report_link retired from this table; see
+      // saveAdsPerformUrl below. No longer included in this payload at
+      // all (not even carried forward), so this column just stops moving
+      // for every row going forward — whatever a row already had here is
+      // simply unused now, not overwritten.
       vieent_ho_tro: existing?.vieent_ho_tro ?? null,
       artist_tra: existing?.artist_tra ?? null,
       sup_cashback: existing?.sup_cashback ?? null,
@@ -510,6 +574,22 @@ export default function WorkstationCostMkt() {
       .select()
       .single();
     if (!error && data) setCostEntries((prev) => ({ ...prev, [key]: data }));
+  }
+
+  // Round 447 — URL Ads Perform (the old "Report Link" cell) now reads/
+  // writes releases.ads_perform_url directly — the one url already shared
+  // across Booking Board's Ads popups and the release detail page's URL
+  // tab (app/booking/page.js's Round 308 "exactly ONE url per release").
+  // Saving here updates that SAME column, so a value typed from Cost
+  // Marketing shows up in those other 2 places too, and vice versa —
+  // that's the whole point of merging onto one field instead of each
+  // surface keeping its own copy. Optimistic update touches local
+  // `releases` state (not costEntries — this was never a cost-entry
+  // field) so every row/tab referencing this release re-renders with the
+  // new value immediately.
+  async function saveAdsPerformUrl(release, value) {
+    setReleases((prev) => prev.map((r) => (r.id === release.id ? { ...r, ads_perform_url: value } : r)));
+    await supabase.from("releases").update({ ads_perform_url: value }).eq("id", release.id);
   }
 
   // Round 446 — Is_thismonth (Round 436) is now Is_installment: checking
@@ -582,18 +662,44 @@ export default function WorkstationCostMkt() {
     setAddInstallmentFor(null);
   }
 
-  // ── Top summary card — always all-time, across every entry regardless
-  // of the tabs/filters currently selected (per explicit request, "the
-  // top (unmoving part)"). Cost totals use Cost Thực Chạy (actual spend),
-  // not Cost Dự Kiến (estimate).
-  const allEntries = Object.values(costEntries);
-  const sumWhere = (pred, field) => allEntries.filter(pred).reduce((s, e) => s + (Number(e[field]) || 0), 0);
-  const tiktokBookingTotal = sumWhere((e) => e.channel_kind === "tiktok", "cost_thuc_chay");
-  const youtubeAdsTotal = sumWhere((e) => e.channel_kind === "ads" && e.brand === "YouTube Ads", "cost_thuc_chay");
-  const metaAdsTotal = sumWhere((e) => e.channel_kind === "ads" && e.brand === "Facebook Ads", "cost_thuc_chay");
-  const vieentFundedTotal = allEntries.reduce((s, e) => s + (Number(e.vieent_ho_tro) || 0), 0);
-  const artistFundedTotal = allEntries.reduce((s, e) => s + (Number(e.artist_tra) || 0), 0);
-  const supCashbackTotal = allEntries.reduce((s, e) => s + (Number(e.sup_cashback) || 0), 0);
+  // ── Top summary card. Round 436/446 had this always all-time, across
+  // every entry regardless of the tabs/filters currently selected ("the
+  // top (unmoving part)"). Round 447 — per explicit follow-up ("make the
+  // counter (the sum at the top of the workstation) also count based on
+  // the month"), it now respects the SAME month filter as the per-tab
+  // table below (filterMonth/monthFilterActive) — "All" still shows the
+  // all-time sum, same as before, since that filter state is shared.
+  // Cost totals use Cost Thực Chạy (actual spend), not Cost Dự Kiến
+  // (estimate).
+  //
+  // A release in Is_installment mode (Round 446) keeps its money fields
+  // on its installment rows instead of these flat entry columns — summed
+  // here from installmentsByKey instead, matched against filterMonth the
+  // same way the per-tab table's own InstallmentEditableCell picks which
+  // installment is "active." A non-installment release is matched by
+  // parsing its Tháng Chi Trả free text, same as isThisMonth() does for
+  // the per-tab table.
+  const allEntryPairs = useMemo(
+    () => Object.entries(costEntries).map(([key, entry]) => ({ entry, installments: installmentsByKey[key] || [] })),
+    [costEntries, installmentsByKey]
+  );
+  function sumField(pred, field) {
+    return allEntryPairs.reduce((sum, { entry, installments }) => {
+      if (!entry || !pred(entry)) return sum;
+      if (entry.is_installment) {
+        const matching = monthFilterActive ? installments.filter((inst) => sameMonth(inst.month, filterMonthDate)) : installments;
+        return sum + matching.reduce((s, inst) => s + (Number(inst[field]) || 0), 0);
+      }
+      if (!monthFilterActive) return sum + (Number(entry[field]) || 0);
+      return sum + (thangChiTraMatchesMonth(entry.thang_chi_tra, filterMonthDate) ? Number(entry[field]) || 0 : 0);
+    }, 0);
+  }
+  const tiktokBookingTotal = sumField((e) => e.channel_kind === "tiktok", "cost_thuc_chay");
+  const youtubeAdsTotal = sumField((e) => e.channel_kind === "ads" && e.brand === "YouTube Ads", "cost_thuc_chay");
+  const metaAdsTotal = sumField((e) => e.channel_kind === "ads" && e.brand === "Facebook Ads", "cost_thuc_chay");
+  const vieentFundedTotal = sumField(() => true, "vieent_ho_tro");
+  const artistFundedTotal = sumField(() => true, "artist_tra");
+  const supCashbackTotal = sumField(() => true, "sup_cashback");
 
   return (
     <AppShell>
@@ -655,14 +761,22 @@ export default function WorkstationCostMkt() {
             ))}
           </div>
 
-          {/* Round 436 — This Month / All counters, scoped to the
-              currently selected tab/brand above (same rows the table
-              below shows), not all-time like SummaryCard. Click "This
-              Month" to narrow the table to just those rows; click it
-              again (or click "All") to clear. */}
+          {/* Round 436 — counters scoped to the currently selected
+              tab/brand above (same rows the table below shows), not
+              all-time like SummaryCard (SummaryCard itself now follows
+              this same filter too, as of Round 447 — see its own comment
+              below). Round 447 — "This Month" replaced with an actual
+              month picker: click the month card to open the popup and
+              pick (or re-pick) a month, filtering the table to just that
+              month; click "All" to clear back to everything. */}
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
             <div style={{ display: "flex", gap: 8 }}>
-              <MonthStatCard label="This Month" value={thisMonthCount} active={monthFilterActive} onClick={() => setMonthFilterActive((v) => !v)} />
+              <MonthStatCard
+                label={`📅 ${fmtMonth(monthInputToDate(filterMonth))}`}
+                value={thisMonthCount}
+                active={monthFilterActive}
+                onClick={() => setShowMonthPicker(true)}
+              />
               <MonthStatCard label="All" value={allCount} active={!monthFilterActive} onClick={() => setMonthFilterActive(false)} />
             </div>
             <button
@@ -694,6 +808,15 @@ export default function WorkstationCostMkt() {
             </button>
           </div>
 
+          {showMonthPicker && (
+            <MonthFilterPopup
+              styles={styles}
+              defaultMonth={filterMonth}
+              onApply={(m) => { setFilterMonth(m); setMonthFilterActive(true); setShowMonthPicker(false); }}
+              onClose={() => setShowMonthPicker(false)}
+            />
+          )}
+
           {showImport && (
             <CostMktImportPopup
               styles={styles}
@@ -707,6 +830,7 @@ export default function WorkstationCostMkt() {
               scopeLabel={`${fundedBy === "vieent" ? "Booking Package" : "Booking Không Package"} — ${channelKind === "tiktok" ? "TikTok Channel" : "Ads"} — ${channelKind === "tiktok" ? shortPartnerLabel(brand) : brand}`}
               onClose={() => setShowImport(false)}
               onImported={(updatedRows) => { handleImported(updatedRows); setShowImport(false); }}
+              onAdsPerformUrlsImported={handleAdsPerformUrlsImported}
             />
           )}
 
@@ -761,7 +885,7 @@ export default function WorkstationCostMkt() {
                           <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release.main_artist}</div>
                         </td>
                         {values.map((v, i) => (
-                          <td key={i} style={{ textAlign: "center", fontSize: 12 }} title="added / booked target">
+                          <td key={i} style={{ textAlign: "center", fontSize: 12 }} title={v.pkgSourced ? "from the chosen package" : "added / booked target"}>
                             {v.added || v.booked != null ? `${v.added}${v.booked != null ? ` / ${v.booked}` : ""}` : "—"}
                           </td>
                         ))}
@@ -775,6 +899,14 @@ export default function WorkstationCostMkt() {
                         {costFields.map((f) => {
                           if (f.key === "cost_du_kien") {
                             return <EditableCell key={f.key} field={f} value={entry?.[f.key]} onSave={(v) => saveField(release, f.key, v)} />;
+                          }
+                          if (f.key === "report_link") {
+                            // Round 447 — one shared url per release
+                            // (releases.ads_perform_url), same cell
+                            // regardless of Is_installment — see
+                            // saveAdsPerformUrl and this field's comment on
+                            // COST_FIELDS above.
+                            return <EditableCell key={f.key} field={f} value={release.ads_perform_url} onSave={(v) => saveAdsPerformUrl(release, v)} />;
                           }
                           if (f.key === "thang_chi_tra") {
                             return isInstallment ? (
@@ -996,6 +1128,54 @@ function InstallmentEditableCell({ field, installment, activeIdx, onSave }) {
         onBlur={() => onSave(local === "" ? null : field.type === "number" ? Number(local) : local)}
       />
     </td>
+  );
+}
+
+// Round 447 — the per-tab "pick a month to filter by" popup (replaces
+// the old fixed "This Month" toggle). Same bare <input type="month">
+// idiom as AddInstallmentPopup below, just applying to the page's
+// filterMonth state instead of adding an installment row.
+function MonthFilterPopup({ styles, defaultMonth, onApply, onClose }) {
+  const [monthValue, setMonthValue] = useState(defaultMonth);
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 399, background: "rgba(0,0,0,0.5)" }} />
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 400,
+          width: "min(360px, calc(100vw - 32px))",
+          background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10,
+          padding: 20, boxShadow: "0 12px 36px rgba(0,0,0,0.4)",
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 10 }}>
+          Filter By Month
+        </div>
+        <p style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 0, marginBottom: 14 }}>
+          Pick the month to filter this tab's table — and the summary totals above — by.
+        </p>
+        <input
+          type="month"
+          className={styles.input}
+          value={monthValue}
+          onChange={(e) => setMonthValue(e.target.value)}
+          style={{ width: "100%", marginBottom: 16 }}
+          autoFocus
+        />
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            disabled={!monthValue}
+            onClick={() => monthValue && onApply(monthValue)}
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 
