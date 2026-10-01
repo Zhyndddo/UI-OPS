@@ -1167,6 +1167,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
       setSummary(rows);
 
       const totalsByBrand = {};
+      const removedBrands = [];
       for (const adsBrandKey of ADS_BRANDS) {
         const brandRows = rows.filter((r) => r.brand === adsBrandKey);
         const totalMoney = brandRows.reduce((sum, r) => sum + r.amount, 0);
@@ -1176,7 +1177,35 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
         // "SL 30 Lượt tiếp cận; SL 300 Lượt tương tác" instead of just
         // naming which metrics were filled in.
         const detailText = brandRows.filter((r) => (r.count_posts || 0) > 0).map((r) => `SL ${r.count_posts} ${r.platform}`).join("; ");
-        if (brandRows.length === 0 || (totalQty === 0 && !detailText)) continue;
+        // Round 444 — this used to be a bare `continue` here: if every
+        // entry for this Ads brand got deleted (down to zero rows) and the
+        // user hit Summarize expecting the brand's line to go away, nothing
+        // actually removed it — this loop only ever upserts/syncs a brand
+        // IN, it never had a path that took one back OUT. The brand's old
+        // media_booking_package_categories rollup row and its
+        // media_booking_package_lines row both just sat there forever,
+        // stale, with whatever numbers they last had. Every other Hạng Mục
+        // (Social/Community/TikTok Channel) doesn't have this gap because
+        // they mush every brand into ONE line recomputed from ALL entries,
+        // so it naturally recomputes to 0 — only Ads keeps one line per
+        // brand and only ever touched a brand's line while it still had
+        // entries. Reported directly: deleting a brand's DSP rows and
+        // re-Summarizing left its old package line (and rollup row)
+        // untouched — had to be removed by hand via the line's own Delete
+        // button in the Packages panel. Now Summarize does that cleanup
+        // itself: delete the stale rollup row and the stale line(s) for
+        // this brand, then move on to the next brand.
+        if (brandRows.length === 0 || (totalQty === 0 && !detailText)) {
+          await supabase.from("media_booking_package_categories").delete().eq("release_id", release.id).eq("package_id", activePackage.id).eq("category_id", selectedCategoryId).eq("brand", adsBrandKey);
+          const staleLines = (activePackage.media_booking_package_lines || []).filter((l) => l.category_id === selectedCategoryId && (l.brand || "") === adsBrandKey);
+          if (staleLines.length > 0) {
+            const staleIds = staleLines.map((l) => l.id);
+            await supabase.from("media_booking_package_lines").delete().in("id", staleIds);
+            setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.filter((l) => !staleIds.includes(l.id)) })));
+          }
+          removedBrands.push(adsBrandKey);
+          continue;
+        }
         totalsByBrand[adsBrandKey] = totalQty;
         // Round 114 — a real per-metric quantity (count_posts) already
         // exists on every row right here; it was being summed into totalQty
@@ -1210,7 +1239,13 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
         // Summarize, into whichever package is active.
         await saveEntrySnapshot(selectedCategoryId, adsBrandKey, entries.filter((e) => e.brand === adsBrandKey));
       }
-      setCategoryTotals((prev) => ({ ...prev, ...totalsByBrand }));
+      setCategoryTotals((prev) => {
+        const next = { ...prev, ...totalsByBrand };
+        // Round 444 — a brand just cleaned up above (zero entries left)
+        // shouldn't leave its last-known total lingering in this map.
+        removedBrands.forEach((b) => { delete next[b]; });
+        return next;
+      });
       setSummarizedCategoryIds((prev) => new Set(prev).add(selectedCategoryId));
       setSkippedCategoryIds((prev) => { const next = new Set(prev); next.delete(selectedCategoryId); return next; });
       await refreshSummarizedRows();
