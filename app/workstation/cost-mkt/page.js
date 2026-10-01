@@ -9,6 +9,8 @@ import { fetchAllRows } from "../../../lib/helpers";
 import UrlField from "../../../lib/UrlField";
 import PillSwitch from "../../../lib/PillSwitch";
 import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS, buildPackageByRelease, makeBookedFor, makeAddedFor } from "../../booking/page";
+import ExportButton from "../../../lib/spreadsheetExport";
+import CostMktImportPopup from "../../../lib/CostMktImport";
 import styles from "../../shared.module.css";
 
 // Round 315 — new Workstation item, per explicit request + the
@@ -63,16 +65,52 @@ function sameMonth(dateLike, now) {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
 }
 
-// override_month (when set) stands in for release_date entirely, not
-// alongside it — per explicit request ("use it in place of release date
-// for the counter"). It's a timestamp, not a boolean, specifically so an
-// override made last month quietly stops counting this month on its own
-// (see the Round 436 SQL migration's comment) — sameMonth against `now`
-// is what makes that happen; a stale non-null override_month from a prior
-// month is not treated as "this month" here.
-function isThisMonth(release, entry, now) {
-  const effective = entry?.override_month || release.release_date;
-  return sameMonth(effective, now);
+// Round 445 — This Month's basis moved from release_date to Tháng Chi
+// Trả, per explicit request ("change the filter this month from release
+// date to check upon the column Tháng chi trả"): release date was the
+// wrong signal for "does this belong in this month's cost log" — the
+// actual payment month is what matters. Tháng Chi Trả is free text (see
+// COST_FIELDS's placeholder, "vd: 08/2026"), so this parses defensively
+// rather than assuming one clean value — it pulls out every "M/YYYY" or
+// "MM/YYYY" token in the string, which also means a cell already holding
+// more than one month (e.g. "08/2026, 09/2026", for a release that needed
+// a 2nd payment — see Round 445's pitch doc on tracking that properly)
+// just works today, with no format change required.
+const MONTH_YEAR_RE = /(\d{1,2})\s*\/\s*(\d{4})/g;
+function parseThangChiTraTokens(text) {
+  if (!text) return [];
+  const out = [];
+  let m;
+  MONTH_YEAR_RE.lastIndex = 0;
+  while ((m = MONTH_YEAR_RE.exec(text))) {
+    const month = Number(m[1]);
+    const year = Number(m[2]);
+    if (month >= 1 && month <= 12) out.push({ month: month - 1, year });
+  }
+  return out;
+}
+function thangChiTraMatchesMonth(text, now) {
+  return parseThangChiTraTokens(text).some((t) => t.month === now.getMonth() && t.year === now.getFullYear());
+}
+
+// Round 446 — once a release has real installment rows (see
+// workstation_cost_mkt_installments below), those are the authoritative
+// answer: does ANY installment's month match the current calendar month.
+// A release that's never been switched into installment mode (or has the
+// switch on but hasn't added a month yet) falls back to the old Round 445
+// text-parse of Tháng Chi Trả, so nothing that already worked stops
+// working just because this round exists. override_month (Round 436)
+// still wins outright on top of either — it was never removed from the
+// schema, just retired from the UI (the Is_thismonth switch that used to
+// set it is now Is_installment and does something else — see
+// toggleInstallmentMode below) — a release with a still-active prior
+// override keeps counting from it.
+function isThisMonth(entry, installments, now) {
+  if (overrideActive(entry, now)) return true;
+  if (installments && installments.length > 0) {
+    return installments.some((inst) => sameMonth(inst.month, now));
+  }
+  return thangChiTraMatchesMonth(entry?.thang_chi_tra, now);
 }
 
 // The Is_thismonth switch's own checked state — deliberately NOT the same
@@ -107,6 +145,41 @@ const POST_FIELDS = [
   { key: "no_support_post", label: "No. Support Post" },
 ];
 
+// Round 446 — the 5 fields that move INTO a per-installment row once a
+// release's Is_installment switch is on; everything else in COST_FIELDS
+// (Cost Dự Kiến — the estimate, never per-payment; Tháng Chi Trả — now the
+// installment picker itself, not a value of its own) stays exactly where
+// it was. Same key/label/type shape as COST_FIELDS on purpose so
+// InstallmentEditableCell can reuse EditableCell's own input rendering
+// unchanged.
+const INSTALLMENT_FIELDS = [
+  { key: "cost_thuc_chay", label: "Cost Thực Chạy", type: "number" },
+  { key: "report_link", label: "Report Link", type: "url" },
+  { key: "vieent_ho_tro", label: "Vieent Hỗ Trợ", type: "number" },
+  { key: "artist_tra", label: "Artist Trả", type: "number" },
+  { key: "sup_cashback", label: "Sup Cashback", type: "number" },
+];
+
+// "2026-08-01" -> "08/2026". Installments are always stored at the 1st of
+// the month (see the Round 446 SQL migration's comment) — this only ever
+// reads the month/year back off that, same display format the old free-
+// text field's placeholder already used.
+function fmtMonth(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+}
+// "2026-08" (an <input type="month"> value) -> "2026-08-01", the date
+// shape the table itself stores.
+function monthInputToDate(monthStr) {
+  return monthStr ? `${monthStr}-01` : null;
+}
+function currentMonthInputValue() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export default function WorkstationCostMkt() {
   const { profile } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -116,6 +189,7 @@ export default function WorkstationCostMkt() {
   const [entries, setEntries] = useState([]); // media_booking_entries — Round 316 fix, see below
   const [notInPackageTickets, setNotInPackageTickets] = useState([]);
   const [costEntries, setCostEntries] = useState({}); // costEntryKey -> row
+  const [installmentsByKey, setInstallmentsByKey] = useState({}); // costEntryKey -> [row], sorted by month asc
 
   const [fundedBy, setFundedBy] = useState("vieent"); // "vieent" | "artist"
   const [channelKind, setChannelKind] = useState("tiktok"); // "tiktok" | "ads"
@@ -123,12 +197,43 @@ export default function WorkstationCostMkt() {
   const [adsBrand, setAdsBrand] = useState(ADS_BRANDS[0]);
   const brand = channelKind === "tiktok" ? partnerBrand : adsBrand;
 
+  // Round 445 — Sup Cashback only applies to TikTok Channel partners and
+  // the Ads "TikTok Ads" brand, per explicit request ("hide sup cashback
+  // for all but tiktok ads and TikTok channel"); every other Ads brand
+  // (Facebook/YouTube/Spotify Ads) never shows or edits this column.
+  // Doesn't touch saveField's payload shape or SummaryCard's all-time
+  // total below — this only hides the column+header for brands it
+  // doesn't apply to; any value already stored for another brand (legacy
+  // data) is left alone, just no longer editable from here.
+  const showSupCashback = channelKind === "tiktok" || brand === "TikTok Ads";
+  const costFields = useMemo(
+    () => COST_FIELDS.filter((f) => f.key !== "sup_cashback" || showSupCashback),
+    [showSupCashback]
+  );
+  const installmentFields = useMemo(
+    () => INSTALLMENT_FIELDS.filter((f) => f.key !== "sup_cashback" || showSupCashback),
+    [showSupCashback]
+  );
+
   // Round 436 — "This Month" / "All" counters (click "This Month" to
   // filter the table below to just those rows, same click-to-filter/
   // click-again-to-clear idiom app/releases/page.js's own stat cards
-  // use) + the Is_thismonth override column toggle.
+  // use). Round 446 — the per-row switch this toggle reveals is renamed
+  // Is_installment and repurposed (see toggleInstallmentMode below); the
+  // toggle button itself still just shows/hides that column, same as
+  // before.
   const [monthFilterActive, setMonthFilterActive] = useState(false);
   const [showOverrideColumn, setShowOverrideColumn] = useState(false);
+
+  // Round 446 — which installment is currently showing per row (keyed by
+  // costEntryKey), and which release the "Add Month" popup is open for
+  // (null = closed). Defaults to the LATEST installment (highest index
+  // once sorted ascending) the first time a row with any installments
+  // renders — see the rows memo below for where that default gets
+  // applied, since it needs the actual installments array to know how
+  // many there are.
+  const [activeInstallmentIdx, setActiveInstallmentIdx] = useState({});
+  const [addInstallmentFor, setAddInstallmentFor] = useState(null);
 
   useEffect(() => {
     if (!supabase) return;
@@ -137,13 +242,20 @@ export default function WorkstationCostMkt() {
 
   async function load() {
     setLoading(true);
-    const [{ data: rels }, { data: cats }, { data: tabRow }, { data: costEntryRows }] = await Promise.all([
+    const [{ data: rels }, { data: cats }, { data: tabRow }, { data: costEntryRows }, { data: installmentRows }] = await Promise.all([
       fetchAllRows(() =>
         supabase.from("releases").select("id, did, title, main_artist, release_date, project_type").order("release_date", { ascending: false })
       ),
       supabase.from("package_categories").select("id, name"),
       supabase.from("ticket_tabs").select("id").eq("key", BOOKING_NOT_IN_PACKAGE_TAB_KEY).maybeSingle(),
       fetchAllRows(() => supabase.from("workstation_cost_mkt_entries").select("*")),
+      // Round 446 — sql/pending/add-round446-cost-mkt-installments.sql.
+      // fetchAllRows never throws (it returns { data, error } even when
+      // the table doesn't exist yet) — the `data || []` fallback below is
+      // what actually keeps this page working before that SQL has been
+      // applied: every row just falls back to legacy (non-installment)
+      // behavior, same as a release that's never turned Is_installment on.
+      fetchAllRows(() => supabase.from("workstation_cost_mkt_installments").select("*")),
     ]);
     const releaseList = rels || [];
     setReleases(releaseList);
@@ -194,6 +306,18 @@ export default function WorkstationCostMkt() {
     const byKey = {};
     (costEntryRows || []).forEach((e) => { byKey[costEntryKey(e.release_id, e.funded_by, e.channel_kind, e.brand)] = e; });
     setCostEntries(byKey);
+
+    // Round 446 — same costEntryKey grouping, sorted ascending by month so
+    // index 0 is always the earliest payment and the last index is always
+    // the most recent — what the ◀/▶ cycling and the default-to-latest
+    // starting index both rely on.
+    const installmentsByKeyMap = {};
+    (installmentRows || []).forEach((row) => {
+      const k = costEntryKey(row.release_id, row.funded_by, row.channel_kind, row.brand);
+      (installmentsByKeyMap[k] = installmentsByKeyMap[k] || []).push(row);
+    });
+    Object.values(installmentsByKeyMap).forEach((list) => list.sort((a, b) => new Date(a.month) - new Date(b.month)));
+    setInstallmentsByKey(installmentsByKeyMap);
     setLoading(false);
   }
 
@@ -271,21 +395,23 @@ export default function WorkstationCostMkt() {
         });
         const totalPost = values.reduce((sum, v) => sum + (v.added || 0), 0);
         const totalBooked = values.reduce((sum, v) => sum + (v.booked || 0), 0);
-        const entry = costEntries[costEntryKey(r.id, fundedBy, channelKind, brand)];
+        const key = costEntryKey(r.id, fundedBy, channelKind, brand);
+        const entry = costEntries[key];
+        const installments = installmentsByKey[key] || [];
         const hasEntry = !!entry && Object.values(entry).some((v) => v !== null && v !== undefined && v !== "" && typeof v !== "object");
         return {
           release: r,
           values,
           totalPost,
           entry,
-          hasSomething: totalPost > 0 || totalBooked > 0 || hasEntry,
-          isThisMonth: isThisMonth(r, entry, now),
-          overrideActive: overrideActive(entry, now),
+          installments,
+          hasSomething: totalPost > 0 || totalBooked > 0 || hasEntry || installments.length > 0,
+          isThisMonth: isThisMonth(entry, installments, now),
         };
       })
       .filter((row) => row.hasSomething);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [releases, columns, fundedBy, channelKind, brand, bookedFor, addedFor, entries, costEntries, ticketsByDid]);
+  }, [releases, columns, fundedBy, channelKind, brand, bookedFor, addedFor, entries, costEntries, installmentsByKey, ticketsByDid]);
 
   // Round 436 — This Month / All counters + the click-to-filter table
   // view. thisMonthCount/allCount are always over the FULL current-tab
@@ -296,6 +422,51 @@ export default function WorkstationCostMkt() {
   const thisMonthCount = useMemo(() => rows.filter((row) => row.isThisMonth).length, [rows]);
   const allCount = rows.length;
   const displayedRows = monthFilterActive ? rows.filter((row) => row.isThisMonth) : rows;
+
+  // Round 445 — Import/Export, per explicit request ("make an
+  // import/export so that the team can easily get a template, add data
+  // and import back in quickly"). The "template" IS the export: it's
+  // every release currently relevant to this exact tab/brand (same `rows`
+  // the table renders, not narrowed by the This Month filter), pre-filled
+  // with whatever cost data already exists — so there's no separate blank
+  // template to keep in sync with this page's own fields. DID + Release
+  // are carried along read-only, purely so a re-imported file can be
+  // matched back to the right release; only the fields after them are
+  // ever written. Column set follows the same tiktok/ads + Sup Cashback
+  // visibility this tab's table already uses (see costFields above), so
+  // the file someone downloads always matches what they can see/edit here.
+  const importExportColumns = useMemo(() => {
+    const cols = [
+      { key: "did", label: "DID" },
+      { key: "title", label: "Release" },
+    ];
+    if (channelKind === "tiktok") {
+      POST_FIELDS.forEach((f) => cols.push({ key: f.key, label: f.label, kind: "number" }));
+    }
+    costFields.forEach((f) => cols.push({ key: f.key, label: f.label, kind: f.type === "number" ? "number" : "text" }));
+    return cols;
+  }, [channelKind, costFields]);
+
+  async function fetchExportRows() {
+    return rows.map(({ release, entry }) => {
+      const out = { did: release.did, title: release.title };
+      importExportColumns.slice(2).forEach((c) => { out[c.key] = entry?.[c.key] ?? ""; });
+      return out;
+    });
+  }
+
+  const [showImport, setShowImport] = useState(false);
+
+  // Bulk-apply what CostMktImportPopup parsed — merges into local state the
+  // same way the live `load()` → costEntries map does, so the table
+  // reflects an import immediately without a full page reload.
+  function handleImported(updatedRows) {
+    setCostEntries((prev) => {
+      const next = { ...prev };
+      updatedRows.forEach((row) => { next[costEntryKey(row.release_id, row.funded_by, row.channel_kind, row.brand)] = row; });
+      return next;
+    });
+  }
 
   async function saveField(release, field, value) {
     const key = costEntryKey(release.id, fundedBy, channelKind, brand);
@@ -314,10 +485,15 @@ export default function WorkstationCostMkt() {
       vieent_ho_tro: existing?.vieent_ho_tro ?? null,
       artist_tra: existing?.artist_tra ?? null,
       sup_cashback: existing?.sup_cashback ?? null,
-      // Round 436 — the Is_thismonth override switch's stored value; see
-      // isThisMonth()/sameMonth() above. Included here like every other
-      // field so toggling it (or any other field) doesn't clobber it.
+      // Round 436 — still here, still consulted by isThisMonth() as a
+      // last-resort override, but no longer user-settable from this page
+      // (see toggleInstallmentMode below) — preserved so a release that
+      // already had one active before Round 446 doesn't lose it.
       override_month: existing?.override_month ?? null,
+      // Round 446 — the Is_installment switch's own stored value; see
+      // toggleInstallmentMode below. Included here like every other field
+      // so toggling anything else on this row doesn't clobber it.
+      is_installment: existing?.is_installment ?? false,
       [field]: value,
       updated_at: new Date().toISOString(),
       updated_by: profile?.id || null,
@@ -336,14 +512,74 @@ export default function WorkstationCostMkt() {
     if (!error && data) setCostEntries((prev) => ({ ...prev, [key]: data }));
   }
 
-  // Round 436 — Is_thismonth switch. Ticking ON stamps "now" into
-  // override_month (its month is what makes the row count as "this
-  // month" — see isThisMonth()); ticking OFF clears it back to NULL,
-  // which falls back to the release's own release_date. Reuses saveField
-  // so the rest of the row's fields round-trip through the exact same
-  // optimistic-update/upsert path as everything else on this page.
-  function toggleOverrideMonth(release, checked) {
-    saveField(release, "override_month", checked ? new Date().toISOString() : null);
+  // Round 446 — Is_thismonth (Round 436) is now Is_installment: checking
+  // it on no longer forces "this month" by itself — it switches that
+  // row's Tháng Chi Trả cell (and the cost fields beside it) from the old
+  // flat/legacy fields over to the new per-month installment picker/mini-
+  // table (see the table body below). Unchecking it switches back to the
+  // flat fields — any installments already added are NOT deleted, just
+  // not shown while it's off, so re-checking it later picks up right
+  // where it left off.
+  function toggleInstallmentMode(release, checked) {
+    saveField(release, "is_installment", checked);
+  }
+
+  // Round 446 — persists one field on ONE installment row (not the whole
+  // release/brand's cost entry). Same optimistic-update-then-reconcile
+  // shape as saveField, just against workstation_cost_mkt_installments
+  // and addressed by the installment's own id rather than the
+  // release/funded_by/channel_kind/brand compound key.
+  async function saveInstallmentField(release, installment, field, value) {
+    if (!installment) return;
+    const key = costEntryKey(release.id, fundedBy, channelKind, brand);
+    const patch = { [field]: value, updated_at: new Date().toISOString(), updated_by: profile?.id || null };
+    setInstallmentsByKey((prev) => ({
+      ...prev,
+      [key]: (prev[key] || []).map((inst) => (inst.id === installment.id ? { ...inst, ...patch } : inst)),
+    }));
+    const { data, error } = await supabase
+      .from("workstation_cost_mkt_installments")
+      .update(patch)
+      .eq("id", installment.id)
+      .select()
+      .single();
+    if (!error && data) {
+      setInstallmentsByKey((prev) => ({
+        ...prev,
+        [key]: (prev[key] || []).map((inst) => (inst.id === data.id ? data : inst)),
+      }));
+    }
+  }
+
+  // Round 446 — "Add Month" popup's Save action. Upserts (so re-picking a
+  // month that already exists for this release/brand just re-selects it
+  // rather than erroring on the unique constraint) and always jumps the
+  // newly-added/re-selected month into view.
+  async function addInstallment(release, monthInputValue) {
+    const key = costEntryKey(release.id, fundedBy, channelKind, brand);
+    const payload = {
+      release_id: release.id,
+      funded_by: fundedBy,
+      channel_kind: channelKind,
+      brand,
+      month: monthInputToDate(monthInputValue),
+      updated_at: new Date().toISOString(),
+      updated_by: profile?.id || null,
+    };
+    const { data, error } = await supabase
+      .from("workstation_cost_mkt_installments")
+      .upsert(payload, { onConflict: "release_id,funded_by,channel_kind,brand,month" })
+      .select()
+      .single();
+    if (error || !data) return;
+    setInstallmentsByKey((prev) => {
+      const next = (prev[key] || []).filter((inst) => inst.id !== data.id).concat(data);
+      next.sort((a, b) => new Date(a.month) - new Date(b.month));
+      const newIdx = next.findIndex((inst) => inst.id === data.id);
+      setActiveInstallmentIdx((p) => ({ ...p, [key]: newIdx }));
+      return { ...prev, [key]: next };
+    });
+    setAddInstallmentFor(null);
   }
 
   // ── Top summary card — always all-time, across every entry regardless
@@ -433,11 +669,46 @@ export default function WorkstationCostMkt() {
               onClick={() => setShowOverrideColumn((v) => !v)}
               className={`${styles.tabBtn} ${showOverrideColumn ? styles.tabBtnActive : ""}`}
               style={{ border: showOverrideColumn ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: showOverrideColumn ? "rgba(255,107,26,0.1)" : "transparent", fontSize: 12 }}
-              title="Show a per-row switch to manually count a release toward this month, regardless of its release date"
+              title="Show a per-row switch to track Tháng Chi Trả as real per-month installment rows instead of one free-text cell"
             >
-              Is_thismonth
+              Is_installment
+            </button>
+            {/* Round 445 — Import/Export, scoped to the current tab/brand
+                (same rows as the counters/table above). Export doubles as
+                the template: download it, edit cells in Excel, re-import. */}
+            <ExportButton
+              columns={importExportColumns}
+              filename={`cost-mkt-${fundedBy}-${channelKind}-${brand}`}
+              fetchRows={fetchExportRows}
+              label="Export / Template"
+              disabled={loading}
+            />
+            <button
+              type="button"
+              onClick={() => setShowImport(true)}
+              disabled={loading}
+              className={styles.tabBtn}
+              style={{ border: "1px solid var(--border-strong)", borderRadius: 6, fontSize: 11, color: "var(--text-faint)", padding: "6px 12px" }}
+            >
+              ⬆ Import
             </button>
           </div>
+
+          {showImport && (
+            <CostMktImportPopup
+              styles={styles}
+              profile={profile}
+              columns={importExportColumns}
+              releases={releases}
+              fundedBy={fundedBy}
+              channelKind={channelKind}
+              brand={brand}
+              costEntries={costEntries}
+              scopeLabel={`${fundedBy === "vieent" ? "Booking Package" : "Booking Không Package"} — ${channelKind === "tiktok" ? "TikTok Channel" : "Ads"} — ${channelKind === "tiktok" ? shortPartnerLabel(brand) : brand}`}
+              onClose={() => setShowImport(false)}
+              onImported={(updatedRows) => { handleImported(updatedRows); setShowImport(false); }}
+            />
+          )}
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
@@ -453,52 +724,99 @@ export default function WorkstationCostMkt() {
               <table className={styles.table}>
                 <thead>
                   <tr>
-                    {/* Round 436 — "pops out" on the left when Is_thismonth
+                    {/* Round 436 — "pops out" on the left when Is_installment
                         is toggled on, ahead of Release. */}
-                    {showOverrideColumn && <th title="Manually count this release toward this month">This Month?</th>}
+                    {showOverrideColumn && <th title="Track Tháng Chi Trả as real per-month installment rows for this release">Is_installment?</th>}
                     <th>Release</th>
                     {columns.map((c) => <th key={c}>{c}</th>)}
                     {channelKind === "tiktok" && <th>Total Post</th>}
                     {channelKind === "tiktok" && POST_FIELDS.map((f) => <th key={f.key}>{f.label}</th>)}
-                    {COST_FIELDS.map((f) => <th key={f.key}>{f.label}</th>)}
+                    {costFields.map((f) => <th key={f.key}>{f.label}</th>)}
                   </tr>
                 </thead>
                 <tbody>
-                  {displayedRows.map(({ release, values, totalPost, entry, overrideActive: rowOverrideActive }) => (
-                    <tr key={release.id}>
-                      {showOverrideColumn && (
-                        <td style={{ textAlign: "center" }} title="On = manually counted toward this month, using today's date in place of the release date">
-                          <PillSwitch
-                            size="sm"
-                            checked={rowOverrideActive}
-                            onChange={(checked) => toggleOverrideMonth(release, checked)}
-                          />
+                  {displayedRows.map(({ release, values, totalPost, entry, installments }) => {
+                    const key = costEntryKey(release.id, fundedBy, channelKind, brand);
+                    const isInstallment = !!entry?.is_installment;
+                    const activeIdx = installments.length > 0
+                      ? Math.min(activeInstallmentIdx[key] ?? installments.length - 1, installments.length - 1)
+                      : -1;
+                    const activeInstallment = activeIdx >= 0 ? installments[activeIdx] : null;
+                    function setActiveIdx(idx) {
+                      setActiveInstallmentIdx((prev) => ({ ...prev, [key]: idx }));
+                    }
+                    return (
+                      <tr key={release.id}>
+                        {showOverrideColumn && (
+                          <td style={{ textAlign: "center" }} title="On = Tháng Chi Trả becomes a mini-table of per-month installments instead of one free-text cell">
+                            <PillSwitch
+                              size="sm"
+                              checked={isInstallment}
+                              onChange={(checked) => toggleInstallmentMode(release, checked)}
+                            />
+                          </td>
+                        )}
+                        <td style={{ minWidth: 160 }}>
+                          <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
+                          <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release.main_artist}</div>
                         </td>
-                      )}
-                      <td style={{ minWidth: 160 }}>
-                        <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
-                        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release.main_artist}</div>
-                      </td>
-                      {values.map((v, i) => (
-                        <td key={i} style={{ textAlign: "center", fontSize: 12 }} title="added / booked target">
-                          {v.added || v.booked != null ? `${v.added}${v.booked != null ? ` / ${v.booked}` : ""}` : "—"}
-                        </td>
-                      ))}
-                      {channelKind === "tiktok" && (
-                        <td style={{ textAlign: "center", fontSize: 12, fontWeight: 700 }}>{totalPost || "—"}</td>
-                      )}
-                      {channelKind === "tiktok" &&
-                        POST_FIELDS.map((f) => (
-                          <EditableCell key={f.key} field={f} value={entry?.[f.key]} onSave={(v) => saveField(release, f.key, v)} />
+                        {values.map((v, i) => (
+                          <td key={i} style={{ textAlign: "center", fontSize: 12 }} title="added / booked target">
+                            {v.added || v.booked != null ? `${v.added}${v.booked != null ? ` / ${v.booked}` : ""}` : "—"}
+                          </td>
                         ))}
-                      {COST_FIELDS.map((f) => (
-                        <EditableCell key={f.key} field={f} value={entry?.[f.key]} onSave={(v) => saveField(release, f.key, v)} />
-                      ))}
-                    </tr>
-                  ))}
+                        {channelKind === "tiktok" && (
+                          <td style={{ textAlign: "center", fontSize: 12, fontWeight: 700 }}>{totalPost || "—"}</td>
+                        )}
+                        {channelKind === "tiktok" &&
+                          POST_FIELDS.map((f) => (
+                            <EditableCell key={f.key} field={f} value={entry?.[f.key]} onSave={(v) => saveField(release, f.key, v)} />
+                          ))}
+                        {costFields.map((f) => {
+                          if (f.key === "cost_du_kien") {
+                            return <EditableCell key={f.key} field={f} value={entry?.[f.key]} onSave={(v) => saveField(release, f.key, v)} />;
+                          }
+                          if (f.key === "thang_chi_tra") {
+                            return isInstallment ? (
+                              <InstallmentMonthCell
+                                key={f.key}
+                                installments={installments}
+                                activeIdx={activeIdx}
+                                onNav={setActiveIdx}
+                                onAdd={() => setAddInstallmentFor(release)}
+                              />
+                            ) : (
+                              <EditableCell key={f.key} field={f} value={entry?.[f.key]} onSave={(v) => saveField(release, f.key, v)} />
+                            );
+                          }
+                          return isInstallment ? (
+                            <InstallmentEditableCell
+                              key={f.key}
+                              field={f}
+                              installment={activeInstallment}
+                              activeIdx={activeIdx}
+                              onSave={(v) => saveInstallmentField(release, activeInstallment, f.key, v)}
+                            />
+                          ) : (
+                            <EditableCell key={f.key} field={f} value={entry?.[f.key]} onSave={(v) => saveField(release, f.key, v)} />
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
+          )}
+
+          {addInstallmentFor && (
+            <AddInstallmentPopup
+              styles={styles}
+              release={addInstallmentFor}
+              defaultMonth={currentMonthInputValue()}
+              onAdd={(monthInputValue) => addInstallment(addInstallmentFor, monthInputValue)}
+              onClose={() => setAddInstallmentFor(null)}
+            />
           )}
         </div>
       </div>
@@ -589,5 +907,141 @@ function EditableCell({ field, value, onSave }) {
         onBlur={() => onSave(local === "" ? null : field.type === "number" ? Number(local) : local)}
       />
     </td>
+  );
+}
+
+// Round 446 — replaces the Tháng Chi Trả free-text cell for a release
+// that has Is_installment on. ◀/▶ cycle through that row's installment
+// months (click-to-change-in-order, per the user's own call on "either
+// we go with click to change in order or pick the specific, your
+// choice on easier code" — order is simplest to wire up since
+// installments are already kept sorted ascending by month); "+ Add
+// Month" opens the date-picker popup for a new one. The .flipPerspective/
+// .flipFace pair (shared.module.css) gives the "rectangle cube turning
+// side" feel on every month change — keyed by activeIdx so React
+// remounts (and thus re-plays) the animation each time.
+function InstallmentMonthCell({ installments, activeIdx, onNav, onAdd }) {
+  const current = activeIdx >= 0 ? installments[activeIdx] : null;
+  return (
+    <td>
+      <div className={styles.flipPerspective} style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 110 }}>
+        <button
+          type="button"
+          onClick={() => onNav(Math.max(0, activeIdx - 1))}
+          disabled={activeIdx <= 0}
+          style={{ background: "none", border: "none", cursor: activeIdx <= 0 ? "default" : "pointer", color: "var(--text-faint)", opacity: activeIdx <= 0 ? 0.3 : 1, fontSize: 12, padding: "0 2px" }}
+          title="Previous month"
+        >
+          ◀
+        </button>
+        <div key={activeIdx} className={styles.flipFace} style={{ fontSize: 12, fontWeight: 700, minWidth: 54, textAlign: "center" }}>
+          {current ? fmtMonth(current.month) : <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>—</span>}
+        </div>
+        <button
+          type="button"
+          onClick={() => onNav(Math.min(installments.length - 1, activeIdx + 1))}
+          disabled={activeIdx < 0 || activeIdx >= installments.length - 1}
+          style={{ background: "none", border: "none", cursor: activeIdx >= installments.length - 1 ? "default" : "pointer", color: "var(--text-faint)", opacity: activeIdx >= installments.length - 1 ? 0.3 : 1, fontSize: 12, padding: "0 2px" }}
+          title="Next month"
+        >
+          ▶
+        </button>
+        <button
+          type="button"
+          onClick={onAdd}
+          style={{ background: "none", border: "1px dashed var(--border-strong)", borderRadius: 4, cursor: "pointer", color: "var(--text-faint)", fontSize: 11, padding: "2px 6px", marginLeft: 2 }}
+          title="Add a payment month"
+        >
+          + Month
+        </button>
+      </div>
+    </td>
+  );
+}
+
+// Round 446 — same shape as EditableCell, but reads/writes the row's
+// CURRENTLY ACTIVE installment (per InstallmentMonthCell's ◀/▶ above)
+// instead of the flat workstation_cost_mkt_entries columns. Flip-
+// animated in step with the month cell so the whole row visually turns
+// together. Disabled with a placeholder when Is_installment is on but
+// no month has been added yet — nothing to attach a value to.
+function InstallmentEditableCell({ field, installment, activeIdx, onSave }) {
+  const [local, setLocal] = useState(installment?.[field.key] ?? "");
+  useEffect(() => { setLocal(installment?.[field.key] ?? ""); }, [installment, field.key]);
+
+  if (!installment) {
+    return (
+      <td key={activeIdx}>
+        <input className={styles.input} style={{ width: field.type === "number" ? 90 : 110, fontSize: 12 }} disabled placeholder="Add a month first" />
+      </td>
+    );
+  }
+
+  if (field.type === "url") {
+    return (
+      <td key={activeIdx} className={styles.flipFace}>
+        <UrlField value={local} onChange={setLocal} onBlur={() => onSave(local || null)} styles={styles} placeholder="Report link…" />
+      </td>
+    );
+  }
+  return (
+    <td key={activeIdx} className={styles.flipFace}>
+      <input
+        className={styles.input}
+        style={{ width: field.type === "number" ? 90 : 110, fontSize: 12 }}
+        type={field.type === "number" ? "number" : "text"}
+        placeholder={field.placeholder}
+        value={local}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={() => onSave(local === "" ? null : field.type === "number" ? Number(local) : local)}
+      />
+    </td>
+  );
+}
+
+// Round 446 — the literal "date picker but only mm/yyyy" ask: a bare
+// <input type="month">, browser-native, defaulting to the current month.
+// Small modal, same idiom as CostMktImportPopup's overlay below it.
+function AddInstallmentPopup({ styles, release, defaultMonth, onAdd, onClose }) {
+  const [monthValue, setMonthValue] = useState(defaultMonth);
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 399, background: "rgba(0,0,0,0.5)" }} />
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 400,
+          width: "min(360px, calc(100vw - 32px))",
+          background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10,
+          padding: 20, boxShadow: "0 12px 36px rgba(0,0,0,0.4)",
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginBottom: 10 }}>
+          Add Payment Month
+        </div>
+        <p style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 0, marginBottom: 14 }}>
+          {release.title} — pick the month this installment covers.
+        </p>
+        <input
+          type="month"
+          className={styles.input}
+          value={monthValue}
+          onChange={(e) => setMonthValue(e.target.value)}
+          style={{ width: "100%", marginBottom: 16 }}
+          autoFocus
+        />
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            disabled={!monthValue}
+            onClick={() => monthValue && onAdd(monthValue)}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    </>
   );
 }

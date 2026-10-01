@@ -470,3 +470,30 @@
 .backLink:hover {
   color: var(--accent);
 }
+
+/* Round 446 — the Cost Marketing installment "cube" flip: every time the
+   visible installment changes (Add Month, ◀/▶), the new face rotates in
+   around its own center rather than just popping in. One direction-
+   agnostic animation (not a separate left/right spin) — simpler to get
+   right and reads as "a cube turning" either way. Re-keying the inner
+   element by installment index is what makes React remount it so the
+   animation actually replays each time. */
+.flipPerspective {
+  perspective: 500px;
+}
+
+.flipFace {
+  transform-style: preserve-3d;
+  animation: flipIn 0.3s ease;
+}
+
+@keyframes flipIn {
+  from {
+    transform: rotateY(85deg);
+    opacity: 0.25;
+  }
+  to {
+    transform: rotateY(0deg);
+    opacity: 1;
+  }
+}
