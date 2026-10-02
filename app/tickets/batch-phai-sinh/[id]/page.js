@@ -14,6 +14,7 @@ import { recomputeBatchStatus, batchProgress } from "../../../../lib/batchPhaiSi
 import { sendPing, resolvePingTargets } from "../../../../lib/pingNotification";
 import { CHILD_ITEM_STATUSES } from "../../../../lib/phaiSinhTypes";
 import BatchFileImport from "../../../../lib/BatchFileImport";
+import PicTagInput from "../../../../lib/PicTagInput";
 import { canEditLockedDeadline, canViewProjectRightsType, canEditProjectRightsType } from "../../../../lib/permissions";
 import ProjectRightsTypeTag from "../../../../lib/ProjectRightsTypeTag";
 import styles from "../../../shared.module.css";
@@ -93,10 +94,14 @@ export default function BatchPhaiSinhDetail() {
     setTicket(t || null);
   }
 
-  async function updatePic(item, profileId) {
+  // Round 455 — multi-PIC conversion (phai_sinh_batch_items.pic_profile_ids,
+  // own additive column since this table isn't `tickets`).
+  async function updatePics(item, ids) {
+    const prevPic = item.pic_profile_id || null;
+    const nextPic = ids[0] || null;
     // Round 282 — audit log / requester attribution
-    logPicReassign({ actor: profile?.id, entity: "phai_sinh_batch_item", entityId: item.id, before: item.pic_profile_id || null, after: profileId || null });
-    await updateItem(item, { pic_profile_id: profileId || null });
+    logPicReassign({ actor: profile?.id, entity: "phai_sinh_batch_item", entityId: item.id, before: prevPic, after: nextPic });
+    await updateItem(item, { pic_profile_ids: ids.length > 0 ? ids : null, pic_profile_id: nextPic });
   }
 
   async function updateItemDeadline(item, value) {
@@ -106,7 +111,10 @@ export default function BatchPhaiSinhDetail() {
   }
 
   async function pingItem(item) {
-    const targets = await resolvePingTargets(item.pic_profile_id);
+    // Round 455 — ping every tagged PIC, not just the first (resolvePingTargets
+    // only takes a single id; co-ownership means everyone tagged should hear it).
+    const picIds = item.pic_profile_ids || (item.pic_profile_id ? [item.pic_profile_id] : []);
+    const targets = picIds.length > 0 ? picIds : await resolvePingTargets(null);
     await sendPing({
       targetProfileIds: targets,
       ticketId: id,
@@ -317,14 +325,16 @@ export default function BatchPhaiSinhDetail() {
                       </td>
                       <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.note || ""} onBlur={(e) => updateItem(item, { note: e.target.value })} /></td>
                       <td><input className={styles.input} style={{ padding: "4px 6px", fontSize: 11 }} defaultValue={item.link_labelmaster || ""} onBlur={(e) => updateItem(item, { link_labelmaster: e.target.value })} /></td>
-                      <td>
+                      <td style={{ minWidth: 150 }}>
                         {isExecutorView ? (
-                          <select className={styles.select} style={{ padding: "4px 6px", fontSize: 11, minWidth: "16ch" }} value={item.pic_profile_id || ""} onChange={(e) => updatePic(item, e.target.value)}>
-                            <option value="">— Unassigned —</option>
-                            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                          </select>
+                          <PicTagInput styles={styles} value={item.pic_profile_ids || (item.pic_profile_id ? [item.pic_profile_id] : [])} onChange={(ids) => updatePics(item, ids)} profiles={profiles} />
                         ) : (
-                          <span style={{ fontSize: 11 }}>{profiles.find((p) => p.id === item.pic_profile_id)?.name || "—"}</span>
+                          <span style={{ fontSize: 11 }}>
+                            {(item.pic_profile_ids || (item.pic_profile_id ? [item.pic_profile_id] : []))
+                              .map((id) => profiles.find((p) => p.id === id)?.name)
+                              .filter(Boolean)
+                              .join(", ") || "—"}
+                          </span>
                         )}
                       </td>
                       <td>
