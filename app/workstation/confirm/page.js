@@ -23,6 +23,7 @@ import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import { PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
+import PicTagInput from "../../../lib/PicTagInput";
 import styles from "../../shared.module.css";
 
 // Same tool, visited twice — Phase 1 while waiting for release, Phase 2
@@ -100,8 +101,9 @@ function ConfirmWorkstationInner() {
   }, []);
   const [releases, setReleases] = useState([]);
   const [profiles, setProfiles] = useState([]);
-  const [defaultPics, setDefaultPics] = useState({}); // phase -> profile_id
-  const [assignments, setAssignments] = useState({}); // phase -> { release_id -> profile_id }
+  // Round 457 — multi-PIC conversion: both now hold arrays of profile ids.
+  const [defaultPics, setDefaultPics] = useState({}); // phase -> profile_id[]
+  const [assignments, setAssignments] = useState({}); // phase -> { release_id -> profile_id[] }
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
   // Round 135 — item 1: mirrors showDone's own "leave out by default, one
@@ -132,13 +134,14 @@ function ConfirmWorkstationInner() {
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
 
-    const { data: assigns } = await supabase.from("workstation_assignments").select("workstation, release_id, pic_profile_id, auto_assigned").in("workstation", ["confirm_phase1", "confirm_phase2"]);
-    const defs = {}, rows = { confirm_phase1: {}, confirm_phase2: {} };
+    const { data: assigns } = await supabase.from("workstation_assignments").select("workstation, release_id, pic_profile_id, pic_profile_ids, auto_assigned").in("workstation", ["confirm_phase1", "confirm_phase2"]);
+    const defs = { confirm_phase1: [], confirm_phase2: [] }, rows = { confirm_phase1: {}, confirm_phase2: {} };
     const autoAssignedIds = { confirm_phase1: [], confirm_phase2: [] };
     (assigns || []).forEach((a) => {
-      if (a.release_id === null) defs[a.workstation] = a.pic_profile_id;
+      const ids = a.pic_profile_ids || (a.pic_profile_id ? [a.pic_profile_id] : []);
+      if (a.release_id === null) defs[a.workstation] = ids;
       else {
-        rows[a.workstation][a.release_id] = a.pic_profile_id;
+        rows[a.workstation][a.release_id] = ids;
         if (a.auto_assigned) autoAssignedIds[a.workstation].push(a.release_id);
       }
     });
@@ -154,7 +157,7 @@ function ConfirmWorkstationInner() {
     // so it can never remove a manual pick, matching what the comment
     // above already claimed it did.
     for (const ph of ["confirm_phase1", "confirm_phase2"]) {
-      if (defs[ph] != null && autoAssignedIds[ph].length > 0) {
+      if (defs[ph].length > 0 && autoAssignedIds[ph].length > 0) {
         await supabase.from("workstation_assignments").delete().eq("workstation", ph).eq("auto_assigned", true).in("release_id", autoAssignedIds[ph]);
         autoAssignedIds[ph].forEach((rid) => { delete rows[ph][rid]; });
       }
@@ -178,7 +181,7 @@ function ConfirmWorkstationInner() {
     const scopedProfs = filterProfilesByTeam(profs || [], "OPS");
     ["confirm_phase1", "confirm_phase2"].forEach((ph) => {
       Promise.all(
-        (defs[ph] == null ? (rels || []) : [])
+        (defs[ph].length === 0 ? (rels || []) : [])
           .filter((r) => rows[ph][r.id] == null)
           .map((r) =>
             autoAssignUnassigned({
@@ -187,8 +190,8 @@ function ConfirmWorkstationInner() {
               entity: "workstation_assignment",
               entityId: `${ph}:${r.id}`,
               write: async (profileId) => {
-                await supabase.from("workstation_assignments").insert({ workstation: ph, column_key: "all", release_id: r.id, pic_profile_id: profileId, auto_assigned: true });
-                setAssignments((prev) => (prev[ph]?.[r.id] != null ? prev : { ...prev, [ph]: { ...prev[ph], [r.id]: profileId } }));
+                await supabase.from("workstation_assignments").insert({ workstation: ph, column_key: "all", release_id: r.id, pic_profile_id: profileId, pic_profile_ids: [profileId], auto_assigned: true });
+                setAssignments((prev) => (prev[ph]?.[r.id] != null ? prev : { ...prev, [ph]: { ...prev[ph], [r.id]: [profileId] } }));
               },
             })
           )
@@ -225,13 +228,14 @@ function ConfirmWorkstationInner() {
     await supabase.from("releases").update(patch).eq("id", release.id);
   }
 
-  async function updatePic(releaseId, profileId) {
-    const before = assignments[phase]?.[releaseId] ?? null;
-    setAssignments((prev) => ({ ...prev, [phase]: { ...prev[phase], [releaseId]: profileId || undefined } }));
+  // Round 457 — multi-PIC conversion.
+  async function updatePics(releaseId, ids) {
+    const before = assignments[phase]?.[releaseId] ?? [];
+    setAssignments((prev) => ({ ...prev, [phase]: { ...prev[phase], [releaseId]: ids.length > 0 ? ids : undefined } }));
     // Round 281 — manual PIC reassignment audit trail (separate from the
     // auto-assign case above, which logs itself via autoAssignUnassigned).
-    logPicReassign({ actor: profile?.id, entity: "workstation_assignment", entityId: releaseId, before, after: profileId || null });
-    if (!profileId) {
+    logPicReassign({ actor: profile?.id, entity: "workstation_assignment", entityId: releaseId, before: before[0] ?? null, after: ids[0] ?? null });
+    if (ids.length === 0) {
       await supabase.from("workstation_assignments").delete().eq("workstation", phase).eq("release_id", releaseId);
       return;
     }
@@ -242,10 +246,10 @@ function ConfirmWorkstationInner() {
     // to success until the next reload silently reverted it.
     const { data: existing } = await supabase.from("workstation_assignments").select("id").eq("workstation", phase).eq("column_key", "all").eq("release_id", releaseId).maybeSingle();
     const { error } = existing
-      ? await supabase.from("workstation_assignments").update({ pic_profile_id: profileId, auto_assigned: false }).eq("id", existing.id)
-      : await supabase.from("workstation_assignments").insert({ workstation: phase, column_key: "all", release_id: releaseId, pic_profile_id: profileId, auto_assigned: false });
+      ? await supabase.from("workstation_assignments").update({ pic_profile_id: ids[0], pic_profile_ids: ids, auto_assigned: false }).eq("id", existing.id)
+      : await supabase.from("workstation_assignments").insert({ workstation: phase, column_key: "all", release_id: releaseId, pic_profile_id: ids[0], pic_profile_ids: ids, auto_assigned: false });
     if (error) {
-      setAssignments((prev) => ({ ...prev, [phase]: { ...prev[phase], [releaseId]: before ?? undefined } }));
+      setAssignments((prev) => ({ ...prev, [phase]: { ...prev[phase], [releaseId]: before.length > 0 ? before : undefined } }));
       alert(`Couldn't save PIC — try again. (${error.message})`);
     }
   }
@@ -380,10 +384,7 @@ function ConfirmWorkstationInner() {
                     <td style={{ minWidth: 90 }}><BoolToggle value={!!r.confirm_tag} onChange={(v) => updateField(r, "confirm_tag", v)} /></td>
                     <td><span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.12)", color: "#ff9d5c" }}>{r.project_type || "—"}</span></td>
                     <td>
-                      <select className={styles.select} style={{ minWidth: "16ch" }} value={assignments.confirm_phase1?.[r.id] ?? defaultPics.confirm_phase1 ?? ""} onChange={(e) => updatePic(r.id, e.target.value)}>
-                        <option value="">— Unassigned —</option>
-                        {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
+                      <PicTagInput styles={styles} value={assignments.confirm_phase1?.[r.id] ?? defaultPics.confirm_phase1 ?? []} onChange={(ids) => updatePics(r.id, ids)} profiles={profiles} />
                     </td>
                     <td>
                       <input className={styles.input} style={{ minWidth: 140 }} defaultValue={r.confirm_note || ""} onBlur={(e) => updateField(r, "confirm_note", e.target.value)} />
@@ -454,10 +455,7 @@ function ConfirmWorkstationInner() {
                       <ArtistPickSelect value={r.artist_pick_status} onChange={(v) => updateField(r, "artist_pick_status", v)} />
                     </td>
                     <td>
-                      <select className={styles.select} style={{ minWidth: "16ch" }} value={assignments.confirm_phase2?.[r.id] ?? defaultPics.confirm_phase2 ?? ""} onChange={(e) => updatePic(r.id, e.target.value)}>
-                        <option value="">— Unassigned —</option>
-                        {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
+                      <PicTagInput styles={styles} value={assignments.confirm_phase2?.[r.id] ?? defaultPics.confirm_phase2 ?? []} onChange={(ids) => updatePics(r.id, ids)} profiles={profiles} />
                     </td>
                     <td>
                       <input className={styles.input} style={{ minWidth: 140 }} defaultValue={r.confirm_note || ""} onBlur={(e) => updateField(r, "confirm_note", e.target.value)} />

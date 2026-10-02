@@ -25,6 +25,7 @@ import NotePopup from "../../../lib/ReleaseNotePopup";
 import CopyrightPreviewPopup from "../../../lib/CopyrightPreviewPopup";
 import { copyrightChecklistIsEmpty } from "../../../lib/copyrightChecklist";
 import { PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
+import PicTagInput from "../../../lib/PicTagInput";
 import styles from "../../shared.module.css";
 
 const UPLOAD_STATUS_OPTS = ["Running", "Pending", "Cancel"];
@@ -79,8 +80,9 @@ export default function UploadWorkstation() {
   const [releases, setReleases] = useState([]); // current PAGE only, full columns
   const [pageLoading, setPageLoading] = useState(false);
   const [profiles, setProfiles] = useState([]);
-  const [defaultPic, setDefaultPic] = useState(null);
-  const [assignments, setAssignments] = useState({}); // release_id -> pic_profile_id
+  // Round 457 — multi-PIC conversion: both now hold arrays of profile ids.
+  const [defaultPics, setDefaultPics] = useState([]);
+  const [assignments, setAssignments] = useState({}); // release_id -> pic_profile_ids[]
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
   const [query, setQuery] = useState(""); // round 76 — quick index search box
@@ -118,7 +120,7 @@ export default function UploadWorkstation() {
       // see loadPageReleases() below.
       supabase.from("releases").select(SKINNY_COLUMNS).eq("requested", true),
       supabase.from("profiles").select("id, name, segment, role").order("name"),
-      supabase.from("workstation_assignments").select("release_id, pic_profile_id, auto_assigned").eq("workstation", "upload"),
+      supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "upload"),
       // Round 274 — same tab lookup app/workstation/pitching/page.js does,
       // run alongside the 3 queries above instead of after them.
       supabase.from("ticket_tabs").select("id").eq("key", "pitching").single(),
@@ -127,12 +129,13 @@ export default function UploadWorkstation() {
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
 
     const map = {};
-    let def = null;
+    let def = [];
     const autoAssignedIds = [];
     (assigns || []).forEach((a) => {
-      if (a.release_id === null) def = a.pic_profile_id;
+      const ids = a.pic_profile_ids || (a.pic_profile_id ? [a.pic_profile_id] : []);
+      if (a.release_id === null) def = ids;
       else {
-        map[a.release_id] = a.pic_profile_id;
+        map[a.release_id] = ids;
         if (a.auto_assigned) autoAssignedIds.push(a.release_id);
       }
     });
@@ -160,12 +163,12 @@ export default function UploadWorkstation() {
     // matter what you do." Scoping the delete to auto_assigned=true too
     // makes it structurally impossible for this cleanup to ever remove a
     // manual assignment, matching what the comment already claimed.
-    if (def != null && autoAssignedIds.length > 0) {
+    if (def.length > 0 && autoAssignedIds.length > 0) {
       await supabase.from("workstation_assignments").delete().eq("workstation", "upload").eq("auto_assigned", true).in("release_id", autoAssignedIds);
       autoAssignedIds.forEach((rid) => { delete map[rid]; });
     }
 
-    setDefaultPic(def);
+    setDefaultPics(def);
     setAssignments(map);
 
     // Round 281 — auto-assign unassigned rows to team lead/admin, see
@@ -183,12 +186,12 @@ export default function UploadWorkstation() {
     // this workstation (`def == null`); when a default IS set, that
     // config value is left as the shown (but still unwritten) fallback
     // indefinitely — see the PIC <select>'s own `assignments[r.id] ??
-    // defaultPic` below, unchanged. A real MANUAL per-release row still
+    // defaultPics` below, unchanged. A real MANUAL per-release row still
     // always wins over both, since `map` is checked first either way —
     // only auto_assigned rows get reclaimed by the cleanup above.
     const scopedProfs = filterProfilesByTeam(profs || [], "OPS");
     Promise.all(
-      (def == null ? (rels || []) : [])
+      (def.length === 0 ? (rels || []) : [])
         .filter((r) => map[r.id] == null)
         .map((r) =>
           autoAssignUnassigned({
@@ -197,8 +200,11 @@ export default function UploadWorkstation() {
             entity: "workstation_assignment",
             entityId: `upload:${r.id}`,
             write: async (profileId) => {
-              await supabase.from("workstation_assignments").insert({ workstation: "upload", column_key: "all", release_id: r.id, pic_profile_id: profileId, auto_assigned: true });
-              setAssignments((prev) => (prev[r.id] != null ? prev : { ...prev, [r.id]: profileId }));
+              // Round 457 — write the resolved single auto-assignee as a
+              // 1-element array (the array is the real multi-PIC list from
+              // here on; a human can add more PICs on top of this later).
+              await supabase.from("workstation_assignments").insert({ workstation: "upload", column_key: "all", release_id: r.id, pic_profile_id: profileId, pic_profile_ids: [profileId], auto_assigned: true });
+              setAssignments((prev) => (prev[r.id] != null ? prev : { ...prev, [r.id]: [profileId] }));
             },
           })
         )
@@ -242,13 +248,16 @@ export default function UploadWorkstation() {
     await supabase.from("releases").update(patch).eq("id", release.id);
   }
 
-  async function updatePic(release, profileId) {
-    const before = assignments[release.id] ?? null;
-    setAssignments((prev) => ({ ...prev, [release.id]: profileId || undefined }));
+  // Round 457 — multi-PIC conversion. `ids` is the full tag list now;
+  // pic_profile_id (singular) stays in sync as ids[0] for anything not
+  // yet reading the array.
+  async function updatePics(release, ids) {
+    const before = assignments[release.id] ?? [];
+    setAssignments((prev) => ({ ...prev, [release.id]: ids.length > 0 ? ids : undefined }));
     // Round 281 — manual PIC reassignment audit trail (separate from the
     // auto-assign case above, which logs itself via autoAssignUnassigned).
-    logPicReassign({ actor: profile?.id, entity: "workstation_assignment", entityId: release.id, before, after: profileId || null });
-    if (!profileId) {
+    logPicReassign({ actor: profile?.id, entity: "workstation_assignment", entityId: release.id, before: before[0] ?? null, after: ids[0] ?? null });
+    if (ids.length === 0) {
       await supabase.from("workstation_assignments").delete().eq("workstation", "upload").eq("release_id", release.id);
       return;
     }
@@ -277,10 +286,10 @@ export default function UploadWorkstation() {
     // to what it actually was and says so, instead of a mystery revert
     // later.
     const { error } = existing
-      ? await supabase.from("workstation_assignments").update({ pic_profile_id: profileId, auto_assigned: false }).eq("id", existing.id)
-      : await supabase.from("workstation_assignments").insert({ workstation: "upload", column_key: "all", release_id: release.id, pic_profile_id: profileId, auto_assigned: false });
+      ? await supabase.from("workstation_assignments").update({ pic_profile_id: ids[0], pic_profile_ids: ids, auto_assigned: false }).eq("id", existing.id)
+      : await supabase.from("workstation_assignments").insert({ workstation: "upload", column_key: "all", release_id: release.id, pic_profile_id: ids[0], pic_profile_ids: ids, auto_assigned: false });
     if (error) {
-      setAssignments((prev) => ({ ...prev, [release.id]: before ?? undefined }));
+      setAssignments((prev) => ({ ...prev, [release.id]: before.length > 0 ? before : undefined }));
       alert(`Couldn't save PIC — try again. (${error.message})`);
     }
   }
@@ -428,7 +437,7 @@ export default function UploadWorkstation() {
                       same data the release's own Copyrights tab edits. */}
                   <th>Copyright</th>
                   <SortableTh label="Upload Status" sortKey="upload_status" sort={sort} onToggle={toggleSort} />
-                  <th title={defaultPic ? `Default: ${profiles.find((p) => p.id === defaultPic)?.name}` : "No default set"}>PIC</th>
+                  <th title={defaultPics.length > 0 ? `Default: ${defaultPics.map((id) => profiles.find((p) => p.id === id)?.name).filter(Boolean).join(", ")}` : "No default set"}>PIC</th>
                 </tr>
               </thead>
               <tbody>
@@ -439,14 +448,14 @@ export default function UploadWorkstation() {
                     <UploadRow
                       key={r.id}
                       release={r}
-                      pic={assignments[r.id] ?? defaultPic}
+                      picIds={assignments[r.id] ?? defaultPics}
                       isOverride={assignments[r.id] != null}
                       profiles={profiles}
                       highlight={isThisWeekOrNext(r.release_date)}
                       dateHighlight={rowHighlightColor(r)}
                       hasPriorityPitching={priorityDids.has(r.did)}
                       onUpdateField={updateField}
-                      onUpdatePic={updatePic}
+                      onUpdatePics={updatePics}
                       onOpenNote={(kind) => setNotePopup({ release: r, kind })}
                       onOpenCopyright={() => setCopyrightPopupRelease(r)}
                     />
@@ -488,7 +497,7 @@ function missingHighlightStyle(value) {
     : { boxShadow: "inset 0 0 0 2px var(--missing-highlight)", background: "var(--missing-highlight-bg)", borderRadius: 6 };
 }
 
-function UploadRow({ release, pic, isOverride, profiles, highlight, dateHighlight, hasPriorityPitching, onUpdateField, onUpdatePic, onOpenNote, onOpenCopyright }) {
+function UploadRow({ release, picIds, isOverride, profiles, highlight, dateHighlight, hasPriorityPitching, onUpdateField, onUpdatePics, onOpenNote, onOpenCopyright }) {
   const URL_KEYS = ["drive_link", "link_lbm", "link_share", "smartlink"];
   const [drafts, setDrafts] = useState(() => {
     const initial = {};
@@ -630,11 +639,8 @@ function UploadRow({ release, pic, isOverride, profiles, highlight, dateHighligh
           {UPLOAD_STATUS_OPTS.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </td>
-      <td title={isOverride ? "Row override" : "Workstation default"}>
-        <select className={styles.select} style={{ minWidth: "16ch" }} value={pic || ""} onChange={(e) => onUpdatePic(release, e.target.value)}>
-          <option value="">— Unassigned —</option>
-          {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+      <td title={isOverride ? "Row override" : "Workstation default"} style={{ minWidth: 160 }}>
+        <PicTagInput styles={styles} value={picIds || []} onChange={(ids) => onUpdatePics(release, ids)} profiles={profiles} />
       </td>
     </tr>
   );

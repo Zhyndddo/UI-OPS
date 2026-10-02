@@ -21,6 +21,7 @@ import { rowHighlightColor, DATE_HIGHLIGHT_LEGEND } from "../../../lib/releaseDa
 import ColorLegend from "../../../lib/ColorLegend";
 import SonyPublishLockRow from "../../../lib/SonyPublishLockRow";
 import { useSonyPublishDids } from "../../../lib/useSonyPublishDids";
+import PicTagInput from "../../../lib/PicTagInput";
 import styles from "../../shared.module.css";
 
 // Field labels swapped per the redesign: the column that used to show as
@@ -76,7 +77,8 @@ function missingHighlightStyle(value) {
 export default function PreReleaseWorkstation() {
   const [releases, setReleases] = useState([]);
   const [profiles, setProfiles] = useState([]);
-  const [defaultPic, setDefaultPic] = useState(null);
+  // Round 457 — multi-PIC conversion: both now hold arrays of profile ids.
+  const [defaultPics, setDefaultPics] = useState([]);
   const [assignments, setAssignments] = useState({});
   const [loading, setLoading] = useState(true);
   const [showDone, setShowDone] = useState(false);
@@ -119,14 +121,15 @@ export default function PreReleaseWorkstation() {
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
 
-    const { data: assigns } = await supabase.from("workstation_assignments").select("release_id, pic_profile_id, auto_assigned").eq("workstation", "pre_release");
+    const { data: assigns } = await supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "pre_release");
     const map = {};
-    let def = null;
+    let def = [];
     const autoAssignedIds = [];
     (assigns || []).forEach((a) => {
-      if (a.release_id === null) def = a.pic_profile_id;
+      const ids = a.pic_profile_ids || (a.pic_profile_id ? [a.pic_profile_id] : []);
+      if (a.release_id === null) def = ids;
       else {
-        map[a.release_id] = a.pic_profile_id;
+        map[a.release_id] = ids;
         if (a.auto_assigned) autoAssignedIds.push(a.release_id);
       }
     });
@@ -141,12 +144,12 @@ export default function PreReleaseWorkstation() {
     // Round 372 comment: this delete now also requires auto_assigned=true
     // so it can never remove a manual pick, matching what the comment
     // above already claimed it did.
-    if (def != null && autoAssignedIds.length > 0) {
+    if (def.length > 0 && autoAssignedIds.length > 0) {
       await supabase.from("workstation_assignments").delete().eq("workstation", "pre_release").eq("auto_assigned", true).in("release_id", autoAssignedIds);
       autoAssignedIds.forEach((rid) => { delete map[rid]; });
     }
 
-    setDefaultPic(def);
+    setDefaultPics(def);
     setAssignments(map);
 
     // Round 281 — auto-assign unassigned rows to team lead/admin, see
@@ -161,7 +164,7 @@ export default function PreReleaseWorkstation() {
     // rows get reclaimed by the cleanup above.
     const scopedProfs = filterProfilesByTeam(profs || [], "OPS");
     Promise.all(
-      (def == null ? (rels || []) : [])
+      (def.length === 0 ? (rels || []) : [])
         .filter((r) => map[r.id] == null)
         .map((r) =>
           autoAssignUnassigned({
@@ -170,8 +173,8 @@ export default function PreReleaseWorkstation() {
             entity: "workstation_assignment",
             entityId: `pre_release:${r.id}`,
             write: async (profileId) => {
-              await supabase.from("workstation_assignments").insert({ workstation: "pre_release", column_key: "all", release_id: r.id, pic_profile_id: profileId, auto_assigned: true });
-              setAssignments((prev) => (prev[r.id] != null ? prev : { ...prev, [r.id]: profileId }));
+              await supabase.from("workstation_assignments").insert({ workstation: "pre_release", column_key: "all", release_id: r.id, pic_profile_id: profileId, pic_profile_ids: [profileId], auto_assigned: true });
+              setAssignments((prev) => (prev[r.id] != null ? prev : { ...prev, [r.id]: [profileId] }));
             },
           })
         )
@@ -185,13 +188,14 @@ export default function PreReleaseWorkstation() {
     await supabase.from("releases").update({ [field]: value }).eq("id", release.id);
   }
 
-  async function updatePic(releaseId, profileId) {
-    const before = assignments[releaseId] ?? null;
-    setAssignments((prev) => ({ ...prev, [releaseId]: profileId || undefined }));
+  // Round 457 — multi-PIC conversion.
+  async function updatePics(releaseId, ids) {
+    const before = assignments[releaseId] ?? [];
+    setAssignments((prev) => ({ ...prev, [releaseId]: ids.length > 0 ? ids : undefined }));
     // Round 281 — manual PIC reassignment audit trail (separate from the
     // auto-assign case above, which logs itself via autoAssignUnassigned).
-    logPicReassign({ actor: profile?.id, entity: "workstation_assignment", entityId: releaseId, before, after: profileId || null });
-    if (!profileId) {
+    logPicReassign({ actor: profile?.id, entity: "workstation_assignment", entityId: releaseId, before: before[0] ?? null, after: ids[0] ?? null });
+    if (ids.length === 0) {
       await supabase.from("workstation_assignments").delete().eq("workstation", "pre_release").eq("release_id", releaseId);
       return;
     }
@@ -202,10 +206,10 @@ export default function PreReleaseWorkstation() {
     // to success until the next reload silently reverted it.
     const { data: existing } = await supabase.from("workstation_assignments").select("id").eq("workstation", "pre_release").eq("column_key", "all").eq("release_id", releaseId).maybeSingle();
     const { error } = existing
-      ? await supabase.from("workstation_assignments").update({ pic_profile_id: profileId, auto_assigned: false }).eq("id", existing.id)
-      : await supabase.from("workstation_assignments").insert({ workstation: "pre_release", column_key: "all", release_id: releaseId, pic_profile_id: profileId, auto_assigned: false });
+      ? await supabase.from("workstation_assignments").update({ pic_profile_id: ids[0], pic_profile_ids: ids, auto_assigned: false }).eq("id", existing.id)
+      : await supabase.from("workstation_assignments").insert({ workstation: "pre_release", column_key: "all", release_id: releaseId, pic_profile_id: ids[0], pic_profile_ids: ids, auto_assigned: false });
     if (error) {
-      setAssignments((prev) => ({ ...prev, [releaseId]: before ?? undefined }));
+      setAssignments((prev) => ({ ...prev, [releaseId]: before.length > 0 ? before : undefined }));
       alert(`Couldn't save PIC — try again. (${error.message})`);
     }
   }
@@ -291,11 +295,11 @@ export default function PreReleaseWorkstation() {
                     <PreReleaseRow
                       key={r.id}
                       release={r}
-                      pic={assignments[r.id] ?? defaultPic}
+                      picIds={assignments[r.id] ?? defaultPics}
                       isOverride={assignments[r.id] != null}
                       profiles={profiles}
                       onUpdateField={updateField}
-                      onUpdatePic={updatePic}
+                      onUpdatePics={updatePics}
                     />
                   )
                 )}
@@ -311,7 +315,7 @@ export default function PreReleaseWorkstation() {
   );
 }
 
-function PreReleaseRow({ release, pic, isOverride, profiles, onUpdateField, onUpdatePic }) {
+function PreReleaseRow({ release, picIds, isOverride, profiles, onUpdateField, onUpdatePics }) {
   const [mmLink, setMmLink] = useState(release.musixmatch_link || "");
   // Round 165 — LBM/Labelmaster URL, added per explicit request in place
   // of Artist Pick (which had already moved off this workstation in Round
@@ -360,11 +364,8 @@ function PreReleaseRow({ release, pic, isOverride, profiles, onUpdateField, onUp
       <td style={missingHighlightStyle(release.zing_lyric)}>
         <PickSelect styles={styles} opts={PICK_OPTS} value={release.zing_lyric} onChange={(v) => onUpdateField(release, "zing_lyric", v)} />
       </td>
-      <td title={isOverride ? "Row override" : "Workstation default"}>
-        <select className={styles.select} style={{ minWidth: "16ch" }} value={pic || ""} onChange={(e) => onUpdatePic(release.id, e.target.value)}>
-          <option value="">— Unassigned —</option>
-          {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+      <td title={isOverride ? "Row override" : "Workstation default"} style={{ minWidth: 160 }}>
+        <PicTagInput styles={styles} value={picIds || []} onChange={(ids) => onUpdatePics(release.id, ids)} profiles={profiles} />
       </td>
       <td>
         <input className={styles.input} style={{ minWidth: 140 }} defaultValue={release.pre_release_note || ""} onBlur={(e) => onUpdateField(release, "pre_release_note", e.target.value)} />

@@ -7,6 +7,7 @@ import { useAuth } from "../../lib/AuthContext";
 import { DEFAULT_DESIGN_NOTIFICATION_TEMPLATES } from "../../lib/designFlow";
 import { ROLES, ROLE_LABELS, isDev as isDevRole, isAdminOrAbove, canManageOrgConfig, canManageTeamMembers, assignableRoles, scopeableTeamMembers } from "../../lib/permissions";
 import { filterProfilesByTeam } from "../../lib/workstationHelpers";
+import PicTagInput from "../../lib/PicTagInput";
 import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../lib/troGiaBooking";
 import { DEFAULT_LINKFIRE_URL } from "../../lib/externalTools";
 import {
@@ -720,7 +721,8 @@ const PIC_WORKSTATIONS = [
 
 function PicDefaultsSection() {
   const [profiles, setProfiles] = useState([]);
-  const [defaults, setDefaults] = useState({}); // workstation -> pic_profile_id
+  // Round 457 — multi-PIC conversion: workstation -> pic_profile_ids[].
+  const [defaults, setDefaults] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(null); // workstation key currently saving
 
@@ -733,7 +735,7 @@ function PicDefaultsSection() {
     setLoading(true);
     const [{ data: profs }, { data: assigns }] = await Promise.all([
       supabase.from("profiles").select("id, name, segment, role").order("name"),
-      supabase.from("workstation_assignments").select("workstation, pic_profile_id").is("release_id", null).eq("column_key", "all"),
+      supabase.from("workstation_assignments").select("workstation, pic_profile_id, pic_profile_ids").is("release_id", null).eq("column_key", "all"),
     ]);
     // Round 78 — every workstation in PIC_WORKSTATIONS is OPS work (Upload/
     // New Release Setup, Pitching, Re-Check, Pre-release, Booking, Package
@@ -741,12 +743,13 @@ function PicDefaultsSection() {
     // list applies to all of them — see filterProfilesByTeam.
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
     const map = {};
-    (assigns || []).forEach((a) => (map[a.workstation] = a.pic_profile_id));
+    (assigns || []).forEach((a) => (map[a.workstation] = a.pic_profile_ids || (a.pic_profile_id ? [a.pic_profile_id] : [])));
     setDefaults(map);
     setLoading(false);
   }
 
-  async function setDefault(workstation, profileId) {
+  // Round 457 — multi-PIC conversion.
+  async function setDefault(workstation, ids) {
     setSaving(workstation);
     const { data: existing } = await supabase
       .from("workstation_assignments")
@@ -756,17 +759,17 @@ function PicDefaultsSection() {
       .is("release_id", null)
       .maybeSingle();
 
-    if (!profileId) {
+    if (ids.length === 0) {
       // Clearing — remove the row entirely rather than leaving a
       // null-PIC row, since pic_profile_id is not-null on this table.
       if (existing) await supabase.from("workstation_assignments").delete().eq("id", existing.id);
     } else if (existing) {
-      await supabase.from("workstation_assignments").update({ pic_profile_id: profileId }).eq("id", existing.id);
+      await supabase.from("workstation_assignments").update({ pic_profile_id: ids[0], pic_profile_ids: ids }).eq("id", existing.id);
     } else {
-      await supabase.from("workstation_assignments").insert({ workstation, column_key: "all", release_id: null, pic_profile_id: profileId });
+      await supabase.from("workstation_assignments").insert({ workstation, column_key: "all", release_id: null, pic_profile_id: ids[0], pic_profile_ids: ids });
     }
 
-    setDefaults((d) => ({ ...d, [workstation]: profileId || undefined }));
+    setDefaults((d) => ({ ...d, [workstation]: ids.length > 0 ? ids : undefined }));
     setSaving(null);
   }
 
@@ -797,19 +800,8 @@ function PicDefaultsSection() {
                   </div>
                 )}
               </td>
-              <td>
-                <select
-                  className={styles.select}
-                  style={{ minWidth: 160 }}
-                  value={defaults[w.key] || ""}
-                  disabled={saving === w.key}
-                  onChange={(e) => setDefault(w.key, e.target.value)}
-                >
-                  <option value="">— Unassigned —</option>
-                  {profiles.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+              <td style={{ minWidth: 160, opacity: saving === w.key ? 0.6 : 1 }}>
+                <PicTagInput styles={styles} value={defaults[w.key] || []} onChange={(ids) => setDefault(w.key, ids)} profiles={profiles} />
               </td>
             </tr>
           ))}
