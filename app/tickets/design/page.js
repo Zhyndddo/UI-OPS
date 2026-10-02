@@ -12,6 +12,7 @@ import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import NoteCell from "../../../lib/NoteCell";
+import PicTagInput from "../../../lib/PicTagInput";
 import {
   DESIGN_STATUSES,
   statusOptionsFor,
@@ -121,11 +122,14 @@ export default function DesignList() {
     await patchTicket(t, { data: { ...t.data, ...dataPatch } });
   }
 
-  async function updatePic(t, profileId) {
-    const patch = { pic_profile_id: profileId || null };
+  // Round 455 — multi-PIC conversion. Writes both the real pic_profile_ids
+  // array and mirrors pic_profile_id = ids[0] for every page/query not yet
+  // reading the array (task-table attribution, overload counters elsewhere).
+  async function updatePics(t, ids) {
+    const patch = { pic_profile_ids: ids.length > 0 ? ids : null, pic_profile_id: ids[0] || null };
     await patchTicket(t, patch);
     // Round 282 — audit log / requester attribution
-    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id || null, after: profileId || null });
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id || null, after: ids[0] || null });
   }
 
   async function updateDeadline(t, deadline) {
@@ -180,7 +184,7 @@ export default function DesignList() {
     // REQUEST -> PROCESS is gated: exec must confirm Expected Deadline +
     // PIC via a modal (per explicit request) rather than a bare dropdown pick.
     if (t.status === "REQUEST" && newStatus === "PROCESS") {
-      setProcessModal({ ticket: t, deadline: t.deadline ? t.deadline.slice(0, 10) : "", picId: t.pic_profile_id || "" });
+      setProcessModal({ ticket: t, deadline: t.deadline ? t.deadline.slice(0, 10) : "", picIds: t.pic_profile_ids || (t.pic_profile_id ? [t.pic_profile_id] : []) });
       return;
     }
 
@@ -205,13 +209,13 @@ export default function DesignList() {
   }
 
   async function confirmProcessModal() {
-    const { ticket, deadline, picId } = processModal;
-    if (!deadline || !picId) {
-      window.alert("Both Expected Deadline and PIC are required to move this into Process.");
+    const { ticket, deadline, picIds } = processModal;
+    if (!deadline || !picIds || picIds.length === 0) {
+      window.alert("Both Expected Deadline and at least one PIC are required to move this into Process.");
       return;
     }
     const newLog = { ...ticket.status_log, PROCESS: new Date().toISOString() };
-    const patch = { status: "PROCESS", status_log: newLog, deadline, pic_profile_id: picId };
+    const patch = { status: "PROCESS", status_log: newLog, deadline, pic_profile_ids: picIds, pic_profile_id: picIds[0] || null };
     setTickets((prev) => {
       const next = prev.map((x) => (x.id === ticket.id ? { ...x, ...patch } : x));
       maybeNotifyOverload(next);
@@ -223,10 +227,10 @@ export default function DesignList() {
     // status move (REQUEST -> PROCESS) with a PIC assignment and a
     // deadline confirmation in one save, unlike the plain dropdown/field
     // edits elsewhere on this page — log all three since none of them go
-    // through updateStatus/updatePic/updateDeadline here.
+    // through updateStatus/updatePics/updateDeadline here.
     logTicketStatusChange({ actor: profile?.id, ticketId: ticket.id, prevStatus: ticket.status, newStatus: "PROCESS", statusOptions: tab?.status_options });
-    if (picId !== (ticket.pic_profile_id || "")) {
-      logPicReassign({ actor: profile?.id, entity: "ticket", entityId: ticket.id, before: ticket.pic_profile_id || null, after: picId || null });
+    if ((picIds[0] || null) !== (ticket.pic_profile_id || null)) {
+      logPicReassign({ actor: profile?.id, entity: "ticket", entityId: ticket.id, before: ticket.pic_profile_id || null, after: picIds[0] || null });
     }
     if (deadline !== (ticket.deadline ? ticket.deadline.slice(0, 10) : "")) {
       logDeadlineChange({ actor: profile?.id, entity: "ticket", entityId: ticket.id, before: ticket.deadline || null, after: deadline || null });
@@ -258,8 +262,11 @@ export default function DesignList() {
   const inProgressByPic = useMemo(() => {
     const map = {};
     tickets.filter((t) => t.status === "PROCESS" || t.status === "REVISE").forEach((t) => {
-      const name = profiles.find((p) => p.id === t.pic_profile_id)?.name || "Unassigned";
-      map[name] = (map[name] || 0) + 1;
+      const ids = t.pic_profile_ids || (t.pic_profile_id ? [t.pic_profile_id] : []);
+      // Co-ownership counts in full for every tagged PIC (not split/diluted).
+      const names = ids.map((id) => profiles.find((p) => p.id === id)?.name).filter(Boolean);
+      if (names.length === 0) names.push("Unassigned");
+      names.forEach((name) => { map[name] = (map[name] || 0) + 1; });
     });
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
   }, [tickets, profiles]);
@@ -378,7 +385,7 @@ export default function DesignList() {
                     isAdmin={canEditLockedDeadline(profile)}
                     onUpdateData={updateData}
                     onStatusChange={handleStatusChange}
-                    onUpdatePic={updatePic}
+                    onUpdatePics={updatePics}
                     onUpdateDeadline={updateDeadline}
                     onConfirmUrgent={confirmUrgent}
                   />
@@ -401,10 +408,7 @@ export default function DesignList() {
                 </div>
                 <div className={styles.field}>
                   <label className={styles.fieldLabel}>PIC</label>
-                  <select className={styles.select} value={processModal.picId} onChange={(e) => setProcessModal((m) => ({ ...m, picId: e.target.value }))}>
-                    <option value="">—</option>
-                    {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
+                  <PicTagInput styles={styles} value={processModal.picIds} onChange={(ids) => setProcessModal((m) => ({ ...m, picIds: ids }))} profiles={profiles} />
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
                   <button type="button" className={styles.btnPrimary} onClick={confirmProcessModal}>Confirm & Move to Process</button>
@@ -419,7 +423,7 @@ export default function DesignList() {
   );
 }
 
-function DesignRow({ ticket, platforms, types, sizes, profiles, isExecutorView, isDev, isAdmin, onUpdateData, onStatusChange, onUpdatePic, onConfirmUrgent, onUpdateDeadline }) {
+function DesignRow({ ticket, platforms, types, sizes, profiles, isExecutorView, isDev, isAdmin, onUpdateData, onStatusChange, onUpdatePics, onConfirmUrgent, onUpdateDeadline }) {
   const status = ticket.status;
   const color = statusColor(status);
   const isUrgentUnconfirmed = !!ticket.data?.urgent && !ticket.data?.urgentConfirmed;
@@ -491,13 +495,15 @@ function DesignRow({ ticket, platforms, types, sizes, profiles, isExecutorView, 
       <td style={{ minWidth: 140 }}>
         <NoteCell value={ticket.data?.note} editable={isExecutorView} onSave={(v) => onUpdateData(ticket, { note: v })} placeholder="Note missing stuff…" />
       </td>
-      <td>
+      <td style={{ minWidth: 160 }}>
         {isExecutorView ? (
-          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
-            <option value="">— Unassigned —</option>
-            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        ) : (profiles.find((p) => p.id === ticket.pic_profile_id)?.name || "—")}
+          <PicTagInput styles={styles} value={ticket.pic_profile_ids || (ticket.pic_profile_id ? [ticket.pic_profile_id] : [])} onChange={(ids) => onUpdatePics(ticket, ids)} profiles={profiles} />
+        ) : (
+          (ticket.pic_profile_ids || (ticket.pic_profile_id ? [ticket.pic_profile_id] : []))
+            .map((id) => profiles.find((p) => p.id === id)?.name)
+            .filter(Boolean)
+            .join(", ") || "—"
+        )}
       </td>
       <td style={{ fontSize: 12 }}>{status === "REQUEST" ? (proposedPicName || "—") : ""}</td>
       <td>

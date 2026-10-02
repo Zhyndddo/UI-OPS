@@ -10,6 +10,7 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import PicTagInput from "../../../lib/PicTagInput";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import { useAuth } from "../../../lib/AuthContext";
 import { canEditPhuLucMaPL } from "../../../lib/permissions";
@@ -112,10 +113,11 @@ export default function PhuLucList() {
     }
   }
 
-  async function updatePic(t, profileId) {
+  // Round 455 — multi-PIC conversion.
+  async function updatePics(t, ids) {
     const prevPic = t.pic_profile_id || null;
-    const patch = { pic_profile_id: profileId || null };
-    if (profileId && t.status === "REQUESTED") {
+    const patch = { pic_profile_ids: ids.length > 0 ? ids : null, pic_profile_id: ids[0] || null };
+    if (ids.length > 0 && t.status === "REQUESTED") {
       patch.status = "PROCESS";
       patch.status_log = { ...t.status_log, PROCESS: new Date().toISOString() };
     }
@@ -129,7 +131,7 @@ export default function PhuLucList() {
   async function updateStatus(t, newStatus) {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
-    if (newStatus === "REFUND") patch.pic_profile_id = null;
+    if (newStatus === "REFUND") { patch.pic_profile_id = null; patch.pic_profile_ids = null; }
     // Round 80 — refund/cancel-like moves require a short reason, folded
     // into ticket.data.note (see lib/statusNoteGate.js).
     if (statusNeedsNote(newStatus)) {
@@ -270,11 +272,8 @@ export default function PhuLucList() {
                         t.data?.maPL || "—"
                       )}
                     </td>
-                    <td>
-                      <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={t.pic_profile_id || ""} onChange={(e) => updatePic(t, e.target.value)}>
-                        <option value="">— Unassigned —</option>
-                        {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
+                    <td style={{ minWidth: 160 }}>
+                      <PicTagInput styles={styles} value={t.pic_profile_ids || (t.pic_profile_id ? [t.pic_profile_id] : [])} onChange={(ids) => updatePics(t, ids)} profiles={profiles} />
                     </td>
                     <td title={t.data?.note || undefined}>
                       <select

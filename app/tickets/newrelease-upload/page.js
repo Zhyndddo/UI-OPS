@@ -12,6 +12,7 @@ import NotePopup from "../../../lib/ReleaseNotePopup";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import PicTagInput from "../../../lib/PicTagInput";
 import styles from "../../shared.module.css";
 // Round 282 — audit log / requester attribution. No deadline-change log
 // here — this list only ever displays t.deadline (fmtDate), it's never
@@ -69,7 +70,7 @@ export default function NewreleaseUploadList() {
   async function updateStatus(t, newStatus) {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
-    if (newStatus === "REFUND") patch.pic_profile_id = null;
+    if (newStatus === "REFUND") { patch.pic_profile_id = null; patch.pic_profile_ids = null; }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
     // Round 282 — audit log / requester attribution. No tab row is loaded
@@ -79,16 +80,17 @@ export default function NewreleaseUploadList() {
     logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus, statusOptions: undefined });
   }
 
-  async function updatePic(t, profileId) {
-    const patch = { pic_profile_id: profileId || null };
-    if (profileId && t.status === "REQUESTED") {
+  // Round 455 — multi-PIC conversion.
+  async function updatePics(t, ids) {
+    const patch = { pic_profile_ids: ids.length > 0 ? ids : null, pic_profile_id: ids[0] || null };
+    if (ids.length > 0 && t.status === "REQUESTED") {
       patch.status = "PROCESS";
       patch.status_log = { ...t.status_log, PROCESS: new Date().toISOString() };
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
     // Round 282 — audit log / requester attribution
-    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id, after: profileId || null });
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id, after: ids[0] || null });
   }
 
   const visibleTickets = tickets.filter((t) => matchesQuery({ ...t, release: releasesByDid[t.data?.releaseId] }, query));
@@ -131,11 +133,8 @@ export default function NewreleaseUploadList() {
                     <td>{(page - 1) * pageSize + i + 1}</td>
                     <td>{fmtDate(t.created_at)}</td>
                     <td>{t.data?.project || t.data?.releaseId || "—"} — {t.data?.artist || ""}</td>
-                    <td>
-                      <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={t.pic_profile_id || ""} onChange={(e) => updatePic(t, e.target.value)}>
-                        <option value="">— Unassigned —</option>
-                        {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
+                    <td style={{ minWidth: 160 }}>
+                      <PicTagInput styles={styles} value={t.pic_profile_ids || (t.pic_profile_id ? [t.pic_profile_id] : [])} onChange={(ids) => updatePics(t, ids)} profiles={profiles} />
                     </td>
                     <td>{fmtDate(t.deadline)}</td>
                     <td style={{ whiteSpace: "nowrap" }}>

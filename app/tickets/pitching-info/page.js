@@ -11,6 +11,7 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import PicTagInput from "../../../lib/PicTagInput";
 import { useIsMobile } from "../../../lib/useIsMobile";
 import styles from "../../shared.module.css";
 
@@ -170,10 +171,11 @@ function PitchingInfoTickets() {
     setLoading(false);
   }
 
-  async function updatePic(ticket, profileId) {
-    const patch = { pic_profile_id: profileId || null };
+  // Round 455 — multi-PIC conversion.
+  async function updatePics(ticket, ids) {
+    const patch = { pic_profile_ids: ids.length > 0 ? ids : null, pic_profile_id: ids[0] || null };
     const prevStatus = ticket.status;
-    if (profileId && ticket.status === tab.default_status) {
+    if (ids.length > 0 && ticket.status === tab.default_status) {
       const nextStatus = tab.status_options[1];
       if (nextStatus) {
         patch.status = nextStatus;
@@ -281,15 +283,7 @@ function PitchingInfoTickets() {
 
                   <div style={{ marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>PIC</div>
-                    <select
-                      className={styles.select}
-                      style={{ fontSize: 12, padding: "4px 8px", width: "100%" }}
-                      value={ticket.pic_profile_id || ""}
-                      onChange={(e) => updatePic(ticket, e.target.value)}
-                    >
-                      <option value="">— unassigned —</option>
-                      {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
+                    <PicTagInput styles={styles} value={ticket.pic_profile_ids || (ticket.pic_profile_id ? [ticket.pic_profile_id] : [])} onChange={(ids) => updatePics(ticket, ids)} profiles={profiles} />
                   </div>
                 </div>
               );
@@ -334,16 +328,8 @@ function PitchingInfoTickets() {
                         <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: done[key] ? "#7ee6a8" : "#ffca4d" }} />
                       </td>
                     ))}
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <select
-                        className={styles.select}
-                        style={{ fontSize: 11, padding: "4px 6px", minWidth: "16ch" }}
-                        value={ticket.pic_profile_id || ""}
-                        onChange={(e) => updatePic(ticket, e.target.value)}
-                      >
-                        <option value="">— unassigned —</option>
-                        {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
+                    <td onClick={(e) => e.stopPropagation()} style={{ minWidth: 160 }}>
+                      <PicTagInput styles={styles} value={ticket.pic_profile_ids || (ticket.pic_profile_id ? [ticket.pic_profile_id] : [])} onChange={(ids) => updatePics(ticket, ids)} profiles={profiles} />
                     </td>
                   </tr>
                 );

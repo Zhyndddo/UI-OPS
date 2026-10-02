@@ -1368,9 +1368,20 @@ export default function ReleaseDetailPage() {
         newData.feedback = null;
       }
       const newLog = { ...(freshTicket.status_log || {}), REQUESTED: new Date().toISOString() };
-      const { error: updErr } = await supabase.from("tickets").update({ status: "REQUESTED", status_log: newLog, data: newData }).eq("id", freshTicket.id);
+      // Round 453 followup — requester_profile_id was never touched by this
+      // resend/reopen path, only by first-time creation further below (the
+      // `else` branch's insert). So the Requester column (reads
+      // requesterProfile — the requester_profile_id FK, see
+      // app/tickets/media-booking/page.js's TICKET_COLUMNS) just kept
+      // showing whoever created the ticket, however long ago, or "—" if
+      // that was never set — never whoever actually clicked resend just
+      // now. Each resend is a fresh ask on behalf of AR, same as a
+      // first-time send, so it gets the same attribution: whoever is
+      // clicking this button right now.
+      const requesterProfileId = profile?.id || freshTicket.requester_profile_id || null;
+      const { error: updErr } = await supabase.from("tickets").update({ status: "REQUESTED", status_log: newLog, data: newData, requester_profile_id: requesterProfileId }).eq("id", freshTicket.id);
       if (updErr) { setError(updErr.message); return; }
-      setMediaBookingTicket((t) => ({ ...t, status: "REQUESTED", status_log: newLog, data: newData }));
+      setMediaBookingTicket((t) => ({ ...t, status: "REQUESTED", status_log: newLog, data: newData, requester_profile_id: requesterProfileId }));
       // Round 281 — audit log / requester attribution — sendPackageTicket()
       // reopening an already-COMPLETE Media Booking ticket back to REQUESTED.
       logTicketStatusChange({ actor: profile?.id, ticketId: freshTicket.id, prevStatus: freshTicket.status, newStatus: "REQUESTED", statusOptions: undefined });

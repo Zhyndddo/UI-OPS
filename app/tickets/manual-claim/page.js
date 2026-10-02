@@ -13,6 +13,7 @@ import MultiLinkCell from "../../../lib/MultiLinkCell";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
+import PicTagInput from "../../../lib/PicTagInput";
 import NoteCell from "../../../lib/NoteCell";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import { parseManualClaimBatchPaste, MANUAL_CLAIM_BATCH_COLUMNS } from "../../../lib/manualClaimBatchParse";
@@ -93,26 +94,27 @@ export default function ManualClaimList() {
     await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
   }
 
-  async function updatePic(t, profileId) {
-    const patch = { pic_profile_id: profileId || null };
-    if (profileId && t.status === tab.default_status) {
+  // Round 455 — multi-PIC conversion.
+  async function updatePics(t, ids) {
+    const patch = { pic_profile_ids: ids.length > 0 ? ids : null, pic_profile_id: ids[0] || null };
+    if (ids.length > 0 && t.status === tab.default_status) {
       const nextStatus = tab.status_options[1];
       if (nextStatus) { patch.status = nextStatus; patch.status_log = { ...t.status_log, [nextStatus]: new Date().toISOString() }; }
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
     // Round 282 — audit log / requester attribution. No distinct "claim"
-    // handler exists on this page — assigning a PIC here (via this select)
+    // handler exists on this page — assigning a PIC here (via this input)
     // IS the claim action for Manual Claim, same generic PIC-assignment
     // shape as every other ticket type, so it's logged as a plain
     // reassign rather than inventing a separate "claim" action.
-    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id, after: profileId || null });
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id, after: ids[0] || null });
   }
 
   async function updateStatus(t, newStatus) {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
-    if (REFUND_LIKE.includes(newStatus)) patch.pic_profile_id = null;
+    if (REFUND_LIKE.includes(newStatus)) { patch.pic_profile_id = null; patch.pic_profile_ids = null; }
     // Round 80 — refund/cancel-like moves require a short reason, folded
     // into ticket.data.note (see lib/statusNoteGate.js) — already visible
     // here via the existing Note column's NoteCell.
@@ -244,7 +246,7 @@ export default function ManualClaimList() {
                     isExecutorView={isExecutorView}
                     onUpdateField={updateField}
                     onUpdateStatus={updateStatus}
-                    onUpdatePic={updatePic}
+                    onUpdatePics={updatePics}
                     onAcknowledgeEdit={acknowledgeEdit}
                   />
                 ))}
@@ -260,7 +262,7 @@ export default function ManualClaimList() {
   );
 }
 
-function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePic, onAcknowledgeEdit }) {
+function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePics, onAcknowledgeEdit }) {
   const d = ticket.data || {};
   const color = statusColor(ticket.status);
   const isRefundLike = REFUND_LIKE.includes(ticket.status);
@@ -308,14 +310,16 @@ function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, 
       <td style={{ minWidth: 160 }}>
         <NoteCell value={d.note} onSave={(v) => onUpdateField(ticket, "note", v, !isExecutorView)} />
       </td>
-      <td>
+      <td style={{ minWidth: 160 }}>
         {isExecutorView ? (
-          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
-            <option value="">— Unassigned —</option>
-            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <PicTagInput styles={styles} value={ticket.pic_profile_ids || (ticket.pic_profile_id ? [ticket.pic_profile_id] : [])} onChange={(ids) => onUpdatePics(ticket, ids)} profiles={profiles} />
         ) : (
-          <span style={{ fontSize: 12 }}>{ticket.profiles?.name || "—"}</span>
+          <span style={{ fontSize: 12 }}>
+            {(ticket.pic_profile_ids || (ticket.pic_profile_id ? [ticket.pic_profile_id] : []))
+              .map((id) => profiles.find((p) => p.id === id)?.name || (id === ticket.pic_profile_id ? ticket.profiles?.name : null))
+              .filter(Boolean)
+              .join(", ") || "—"}
+          </span>
         )}
       </td>
       <td>

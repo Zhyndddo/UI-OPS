@@ -1647,6 +1647,14 @@ function NotificationsSection() {
   const [saved, setSaved] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [testing, setTesting] = useState(false);
+  // Round 453 followup — per-tab "notify team on new ticket" toggle. Every
+  // ticket insert, on every tab, used to fire a fanout to that tab's whole
+  // executor team unconditionally (trg_notify_on_ticket_insert) — no way to
+  // mute a specific noisy/high-volume ticket type without turning
+  // notifications off globally. notify_on_insert on ticket_tabs (see
+  // sql/pending/add-round453-per-tab-notify-toggle.sql) now gates that per
+  // tab, defaulting to true (today's behavior) for every existing tab.
+  const [tabs, setTabs] = useState([]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -1655,11 +1663,22 @@ function NotificationsSection() {
 
   async function load() {
     setLoading(true);
-    const { data } = await supabase.from("notification_settings").select("*").eq("id", 1).maybeSingle();
+    const [{ data }, { data: tabRows }] = await Promise.all([
+      supabase.from("notification_settings").select("*").eq("id", 1).maybeSingle(),
+      supabase.from("ticket_tabs").select("id, key, label, executor_team, notify_on_insert").order("sort_order"),
+    ]);
     setSettings(data);
     setRecipientsDraft((data?.digest_recipients || []).join(", "));
     setNoteDraft(data?.digest_custom_note || "");
+    setTabs(tabRows || []);
     setLoading(false);
+  }
+
+  async function toggleTabNotify(tab) {
+    const next = !tab.notify_on_insert;
+    setTabs((prev) => prev.map((t) => (t.id === tab.id ? { ...t, notify_on_insert: next } : t)));
+    await supabase.from("ticket_tabs").update({ notify_on_insert: next }).eq("id", tab.id);
+    flashSaved();
   }
 
   function flashSaved() {
@@ -1724,6 +1743,33 @@ function NotificationsSection() {
         />
         <span style={{ fontSize: 12 }}>Also notify the executor team (not just the requester) when a ticket completes</span>
       </label>
+
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16, marginBottom: 20, opacity: settings.enabled ? 1 : 0.5 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 }}>
+          New Ticket Notifications — per tab
+        </div>
+        <p style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 10 }}>
+          Off mutes the "needs a PIC" fanout to that tab's executor team for every new ticket on it. Doesn't touch
+          completion notifications, and doesn't affect tabs with no executor team (those never notified anyway).
+        </p>
+        <div style={{ display: "grid", gap: 2, maxHeight: 220, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 10px" }}>
+          {tabs.filter((t) => t.executor_team).map((t) => (
+            <label key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", cursor: settings.enabled ? "pointer" : "default" }}>
+              <input
+                type="checkbox"
+                checked={t.notify_on_insert}
+                disabled={!settings.enabled}
+                onChange={() => toggleTabNotify(t)}
+              />
+              <span style={{ fontSize: 12 }}>{t.label}</span>
+              <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{t.executor_team}</span>
+            </label>
+          ))}
+          {tabs.filter((t) => t.executor_team).length === 0 && (
+            <div style={{ fontSize: 11, color: "var(--text-faint)", padding: "6px 0" }}>No ticket tabs with an executor team found.</div>
+          )}
+        </div>
+      </div>
 
       <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16, marginBottom: 16 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 8 }}>
