@@ -16,7 +16,7 @@ import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import YoutubeAdsFields from "../../../lib/YoutubeAdsFields";
 import { useIsMobile } from "../../../lib/useIsMobile";
 // Round 281 — audit log / requester attribution
-import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
+import { logTicketStatusChange, logPicReassign, logPackageLineConvergence } from "../../../lib/auditLog";
 // Round 292 — INT MEDIA auto-lock on ticket COMPLETE, see updateStatus below
 import { runOne } from "../../../lib/packageSimulator";
 // Round 125 — item 2: same Linkfire door the Booking Board already has
@@ -827,7 +827,11 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
         // snapshotEntriesFor (below) can read a package's grid history
         // straight off `packages` without a separate fetch.
         supabase.from("media_booking_packages").select("*, media_booking_package_lines(*), media_booking_package_entry_snapshots(*)").eq("release_id", rel.id).order("sort_order"),
-        supabase.from("contract_type_packages").select("contract_type, items"),
+        // Round 453 followup — terms_text added alongside items (already
+        // fetched for referenceDetailFor) so the new "Edit Commitment
+        // Terms" popup can show the current global default as a starting
+        // point when a package has no override yet.
+        supabase.from("contract_type_packages").select("contract_type, items, terms_text"),
         supabase.from("magic_links").select("token").eq("release_id", rel.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       ]);
       setPackages(pkgs || []);
@@ -1622,6 +1626,46 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
     return groups.find((g) => g.categoryId === selectedCategoryId) || null;
   }
 
+  // Round 453 — safety-net log for the Round 442 convergence bug (see
+  // claude/round452-root-cause-442-sql-never-applied.md and
+  // lib/auditLog.js's logPackageLineConvergence for the full reasoning).
+  // Called right before syncPackageLine actually writes a new
+  // quantity/unit_price for the active package's line on this
+  // category/brand — checks every OTHER package already loaded on this
+  // release (the `packages` state, fresh as of the last load) for a line
+  // on the SAME category/brand that already has that exact
+  // quantity+unit_price. If one matches, logs what THIS package's own
+  // number was right before the write (not after — the whole point is
+  // capturing the last distinct value), plus which sibling package it now
+  // numerically matches. Fire-and-forget, never blocks the real write.
+  function checkPackageLineConvergence({ categoryId, brand, existing, newQuantity, newUnitPrice }) {
+    if (newQuantity == null || !release) return;
+    const key = (b) => b || "";
+    const sibling = packages.find((p) => {
+      if (p.id === activePackage.id) return false;
+      const line = (p.media_booking_package_lines || []).find(
+        (l) => l.category_id === categoryId && key(l.brand) === key(brand)
+      );
+      return !!line && line.quantity === newQuantity && (line.unit_price ?? null) === (newUnitPrice ?? null);
+    });
+    if (!sibling) return;
+    logPackageLineConvergence({
+      actor: profile?.id,
+      releaseId: release.id,
+      packageId: activePackage.id,
+      packageName: activePackage.name,
+      categoryId,
+      brand,
+      lineId: existing?.id ?? null,
+      beforeQuantity: existing?.quantity ?? null,
+      beforeUnitPrice: existing?.unit_price ?? null,
+      afterQuantity: newQuantity,
+      afterUnitPrice: newUnitPrice,
+      matchedPackageId: sibling.id,
+      matchedPackageName: sibling.name,
+    });
+  }
+
   // Round 54 — item A.3: Summarize now syncs straight into whichever
   // package tab is active, instead of requiring a separate "Add to
   // Package" click. If there's no active package yet (nobody's clicked
@@ -1704,6 +1748,15 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
         const patch = isYoutubeAds
           ? { quantity: qty, amount: group.totalMoney ?? null, detail: YOUTUBE_ADS_DEFAULT_DETAIL, metric_quantities: metricQuantities, ...(backfillYoutubeUnitPrice != null ? { unit_price: backfillYoutubeUnitPrice } : {}) }
           : { quantity: qty, amount: group.totalMoney ?? null, metric_quantities: metricQuantities };
+        // Round 453 — YouTube Ads is the one Ads brand with a real single
+        // quantity (see the comment above), so it's the only Ads branch
+        // worth checking for convergence against a sibling package.
+        if (isYoutubeAds) {
+          checkPackageLineConvergence({
+            categoryId: group.categoryId, brand: group.brand, existing,
+            newQuantity: qty, newUnitPrice: patch.unit_price !== undefined ? patch.unit_price : existing.unit_price,
+          });
+        }
         await supabase.from("media_booking_package_lines").update(patch).eq("id", existing.id);
         setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === existing.id ? { ...l, ...patch } : l)) })));
       } else {
@@ -1730,6 +1783,12 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
           metric_quantities: metricQuantities,
           sort_order: (activePackage.media_booking_package_lines || []).length,
         };
+        if (isYoutubeAds) {
+          checkPackageLineConvergence({
+            categoryId: group.categoryId, brand: group.brand, existing: null,
+            newQuantity: qty, newUnitPrice: unitPrice,
+          });
+        }
         const { data: line } = await supabase.from("media_booking_package_lines").insert(insertPayload).select().single();
         if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
       }
@@ -1761,6 +1820,14 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
       const patch = { quantity: group.totalPosts, brand_column_quantities: group.brandColumnQuantities ?? null, ...(existing.unit_price == null && backfillUnitPrice != null ? { unit_price: backfillUnitPrice } : {}) };
       const amount = computeLineAmount({ ...existing, ...patch });
       const fullPatch = { ...patch, amount };
+      // Round 453 — match on the line's own STORED brand (often "" for
+      // these mushed-per-category lines — see insertPayload below), not
+      // group.brand, so this actually finds sibling packages' real rows
+      // instead of silently never matching.
+      checkPackageLineConvergence({
+        categoryId: group.categoryId, brand: existing.brand, existing,
+        newQuantity: fullPatch.quantity, newUnitPrice: fullPatch.unit_price !== undefined ? fullPatch.unit_price : existing.unit_price,
+      });
       await supabase.from("media_booking_package_lines").update(fullPatch).eq("id", existing.id);
       setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === existing.id ? { ...l, ...fullPatch } : l)) })));
     } else {
@@ -1773,6 +1840,10 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
         brand_column_quantities: group.brandColumnQuantities ?? null,
         sort_order: (activePackage.media_booking_package_lines || []).length,
       };
+      checkPackageLineConvergence({
+        categoryId: group.categoryId, brand: insertPayload.brand, existing: null,
+        newQuantity: insertPayload.quantity, newUnitPrice: insertPayload.unit_price,
+      });
       const { data: line } = await supabase.from("media_booking_package_lines").insert(insertPayload).select().single();
       if (line) setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: [...(p.media_booking_package_lines || []), line] })));
     }
@@ -1792,6 +1863,16 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
     const isAdsLine = cat?.name === "Ads";
     const amount = isAdsLine ? line.amount : computeLineAmount(merged);
     const fullPatch = { ...patch, amount };
+    // Round 453 — this is the OTHER way a line's quantity/unit_price can
+    // change (manual edit in the "Already in X — edit directly" box, not
+    // just Summarize) — check it here too, same reasoning as
+    // syncPackageLine's checkPackageLineConvergence calls.
+    if (patch.quantity !== undefined || patch.unit_price !== undefined) {
+      checkPackageLineConvergence({
+        categoryId: line.category_id, brand: line.brand, existing: line,
+        newQuantity: merged.quantity, newUnitPrice: merged.unit_price,
+      });
+    }
     await supabase.from("media_booking_package_lines").update(fullPatch).eq("id", line.id);
     setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...fullPatch } : l)) })));
   }
@@ -1868,6 +1949,13 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
     // syncPackageLine on Summarize — editing Đơn Giá here has nothing to do
     // with it, so it's left out of this patch entirely (same as before).
     const linePatch = { quantity: entryAfter.count_posts || 0, unit_price: entryAfter.unit_price ?? null, amount: totalMoney };
+    // Round 453 — third write path for a YouTube Ads line's
+    // quantity/unit_price (besides Summarize and the generic "edit
+    // directly" box) — same convergence check as the other two.
+    checkPackageLineConvergence({
+      categoryId: adsCategoryId, brand: "YouTube Ads", existing: line,
+      newQuantity: linePatch.quantity, newUnitPrice: linePatch.unit_price,
+    });
     await supabase.from("media_booking_package_lines").update(linePatch).eq("id", line.id);
     setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...linePatch } : l)) })));
   }
@@ -1892,6 +1980,20 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
     const next = !release.recording_studio_included;
     setRelease((r) => ({ ...r, recording_studio_included: next }));
     await supabase.from("releases").update({ recording_studio_included: next }).eq("id", release.id);
+  }
+
+  // Round 453 followup — per-package exception for the ĐIỀU KIỆN CAM KẾT
+  // text, stopgap until the feedback-route rework. `text` null/empty clears
+  // the override (falls back to the global contract_type_packages.terms_text
+  // again on the pick-package page); a real string pins this one package to
+  // exactly that text regardless of what Config → Package Terms says for its
+  // tier. Same idiom as toggleRecordingStudio/saveYoutubeAdsField above —
+  // immediate local update + immediate save, no separate dirty-state.
+  async function saveTermsOverride(pkg, text) {
+    if (!pkg) return;
+    const value = text && text.trim() ? text : null;
+    setPackages((prev) => prev.map((p) => (p.id === pkg.id ? { ...p, terms_text_override: value } : p)));
+    await supabase.from("media_booking_packages").update({ terms_text_override: value }).eq("id", pkg.id);
   }
 
   // Round 93 — the AR team's YouTube URL + Booking request fields, same
@@ -2723,6 +2825,8 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
                   syncYoutubeAdsLine={syncYoutubeAdsLine}
                   onToggleRecordingStudio={toggleRecordingStudio}
                   onSaveField={saveYoutubeAdsField}
+                  referenceTiers={referenceTiers}
+                  onSaveTermsOverride={saveTermsOverride}
                   linkfireUrl={linkfireUrl}
                   magicLinkUrl={magicLinkUrl}
                   generatingLink={generatingLink}
@@ -2858,6 +2962,52 @@ function ClonePickerPopup({ excludeReleaseId, onPick, onClose }) {
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
           <button className={styles.btnSmall} onClick={onClose} style={{ flex: 1 }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Round 453 followup — per-package override for the ĐIỀU KIỆN CAM KẾT
+// block. Seeds the textarea from the package's own override if it already
+// has one, else from the global contract_type_packages.terms_text for its
+// tier (globalDefault) — so editing starts from what's actually showing on
+// the magic link right now, not a blank box. "Reset to Default" clears the
+// override (saves null) rather than just resetting the textarea, so it
+// actually un-pins the package back onto the shared config.
+function TermsOverridePopup({ packageName, currentOverride, globalDefault, onSave, onClose }) {
+  const [text, setText] = useState(currentOverride || globalDefault || "");
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 650, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 20, maxWidth: 560, width: "100%", maxHeight: "85vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.eyebrow}>// Commitment terms exception</div>
+        <h3 style={{ fontSize: 15, fontWeight: 800, margin: "0 0 4px" }}>Edit ĐIỀU KIỆN CAM KẾT — "{packageName}"</h3>
+        <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 12 }}>
+          Only changes this package on this release. The shared default in Config → Package Terms, and every other
+          release using this tier, stays untouched. A real per-release terms system is planned as part of the
+          feedback-route rework — this is a stopgap for one-off exceptions like a different "XX năm" number.
+        </div>
+        <textarea
+          className={styles.input}
+          style={{ width: "100%", flex: 1, minHeight: 240, padding: 10, fontSize: 12, fontFamily: "monospace", resize: "vertical" }}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          autoFocus
+        />
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <button className={styles.btnSmall} onClick={onClose} style={{ flex: 1 }}>Cancel</button>
+          {currentOverride && (
+            <button
+              className={styles.btnSmall}
+              onClick={() => onSave(null)}
+              title="Clear the override — this package goes back to showing the shared Config → Package Terms default"
+              style={{ flex: 1 }}
+            >
+              Reset to Default
+            </button>
+          )}
+          <button className={styles.btnPrimary} onClick={() => onSave(text)} style={{ flex: 1 }}>Save for This Package</button>
         </div>
       </div>
     </div>
@@ -3106,9 +3256,17 @@ function PackagesPanel({
   release, categories, packages, activePackageId, setActivePackageId, activePackage,
   namePopup, setNamePopup, createPackage, deletePackage, addPrebuiltLine, deleteLine, reorderLines, updateLine,
   syncYoutubeAdsLine, onToggleRecordingStudio, onSaveField, linkfireUrl, magicLinkUrl, generatingLink, onGenerateLink, proposedPackage, onHide,
-  mobile,
+  mobile, referenceTiers, onSaveTermsOverride,
 }) {
   const hasSavedPackage = packages.length > 0;
+  // Round 453 followup — "Edit Commitment Terms" popup open/closed, per
+  // active package (not its own useState in the popup component, since the
+  // popup needs activePackage's CURRENT override/name to seed its textarea
+  // fresh every time it's opened, including after switching package tabs).
+  const [termsPopupOpen, setTermsPopupOpen] = useState(false);
+  const globalTermsDefault = activePackage
+    ? (referenceTiers.find((t) => (t.contract_type || "").trim().toLowerCase() === (activePackage.name || "").trim().toLowerCase())?.terms_text || "")
+    : "";
   // Round 54 — item A.4: drag-to-reorder. dragIndex tracks which row (by
   // its position in the sorted array below) the drag started on; dropping
   // on another row moves it there and persists via reorderLines.
@@ -3173,6 +3331,43 @@ function PackagesPanel({
           >
             {release?.recording_studio_included ? "✓ Recording Studio included" : "+ Recording Studio"}
           </button>
+
+          {/* Round 453 followup — per-package exception for the ĐIỀU KIỆN
+              CAM KẾT commitment-duration text ("XX năm" lines), without
+              touching the global Config → Package Terms default that every
+              other release on this tier also uses. Stopgap until the
+              feedback-route rework; only shows once a package is active
+              since the override is per-package, unlike Recording Studio
+              above which is per-release. */}
+          {activePackage && (
+            <button
+              className={styles.btnSmall}
+              onClick={() => setTermsPopupOpen(true)}
+              title={`Override the ĐIỀU KIỆN CAM KẾT text for "${activePackage.name}" only — doesn't touch Config → Package Terms`}
+              style={{
+                marginBottom: 14,
+                marginLeft: 8,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                border: activePackage.terms_text_override ? "1px solid var(--accent)" : "1px solid var(--border-strong)",
+                background: activePackage.terms_text_override ? "rgba(255,107,26,0.15)" : "transparent",
+                color: activePackage.terms_text_override ? "var(--accent)" : "var(--text-muted)",
+              }}
+            >
+              {activePackage.terms_text_override ? "✓ Commitment terms overridden" : "+ Edit Commitment Terms"}
+            </button>
+          )}
+
+          {termsPopupOpen && activePackage && (
+            <TermsOverridePopup
+              packageName={activePackage.name}
+              currentOverride={activePackage.terms_text_override}
+              globalDefault={globalTermsDefault}
+              onSave={(text) => { onSaveTermsOverride(activePackage, text); setTermsPopupOpen(false); }}
+              onClose={() => setTermsPopupOpen(false)}
+            />
+          )}
 
           {/* Round 125 item 2's "Custom package url" field removed per
               explicit request — see the removal note above the ticket

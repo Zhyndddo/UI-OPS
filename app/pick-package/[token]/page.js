@@ -659,7 +659,14 @@ export default function PickPackagePage() {
         value: p.name,
         label: p.name,
         kind: isFollowUpType ? "intMedia" : "real",
-        termsText: termsByName[matchedTier] || null,
+        // Round 453 followup — a package's own terms_text_override (set via
+        // the Package Builder's "Edit Commitment Terms" popup) wins over the
+        // global per-tier default. Lets one release's package show a
+        // different "XX năm" number without touching Config → Package
+        // Terms, which would change it for every other release on this
+        // tier too. Still falls back to the shared default exactly as
+        // before when no override is set.
+        termsText: p.terms_text_override || termsByName[matchedTier] || null,
         troGiaBookingText: troGiaByName[matchedTier] || null,
         showSharedB: SHARED_B_TIERS.includes(matchedTier),
         totalValue: !(p.media_booking_package_lines || []).some((l) => l.amount != null)
