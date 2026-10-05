@@ -1475,7 +1475,16 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
 
   async function deletePackage(pkg) {
     if (!window.confirm(`Delete package "${pkg.name}"? This can't be undone.`)) return;
-    await supabase.from("media_booking_packages").delete().eq("id", pkg.id);
+    // Round 463 — report the delete result instead of ignoring it (a
+    // "Chỉ Phát Hành" release kept showing a package that looked deleted in
+    // the UI but came back on reload — the old code removed it from local
+    // state even when the database refused or silently matched no row).
+    // .select() returns the rows actually deleted, so zero rows is caught too.
+    const { data: deleted, error } = await supabase.from("media_booking_packages").delete().eq("id", pkg.id).select("id");
+    if (error || !deleted || deleted.length === 0) {
+      window.alert(`Couldn't delete package "${pkg.name}" — ${error ? error.message : "the database removed nothing (no permission, or it was already gone). Reload and try again."}`);
+      return;
+    }
     setPackages((prev) => {
       const next = prev.filter((p) => p.id !== pkg.id);
       if (activePackageId === pkg.id) setActivePackageId(next[0]?.id || null);
