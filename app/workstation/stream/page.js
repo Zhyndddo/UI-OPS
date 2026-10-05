@@ -4,9 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
+import { useAuth } from "../../../lib/AuthContext";
 import { fmtDate, fetchAllRows } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { buildStreamNote } from "../../../lib/releaseNotes";
+import PicTagInput from "../../../lib/PicTagInput";
+import { filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/workstationHelpers";
+import { logPicReassign } from "../../../lib/auditLog";
 import styles from "../../shared.module.css";
 
 // The real v1 "Stream" component (STREAM_COLS_DEF in app.js) — manually
@@ -53,11 +57,22 @@ const GROUP_START_KEYS = new Set(METRIC_GROUPS.map(([, fields]) => fields[0][0])
 const STREAM_EXPANDED_MONTHS_KEY = "vieent_stream_expanded_months";
 
 export default function StreamWorkstation() {
+  const { profile } = useAuth();
   const [tab, setTab] = useState("today");
   const [releases, setReleases] = useState([]);
   const [metricsByRelease, setMetricsByRelease] = useState({}); // release_id -> metrics row, populated lazily per section
   const [supplements, setSupplements] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Round 458 — §3b: per-release PIC tracking for this workstation for the
+  // first time, multi-PIC from day one (workstation_assignments, same
+  // table/precedence chain as Upload/Confirm/Pre-release/Cost-MKT — one row
+  // per release, column_key "all", no per-month axis — see task-tracker-
+  // kpi-overhaul-spec.md §3b's correction note on why "per month" didn't
+  // hold up for this table either). OPS-team-scoped, same as Upload/
+  // Confirm/Pre-release.
+  const [picProfiles, setPicProfiles] = useState([]);
+  const [picDefaults, setPicDefaults] = useState([]);
+  const [picAssignments, setPicAssignments] = useState({}); // release_id -> pic_profile_ids[]
   const [monthlySearch, setMonthlySearch] = useState(""); // Monthly tab only — title/artist/DID, so an old entry can be found without scrolling every month
   const [expandedMonths, setExpandedMonths] = useState(() => new Set());
   const [loadingMonths, setLoadingMonths] = useState(() => new Set());
@@ -79,15 +94,84 @@ export default function StreamWorkstation() {
     // the heavy part. The heavy part (release_stream_metrics, one row per
     // release with ~10 metric columns) is what round 67 below stopped
     // pulling in bulk.
-    const { data: rels } = await fetchAllRows(() =>
-      supabase.from("releases").select("id, did, title, main_artist, release_date, upc, isrc, smartlink, label").order("id")
-    );
-    setReleases(rels || []);
-
-    const { data: supp } = await supabase.from("release_stream_metrics").select("*").is("release_id", null).order("manual_release_date", { ascending: false });
+    const [{ data: rels }, { data: supp }, { data: profs }, { data: assigns }] = await Promise.all([
+      fetchAllRows(() =>
+        supabase.from("releases").select("id, did, title, main_artist, release_date, upc, isrc, smartlink, label").order("id")
+      ),
+      supabase.from("release_stream_metrics").select("*").is("release_id", null).order("manual_release_date", { ascending: false }),
+      // Round 458 — PIC tracking, see state comment above.
+      supabase.from("profiles").select("id, name, segment, role").order("name"),
+      fetchAllRows(() => supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "stream")),
+    ]);
+    const releaseList = rels || [];
+    setReleases(releaseList);
     setSupplements(supp || []);
 
+    // Round 458 — PIC tracking load/reclaim/auto-assign, same shape as
+    // app/workstation/cost-mkt/page.js's own load().
+    const scopedProfs = filterProfilesByTeam(profs || [], "OPS");
+    setPicProfiles(scopedProfs);
+    const picMap = {};
+    let picDef = [];
+    const picAutoAssignedIds = [];
+    (assigns || []).forEach((a) => {
+      const ids = a.pic_profile_ids || (a.pic_profile_id ? [a.pic_profile_id] : []);
+      if (a.release_id === null) picDef = ids;
+      else {
+        picMap[a.release_id] = ids;
+        if (a.auto_assigned) picAutoAssignedIds.push(a.release_id);
+      }
+    });
+    if (picDef.length > 0 && picAutoAssignedIds.length > 0) {
+      await supabase.from("workstation_assignments").delete().eq("workstation", "stream").eq("auto_assigned", true).in("release_id", picAutoAssignedIds);
+      picAutoAssignedIds.forEach((rid) => { delete picMap[rid]; });
+    }
+    setPicDefaults(picDef);
+    setPicAssignments(picMap);
+    Promise.all(
+      (picDef.length === 0 ? releaseList : [])
+        .filter((r) => picMap[r.id] == null)
+        .map((r) =>
+          autoAssignUnassigned({
+            profiles: scopedProfs,
+            segment: "OPS",
+            entity: "workstation_assignment",
+            entityId: `stream:${r.id}`,
+            write: async (profileId) => {
+              await supabase.from("workstation_assignments").insert({ workstation: "stream", column_key: "all", release_id: r.id, pic_profile_id: profileId, pic_profile_ids: [profileId], auto_assigned: true });
+              setPicAssignments((prev) => (prev[r.id] != null ? prev : { ...prev, [r.id]: [profileId] }));
+            },
+          })
+        )
+    );
+
     setLoading(false);
+  }
+
+  // Round 458 — multi-PIC conversion, same shape as app/workstation/
+  // cost-mkt/page.js's own updatePics.
+  async function updatePics(release, ids) {
+    const before = picAssignments[release.id] ?? [];
+    setPicAssignments((prev) => ({ ...prev, [release.id]: ids.length > 0 ? ids : undefined }));
+    logPicReassign({ actor: profile?.id, entity: "workstation_assignment", entityId: release.id, before: before[0] ?? null, after: ids[0] ?? null });
+    if (ids.length === 0) {
+      await supabase.from("workstation_assignments").delete().eq("workstation", "stream").eq("release_id", release.id);
+      return;
+    }
+    const { data: existing } = await supabase
+      .from("workstation_assignments")
+      .select("id")
+      .eq("workstation", "stream")
+      .eq("column_key", "all")
+      .eq("release_id", release.id)
+      .maybeSingle();
+    const { error } = existing
+      ? await supabase.from("workstation_assignments").update({ pic_profile_id: ids[0], pic_profile_ids: ids, auto_assigned: false }).eq("id", existing.id)
+      : await supabase.from("workstation_assignments").insert({ workstation: "stream", column_key: "all", release_id: release.id, pic_profile_id: ids[0], pic_profile_ids: ids, auto_assigned: false });
+    if (error) {
+      setPicAssignments((prev) => ({ ...prev, [release.id]: before.length > 0 ? before : undefined }));
+      alert(`Couldn't save PIC — try again. (${error.message})`);
+    }
   }
 
   // Round 67 — fetches metrics rows for exactly the given release ids
@@ -310,6 +394,10 @@ export default function StreamWorkstation() {
               <StreamTable
                 rows={todayCheckReleases.map((r) => ({ release: r, metrics: metricsByRelease[r.id] || {} }))}
                 onUpdate={(row, field, value) => updateMetric(row.metrics, field, value, false)}
+                picAssignments={picAssignments}
+                picDefaults={picDefaults}
+                picProfiles={picProfiles}
+                onUpdatePics={updatePics}
               />
             )
           ) : tab === "monthly" ? (
@@ -376,6 +464,10 @@ export default function StreamWorkstation() {
                             <StreamTable
                               rows={rels.map((r) => ({ release: r, metrics: metricsByRelease[r.id] || {} }))}
                               onUpdate={(row, field, value) => updateMetric(row.metrics, field, value, false)}
+                              picAssignments={picAssignments}
+                              picDefaults={picDefaults}
+                              picProfiles={picProfiles}
+                              onUpdatePics={updatePics}
                             />
                           )
                         )}
@@ -396,6 +488,10 @@ export default function StreamWorkstation() {
                   onUpdate={(row, field, value) => updateMetric(row.metrics, field, value, true)}
                   onRemove={(row) => removeSupplement(row.metrics)}
                   onLink={(row, release) => linkSupplementToRelease(row.metrics, release)}
+                  picAssignments={picAssignments}
+                  picDefaults={picDefaults}
+                  picProfiles={picProfiles}
+                  onUpdatePics={updatePics}
                   manual
                 />
               )}
@@ -445,7 +541,7 @@ function handleMetricBlur(row, key, e, onUpdate) {
   onUpdate(row, key, newValue);
 }
 
-function StreamTable({ rows, onUpdate, onRemove, onLink, manual }) {
+function StreamTable({ rows, onUpdate, onRemove, onLink, manual, picAssignments, picDefaults, picProfiles, onUpdatePics }) {
   return (
     <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
       <table className={styles.table} style={{ minWidth: 1400 }}>
@@ -458,6 +554,12 @@ function StreamTable({ rows, onUpdate, onRemove, onLink, manual }) {
               at once and has to stay above them at the corner. */}
           <tr>
             <th style={{ position: "sticky", top: 0, left: 0, zIndex: 4, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 300, minWidth: 300, maxWidth: 300 }}>Release</th>
+            {/* Round 458 — §3b: per-release PIC, same pattern as Upload/
+                Confirm/Pre-release/Cost-MKT. A Bổ Sung row with no linked
+                release yet (row.release === null) has nothing to hang a
+                PIC assignment on — its cell below just shows a dash until
+                it's linked to a real release. */}
+            <th style={{ position: "sticky", top: 0, zIndex: 3, background: "var(--bg)" }}>PIC</th>
             {METRIC_GROUPS.map(([group, fields]) => (
               <th key={group} colSpan={fields.length} style={{ position: "sticky", top: 0, zIndex: 3, background: "var(--bg)", textAlign: "center", borderLeft: "1px solid var(--border)" }}>{group}</th>
             ))}
@@ -466,6 +568,7 @@ function StreamTable({ rows, onUpdate, onRemove, onLink, manual }) {
           </tr>
           <tr>
             <th style={{ position: "sticky", top: 27, left: 0, zIndex: 4, background: "var(--bg)", borderRight: "2px solid var(--accent)" }}></th>
+            <th style={{ position: "sticky", top: 27, zIndex: 3, background: "var(--bg)" }}></th>
             {METRIC_GROUPS.flatMap(([group, fields]) => fields.map(([key, label]) => (
               <th key={key} style={{ position: "sticky", top: 27, zIndex: 3, background: "var(--bg)", fontSize: 10, fontWeight: 400, borderLeft: GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>{label}</th>
             )))}
@@ -496,6 +599,18 @@ function StreamTable({ rows, onUpdate, onRemove, onLink, manual }) {
                     <Link href={`/releases/${row.release.id}`} className={styles.rowLink}>{row.release.title}</Link>
                     <span style={{ color: "var(--text-faint)" }}> — {row.release.main_artist} · {fmtDate(row.release.release_date)}</span>
                   </div>
+                )}
+              </td>
+              <td style={{ minWidth: 150, padding: "3px 4px" }}>
+                {row.release?.id ? (
+                  <PicTagInput
+                    styles={styles}
+                    value={picAssignments[row.release.id] ?? picDefaults}
+                    onChange={(ids) => onUpdatePics(row.release, ids)}
+                    profiles={picProfiles}
+                  />
+                ) : (
+                  <span style={{ fontSize: 11, color: "var(--text-faint)" }}>—</span>
                 )}
               </td>
               {ALL_METRIC_KEYS.map((key) => (

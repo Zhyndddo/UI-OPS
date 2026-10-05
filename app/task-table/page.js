@@ -15,6 +15,8 @@ import { effectiveSubteamTags } from "../../lib/releaseTags";
 import { MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
 import { SUBTEAM_TAG_TEAM, isAdminOrAbove, isDev } from "../../lib/permissions";
 import SearchBox from "../../lib/SearchBox";
+import KpiPerformanceView from "../../lib/KpiPerformanceView";
+import { DSP_CHECK_FIELDS, isUploadDone, isConfirmPhase1Done, isConfirmPhase2Done, isPreReleaseDone } from "../../lib/workstationDoneRules";
 import styles from "../shared.module.css";
 // Round 404 item 1 — Weekly Tasks: admin-assigned free-text recurring
 // tasks, one popup-once-a-day reminder (see lib/Sidebar.js) plus the
@@ -119,23 +121,8 @@ function isTicketUndone(typeKey, status) {
   return !TERMINAL_EXECUTOR.includes(status);
 }
 
-const DSP_CHECK_FIELDS = ["confirm_spotify_correct", "confirm_apple_correct", "confirm_zing_correct", "confirm_nct_correct", "confirm_fb_correct", "confirm_ytb_correct"];
-
-function isUploadDone(r) {
-  if (r.upload_status === "Cancel") return true; // cancelled isn't outstanding work
-  const keys = ["link_lbm", "link_share", "smartlink"];
-  if (r.gate_pre_order === "true") keys.push("link_preorder");
-  return keys.every((k) => r[k]);
-}
-function isConfirmPhase1Done(r) {
-  return DSP_CHECK_FIELDS.every((f) => r[f]) && !!r.link_lbm && !!r.confirm_tag;
-}
-function isConfirmPhase2Done(r) {
-  return !!(r.smartlink && r.confirm_smartlink_updated && r.confirm_insta_sound && r.confirm_tiktok_sound_updated);
-}
-function isPreReleaseDone(r) {
-  return !!(r.canva_mv_status && r.canva_status && r.musixmatch_link && r.musixmatch_status && r.nct_lyric && r.zing_lyric);
-}
+// Round 460 — workstation "done" rules moved to lib/workstationDoneRules.js
+// (shared with notDoneCounts + the KPI layer).
 
 // Round 250 — every ticket type's real fields live in one JSONB `data`
 // column (see lib/ticketConfigs.js), with different field keys per type —
@@ -1134,6 +1121,23 @@ export default function TaskTablePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasPersonalView, profile, loading, memberItems]);
 
+  // Round 462 — Performance tab scoping, mirrors the existing tabs: exc sees
+  // only their own row; teamlead/admin see the same groups as "My Team"
+  // (OPS admin: per-subteam); dev sees every team (no personal view).
+  const perfGroups = (() => {
+    if (!profile) return [];
+    if (profile.role === "dev") {
+      const g = sections.map((seg) => ({ title: seg, members: profiles.filter((p) => p.segment === seg) }));
+      if (noSegmentProfiles.length > 0) g.push({ title: "No Team", members: noSegmentProfiles });
+      return g;
+    }
+    if (profile.role === "exc") return [{ title: profile.name, members: [profile] }];
+    return myTeamSegments.map((segment) => ({
+      title: segment,
+      members: profiles.filter((p) => (isOpsAdminSplit ? p.segment === "OPS" && p.subteam === segment : p.segment === segment)),
+    }));
+  })();
+
   return (
     <AppShell>
       <div className={styles.page}>
@@ -1146,9 +1150,9 @@ export default function TaskTablePage() {
               : "Outstanding (undone) work per member, grouped by team — click a count to open that task's own page."}
           </p>
 
-          {hasPersonalView && (
+          {!!profile && (
             <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid var(--border)" }}>
-              {[["mine", "My Tasks"], ["team", "My Team"]].map(([key, label]) => (
+              {(hasPersonalView ? [["mine", "My Tasks"], ["team", "My Team"], ["perf", "Performance"]] : [["mine", "Overview"], ["perf", "Performance"]]).map(([key, label]) => (
                 <button
                   key={key}
                   onClick={() => setMainTab(key)}
@@ -1160,12 +1164,14 @@ export default function TaskTablePage() {
             </div>
           )}
 
-          {!loading && (hasPersonalView ? mainTab === "team" : true) && (
+          {!loading && mainTab !== "perf" && (hasPersonalView ? mainTab === "team" : true) && (
             <SearchBox value={memberQuery} onChange={setMemberQuery} placeholder="Search member name…" />
           )}
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
+          ) : mainTab === "perf" ? (
+            <KpiPerformanceView groups={perfGroups} />
           ) : hasPersonalView ? (
             mainTab === "mine" ? (
               <>

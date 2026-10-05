@@ -10,6 +10,8 @@ import { useIsMobile } from "../../../lib/useIsMobile";
 import { useAuth } from "../../../lib/AuthContext";
 import { isDev } from "../../../lib/permissions";
 import { isOpsTeam } from "../../../lib/teamTypes";
+import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
+import DailyPicPanel from "../../../lib/DailyPicPanel";
 import { MILESTONE_HIGHLIGHT_SETTING_KEY, DEFAULT_MILESTONE_HIGHLIGHT_CONFIG, parseMilestoneHighlightConfig } from "../../../lib/milestoneHighlight";
 import { MILESTONE_CHART_LINKS } from "../../../lib/milestoneChartLinks";
 import { TOOL_DIRECTORY_SETTING_KEY, mergeToolDirectory } from "../../../lib/toolDirectory";
@@ -195,6 +197,11 @@ export default function MilestoneWorkstation() {
     if (profile && !tabsForRole.some(([k]) => k === tab)) setTab(tabsForRole[0][0]);
   }, [profile, tabsForRole, tab]);
   const [entries, setEntries] = useState([]);
+  // Round 458 — §3b: Milestone has no per-release row, so PIC is tracked
+  // per log day instead (see lib/DailyPicPanel.js). Needs its own
+  // OPS-scoped profiles list, same scoping every other workstation's PIC
+  // picker uses.
+  const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   // Round 243 — Log tab's own section-by-section pagination state,
   // replacing round 242's "fetch the whole table the first time Log is
@@ -284,6 +291,9 @@ export default function MilestoneWorkstation() {
     setEntries(data || []);
     const { data: cfg } = await supabase.from("app_settings").select("value").eq("key", MILESTONE_HIGHLIGHT_SETTING_KEY).maybeSingle();
     setHighlightConfig(parseMilestoneHighlightConfig(cfg?.value));
+    // Round 458 — see DailyPicPanel's own comment.
+    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
+    setProfiles(filterProfilesByTeam(profs || [], "OPS"));
     setLoading(false);
   }
 
@@ -625,6 +635,15 @@ export default function MilestoneWorkstation() {
   // Digest grouping for the Report panel — every today row grouped by
   // (platform, chart), matching the real report's numbered
   // "N. Platform | Chart -- filled/depth --" sections.
+  // Round 458 — distinct log days this page already has entries for,
+  // newest first, today always included even with zero entries logged
+  // yet (so today's PIC picker always shows up) — feeds DailyPicPanel.
+  const inputLogDates = useMemo(() => {
+    const set = new Set(entries.map((e) => e.entry_date));
+    set.add(todayStr());
+    return [...set].sort((a, b) => b.localeCompare(a));
+  }, [entries]);
+
   const digest = useMemo(() => {
     const groups = new Map(); // `${platform}||${chart}` -> rows
     report.todayRows.forEach((r) => {
@@ -674,6 +693,8 @@ export default function MilestoneWorkstation() {
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
           ) : tab === "input" && hasFullAccess ? (
+            <>
+            <DailyPicPanel styles={styles} workstation="milestone_input" dates={inputLogDates} defaultEmail="hie.tran@vieent.vn" profiles={profiles} label="Today's Log" />
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {PLATFORMS.map((p) => (
                 <button
@@ -685,10 +706,11 @@ export default function MilestoneWorkstation() {
                 </button>
               ))}
             </div>
+            </>
           ) : tab === "implement" && hasFullAccess ? (
             <ImplementPanel styles={styles} onSaved={refreshAfterSave} />
           ) : tab === "viralPosts" && (hasFullAccess || isMarketing) ? (
-            <ViralPostsPanel styles={styles} />
+            <ViralPostsPanel styles={styles} profiles={profiles} />
           ) : tab === "report" && hasFullAccess ? (
             <ReportAndHighlight digest={digest} highlight={highlight} report={report} highlightConfig={highlightConfig} />
           ) : (
@@ -1832,7 +1854,7 @@ function ViralPostPopup({ initialRelease, releaseOptions, onClose, onSaved, styl
 // to one line per url (bestPerUrl, highest views) — clicking that cell
 // (or the standalone button above the table) opens ViralPostPopup,
 // pre-filled with this row's release when clicked from a row.
-function ViralPostsPanel({ styles }) {
+function ViralPostsPanel({ styles, profiles }) {
   const [loading, setLoading] = useState(true);
   const [releases, setReleases] = useState([]);
   const [packages, setPackages] = useState([]);
@@ -1914,6 +1936,18 @@ function ViralPostsPanel({ styles }) {
     return releases.filter((r) => (r.title || "").toLowerCase().includes(q) || (r.main_artist || "").toLowerCase().includes(q) || (r.did || "").toLowerCase().includes(q));
   }, [releases, search]);
 
+  // Round 458 — same per-log-day PIC idea as the Input tab (see
+  // DailyPicPanel's own comment), capped to the last 60 days (viralPosts
+  // itself has no date cutoff — this panel's own full-history load — so
+  // this caps how many days' worth of backfill rows a first-ever load
+  // here would create).
+  const viralLogDates = useMemo(() => {
+    const cutoff = daysAgoStr(RECENT_WINDOW_DAYS);
+    const set = new Set(viralPosts.filter((v) => v.entry_date >= cutoff).map((v) => v.entry_date));
+    set.add(todayStr());
+    return [...set].sort((a, b) => b.localeCompare(a));
+  }, [viralPosts]);
+
   function refresh() {
     load();
   }
@@ -1922,6 +1956,7 @@ function ViralPostsPanel({ styles }) {
 
   return (
     <div>
+      <DailyPicPanel styles={styles} workstation="milestone_viral_posts" dates={viralLogDates} defaultEmail="tien.le@vieent.vn" profiles={profiles} label="Today's Viral Post Log" />
       <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: 0, maxWidth: 760 }}>
         Every release with a UPC, regardless of package. Click a release's Channel:URL cell to log a new viral-post snapshot for it — the same
         entries also show up on that release's media report magic link and in the Log tab when searched.

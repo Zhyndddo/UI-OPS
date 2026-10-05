@@ -11,6 +11,9 @@ import PillSwitch from "../../../lib/PillSwitch";
 import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS, buildPackageByRelease, makeBookedFor, makeAddedFor } from "../../booking/page";
 import ExportButton from "../../../lib/spreadsheetExport";
 import CostMktImportPopup from "../../../lib/CostMktImport";
+import PicTagInput from "../../../lib/PicTagInput";
+import { filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/workstationHelpers";
+import { logPicReassign } from "../../../lib/auditLog";
 import styles from "../../shared.module.css";
 
 // Round 315 — new Workstation item, per explicit request + the
@@ -206,6 +209,14 @@ export default function WorkstationCostMkt() {
   const [notInPackageTickets, setNotInPackageTickets] = useState([]);
   const [costEntries, setCostEntries] = useState({}); // costEntryKey -> row
   const [installmentsByKey, setInstallmentsByKey] = useState({}); // costEntryKey -> [row], sorted by month asc
+  // Round 458 — §3b: real PIC tracking for this workstation for the first
+  // time, multi-PIC from day one (workstation_assignments, same table/
+  // precedence chain as Upload/Confirm/Pre-release — one row per release,
+  // column_key "all", no per-month axis: see task-tracker-kpi-overhaul-
+  // spec.md §3b's correction note on why "per month" didn't hold up).
+  const [picProfiles, setPicProfiles] = useState([]);
+  const [picDefaults, setPicDefaults] = useState([]);
+  const [picAssignments, setPicAssignments] = useState({}); // release_id -> pic_profile_ids[]
 
   const [fundedBy, setFundedBy] = useState("vieent"); // "vieent" | "artist"
   const [channelKind, setChannelKind] = useState("tiktok"); // "tiktok" | "ads"
@@ -269,7 +280,7 @@ export default function WorkstationCostMkt() {
 
   async function load() {
     setLoading(true);
-    const [{ data: rels }, { data: cats }, { data: tabRow }, { data: costEntryRows }, { data: installmentRows }] = await Promise.all([
+    const [{ data: rels }, { data: cats }, { data: tabRow }, { data: costEntryRows }, { data: installmentRows }, { data: profs }, { data: assigns }] = await Promise.all([
       fetchAllRows(() =>
         supabase.from("releases").select("id, did, title, main_artist, release_date, project_type, ads_perform_url").order("release_date", { ascending: false })
       ),
@@ -283,10 +294,51 @@ export default function WorkstationCostMkt() {
       // applied: every row just falls back to legacy (non-installment)
       // behavior, same as a release that's never turned Is_installment on.
       fetchAllRows(() => supabase.from("workstation_cost_mkt_installments").select("*")),
+      // Round 458 — PIC tracking, see state comment above.
+      supabase.from("profiles").select("id, name, segment, role").order("name"),
+      fetchAllRows(() => supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "cost_mkt")),
     ]);
     const releaseList = rels || [];
     setReleases(releaseList);
     setCategories(cats || []);
+
+    // Round 458 — PIC tracking load/reclaim/auto-assign, same shape as
+    // app/workstation/upload/page.js's own load().
+    const scopedProfs = filterProfilesByTeam(profs || [], "Marketing");
+    setPicProfiles(scopedProfs);
+    const picMap = {};
+    let picDef = [];
+    const picAutoAssignedIds = [];
+    (assigns || []).forEach((a) => {
+      const ids = a.pic_profile_ids || (a.pic_profile_id ? [a.pic_profile_id] : []);
+      if (a.release_id === null) picDef = ids;
+      else {
+        picMap[a.release_id] = ids;
+        if (a.auto_assigned) picAutoAssignedIds.push(a.release_id);
+      }
+    });
+    if (picDef.length > 0 && picAutoAssignedIds.length > 0) {
+      await supabase.from("workstation_assignments").delete().eq("workstation", "cost_mkt").eq("auto_assigned", true).in("release_id", picAutoAssignedIds);
+      picAutoAssignedIds.forEach((rid) => { delete picMap[rid]; });
+    }
+    setPicDefaults(picDef);
+    setPicAssignments(picMap);
+    Promise.all(
+      (picDef.length === 0 ? releaseList : [])
+        .filter((r) => picMap[r.id] == null)
+        .map((r) =>
+          autoAssignUnassigned({
+            profiles: scopedProfs,
+            segment: "Marketing",
+            entity: "workstation_assignment",
+            entityId: `cost_mkt:${r.id}`,
+            write: async (profileId) => {
+              await supabase.from("workstation_assignments").insert({ workstation: "cost_mkt", column_key: "all", release_id: r.id, pic_profile_id: profileId, pic_profile_ids: [profileId], auto_assigned: true });
+              setPicAssignments((prev) => (prev[r.id] != null ? prev : { ...prev, [r.id]: [profileId] }));
+            },
+          })
+        )
+    );
 
     // Round 316 fix — this used to only fetch media_booking_packages
     // (the PLANNED/booked target, only present once a package is locked
@@ -526,6 +578,32 @@ export default function WorkstationCostMkt() {
       updatedReleases.forEach((r) => { byId[r.id] = r.ads_perform_url; });
       return prev.map((r) => (r.id in byId ? { ...r, ads_perform_url: byId[r.id] } : r));
     });
+  }
+
+  // Round 458 — multi-PIC conversion, same shape as app/workstation/
+  // upload/page.js's own updatePics.
+  async function updatePics(release, ids) {
+    const before = picAssignments[release.id] ?? [];
+    setPicAssignments((prev) => ({ ...prev, [release.id]: ids.length > 0 ? ids : undefined }));
+    logPicReassign({ actor: profile?.id, entity: "workstation_assignment", entityId: release.id, before: before[0] ?? null, after: ids[0] ?? null });
+    if (ids.length === 0) {
+      await supabase.from("workstation_assignments").delete().eq("workstation", "cost_mkt").eq("release_id", release.id);
+      return;
+    }
+    const { data: existing } = await supabase
+      .from("workstation_assignments")
+      .select("id")
+      .eq("workstation", "cost_mkt")
+      .eq("column_key", "all")
+      .eq("release_id", release.id)
+      .maybeSingle();
+    const { error } = existing
+      ? await supabase.from("workstation_assignments").update({ pic_profile_id: ids[0], pic_profile_ids: ids, auto_assigned: false }).eq("id", existing.id)
+      : await supabase.from("workstation_assignments").insert({ workstation: "cost_mkt", column_key: "all", release_id: release.id, pic_profile_id: ids[0], pic_profile_ids: ids, auto_assigned: false });
+    if (error) {
+      setPicAssignments((prev) => ({ ...prev, [release.id]: before.length > 0 ? before : undefined }));
+      alert(`Couldn't save PIC — try again. (${error.message})`);
+    }
   }
 
   async function saveField(release, field, value) {
@@ -852,6 +930,7 @@ export default function WorkstationCostMkt() {
                         is toggled on, ahead of Release. */}
                     {showOverrideColumn && <th title="Track Tháng Chi Trả as real per-month installment rows for this release">Is_installment?</th>}
                     <th>Release</th>
+                    <th>PIC</th>
                     {columns.map((c) => <th key={c}>{c}</th>)}
                     {channelKind === "tiktok" && <th>Total Post</th>}
                     {channelKind === "tiktok" && POST_FIELDS.map((f) => <th key={f.key}>{f.label}</th>)}
@@ -883,6 +962,9 @@ export default function WorkstationCostMkt() {
                         <td style={{ minWidth: 160 }}>
                           <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
                           <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release.main_artist}</div>
+                        </td>
+                        <td style={{ minWidth: 160 }}>
+                          <PicTagInput styles={styles} value={picAssignments[release.id] ?? picDefaults} onChange={(ids) => updatePics(release, ids)} profiles={picProfiles} />
                         </td>
                         {values.map((v, i) => (
                           <td key={i} style={{ textAlign: "center", fontSize: 12 }} title={v.pkgSourced ? "from the chosen package" : "added / booked target"}>
