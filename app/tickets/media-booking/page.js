@@ -17,7 +17,7 @@ import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import YoutubeAdsFields from "../../../lib/YoutubeAdsFields";
 import { useIsMobile } from "../../../lib/useIsMobile";
 // Round 281 — audit log / requester attribution
-import { logTicketStatusChange, logPicReassign, logPackageLineConvergence } from "../../../lib/auditLog";
+import { logTicketStatusChange, logPicReassign, logPackageLineConvergence, logPackageLineChange, logPackageEvent } from "../../../lib/auditLog";
 // Round 292 — INT MEDIA auto-lock on ticket COMPLETE, see updateStatus below
 import { runOne } from "../../../lib/packageSimulator";
 // Round 125 — item 2: same Linkfire door the Booking Board already has
@@ -926,6 +926,13 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
       supabase.from("media_booking_packages").select("*, media_booking_package_lines(*)").eq("release_id", sourceReleaseId).order("sort_order"),
     ]);
 
+    // Round 464 — one audit row for the whole clone (what was replaced and
+    // where it came from), not one per copied row.
+    logPackageEvent({
+      actor: profile?.id, releaseId: release.id, packageId: release.id, packageName: null, source: "clone",
+      detail: { source_release_id: sourceReleaseId, source_packages: (srcPkgs || []).map((p) => ({ name: p.name, sort_order: p.sort_order, total: (p.media_booking_package_lines || []).reduce((a, l) => a + (l.amount || 0), 0) })), replaced_packages: packages.map((p) => ({ name: p.name, id: p.id })) },
+    });
+
     // Wipe this release's existing package-building data — package_lines
     // cascade-delete with their parent package.
     await Promise.all([
@@ -1364,6 +1371,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
   async function createPackage(name, cloneFromId) {
     const { data: pkg } = await supabase.from("media_booking_packages").insert({ release_id: release.id, name, sort_order: packages.length }).select().single();
     if (!pkg) return;
+    logPackageEvent({ actor: profile?.id, releaseId: release.id, packageId: pkg.id, packageName: name, source: "create_package", detail: cloneFromId ? { cloned_from_package_id: cloneFromId } : null });
     let lines = [];
     if (cloneFromId) {
       const source = packages.find((p) => p.id === cloneFromId);
@@ -1485,6 +1493,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
       window.alert(`Couldn't delete package "${pkg.name}" — ${error ? error.message : "the database removed nothing (no permission, or it was already gone). Reload and try again."}`);
       return;
     }
+    logPackageEvent({ actor: profile?.id, releaseId: release.id, packageId: pkg.id, packageName: pkg.name, source: "delete_package", detail: { lines_removed: (pkg.media_booking_package_lines || []).length } });
     setPackages((prev) => {
       const next = prev.filter((p) => p.id !== pkg.id);
       if (activePackageId === pkg.id) setActivePackageId(next[0]?.id || null);
@@ -1680,6 +1689,20 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
     });
   }
 
+  // Round 464 — audit trail for package line writes (see
+  // lib/auditLog.js's logPackageLineChange). Fire-and-forget; `source` names
+  // the code path. before = the line as it stood, afterPatch = what was written.
+  function auditLineWrite(source, line, afterPatch, pkg = activePackage) {
+    if (!release || !pkg) return;
+    const pick = (o) => ({ quantity: o?.quantity ?? null, amount: o?.amount ?? null, unit_price: o?.unit_price ?? null });
+    logPackageLineChange({
+      actor: profile?.id, releaseId: release.id, packageId: pkg.id, packageName: pkg.name,
+      lineId: line?.id ?? null, source,
+      before: line ? pick(line) : null,
+      after: pick({ ...(line || {}), ...afterPatch }),
+    });
+  }
+
   // Round 54 — item A.3: Summarize now syncs straight into whichever
   // package tab is active, instead of requiring a separate "Add to
   // Package" click. If there's no active package yet (nobody's clicked
@@ -1771,6 +1794,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
             newQuantity: qty, newUnitPrice: patch.unit_price !== undefined ? patch.unit_price : existing.unit_price,
           });
         }
+        auditLineWrite("summarize", existing, patch);
         await supabase.from("media_booking_package_lines").update(patch).eq("id", existing.id);
         setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === existing.id ? { ...l, ...patch } : l)) })));
       } else {
@@ -1831,6 +1855,23 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
       // every re-Summarize too, same "recompute in full from the latest
       // rollup rows" treatment quantity/amount already get — see
       // groupSummarizedRows' brandColumnQuantities.
+      // Round 464 — hand-edit guard. Quantity here is rebuilt from the DSP
+      // grid, so a number typed straight into the line is thrown away by the
+      // next Summarize (this is how a corrected "2 năm" package kept
+      // reverting). `summarizedRows` is the state from BEFORE this Summarize
+      // upserted its new rollup, so its total is what the grid last said. If
+      // the line no longer matches that, someone changed the line by hand —
+      // ask before replacing it.
+      const prevGroup = groupSummarizedRows(summarizedRows).find((g) => g.categoryId === group.categoryId);
+      const prevGridTotal = prevGroup ? prevGroup.totalPosts : null;
+      if (existing.quantity != null && prevGridTotal != null && existing.quantity !== prevGridTotal && group.totalPosts !== existing.quantity) {
+        const proceed = window.confirm(
+          `"${categoryName}" is ${existing.quantity} on this line, but the DSP grid says ${group.totalPosts}.\n\n` +
+          `The line was changed by hand. Summarize will replace it with ${group.totalPosts}, and the next Summarize will do the same again.\n\n` +
+          `OK = replace the line with ${group.totalPosts}.\nCancel = keep ${existing.quantity} (then fix the DSP grid so it matches, and Summarize again).`
+        );
+        if (!proceed) return;
+      }
       const patch = { quantity: group.totalPosts, brand_column_quantities: group.brandColumnQuantities ?? null, ...(existing.unit_price == null && backfillUnitPrice != null ? { unit_price: backfillUnitPrice } : {}) };
       const amount = computeLineAmount({ ...existing, ...patch });
       const fullPatch = { ...patch, amount };
@@ -1842,6 +1883,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
         categoryId: group.categoryId, brand: existing.brand, existing,
         newQuantity: fullPatch.quantity, newUnitPrice: fullPatch.unit_price !== undefined ? fullPatch.unit_price : existing.unit_price,
       });
+      auditLineWrite("summarize", existing, fullPatch);
       await supabase.from("media_booking_package_lines").update(fullPatch).eq("id", existing.id);
       setPackages((prev) => prev.map((p) => (p.id !== activePackage.id ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === existing.id ? { ...l, ...fullPatch } : l)) })));
     } else {
@@ -1887,6 +1929,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
         newQuantity: merged.quantity, newUnitPrice: merged.unit_price,
       });
     }
+    auditLineWrite("edit", line, fullPatch);
     await supabase.from("media_booking_package_lines").update(fullPatch).eq("id", line.id);
     setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...fullPatch } : l)) })));
   }
@@ -1970,6 +2013,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
       categoryId: adsCategoryId, brand: "YouTube Ads", existing: line,
       newQuantity: linePatch.quantity, newUnitPrice: linePatch.unit_price,
     });
+    auditLineWrite("youtube_ads_edit", line, linePatch);
     await supabase.from("media_booking_package_lines").update(linePatch).eq("id", line.id);
     setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...linePatch } : l)) })));
   }
@@ -2042,6 +2086,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
   }
 
   async function deleteLine(line) {
+    auditLineWrite("delete_line", line, { quantity: null, amount: null, unit_price: null });
     await supabase.from("media_booking_package_lines").delete().eq("id", line.id);
     setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.filter((l) => l.id !== line.id) })));
   }
@@ -2265,7 +2310,19 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
                     nowhere to save a row until a package exists and is
                     active. Guards addRow/handleSummarize/handleSkip too. */}
                 {!activePackage ? (
-                  <div className={styles.emptyState}>Create a package first (see the Package panel) — the grid saves into whichever package is active.</div>
+                  <div className={styles.emptyState}>
+                    Create a package first — the grid saves into whichever package is active.
+                    {/* Round 464 — this used to point at the Package panel, but
+                        that panel's only way in ("Build Package") stayed
+                        disabled until every Hạng Mục was Summarized, and
+                        Summarize needs a package: a release with zero
+                        packages was stuck with no way forward. */}
+                    <div style={{ marginTop: 12 }}>
+                      <button className={styles.btnPrimary} onClick={() => { setShowBuildPopup(true); setNamePopup("create"); }}>
+                        Create package
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                 <>
                 {!isAds && (
@@ -2854,15 +2911,15 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
 
             <div style={{ borderTop: "1px solid var(--border)", padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
-                {allCategoriesSummarized ? "All Hạng Mục summarized." : `Summarize all ${categories.length} Hạng Mục before building a package.`}
+                {packages.length === 0 ? "No package yet — create one, then Summarize each Hạng Mục into it." : allCategoriesSummarized ? "All Hạng Mục summarized." : `Summarize all ${categories.length} Hạng Mục before building a package.`}
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button
                   className={styles.btnPrimary}
                   onClick={() => { setShowBuildPopup((v) => !v); if (packages.length === 0) setNamePopup("create"); }}
-                  disabled={!allCategoriesSummarized}
+                  disabled={packages.length > 0 && !allCategoriesSummarized}
                 >
-                  {showBuildPopup ? "Hide Packages" : "Build Package"}
+                  {showBuildPopup ? "Hide Packages" : packages.length === 0 ? "Create Package" : "Build Package"}
                 </button>
                 {/* Everything here already writes to the DB the moment it
                     changes — nothing is staged. This button doesn't do any
