@@ -545,7 +545,7 @@ export default function PitchingWorkstation() {
                     <tr key={row.ticket.id} onClick={() => setOpenTicketId(row.ticket.id)} style={{ cursor: "pointer", ...(highlight ? { background: highlight } : {}) }}>
                       <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight || "var(--bg)", borderRight: "2px solid var(--accent)" }}>
                         {row.release ? (
-                          <Link href={`/releases/${row.release.id}`} className={styles.rowLink} onClick={(e) => e.stopPropagation()}>{row.release.title}</Link>
+                          <Link href={`/releases/${row.release.id}`} className={highlight ? `${styles.rowLink} ${styles.rowLinkOnDate}` : styles.rowLink} onClick={(e) => e.stopPropagation()}>{row.release.title}</Link>
                         ) : (
                           <span>Release {row.ticket.data?.releaseId} (not found)</span>
                         )}

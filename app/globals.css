@@ -55,6 +55,8 @@
   --highlight-row-tint: rgba(255, 107, 26, 0.08);
   --highlight-text: #ffffff;
   --highlight-text-faint: #ffcb9a;
+  /* Round 472 — title colour on the PASTEL date-highlight rows (yellow today / light blue this week, lib/releaseDateHighlight.js). White/near-white titles vanished on those fills in dark themes; a deep orange reads on both. Light theme keeps its dark text. */
+  --date-highlight-link: #a63d00;
 
   /* Round 83 item 2 — "unfilled field" highlight for New Release Setup
      (app/workstation/upload/page.js). Fixed purple in both themes per
@@ -126,6 +128,8 @@
   --highlight-row-tint: rgba(255, 107, 26, 0.08);
   --highlight-text: #ffffff;
   --highlight-text-faint: #ffcb9a;
+  /* Round 472 — title colour on the PASTEL date-highlight rows (yellow today / light blue this week, lib/releaseDateHighlight.js). White/near-white titles vanished on those fills in dark themes; a deep orange reads on both. Light theme keeps its dark text. */
+  --date-highlight-link: #a63d00;
   --missing-highlight: #9d00ff;
   --missing-highlight-bg: rgba(157, 0, 255, 0.12);
 }
@@ -175,6 +179,7 @@
   --highlight-row-tint: rgba(255, 107, 26, 0.08);
   --highlight-text: #ffffff;
   --highlight-text-faint: #ffcb9a;
+  --date-highlight-link: #14120c;
 
   /* Round 83 item 2 — same fixed values as :root, intentionally not
      overridden — see that comment. */

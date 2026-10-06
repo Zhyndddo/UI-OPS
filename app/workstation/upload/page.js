@@ -539,16 +539,31 @@ function UploadRow({ release, picIds, isOverride, profiles, highlight, dateHighl
             rows (see hasPriorityPitching). Non-priority rows keep UPC at
             the same half width rather than snapping back to full width,
             so the column doesn't jump around row to row. */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+        {/* Round 471 — UPC and Link Drive share one line (UrlField's own "+ Add
+            another link" still hangs under the drive box). Apple ID, only on
+            Priority Pitching rows, drops to its own half-width line below so
+            three boxes aren't squeezed into this column. */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 4, alignItems: "flex-start" }}>
           <input
             className={styles.input}
-            style={{ padding: "4px 8px", fontSize: 12, flex: "0 0 50%", minWidth: 0, ...missingHighlightStyle(upc) }}
+            style={{ padding: "4px 8px", fontSize: 12, flex: "0 0 40%", minWidth: 0, ...missingHighlightStyle(upc) }}
             value={upc}
             placeholder="UPC…"
             onChange={(e) => setUpc(e.target.value)}
             onBlur={() => onUpdateField(release, "upc", upc)}
           />
-          {hasPriorityPitching && (
+          <div style={{ flex: 1, minWidth: 0, ...missingHighlightStyle(drafts.drive_link) }}>
+            <UrlField
+              styles={styles}
+              value={drafts.drive_link}
+              onChange={(v) => setDrafts((d) => ({ ...d, drive_link: v }))}
+              onBlur={() => onUpdateField(release, "drive_link", drafts.drive_link)}
+              placeholder="Link Drive…"
+            />
+          </div>
+        </div>
+        {hasPriorityPitching && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
             <input
               className={styles.input}
               style={{ padding: "4px 8px", fontSize: 12, flex: "0 0 50%", minWidth: 0, ...missingHighlightStyle(appleId) }}
@@ -557,18 +572,9 @@ function UploadRow({ release, picIds, isOverride, profiles, highlight, dateHighl
               onChange={(e) => setAppleId(e.target.value)}
               onBlur={() => onUpdateField(release, "apple_id", appleId)}
             />
-          )}
-        </div>
-        <div style={{ marginBottom: 4, ...missingHighlightStyle(drafts.drive_link) }}>
-          <UrlField
-            styles={styles}
-            value={drafts.drive_link}
-            onChange={(v) => setDrafts((d) => ({ ...d, drive_link: v }))}
-            onBlur={() => onUpdateField(release, "drive_link", drafts.drive_link)}
-            placeholder="Link Drive…"
-          />
-        </div>
-        <Link href={`/releases/${release.id}`} className={styles.rowLink} style={linkColor ? { color: linkColor } : undefined}>{release.title}</Link>
+          </div>
+        )}
+        <Link href={`/releases/${release.id}`} className={dateHighlight ? `${styles.rowLink} ${styles.rowLinkOnDate}` : styles.rowLink} style={linkColor ? { color: linkColor } : undefined}>{release.title}</Link>
         {highlight && <span style={{ marginLeft: 6, fontSize: 9, color: "var(--accent)", fontWeight: 700 }}>THIS/NEXT WEEK</span>}
         {/* Round 470 — row identity reads as stacked lines (DID dropped, label added):
             label / "Main ft. Feature, Feature" (the "ft." part only when this

@@ -227,6 +227,18 @@
   color: var(--accent);
 }
 
+/* Round 472 — release title inside a row tinted by rowHighlightColor() (yellow
+   today / light blue this week). Used with .rowLink. Colour comes from the theme
+   variable so dark themes get a readable deep orange instead of white. */
+.rowLinkOnDate {
+  color: var(--date-highlight-link, inherit);
+  font-weight: 700;
+}
+.rowLinkOnDate:hover {
+  color: var(--date-highlight-link, inherit);
+  text-decoration: underline;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;

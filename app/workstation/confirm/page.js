@@ -372,7 +372,7 @@ function ConfirmWorkstationInner() {
                   return (
                   <tr key={r.id} style={highlight ? { background: highlight } : undefined}>
                     <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight || "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}>
-                      <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
+                      <Link href={`/releases/${r.id}`} className={highlight ? `${styles.rowLink} ${styles.rowLinkOnDate}` : styles.rowLink}>{r.title}</Link>
                       <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)} {r.release_time}</div>
                     </td>
                     <td style={{ minWidth: 90 }}>
@@ -433,7 +433,7 @@ function ConfirmWorkstationInner() {
                   return (
                   <tr key={r.id} style={highlight ? { background: highlight } : undefined}>
                     <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight || "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}>
-                      <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
+                      <Link href={`/releases/${r.id}`} className={highlight ? `${styles.rowLink} ${styles.rowLinkOnDate}` : styles.rowLink}>{r.title}</Link>
                       <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist} · {r.did} · {fmtDate(r.release_date)} {r.release_time}</div>
                     </td>
                     <td style={{ minWidth: 180 }}>

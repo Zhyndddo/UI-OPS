@@ -338,7 +338,7 @@ function PreReleaseRow({ release, picIds, isOverride, profiles, onUpdateField, o
             DID / Release date + time — instead of one run-on line, for
             clarity and so each line stays short enough to not wrap. */}
         <div style={{ whiteSpace: "nowrap" }}>
-          <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
+          <Link href={`/releases/${release.id}`} className={highlight ? `${styles.rowLink} ${styles.rowLinkOnDate}` : styles.rowLink}>{release.title}</Link>
         </div>
         <div style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{release.main_artist} · {release.did}</div>
         <div style={{ fontSize: 11, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{fmtDate(release.release_date)} {release.release_time}</div>
