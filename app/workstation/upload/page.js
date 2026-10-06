@@ -356,7 +356,7 @@ export default function UploadWorkstation() {
     supabase
       .from("releases")
       .select(
-        "id, did, title, main_artist, release_date, release_time, upc, apple_id, drive_link, link_lbm, link_lbm_source, link_share, smartlink, link_preorder, upload_status, " +
+        "id, did, title, main_artist, label, feature_artist_tags, feature_artist, release_date, release_time, upc, apple_id, drive_link, link_lbm, link_lbm_source, link_share, smartlink, link_preorder, upload_status, " +
         "link_ugc, link_media_report, requester_segment, linkshare_tiktok_timing, linkshare_facebook_timing, needs_update, " +
         // Round 88 2nd follow-up — Copyright popup column
         "single_album_ep, copyright_checklist"
@@ -570,7 +570,20 @@ function UploadRow({ release, picIds, isOverride, profiles, highlight, dateHighl
         </div>
         <Link href={`/releases/${release.id}`} className={styles.rowLink} style={linkColor ? { color: linkColor } : undefined}>{release.title}</Link>
         {highlight && <span style={{ marginLeft: 6, fontSize: 9, color: "var(--accent)", fontWeight: 700 }}>THIS/NEXT WEEK</span>}
-        <div style={{ fontSize: 11, color: faintColor }}>{release.main_artist} · {release.did} · {fmtDate(release.release_date)} {release.release_time}</div>
+        {/* Round 470 — row identity reads as stacked lines (DID dropped, label added):
+            label / "Main ft. Feature, Feature" (the "ft." part only when this
+            product has feature artists) / release date + time. */}
+        {release.label && <div style={{ fontSize: 11, color: faintColor }}>{release.label}</div>}
+        <div style={{ fontSize: 11, color: faintColor }}>
+          {release.main_artist}
+          {(() => {
+            const feats = (release.feature_artist_tags && release.feature_artist_tags.length > 0)
+              ? release.feature_artist_tags.join(", ")
+              : (release.feature_artist || "").trim();
+            return feats ? ` ft. ${feats}` : "";
+          })()}
+        </div>
+        <div style={{ fontSize: 11, color: faintColor }}>{fmtDate(release.release_date)} {release.release_time}</div>
         {/* Round 280 — second entry point for creating a Bổ Sung DATA
             ticket, per explicit spec ("ticket create button have two
             place, one on the ticket page, another on the new release
