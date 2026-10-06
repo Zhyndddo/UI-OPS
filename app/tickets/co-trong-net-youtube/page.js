@@ -16,6 +16,7 @@ import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
 // Round 282 — audit log / requester attribution
 import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
+import PicTagInput, { picIdsOfTicket, picNamesOf } from "../../../lib/PicTagInput";
 
 // Bespoke (not the generic TicketListPage) per explicit request — Teaser/
 // Official/Short (a period, not a point in time) each need their own
@@ -70,17 +71,18 @@ export default function CoTrongNetYoutubeTicketList() {
     await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
   }
 
-  async function updatePic(t, profileId) {
-    const patch = { pic_profile_id: profileId || null };
-    if (profileId && t.status === tab.default_status) {
+  // Round 466 — multi-PIC: writes pic_profile_ids and mirrors pic_profile_id = ids[0].
+  async function updatePics(t, ids) {
+    const patch = { pic_profile_ids: ids.length > 0 ? ids : null, pic_profile_id: ids[0] || null };
+    if (ids.length > 0 && t.status === tab.default_status) {
       const nextStatus = tab.status_options[1];
       if (nextStatus) { patch.status = nextStatus; patch.status_log = { ...t.status_log, [nextStatus]: new Date().toISOString() }; }
     }
-    const pic = profiles.find((p) => p.id === profileId);
+    const pic = profiles.find((p) => p.id === ids[0]);
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch, profiles: pic ? { name: pic.name } : null } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
     // Round 282 — audit log / requester attribution
-    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id || null, after: profileId || null });
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: picIdsOfTicket(t), after: ids });
     if (patch.status) logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus: patch.status, statusOptions: tab?.status_options });
   }
 
@@ -190,12 +192,9 @@ export default function CoTrongNetYoutubeTicketList() {
                       </td>
                       <td>
                         {isExecutorView ? (
-                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={t.pic_profile_id || ""} onChange={(e) => updatePic(t, e.target.value)}>
-                            <option value="">— Unassigned —</option>
-                            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                          </select>
+                          <PicTagInput styles={styles} value={picIdsOfTicket(t)} onChange={(ids) => updatePics(t, ids)} profiles={profiles} />
                         ) : (
-                          <span style={{ fontSize: 12 }}>{t.profiles?.name || "—"}</span>
+                          <span style={{ fontSize: 12 }}>{picNamesOf(t, profiles)}</span>
                         )}
                       </td>
                       <td title={t.data?.note || undefined}>

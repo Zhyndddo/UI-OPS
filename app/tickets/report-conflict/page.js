@@ -69,6 +69,7 @@ import ReleasePicker from "../../../lib/ReleasePicker";
 import styles from "../../shared.module.css";
 // Round 282 — audit log / requester attribution
 import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
+import PicTagInput, { picIdsOfTicket, picNamesOf } from "../../../lib/PicTagInput";
 
 const REQUESTER_TEAM = "AR";
 const EXECUTOR_TEAM = "OPS";
@@ -270,20 +271,21 @@ export default function ReportConflictPage() {
   // PIC on a fresh (starting-status) ticket is what actually moves it
   // into the working queue, auto-advancing to the next status — no
   // separate manual status click needed for that step.
-  async function updatePic(t, profileId) {
-    const patch = { pic_profile_id: profileId || null };
-    if (profileId && t.status === tab.default_status) {
+  // Round 466 — multi-PIC (pic_profile_ids + mirrored pic_profile_id = ids[0]).
+  async function updatePics(t, ids) {
+    const patch = { pic_profile_ids: ids.length > 0 ? ids : null, pic_profile_id: ids[0] || null };
+    if (ids.length > 0 && t.status === tab.default_status) {
       const nextStatus = VISIBLE_STATUSES[VISIBLE_STATUSES.indexOf(tab.default_status) + 1];
       if (nextStatus) {
         patch.status = nextStatus;
         patch.status_log = { ...t.status_log, [nextStatus]: new Date().toISOString() };
       }
     }
-    const pic = profiles.find((p) => p.id === profileId);
+    const pic = profiles.find((p) => p.id === ids[0]);
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch, profiles: pic ? { name: pic.name } : null } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
     // Round 282 — audit log / requester attribution
-    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id || null, after: profileId || null });
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: picIdsOfTicket(t), after: ids });
     if (patch.status) logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus: patch.status, statusOptions: VISIBLE_STATUSES });
   }
 
@@ -351,7 +353,7 @@ export default function ReportConflictPage() {
             <>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {pagedTickets.map((t, i) => (
-                <ReportConflictRow key={t.id} mobile ticket={t} index={(page - 1) * pageSize + i} cols={cols} profiles={profiles} isExecutorView={isExecutorView} onUpdateField={updateField} onUpdateStatus={updateStatus} onUpdatePic={updatePic} onOpenDetail={setOpenTicket} />
+                <ReportConflictRow key={t.id} mobile ticket={t} index={(page - 1) * pageSize + i} cols={cols} profiles={profiles} isExecutorView={isExecutorView} onUpdateField={updateField} onUpdateStatus={updateStatus} onUpdatePic={updatePics} onOpenDetail={setOpenTicket} />
               ))}
             </div>
             <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
@@ -370,7 +372,7 @@ export default function ReportConflictPage() {
               </thead>
               <tbody>
                 {pagedTickets.map((t, i) => (
-                  <ReportConflictRow key={t.id} ticket={t} index={(page - 1) * pageSize + i} cols={cols} profiles={profiles} isExecutorView={isExecutorView} onUpdateField={updateField} onUpdateStatus={updateStatus} onUpdatePic={updatePic} onOpenDetail={setOpenTicket} />
+                  <ReportConflictRow key={t.id} ticket={t} index={(page - 1) * pageSize + i} cols={cols} profiles={profiles} isExecutorView={isExecutorView} onUpdateField={updateField} onUpdateStatus={updateStatus} onUpdatePic={updatePics} onOpenDetail={setOpenTicket} />
                 ))}
               </tbody>
             </table>
@@ -454,17 +456,11 @@ function ReportConflictRow({ ticket, index, cols, profiles, isExecutorView, onUp
 
   // Round 145 — PIC restored, same picker/behavior the generic engine had.
   const picBody = isExecutorView ? (
-    <select
-      className={styles.select}
-      style={{ padding: "4px 8px", fontSize: 12, minWidth: mobile ? 0 : "16ch", width: mobile ? "100%" : undefined }}
-      value={ticket.pic_profile_id || ""}
-      onChange={(e) => onUpdatePic(ticket, e.target.value)}
-    >
-      <option value="">— Unassigned —</option>
-      {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-    </select>
+    <div onClick={(e) => e.stopPropagation()}>
+      <PicTagInput styles={styles} value={picIdsOfTicket(ticket)} onChange={(ids) => onUpdatePic(ticket, ids)} profiles={profiles} />
+    </div>
   ) : (
-    <span style={{ fontSize: 12 }}>{ticket.profiles?.name || "—"}</span>
+    <span style={{ fontSize: 12 }}>{picNamesOf(ticket, profiles)}</span>
   );
 
   // Round 388 — "click onto a row also open it in a popup panel": the row

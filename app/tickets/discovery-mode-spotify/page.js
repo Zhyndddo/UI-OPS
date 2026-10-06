@@ -16,6 +16,7 @@ import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import styles from "../../shared.module.css";
 // Round 282 — audit log / requester attribution
 import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
+import PicTagInput, { picIdsOfTicket, picNamesOf } from "../../../lib/PicTagInput";
 
 // Bespoke (not the generic TicketListPage) per explicit request, laid out
 // like Sony Publish's/Music Video on Spotify's ticket pages — Release
@@ -74,17 +75,18 @@ export default function DiscoveryModeSpotifyTicketList() {
     await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
   }
 
-  async function updatePic(t, profileId) {
-    const patch = { pic_profile_id: profileId || null };
-    if (profileId && t.status === tab.default_status) {
+  // Round 466 — multi-PIC: writes pic_profile_ids and mirrors pic_profile_id = ids[0].
+  async function updatePics(t, ids) {
+    const patch = { pic_profile_ids: ids.length > 0 ? ids : null, pic_profile_id: ids[0] || null };
+    if (ids.length > 0 && t.status === tab.default_status) {
       const nextStatus = tab.status_options[1];
       if (nextStatus) { patch.status = nextStatus; patch.status_log = { ...t.status_log, [nextStatus]: new Date().toISOString() }; }
     }
-    const pic = profiles.find((p) => p.id === profileId);
+    const pic = profiles.find((p) => p.id === ids[0]);
     setRows((prev) => prev.map((row) => (row.ticket.id === t.id ? { ...row, ticket: { ...row.ticket, ...patch, profiles: pic ? { name: pic.name } : null } } : row)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
     // Round 282 — audit log / requester attribution
-    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id || null, after: profileId || null });
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: picIdsOfTicket(t), after: ids });
     if (patch.status) logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus: patch.status, statusOptions: tab?.status_options });
   }
 
@@ -204,12 +206,9 @@ export default function DiscoveryModeSpotifyTicketList() {
                       </td>
                       <td>
                         {isExecutorView ? (
-                          <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: "16ch" }} value={ticket.pic_profile_id || ""} onChange={(e) => updatePic(ticket, e.target.value)}>
-                            <option value="">— Unassigned —</option>
-                            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                          </select>
+                          <PicTagInput styles={styles} value={picIdsOfTicket(ticket)} onChange={(ids) => updatePics(ticket, ids)} profiles={profiles} />
                         ) : (
-                          <span style={{ fontSize: 12 }}>{ticket.profiles?.name || "—"}</span>
+                          <span style={{ fontSize: 12 }}>{picNamesOf(ticket, profiles)}</span>
                         )}
                       </td>
                       <td title={ticket.data?.note || undefined}>

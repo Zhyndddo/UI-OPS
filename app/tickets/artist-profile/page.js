@@ -15,6 +15,7 @@ import { requestTypeLabel, isLegacyTicket } from "../../../lib/artistProfileRequ
 import NewArtistProfileTicketPopup from "../../../lib/NewArtistProfileTicketPopup";
 import ArtistProfileEditPopup from "../../../lib/ArtistProfileEditPopup";
 import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
+import { picIdsOfTicket, picNamesOf } from "../../../lib/PicTagInput";
 import styles from "../../shared.module.css";
 
 // Round 172 — bespoke (not the generic TicketListPage), same reason as
@@ -70,18 +71,19 @@ export default function ArtistProfileTicketList() {
     await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
   }
 
-  async function updatePic(t, profileId) {
-    const patch = { pic_profile_id: profileId || null };
+  // Round 466 — multi-PIC (pic_profile_ids + mirrored pic_profile_id = ids[0]).
+  async function updatePics(t, ids) {
+    const patch = { pic_profile_ids: ids.length > 0 ? ids : null, pic_profile_id: ids[0] || null };
     const prevStatus = t.status;
-    if (profileId && t.status === tab.default_status) {
+    if (ids.length > 0 && t.status === tab.default_status) {
       const nextStatus = tab.status_options[1];
       if (nextStatus) { patch.status = nextStatus; patch.status_log = { ...t.status_log, [nextStatus]: new Date().toISOString() }; }
     }
-    const pic = profiles.find((p) => p.id === profileId);
+    const pic = profiles.find((p) => p.id === ids[0]);
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch, profiles: pic ? { name: pic.name } : null } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
     // Round 282 — audit log / requester attribution
-    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id || null, after: patch.pic_profile_id });
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: picIdsOfTicket(t), after: ids });
     if (patch.status) {
       logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus, newStatus: patch.status, statusOptions: tab?.status_options });
     }
@@ -190,7 +192,7 @@ export default function ArtistProfileTicketList() {
                           {t.deadline && <> · Due {fmtDate(t.deadline)}</>}
                         </div>
                         <div style={{ fontSize: 11, color: "var(--text-faint)" }}>
-                          PIC: {t.profiles?.name || "— Unassigned —"}
+                          PIC: {picIdsOfTicket(t).length > 0 ? picNamesOf(t, profiles) : "— Unassigned —"}
                         </div>
                       </div>
                       <span className={styles.statusBadge} style={{ background: color.bg, color: color.fg, flexShrink: 0 }}>{t.status}</span>
@@ -224,7 +226,7 @@ export default function ArtistProfileTicketList() {
           profiles={profiles}
           isExecutorView={isExecutorView}
           onUpdateData={(patch) => updateTicketData(editingTicket, patch)}
-          onUpdatePic={(profileId) => updatePic(editingTicket, profileId)}
+          onUpdatePics={(ids) => updatePics(editingTicket, ids)}
           onUpdateStatus={(newStatus) => updateStatus(editingTicket, newStatus)}
           onClose={() => setEditingId(null)}
         />

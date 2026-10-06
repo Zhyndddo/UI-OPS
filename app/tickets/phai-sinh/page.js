@@ -24,6 +24,7 @@ import { useIsMobile } from "../../../lib/useIsMobile";
 import styles from "../../shared.module.css";
 // Round 282 — audit log / requester attribution
 import { logTicketStatusChange, logPicReassign, logDeadlineChange } from "../../../lib/auditLog";
+import PicTagInput, { picIdsOfTicket, picNamesOf } from "../../../lib/PicTagInput";
 
 // Rebuilt bespoke to match v1's real Phái Sinh table exactly — it shows
 // every real column continuously (not capped at a short preview), with
@@ -293,16 +294,17 @@ export default function PhaiSinhList() {
     await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
   }
 
-  async function updatePic(t, profileId) {
-    const patch = { pic_profile_id: profileId || null };
-    if (profileId && t.status === tab.default_status) {
+  // Round 466 — multi-PIC (pic_profile_ids + mirrored pic_profile_id = ids[0]).
+  async function updatePics(t, ids) {
+    const patch = { pic_profile_ids: ids.length > 0 ? ids : null, pic_profile_id: ids[0] || null };
+    if (ids.length > 0 && t.status === tab.default_status) {
       const nextStatus = tab.status_options[1];
       if (nextStatus) { patch.status = nextStatus; patch.status_log = { ...t.status_log, [nextStatus]: new Date().toISOString() }; }
     }
     setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     await supabase.from("tickets").update(patch).eq("id", t.id);
     // Round 282 — audit log / requester attribution
-    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id || null, after: patch.pic_profile_id });
+    logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: picIdsOfTicket(t), after: ids });
     if (patch.status) {
       logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus: patch.status, statusOptions: tab?.status_options });
     }
@@ -311,7 +313,7 @@ export default function PhaiSinhList() {
   async function updateStatus(t, newStatus) {
     const newLog = { ...t.status_log, [newStatus]: new Date().toISOString() };
     const patch = { status: newStatus, status_log: newLog };
-    if (REFUND_LIKE.includes(newStatus)) patch.pic_profile_id = null;
+    if (REFUND_LIKE.includes(newStatus)) { patch.pic_profile_id = null; patch.pic_profile_ids = null; }
     // Round 80 — refund/cancel-like moves require a short reason, folded
     // into ticket.data.note (see lib/statusNoteGate.js).
     if (statusNeedsNote(newStatus)) {
@@ -323,8 +325,8 @@ export default function PhaiSinhList() {
     await supabase.from("tickets").update(patch).eq("id", t.id);
     // Round 282 — audit log / requester attribution
     logTicketStatusChange({ actor: profile?.id, ticketId: t.id, prevStatus: t.status, newStatus, statusOptions: tab?.status_options });
-    if (REFUND_LIKE.includes(newStatus) && t.pic_profile_id) {
-      logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: t.pic_profile_id, after: null });
+    if (REFUND_LIKE.includes(newStatus) && picIdsOfTicket(t).length > 0) {
+      logPicReassign({ actor: profile?.id, entity: "ticket", entityId: t.id, before: picIdsOfTicket(t), after: [] });
     }
   }
 
@@ -397,7 +399,7 @@ export default function PhaiSinhList() {
                     canEditProjectRightsTypeHere={canEditProjectRightsTypeHere}
                     onUpdateField={updateField}
                     onUpdateStatus={updateStatus}
-                    onUpdatePic={updatePic}
+                    onUpdatePic={updatePics}
                     onAcknowledgeEdit={acknowledgeEdit}
                     onUpdateDeadline={updateDeadline}
                     onSmartlinkSaved={addSmartlink}
@@ -467,7 +469,7 @@ export default function PhaiSinhList() {
                     canEditProjectRightsTypeHere={canEditProjectRightsTypeHere}
                     onUpdateField={updateField}
                     onUpdateStatus={updateStatus}
-                    onUpdatePic={updatePic}
+                    onUpdatePic={updatePics}
                     onAcknowledgeEdit={acknowledgeEdit}
                     onUpdateDeadline={updateDeadline}
                     onSmartlinkSaved={addSmartlink}
@@ -664,12 +666,9 @@ function PhaiSinhRow({ ticket, tab, profiles, isExecutorView, relatedRelease, ba
   );
 
   const picBody = isExecutorView ? (
-    <select className={styles.select} style={{ padding: "4px 8px", fontSize: 12, minWidth: mobile ? 0 : "16ch", width: mobile ? "100%" : undefined }} value={ticket.pic_profile_id || ""} onChange={(e) => onUpdatePic(ticket, e.target.value)}>
-      <option value="">— Unassigned —</option>
-      {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-    </select>
+    <PicTagInput styles={styles} value={picIdsOfTicket(ticket)} onChange={(ids) => onUpdatePic(ticket, ids)} profiles={profiles} />
   ) : (
-    <span style={{ fontSize: 12 }}>{ticket.profiles?.name || "—"}</span>
+    <span style={{ fontSize: 12 }}>{picNamesOf(ticket, profiles)}</span>
   );
 
   // Round 283 — "requester view show requester, counting toward requester

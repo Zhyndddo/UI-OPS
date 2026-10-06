@@ -1,9 +1,11 @@
 "use client";
 
 import AppShell from "../../lib/AppShell";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
+import { subteamOfChannel, FAMILY_TAB_FOR_SUBTEAM } from "../../lib/channelSubteams";
+import { MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
 import UrlField from "../../lib/UrlField";
 import { CHANNEL_REFERENCE_INTRO_KEY, readChannelReferenceIntro, serializeChannelReferenceIntro } from "../../lib/channelReferenceIntro";
 import styles from "../shared.module.css";
@@ -89,6 +91,13 @@ export default function BookingChannelsPage() {
   // "other" catch-all; defaults to the first named tab rather than an
   // unscoped "All", per the explicit "split the tables" request.
   const [familyTab, setFamilyTab] = useState(CHANNEL_FAMILY_TABS[0].key);
+  // Round 466 — "My subteam" view: a Marketing member whose profile.subteam is
+  // one of the 5 known tags sees (by default) only their subteam's channels
+  // plus unassigned ones (no brand/group); toggle off to see everything.
+  // Membership is automatic from Team config — nothing to register.
+  const mySubteam = profile?.subteam && MARKETING_SUBTEAM_TAGS.includes(profile.subteam) ? profile.subteam : null;
+  const [mySubteamOnly, setMySubteamOnly] = useState(true);
+  const openedOnMySubteamTab = useRef(false);
   const [editingId, setEditingId] = useState(null);
   const [editValues, setEditValues] = useState(null);
   const [saveError, setSaveError] = useState(null);
@@ -122,6 +131,14 @@ export default function BookingChannelsPage() {
   // as Export CSV / Refresh / Share Link, toggling a panel below instead.
   const [introPanelOpen, setIntroPanelOpen] = useState(false);
   const [introSaveError, setIntroSaveError] = useState(null);
+
+  // Round 466 — land on the viewer's own subteam tab once (if it has one).
+  useEffect(() => {
+    if (openedOnMySubteamTab.current || !mySubteam) return;
+    openedOnMySubteamTab.current = true;
+    const tab = FAMILY_TAB_FOR_SUBTEAM[mySubteam];
+    if (tab) setFamilyTab(tab);
+  }, [mySubteam]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -193,9 +210,12 @@ export default function BookingChannelsPage() {
   // Imported reference channels (~140 from the "LIST KÊNH VIEENT & ENVI"
   // sheet) made this list too long to scan by eye — filters by name,
   // brand, or note, same as the Add Link popup's own search.
-  const searchedChannels = search.trim()
-    ? channels.filter((c) => `${c.name} ${c.brand || ""} ${c.channel_group || ""} ${c.note || ""}`.toLowerCase().includes(search.trim().toLowerCase()))
+  const subteamScopedChannels = mySubteam && mySubteamOnly
+    ? channels.filter((c) => { const t = subteamOfChannel(c); return t === null || t === mySubteam; })
     : channels;
+  const searchedChannels = search.trim()
+    ? subteamScopedChannels.filter((c) => `${c.name} ${c.brand || ""} ${c.channel_group || ""} ${c.note || ""}`.toLowerCase().includes(search.trim().toLowerCase()))
+    : subteamScopedChannels;
 
   // Round 374 — the tab switch scopes everything below it (Direct/Partner
   // counts, group totals, the brand/platform list, CSV export) to the
@@ -503,6 +523,16 @@ export default function BookingChannelsPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
+          {mySubteam && (
+            <button
+              type="button"
+              className={mySubteamOnly ? styles.btnPrimary : styles.btnSecondary}
+              onClick={() => setMySubteamOnly((v) => !v)}
+              title={`Show only ${mySubteam} channels (plus channels with no brand/group yet). Click again to see every subteam.`}
+            >
+              My subteam: {mySubteam} {mySubteamOnly ? "✓" : ""}
+            </button>
+          )}
           <button type="button" className={styles.btnSecondary} onClick={exportCsv} disabled={visibleChannels.length === 0}>
             ⇩ Export CSV
           </button>
