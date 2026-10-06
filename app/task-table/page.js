@@ -16,6 +16,7 @@ import { MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
 import { SUBTEAM_TAG_TEAM, isAdminOrAbove, isDev } from "../../lib/permissions";
 import SearchBox from "../../lib/SearchBox";
 import KpiPerformanceView from "../../lib/KpiPerformanceView";
+import { BOOKING_ROUNDS, BOOKING_TEAM_SCOPES, bookingColumnsForScope } from "../../lib/bookingTeamScopes";
 import { DSP_CHECK_FIELDS, isUploadDone, isConfirmPhase1Done, isConfirmPhase2Done, isPreReleaseDone } from "../../lib/workstationDoneRules";
 import styles from "../shared.module.css";
 // Round 404 item 1 — Weekly Tasks: admin-assigned free-text recurring
@@ -398,6 +399,56 @@ async function loadSubteamProjectCounts(map, profiles) {
   });
 }
 
+// Round 465 — Marketing "Booking Board" column, per explicit request: count
+// the Booking Board toward each subteam by brand (VIEENT = Social VIEENT;
+// INDIE = its Community/TikTok brands; ENVI = Social ENVI + the BOLERO
+// brands; CAPCUT = the CAPCUT TikTok brand; VPOP = its Community/TikTok
+// brands — see lib/bookingTeamScopes.js). "Still the usual": the Not-Done
+// meaning is the Booking Board's own, computed by the same
+// booking_board_page() RPC the board calls, just handed only that
+// subteam's columns. A release counts once per subteam if it is Not Done in
+// ANY round (INT / Đợt 1 / Đợt 2). Shared subteam-wide number, same as Dự
+// Án: every member of the subteam sees the same list. Releases dated before
+// TASK_TABLE_CUTOFF are dropped, like everything else on this page. A
+// failed RPC is skipped (logged), never shown as a fake zero.
+async function loadSubteamBookingCounts(map, profiles) {
+  const membersBySubteam = {};
+  (profiles || []).forEach((p) => {
+    if (p.segment !== SUBTEAM_TAG_TEAM || !p.subteam) return;
+    if (!membersBySubteam[p.subteam]) membersBySubteam[p.subteam] = [];
+    membersBySubteam[p.subteam].push(p.id);
+  });
+  for (const [subteam, scope] of Object.entries(BOOKING_TEAM_SCOPES)) {
+    const members = membersBySubteam[subteam] || [];
+    if (members.length === 0) continue;
+    const columns = bookingColumnsForScope(scope);
+    const results = await Promise.all(BOOKING_ROUNDS.map((round) =>
+      supabase.rpc("booking_board_page", {
+        p_search: null, p_month: null, p_type: null, p_label: null, p_round: round,
+        p_hang_muc: "All", p_sub_filter: null, p_tiktok_brand: null,
+        p_columns: columns, p_done_filter: "not_done", p_page: 1, p_page_size: 5000,
+      })
+    ));
+    const ids = new Set();
+    let failed = false;
+    results.forEach(({ data, error }) => {
+      if (error) { console.error("Task Table booking count RPC failed:", subteam, error); failed = true; return; }
+      (data?.release_ids || []).forEach((id) => ids.add(id));
+    });
+    if (failed || ids.size === 0) continue;
+    const idList = [...ids];
+    const rows = [];
+    for (let i = 0; i < idList.length; i += 200) {
+      const { data } = await supabase.from("releases").select("id, did, title, release_date").in("id", idList.slice(i, i + 200));
+      (data || []).forEach((r) => rows.push(r));
+    }
+    rows.filter((r) => isRecent(r.release_date)).forEach((r) => {
+      const item = { id: r.id, label: releaseLabel(r), href: "/booking" };
+      members.forEach((memberId) => bumpItem(map, memberId, "subteam:booking", item));
+    });
+  }
+}
+
 // Round 422 — per explicit request ("remove the task that the team is not
 // executor out of their table, even though their view may have the ticket
 // or workstation"): TEAM_TICKET_TYPES (lib/teamTypes.js) says which types a
@@ -476,7 +527,9 @@ function columnsForTeam(segment) {
   // Points at /releases (no query string — this app's release filters
   // aren't URL-driven) rather than a nonexistent per-subteam route.
   const subteamProjectCol = resolved === SUBTEAM_TAG_TEAM ? [{ id: "subteam:project", name: "Dự Án", href: "/releases" }] : [];
-  return [...wsCols, ...ticketCols, ...khacCol, ...subteamProjectCol];
+  // Round 465 — see loadSubteamBookingCounts.
+  const subteamBookingCol = resolved === SUBTEAM_TAG_TEAM ? [{ id: "subteam:booking", name: "Booking Board", href: "/booking" }] : [];
+  return [...wsCols, ...ticketCols, ...khacCol, ...subteamProjectCol, ...subteamBookingCol];
 }
 
 function unsupportedWorkstationsForTeam(segment) {
@@ -1078,7 +1131,7 @@ export default function TaskTablePage() {
       const map = {};
       const reqMap = {};
       const arProjectsMap = {};
-      await Promise.all([loadTicketCounts(map, reqMap, arProjectsMap, profs || []), loadWorkstationCounts(map), loadSubteamProjectCounts(map, profs || [])]);
+      await Promise.all([loadTicketCounts(map, reqMap, arProjectsMap, profs || []), loadWorkstationCounts(map), loadSubteamProjectCounts(map, profs || []), loadSubteamBookingCounts(map, profs || [])]);
       setMemberItems(map);
       setRequesterItems(reqMap);
       setArProjectsCounts(Object.fromEntries(Object.entries(arProjectsMap).map(([id, set]) => [id, set.size])));

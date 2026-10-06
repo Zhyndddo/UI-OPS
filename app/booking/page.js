@@ -120,7 +120,7 @@ function tiktokGroupForBrand(brand) {
 // itself (see PLATFORMS in app/tickets/media-booking/page.js) — any
 // Instagram entries logged there had nowhere to show up on this Board for
 // Social or Community, for any of their brands.
-const PLATFORM_COLUMNS = ["Facebook", "Instagram", "TikTok", "YouTube", "Thread"];
+export const PLATFORM_COLUMNS = ["Facebook", "Instagram", "TikTok", "YouTube", "Thread"];
 
 // Ads: layer 1 picks the ad-platform brand, layer 2 (columns) is that
 // brand's own fixed metric list — same lists as ADS_METRICS in the
