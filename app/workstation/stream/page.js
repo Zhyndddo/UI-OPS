@@ -9,6 +9,7 @@ import { fmtDate, fetchAllRows } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { buildStreamNote } from "../../../lib/releaseNotes";
 import PicTagInput from "../../../lib/PicTagInput";
+import FloatingMenu from "../../../lib/FloatingMenu";
 import { filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/workstationHelpers";
 import { logPicReassign } from "../../../lib/auditLog";
 import styles from "../../shared.module.css";
@@ -767,6 +768,7 @@ function DidSearchField({ row, value, onSaveText, onLink }) {
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [open, setOpen] = useState(false);
+  const anchorRef = useRef(null);
 
   useEffect(() => {
     if (!query || query.trim().length < 3) { setResults([]); return; }
@@ -787,7 +789,7 @@ function DidSearchField({ row, value, onSaveText, onLink }) {
   }, [query]);
 
   return (
-    <div style={{ position: "relative" }}>
+    <div ref={anchorRef} style={{ position: "relative" }}>
       <input
         className={styles.input}
         style={{ padding: "3px 6px", fontSize: 11, width: "100%" }}
@@ -803,7 +805,7 @@ function DidSearchField({ row, value, onSaveText, onLink }) {
         }}
       />
       {open && query.trim().length >= 3 && (
-        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 5, background: "var(--bg-hover)", border: "1px solid #333", borderRadius: 6, marginTop: 2, maxHeight: 180, overflowY: "auto" }}>
+        <FloatingMenu anchorRef={anchorRef} maxHeight={180} style={{ background: "var(--bg-hover)", border: "1px solid #333", borderRadius: 6 }}>
           {searching ? (
             <div style={{ padding: 8, fontSize: 11, color: "var(--text-faint)" }}>Searching…</div>
           ) : results.length === 0 ? (
@@ -822,7 +824,7 @@ function DidSearchField({ row, value, onSaveText, onLink }) {
               </button>
             ))
           )}
-        </div>
+        </FloatingMenu>
       )}
     </div>
   );
