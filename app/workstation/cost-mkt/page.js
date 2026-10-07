@@ -1,6 +1,7 @@
 "use client";
 
 import MonthGridPicker from "../../../lib/MonthGridPicker";
+import { TikTokBookingDetailPopup, SnapshotPopup } from "../../../lib/CostMktPopups";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
@@ -206,6 +207,7 @@ export default function WorkstationCostMkt() {
   const [releases, setReleases] = useState([]);
   const [categories, setCategories] = useState([]);
   const [packages, setPackages] = useState([]);
+  const [contentEntries, setContentEntries] = useState([]); // Round 481 — media_booking_content_entries (package-scoped draft counts)
   const [entries, setEntries] = useState([]); // media_booking_entries — Round 316 fix, see below
   const [notInPackageTickets, setNotInPackageTickets] = useState([]);
   const [costEntries, setCostEntries] = useState({}); // costEntryKey -> row
@@ -364,7 +366,7 @@ export default function WorkstationCostMkt() {
     // .in() list of every release id in the system.
     const tiktokAdsCategoryIds = (cats || []).filter((c) => c.name === "TikTok Channel" || c.name === "Ads").map((c) => c.id);
     const releaseIds = releaseList.map((r) => r.id);
-    const [{ data: pkgs }, { data: ents }, ticketRows] = await Promise.all([
+    const [{ data: pkgs }, { data: ents }, ticketRows, { data: contentRows }] = await Promise.all([
       // Round 475 — was ONE .in("release_id", <every release id>) call. With
       // ~950 releases that URL is ~35 KB, which the API gateway can reject
       // outright (the call then returns no data and every "booked"/package
@@ -397,7 +399,20 @@ export default function WorkstationCostMkt() {
       tabRow?.id
         ? fetchAllRows(() => supabase.from("tickets").select("id, data").eq("tab_id", tabRow.id).is("deleted_at", null))
         : Promise.resolve({ data: [] }),
+      // Round 481 — the package's own DRAFT counts (what was typed in the
+      // Media Booking grid per package). INT packages often have these but
+      // were never Summarized into package lines, so they showed nothing.
+      tiktokAdsCategoryIds.length > 0
+        ? fetchAllRows(() =>
+            supabase
+              .from("media_booking_content_entries")
+              .select("id, release_id, package_id, category_id, brand, platform, count_posts")
+              .in("category_id", tiktokAdsCategoryIds)
+              .order("id")
+          )
+        : Promise.resolve({ data: [] }),
     ]);
+    setContentEntries(contentRows || []);
     setPackages(pkgs || []);
     setEntries(ents || []);
     setNotInPackageTickets(ticketRows?.data || []);
@@ -477,12 +492,14 @@ export default function WorkstationCostMkt() {
   // month (filterMonthDate), not always "today" — see filterMonth's own
   // comment above. The field name stays isThisMonth to minimize churn;
   // it now means "matches the currently selected month filter."
-  const rows = useMemo(() => {
+  function computeRows(kind, br) {
+    const cols = kind === "tiktok" ? TIKTOK_SUBCHANNELS : ADS_METRICS[br] || [];
+    const catName = kind === "tiktok" ? "TikTok Channel" : "Ads";
     return releases
       .map((r) => {
-        const values = columns.map((col) => {
-          const platform = channelKind === "ads" ? col : null;
-          const subchannelType = channelKind === "tiktok" ? col : null;
+        const values = cols.map((col) => {
+          const platform = kind === "ads" ? col : null;
+          const subchannelType = kind === "tiktok" ? col : null;
           // Round 447 — Thru Play (YouTube Ads' one and only metric) now
           // shows ONLY the package's own quantity — the number the artist
           // picked when choosing the package — per explicit request
@@ -499,18 +516,31 @@ export default function WorkstationCostMkt() {
           // truy cập) get the same package-only treatment, per request
           // ("lấy số từ gói, bỏ qua" — take it from the package, ignore the
           // Booking Board input).
-          if (channelKind === "ads" && (brand === "Facebook Ads" || (brand === "YouTube Ads" && col === "Thruplay (Views)"))) {
-            return { added: bookedFor(r, categoryName, brand, platform, subchannelType), booked: null, pkgSourced: true };
+          if (kind === "ads" && (br === "Facebook Ads" || (br === "YouTube Ads" && col === "Thruplay (Views)"))) {
+            return { added: bookedFor(r, catName, br, platform, subchannelType), booked: null, pkgSourced: true };
           }
           if (fundedBy === "vieent") {
+            let booked = bookedFor(r, catName, br, platform, subchannelType);
+            let draft = false;
+            // Round 481 — no Summarized package line for this cell: fall back
+            // to the resolved package's own content-entry count (INT
+            // packages especially). Marked draft so the tooltip says so.
+            if (booked == null) {
+              const pkgId = packageByRelease[r.id]?.id;
+              if (pkgId) {
+                const hits = contentEntries.filter((c) => c.release_id === r.id && c.package_id === pkgId && c.category_id === categoryIdByName[catName] && c.brand === br && (c.platform || "") === col);
+                if (hits.length > 0) { booked = hits.reduce((sum, c) => sum + (Number(c.count_posts) || 0), 0); draft = true; }
+              }
+            }
             return {
-              added: addedFor(r, categoryName, brand, platform, subchannelType, entries),
-              booked: bookedFor(r, categoryName, brand, platform, subchannelType),
+              added: addedFor(r, catName, br, platform, subchannelType, entries),
+              booked,
+              draft,
             };
           }
-          return { added: artistQty(r, brand, col), booked: null };
+          return { added: artistQty(r, br, col), booked: null };
         });
-        const key = costEntryKey(r.id, fundedBy, channelKind, brand);
+        const key = costEntryKey(r.id, fundedBy, kind, br);
         const entry = costEntries[key];
         // Round 478 — manual overrides imported from a file (see
         // lib/CostMktImport.js): { [column label]: { added, booked? } },
@@ -520,7 +550,7 @@ export default function WorkstationCostMkt() {
         const baseValues = values;
         const ov = entry?.metric_overrides || {};
         const shownValues = values.map((v, i) => {
-          const o = ov[columns[i]];
+          const o = ov[cols[i]];
           if (!o) return v;
           return { ...v, added: o.added ?? v.added, booked: o.booked !== undefined ? o.booked : v.booked, manual: true };
         });
@@ -541,7 +571,11 @@ export default function WorkstationCostMkt() {
       })
       .filter((row) => row.hasSomething);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [releases, columns, fundedBy, channelKind, brand, bookedFor, addedFor, entries, costEntries, installmentsByKey, ticketsByDid, filterMonthDate]);
+  }
+
+  const rows = useMemo(() => computeRows(channelKind, brand),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  [releases, columns, fundedBy, channelKind, brand, bookedFor, addedFor, entries, contentEntries, packageByRelease, categoryIdByName, costEntries, installmentsByKey, ticketsByDid, filterMonthDate]);
 
   // Round 436 introduced This Month / All counters; Round 447 keeps the
   // same two-card/click-to-filter shape but "This Month" is now "the
@@ -595,6 +629,73 @@ export default function WorkstationCostMkt() {
   const metricExport = {
     total_post: (_r, _v, totalPost) => totalPost ?? "",
   };
+  // Round 480 — same columns/rows builders, but for ANY tab of the current
+  // side (every partner / Ads brand), so one workbook can carry them all.
+  function exportColumnsFor(kind, br) {
+    const cols = kind === "tiktok" ? TIKTOK_SUBCHANNELS : ADS_METRICS[br] || [];
+    const sup = kind === "tiktok" || br === "TikTok Ads";
+    const out = [{ key: "did", label: "DID" }, { key: "title", label: "Release" }];
+    cols.forEach((c, i) => out.push({ key: `metric_${i}`, label: c, kind: "text", readOnly: true, idx: i }));
+    if (kind === "tiktok") {
+      out.push({ key: "total_post", label: "Total Post", kind: "number", readOnly: true });
+      POST_FIELDS.forEach((f) => out.push({ key: f.key, label: f.label, kind: "number" }));
+    }
+    COST_FIELDS.filter((f) => f.key !== "sup_cashback" || sup).forEach((f) => {
+      out.push({ key: f.key, label: f.key === "report_link" && kind === "tiktok" ? "Report Link" : f.label, kind: f.type === "number" ? "number" : "text" });
+    });
+    return out;
+  }
+  function exportRowsFor(tabRows, tabCols, kind) {
+    return tabRows.map(({ release, entry, values, totalPost }) => {
+      const out = { did: release.did, title: release.title };
+      tabCols.slice(2).forEach((c) => {
+        if (c.readOnly) {
+          if (c.idx != null) {
+            const v = values[c.idx];
+            out[c.key] = !v || (!v.added && v.booked == null) ? "" : v.booked != null ? `${v.added} / ${v.booked}` : v.added;
+          } else out[c.key] = totalPost ?? "";
+          return;
+        }
+        out[c.key] = c.key === "report_link" && kind !== "tiktok" ? (release.ads_perform_url ?? "") : (entry?.[c.key] ?? "");
+      });
+      return out;
+    });
+  }
+  function buildTabs() {
+    const names = channelKind === "tiktok" ? TIKTOK_PARTNERS : ADS_BRANDS;
+    return names.map((b) => {
+      const tabRows = b === brand ? rows : computeRows(channelKind, b);
+      const byId = {};
+      tabRows.forEach((x) => { byId[x.release.id] = x; });
+      return {
+        brand: b,
+        label: shortPartnerLabel(b),
+        columns: exportColumnsFor(channelKind, b),
+        metricLabels: channelKind === "tiktok" ? TIKTOK_SUBCHANNELS : ADS_METRICS[b] || [],
+        rows: tabRows,
+        baseText: (release, idx) => {
+          const v = byId[release.id]?.baseValues?.[idx];
+          return !v || (!v.added && v.booked == null) ? "" : v.booked != null ? `${v.added} / ${v.booked}` : String(v.added);
+        },
+      };
+    });
+  }
+  const [importTabs, setImportTabs] = useState([]);
+  const [exportingAll, setExportingAll] = useState(false);
+  async function exportAllTabs() {
+    setExportingAll(true);
+    try {
+      const { downloadWorkbook } = await import("../../../lib/spreadsheetExport");
+      const tabs = buildTabs();
+      await downloadWorkbook(
+        tabs.map((t) => ({ name: t.label, columns: t.columns, rows: exportRowsFor(t.rows, t.columns, channelKind) })),
+        `cost-mkt-${fundedBy}-${channelKind}-ALL-TABS`
+      );
+    } finally {
+      setExportingAll(false);
+    }
+  }
+
   async function fetchExportRows() {
     return rows.map(({ release, entry, values, totalPost }) => {
       const out = { did: release.did, title: release.title };
@@ -822,15 +923,21 @@ export default function WorkstationCostMkt() {
     () => Object.entries(costEntries).map(([key, entry]) => ({ entry, installments: installmentsByKey[key] || [] })),
     [costEntries, installmentsByKey]
   );
+  // Month-aware amount of one money field for one entry (+ its installments)
+  // — the single rule the summary card, the TikTok Booking detail popup and
+  // the frozen snapshots all share, so they always agree.
+  function amountFor(entry, installments, field) {
+    if (entry.is_installment) {
+      const matching = monthFilterActive ? installments.filter((inst) => sameMonth(inst.month, filterMonthDate)) : installments;
+      return matching.reduce((s, inst) => s + (Number(inst[field]) || 0), 0);
+    }
+    if (!monthFilterActive) return Number(entry[field]) || 0;
+    return thangChiTraMatchesMonth(entry.thang_chi_tra, filterMonthDate) ? Number(entry[field]) || 0 : 0;
+  }
   function sumField(pred, field) {
     return allEntryPairs.reduce((sum, { entry, installments }) => {
       if (!entry || !pred(entry)) return sum;
-      if (entry.is_installment) {
-        const matching = monthFilterActive ? installments.filter((inst) => sameMonth(inst.month, filterMonthDate)) : installments;
-        return sum + matching.reduce((s, inst) => s + (Number(inst[field]) || 0), 0);
-      }
-      if (!monthFilterActive) return sum + (Number(entry[field]) || 0);
-      return sum + (thangChiTraMatchesMonth(entry.thang_chi_tra, filterMonthDate) ? Number(entry[field]) || 0 : 0);
+      return sum + amountFor(entry, installments, field);
     }, 0);
   }
   const tiktokBookingTotal = sumField((e) => e.channel_kind === "tiktok", "cost_thuc_chay");
@@ -839,6 +946,60 @@ export default function WorkstationCostMkt() {
   const vieentFundedTotal = sumField(() => true, "vieent_ho_tro");
   const artistFundedTotal = sumField(() => true, "artist_tra");
   const supCashbackTotal = sumField(() => true, "sup_cashback");
+
+  // Round 480 — TikTok Booking detail (same numbers as the card, broken down).
+  const [showTiktokDetail, setShowTiktokDetail] = useState(false);
+  const [showSnapshot, setShowSnapshot] = useState(false);
+  const tiktokDetailGroups = useMemo(() => {
+    const releaseById = {};
+    releases.forEach((r) => { releaseById[r.id] = r; });
+    const map = {};
+    allEntryPairs.forEach(({ entry, installments }) => {
+      if (!entry || entry.channel_kind !== "tiktok") return;
+      const amount = amountFor(entry, installments, "cost_thuc_chay");
+      const cashback = amountFor(entry, installments, "sup_cashback");
+      if (!amount && !cashback) return;
+      const rel = releaseById[entry.release_id];
+      const label = `${entry.funded_by === "vieent" ? "Vieent trả" : "Artist trả"} · ${shortPartnerLabel(entry.brand)}`;
+      (map[label] = map[label] || []).push({ id: entry.id || `${entry.release_id}-${entry.brand}-${entry.funded_by}`, title: rel?.title || "(unknown release)", artist: rel?.main_artist || "", amount, cashback });
+    });
+    return Object.entries(map)
+      .map(([label, list]) => ({ label, rows: list.sort((a, b) => b.amount - a.amount), subtotal: list.reduce((x, r) => x + r.amount, 0) }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allEntryPairs, releases, monthFilterActive, filterMonthDate]);
+  const monthScopeLabel = monthFilterActive ? `Month ${String(filterMonthDate.getMonth() + 1).padStart(2, "0")}/${filterMonthDate.getFullYear()}` : "All months";
+
+  // Frozen-snapshot payload for the CURRENT TikTok tab (partner + month filter).
+  function buildSnapshotPayload() {
+    const sheetRows = displayedRows.map(({ release, entry, installments, totalPost }) => {
+      const hasManual = entry && (entry.no_booking_post != null || entry.no_support_post != null);
+      const booking = entry?.no_booking_post != null ? Number(entry.no_booking_post) : null;
+      const support = entry?.no_support_post != null ? Number(entry.no_support_post) : null;
+      return {
+        album: release.title,
+        artist: release.main_artist || "",
+        totalPost: hasManual ? (booking || 0) + (support || 0) : totalPost,
+        booking,
+        support,
+        actualCost: entry ? amountFor(entry, installments, "cost_thuc_chay") : 0,
+      };
+    });
+    const cashback = displayedRows.reduce((sum, { entry, installments }) => sum + (entry ? amountFor(entry, installments, "sup_cashback") : 0), 0);
+    const tongChiPhi = sheetRows.reduce((sum, r) => sum + r.actualCost, 0);
+    return {
+      brandLabel: shortPartnerLabel(brand),
+      fundedBy,
+      monthLabel: monthFilterActive ? `Tháng ${filterMonthDate.getMonth() + 1}` : "Tất cả",
+      year: monthFilterActive ? String(filterMonthDate.getFullYear()) : null,
+      tongChiPhi,
+      cashback,
+      net: tongChiPhi - cashback,
+      tongDuAn: sheetRows.length,
+      tongSoPost: sheetRows.reduce((sum, r) => sum + (r.totalPost || 0), 0),
+      rows: sheetRows,
+    };
+  }
 
   return (
     <AppShell>
@@ -859,6 +1020,7 @@ export default function WorkstationCostMkt() {
             vieentFundedTotal={vieentFundedTotal}
             artistFundedTotal={artistFundedTotal}
             supCashbackTotal={supCashbackTotal}
+            onTiktokClick={() => setShowTiktokDetail(true)}
           />
 
           <div style={{ display: "flex", gap: 4, marginTop: 24, marginBottom: 12 }}>
@@ -938,7 +1100,29 @@ export default function WorkstationCostMkt() {
             />
             <button
               type="button"
-              onClick={() => setShowImport(true)}
+              onClick={exportAllTabs}
+              disabled={loading || exportingAll}
+              className={styles.tabBtn}
+              style={{ border: "1px solid var(--border-strong)", borderRadius: 6, fontSize: 11, color: "var(--text-faint)", padding: "6px 12px" }}
+              title="One Excel file with a sheet per tab — edit any of them and import the whole file back"
+            >
+              {exportingAll ? "Exporting…" : `⬇ All ${channelKind === "tiktok" ? "partners" : "brands"} (.xlsx)`}
+            </button>
+            {channelKind === "tiktok" && (
+              <button
+                type="button"
+                onClick={() => setShowSnapshot(true)}
+                disabled={loading}
+                className={styles.tabBtn}
+                style={{ border: "1px solid var(--border-strong)", borderRadius: 6, fontSize: 11, padding: "6px 12px" }}
+                title="Freeze this tab + month into a shareable, never-changing link"
+              >
+                ❄ Freeze & share
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => { setImportTabs(buildTabs()); setShowImport(true); }}
               disabled={loading}
               className={styles.tabBtn}
               style={{ border: "1px solid var(--border-strong)", borderRadius: 6, fontSize: 11, color: "var(--text-faint)", padding: "6px 12px" }}
@@ -946,6 +1130,20 @@ export default function WorkstationCostMkt() {
               ⬆ Import
             </button>
           </div>
+
+          {showTiktokDetail && (
+            <TikTokBookingDetailPopup groups={tiktokDetailGroups} total={tiktokBookingTotal} scopeLabel={monthScopeLabel} onClose={() => setShowTiktokDetail(false)} />
+          )}
+          {showSnapshot && (
+            <SnapshotPopup
+              styles={styles}
+              profile={profile}
+              defaultTitle={`TikTok Booking — ${shortPartnerLabel(brand)} — ${monthFilterActive ? `${String(filterMonthDate.getMonth() + 1).padStart(2, "0")}/${filterMonthDate.getFullYear()}` : "All"}`}
+              buildPayload={buildSnapshotPayload}
+              meta={{ fundedBy, brand }}
+              onClose={() => setShowSnapshot(false)}
+            />
+          )}
 
           {showMonthPicker && (
             <MonthFilterPopup
@@ -960,18 +1158,16 @@ export default function WorkstationCostMkt() {
             <CostMktImportPopup
               styles={styles}
               profile={profile}
-              columns={importExportColumns}
+              tabs={importTabs}
+              currentBrand={brand}
               releases={releases}
               fundedBy={fundedBy}
               channelKind={channelKind}
-              brand={brand}
               costEntries={costEntries}
-              scopeLabel={`${fundedBy === "vieent" ? "Booking Package" : "Booking Không Package"} — ${channelKind === "tiktok" ? "TikTok Channel" : "Ads"} — ${channelKind === "tiktok" ? shortPartnerLabel(brand) : brand}`}
+              scopeLabel={`${fundedBy === "vieent" ? "Booking Package" : "Booking Không Package"} — ${channelKind === "tiktok" ? "TikTok Channel" : "Ads"} — all tabs`}
               onClose={() => setShowImport(false)}
               onImported={(updatedRows) => { handleImported(updatedRows); setShowImport(false); }}
               onAdsPerformUrlsImported={handleAdsPerformUrlsImported}
-              baseCellText={baseCellText}
-              metricLabels={columns}
             />
           )}
 
@@ -1030,7 +1226,7 @@ export default function WorkstationCostMkt() {
                           <PicTagInput styles={styles} value={picAssignments[release.id] ?? picDefaults} onChange={(ids) => updatePics(release, ids)} profiles={picProfiles} />
                         </td>
                         {values.map((v, i) => (
-                          <td key={i} style={{ textAlign: "center", fontSize: 12 }} title={v.manual ? "manual value (from import)" : v.pkgSourced ? "from the chosen package" : "added / booked target"}>
+                          <td key={i} style={{ textAlign: "center", fontSize: 12 }} title={v.manual ? "manual value (from import)" : v.draft ? "target from the package's booking draft (not Summarized yet)" : v.pkgSourced ? "from the chosen package" : "added / booked target"}>
                             {v.added || v.booked != null ? `${v.added}${v.booked != null ? ` / ${v.booked}` : ""}` : "—"}{v.manual ? " ✎" : ""}
                           </td>
                         ))}
@@ -1132,23 +1328,23 @@ function MonthStatCard({ label, value, active, onClick }) {
 // One summary-card cell — plain uncolored value under a small caps label,
 // matching KpiCard's shape on the Report page closely enough to read as
 // the same idiom without importing across pages for one small component.
-function SummaryStat({ label, value }) {
+function SummaryStat({ label, value, onClick }) {
   return (
-    <div style={{ textAlign: "center", padding: "10px 6px" }}>
+    <div onClick={onClick} title={onClick ? "Click for detail" : undefined} style={{ textAlign: "center", padding: "10px 6px", cursor: onClick ? "pointer" : undefined }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 18, fontWeight: 800 }}>{value}</div>
     </div>
   );
 }
 
-function SummaryCard({ tiktokBookingTotal, youtubeAdsTotal, metaAdsTotal, vieentFundedTotal, artistFundedTotal, supCashbackTotal }) {
+function SummaryCard({ tiktokBookingTotal, youtubeAdsTotal, metaAdsTotal, vieentFundedTotal, artistFundedTotal, supCashbackTotal, onTiktokClick }) {
   return (
     <div style={{ border: "1px solid var(--border-strong)", borderRadius: 10, overflow: "hidden", background: "var(--bg-card)" }}>
       <div style={{ background: "var(--accent)", color: "var(--accent-on)", textAlign: "center", fontWeight: 800, fontSize: 13, letterSpacing: 0.4, padding: "8px 12px" }}>
         BẢNG TÓM TẮT TỔNG CHI PHÍ
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
-        <SummaryStat label="TikTok Booking" value={fmtVnd(tiktokBookingTotal)} />
+        <SummaryStat label="TikTok Booking ▸" value={fmtVnd(tiktokBookingTotal)} onClick={onTiktokClick} />
         <SummaryStat label="YouTube Ads" value={fmtVnd(youtubeAdsTotal)} />
         <SummaryStat label="Meta Ads" value={fmtVnd(metaAdsTotal)} />
       </div>
