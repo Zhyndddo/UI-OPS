@@ -510,15 +510,28 @@ export default function WorkstationCostMkt() {
           }
           return { added: artistQty(r, brand, col), booked: null };
         });
-        const totalPost = values.reduce((sum, v) => sum + (v.added || 0), 0);
-        const totalBooked = values.reduce((sum, v) => sum + (v.booked || 0), 0);
         const key = costEntryKey(r.id, fundedBy, channelKind, brand);
         const entry = costEntries[key];
+        // Round 478 — manual overrides imported from a file (see
+        // lib/CostMktImport.js): { [column label]: { added, booked? } },
+        // stored on the cost entry. They replace the live number for that
+        // one cell only; baseValues keeps the live ones so import can tell
+        // "unchanged" from "edited" and a re-import can clear an override.
+        const baseValues = values;
+        const ov = entry?.metric_overrides || {};
+        const shownValues = values.map((v, i) => {
+          const o = ov[columns[i]];
+          if (!o) return v;
+          return { ...v, added: o.added ?? v.added, booked: o.booked !== undefined ? o.booked : v.booked, manual: true };
+        });
+        const totalPost = shownValues.reduce((sum, v) => sum + (v.added || 0), 0);
+        const totalBooked = shownValues.reduce((sum, v) => sum + (v.booked || 0), 0);
         const installments = installmentsByKey[key] || [];
         const hasEntry = !!entry && Object.values(entry).some((v) => v !== null && v !== undefined && v !== "" && typeof v !== "object");
         return {
           release: r,
-          values,
+          values: shownValues,
+          baseValues,
           totalPost,
           entry,
           installments,
@@ -571,6 +584,14 @@ export default function WorkstationCostMkt() {
     return cols;
   }, [channelKind, costFields, columns]);
 
+  // Round 478 — the LIVE (un-overridden) text of one cell, same shape the
+  // export writes ("2 / 3" or "2" or ""), so import can compare a file cell
+  // against what the system itself would show.
+  function baseCellText(release, idx) {
+    const row = rows.find((x) => x.release.id === release.id);
+    const v = row?.baseValues?.[idx];
+    return !v || (!v.added && v.booked == null) ? "" : v.booked != null ? `${v.added} / ${v.booked}` : String(v.added);
+  }
   const metricExport = {
     total_post: (_r, _v, totalPost) => totalPost ?? "",
   };
@@ -949,6 +970,8 @@ export default function WorkstationCostMkt() {
               onClose={() => setShowImport(false)}
               onImported={(updatedRows) => { handleImported(updatedRows); setShowImport(false); }}
               onAdsPerformUrlsImported={handleAdsPerformUrlsImported}
+              baseCellText={baseCellText}
+              metricLabels={columns}
             />
           )}
 
@@ -1007,8 +1030,8 @@ export default function WorkstationCostMkt() {
                           <PicTagInput styles={styles} value={picAssignments[release.id] ?? picDefaults} onChange={(ids) => updatePics(release, ids)} profiles={picProfiles} />
                         </td>
                         {values.map((v, i) => (
-                          <td key={i} style={{ textAlign: "center", fontSize: 12 }} title={v.pkgSourced ? "from the chosen package" : "added / booked target"}>
-                            {v.added || v.booked != null ? `${v.added}${v.booked != null ? ` / ${v.booked}` : ""}` : "—"}
+                          <td key={i} style={{ textAlign: "center", fontSize: 12 }} title={v.manual ? "manual value (from import)" : v.pkgSourced ? "from the chosen package" : "added / booked target"}>
+                            {v.added || v.booked != null ? `${v.added}${v.booked != null ? ` / ${v.booked}` : ""}` : "—"}{v.manual ? " ✎" : ""}
                           </td>
                         ))}
                         {channelKind === "tiktok" && (
