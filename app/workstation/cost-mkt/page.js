@@ -585,9 +585,35 @@ export default function WorkstationCostMkt() {
   // monthFilterActive), same "counters don't move just because you
   // clicked them" rule the Releases page's own stat cards follow.
   // displayedRows is what the table actually renders.
-  const thisMonthCount = useMemo(() => rows.filter((row) => row.isThisMonth).length, [rows]);
-  const allCount = rows.length;
-  const displayedRows = monthFilterActive ? rows.filter((row) => row.isThisMonth) : rows;
+  // Round 482 — "hide the zero rows": drop releases whose package booking
+  // number OR posted/paid number is 0 (e.g. BK MUSIC rows that only exist
+  // because of a 0 line). Rows holding hand-typed data (No. Booking/Support
+  // Post or any cost) are always kept, so real cost entries never vanish.
+  // Booking (package target) is only meaningful on the Vieent tab, so the
+  // Artist tab only applies the "posted" half.
+  const [hideZero, setHideZero] = useState(true);
+  const isZeroRow = (row) => {
+    const e = row.entry || {};
+    const typed = [e.no_booking_post, e.no_support_post, e.cost_du_kien, e.cost_thuc_chay, e.vieent_ho_tro, e.artist_tra, e.sup_cashback].some((v) => v != null && v !== "" && Number(v) !== 0);
+    if (typed || (row.installments || []).length > 0) return false;
+    const booked = row.values.reduce((sum, v) => sum + (v.booked || 0), 0);
+    const bookingZero = fundedBy === "vieent" && booked === 0 && !row.values.some((v) => v.pkgSourced && v.added);
+    return bookingZero || row.totalPost === 0;
+  };
+  const visibleRows = hideZero ? rows.filter((row) => !isZeroRow(row)) : rows;
+  const hiddenZeroCount = rows.length - visibleRows.length;
+  // Round 482 — export scope: everything on the tab, or only releases whose
+  // Cost Thực Chạy is still empty ("chưa có số") — handy for handing out a
+  // fill-in sheet. Both respect the 0-row filter above.
+  const [exportMissingOnly, setExportMissingOnly] = useState(false);
+  const costMissing = (row) => row.entry?.cost_thuc_chay == null || row.entry?.cost_thuc_chay === "";
+  const exportScope = (list) => {
+    const base = hideZero ? list.filter((r) => !isZeroRow(r)) : list;
+    return exportMissingOnly ? base.filter(costMissing) : base;
+  };
+  const thisMonthCount = useMemo(() => visibleRows.filter((row) => row.isThisMonth).length, [visibleRows]);
+  const allCount = visibleRows.length;
+  const displayedRows = monthFilterActive ? visibleRows.filter((row) => row.isThisMonth) : visibleRows;
 
   // Round 445 — Import/Export, per explicit request ("make an
   // import/export so that the team can easily get a template, add data
@@ -688,7 +714,7 @@ export default function WorkstationCostMkt() {
       const { downloadWorkbook } = await import("../../../lib/spreadsheetExport");
       const tabs = buildTabs();
       await downloadWorkbook(
-        tabs.map((t) => ({ name: t.label, columns: t.columns, rows: exportRowsFor(t.rows, t.columns, channelKind) })),
+        tabs.map((t) => ({ name: t.label, columns: t.columns, rows: exportRowsFor(exportScope(t.rows), t.columns, channelKind) })),
         `cost-mkt-${fundedBy}-${channelKind}-ALL-TABS`
       );
     } finally {
@@ -697,7 +723,7 @@ export default function WorkstationCostMkt() {
   }
 
   async function fetchExportRows() {
-    return rows.map(({ release, entry, values, totalPost }) => {
+    return exportScope(rows).map(({ release, entry, values, totalPost }) => {
       const out = { did: release.did, title: release.title };
       importExportColumns.slice(2).forEach((c) => {
         // Round 447 — URL Ads Perform exports/imports from the release
@@ -972,6 +998,31 @@ export default function WorkstationCostMkt() {
 
   // Frozen-snapshot payload for the CURRENT TikTok tab (partner + month filter).
   function buildSnapshotPayload() {
+    if (channelKind === "ads") {
+      const adsRows = displayedRows.map(({ release, entry, installments, values }) => ({
+        album: release.title,
+        artist: release.main_artist || "",
+        cells: values.map((v) => (!v || (!v.added && v.booked == null) ? "" : v.booked != null && !v.pkgSourced ? `${v.added} / ${v.booked}` : String(v.added))),
+        added: values.map((v) => v?.added || 0),
+        actualCost: entry ? amountFor(entry, installments, "cost_thuc_chay") : 0,
+      }));
+      const cashbackAds = displayedRows.reduce((sum, { entry, installments }) => sum + (entry ? amountFor(entry, installments, "sup_cashback") : 0), 0);
+      const tongAds = adsRows.reduce((sum, r) => sum + r.actualCost, 0);
+      return {
+        kind: "ads",
+        brandLabel: brand,
+        fundedBy,
+        monthLabel: monthFilterActive ? `Tháng ${filterMonthDate.getMonth() + 1}` : "Tất cả",
+        year: monthFilterActive ? String(filterMonthDate.getFullYear()) : null,
+        tongChiPhi: tongAds,
+        cashback: showSupCashback ? cashbackAds : null,
+        net: tongAds - (showSupCashback ? cashbackAds : 0),
+        tongDuAn: adsRows.length,
+        metricLabels: columns,
+        metricTotals: columns.map((_, i) => adsRows.reduce((sum, r) => sum + (r.added[i] || 0), 0)),
+        rows: adsRows,
+      };
+    }
     const sheetRows = displayedRows.map(({ release, entry, installments, totalPost }) => {
       const hasManual = entry && (entry.no_booking_post != null || entry.no_support_post != null);
       const booking = entry?.no_booking_post != null ? Number(entry.no_booking_post) : null;
@@ -988,6 +1039,7 @@ export default function WorkstationCostMkt() {
     const cashback = displayedRows.reduce((sum, { entry, installments }) => sum + (entry ? amountFor(entry, installments, "sup_cashback") : 0), 0);
     const tongChiPhi = sheetRows.reduce((sum, r) => sum + r.actualCost, 0);
     return {
+      kind: "tiktok",
       brandLabel: shortPartnerLabel(brand),
       fundedBy,
       monthLabel: monthFilterActive ? `Tháng ${filterMonthDate.getMonth() + 1}` : "Tất cả",
@@ -1088,9 +1140,26 @@ export default function WorkstationCostMkt() {
             >
               Is_installment
             </button>
+            <button
+              onClick={() => setHideZero((v) => !v)}
+              className={`${styles.tabBtn} ${hideZero ? styles.tabBtnActive : ""}`}
+              style={{ border: hideZero ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: hideZero ? "rgba(255,107,26,0.1)" : "transparent", fontSize: 12 }}
+              title="Hide releases whose package booking number or posted number is 0 (rows with typed cost/post data always stay)"
+            >
+              {hideZero ? `Hiding 0-rows (${hiddenZeroCount})` : "Show 0-rows"}
+            </button>
             {/* Round 445 — Import/Export, scoped to the current tab/brand
                 (same rows as the counters/table above). Export doubles as
                 the template: download it, edit cells in Excel, re-import. */}
+            <button
+              type="button"
+              onClick={() => setExportMissingOnly((v) => !v)}
+              className={`${styles.tabBtn} ${exportMissingOnly ? styles.tabBtnActive : ""}`}
+              style={{ border: exportMissingOnly ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: exportMissingOnly ? "rgba(255,107,26,0.1)" : "transparent", fontSize: 11, padding: "6px 10px" }}
+              title="Export / Template: ON = only releases with no Cost Thực Chạy yet; OFF = every release on this tab"
+            >
+              {exportMissingOnly ? "Export: only missing numbers" : "Export: all releases"}
+            </button>
             <ExportButton
               columns={importExportColumns}
               filename={`cost-mkt-${fundedBy}-${channelKind}-${brand}`}
@@ -1108,7 +1177,7 @@ export default function WorkstationCostMkt() {
             >
               {exportingAll ? "Exporting…" : `⬇ All ${channelKind === "tiktok" ? "partners" : "brands"} (.xlsx)`}
             </button>
-            {channelKind === "tiktok" && (
+            {(
               <button
                 type="button"
                 onClick={() => setShowSnapshot(true)}
@@ -1138,9 +1207,9 @@ export default function WorkstationCostMkt() {
             <SnapshotPopup
               styles={styles}
               profile={profile}
-              defaultTitle={`TikTok Booking — ${shortPartnerLabel(brand)} — ${monthFilterActive ? `${String(filterMonthDate.getMonth() + 1).padStart(2, "0")}/${filterMonthDate.getFullYear()}` : "All"}`}
+              defaultTitle={`${channelKind === "tiktok" ? "TikTok Booking" : "Ads"} — ${channelKind === "tiktok" ? shortPartnerLabel(brand) : brand} — ${monthFilterActive ? `${String(filterMonthDate.getMonth() + 1).padStart(2, "0")}/${filterMonthDate.getFullYear()}` : "All"}`}
               buildPayload={buildSnapshotPayload}
-              meta={{ fundedBy, brand }}
+              meta={{ fundedBy, brand, channelKind }}
               onClose={() => setShowSnapshot(false)}
             />
           )}

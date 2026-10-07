@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { useAuth } from "../../../lib/AuthContext";
@@ -366,14 +367,17 @@ function NpbCellPopup({ category, cellEntries, onCycleLinkStatus, onCycleAdsStat
     setNewQty("");
   }
 
-  return (
+  // Round 483 — rendered into document.body as a centred fixed panel so the
+  // table's scroll box can no longer clip it.
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 399, background: "rgba(0,0,0,0.5)" }} />
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 5000, background: "rgba(0,0,0,0.5)" }} />
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          position: "absolute", top: "100%", left: 0, zIndex: 400, marginTop: 4,
-          width: 280, background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8,
+          position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 5001,
+          width: 340, maxWidth: "92vw", background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8,
           padding: 12, boxShadow: "0 12px 36px rgba(0,0,0,0.4)", textAlign: "left",
         }}
       >
@@ -448,6 +452,7 @@ function NpbCellPopup({ category, cellEntries, onCycleLinkStatus, onCycleAdsStat
           </button>
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 }

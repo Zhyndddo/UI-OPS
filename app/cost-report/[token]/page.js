@@ -37,6 +37,7 @@ export default function CostReportPage() {
   if (error) return <div className={styles.page} data-theme={themeLock || undefined}><div className={styles.container} style={{ maxWidth: 640 }}><div className={styles.errorBox}>{error}</div></div></div>;
 
   const p = row.payload || {};
+  const isAds = p.kind === "ads";
   const cell = { border: "1px solid #d9d9d9", padding: "7px 10px", fontSize: 13 };
   const head = { ...cell, fontWeight: 800, fontSize: 11, textAlign: "center", background: "#fff", color: "#111", textTransform: "uppercase" };
   const box = (label, value) => (
@@ -51,8 +52,8 @@ export default function CostReportPage() {
       <div style={{ maxWidth: 980, margin: "0 auto" }}>
         <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1.2fr) minmax(0, 1.4fr)", border: "1px solid #d9d9d9" }}>
           <div style={{ padding: "14px 16px", borderRight: "1px solid #d9d9d9" }}>
-            <div style={{ fontSize: 15, letterSpacing: 0.5 }}>TIKTOK BOOKING</div>
-            <div style={{ fontSize: 56, fontWeight: 900, lineHeight: 1.05 }}>{p.brandLabel || "—"}</div>
+            <div style={{ fontSize: 15, letterSpacing: 0.5 }}>{isAds ? "ADS" : "TIKTOK BOOKING"}</div>
+            <div style={{ fontSize: isAds ? 38 : 56, fontWeight: 900, lineHeight: 1.05 }}>{p.brandLabel || "—"}</div>
             <div style={{ fontSize: 34, fontWeight: 300, marginTop: 6 }}>{fmt(p.net)}</div>
             <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>Net = tổng chi phí − cashback</div>
           </div>
@@ -61,9 +62,9 @@ export default function CostReportPage() {
               {p.monthLabel || "Tất cả"}{p.year ? <span style={{ fontSize: 14, color: "#888", marginLeft: 8 }}>{p.year}</span> : null}
             </div>
             {box("Tổng chi phí", fmt(p.tongChiPhi))}
-            {box("Cashback", fmt(p.cashback))}
+            {isAds ? (p.cashback != null ? box("Cashback", fmt(p.cashback)) : box("Net", fmt(p.net))) : box("Cashback", fmt(p.cashback))}
             {box("Tổng dự án", fmt(p.tongDuAn))}
-            {box("Tổng số post", fmt(p.tongSoPost))}
+            {isAds ? box("Số lượng chỉ tiêu", (p.metricLabels || []).map((l, i) => `${l}: ${fmt(p.metricTotals?.[i])}`).join(" · ") || "—") : box("Tổng số post", fmt(p.tongSoPost))}
           </div>
         </div>
 
@@ -74,9 +75,13 @@ export default function CostReportPage() {
                 <th style={{ ...head, width: 44 }}>STT</th>
                 <th style={head}>Album name</th>
                 <th style={head}>Nghệ sĩ</th>
-                <th style={head}>Total post</th>
-                <th style={head}>No. booking post</th>
-                <th style={head}>No. supported post</th>
+                {isAds ? (p.metricLabels || []).map((l) => <th key={l} style={head}>{l}</th>) : (
+                  <>
+                    <th style={head}>Total post</th>
+                    <th style={head}>No. booking post</th>
+                    <th style={head}>No. supported post</th>
+                  </>
+                )}
                 <th style={head}>Actual cost</th>
               </tr>
             </thead>
@@ -86,9 +91,13 @@ export default function CostReportPage() {
                   <td style={{ ...cell, textAlign: "center" }}>{i + 1}</td>
                   <td style={cell}>{r.album}</td>
                   <td style={cell}>{r.artist}</td>
-                  <td style={{ ...cell, textAlign: "center" }}>{r.totalPost || ""}</td>
-                  <td style={{ ...cell, textAlign: "center" }}>{r.booking ?? ""}</td>
-                  <td style={{ ...cell, textAlign: "center" }}>{r.support ?? ""}</td>
+                  {isAds ? (r.cells || []).map((c, j) => <td key={j} style={{ ...cell, textAlign: "center" }}>{c}</td>) : (
+                    <>
+                      <td style={{ ...cell, textAlign: "center" }}>{r.totalPost || ""}</td>
+                      <td style={{ ...cell, textAlign: "center" }}>{r.booking ?? ""}</td>
+                      <td style={{ ...cell, textAlign: "center" }}>{r.support ?? ""}</td>
+                    </>
+                  )}
                   <td style={{ ...cell, textAlign: "right" }}>{r.actualCost ? fmt(r.actualCost) : ""}</td>
                 </tr>
               ))}
