@@ -1,5 +1,6 @@
 "use client";
 
+import MonthGridPicker from "../../../lib/MonthGridPicker";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
@@ -1280,14 +1281,7 @@ function MonthFilterPopup({ styles, defaultMonth, onApply, onClose }) {
         <p style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 0, marginBottom: 14 }}>
           Pick the month to filter this tab's table — and the summary totals above — by.
         </p>
-        <input
-          type="month"
-          className={styles.input}
-          value={monthValue}
-          onChange={(e) => setMonthValue(e.target.value)}
-          style={{ width: "100%", marginBottom: 16 }}
-          autoFocus
-        />
+        <MonthGridPicker value={monthValue} onChange={setMonthValue} />
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
           <button
@@ -1327,14 +1321,7 @@ function AddInstallmentPopup({ styles, release, defaultMonth, onAdd, onClose }) 
         <p style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 0, marginBottom: 14 }}>
           {release.title} — pick the month this installment covers.
         </p>
-        <input
-          type="month"
-          className={styles.input}
-          value={monthValue}
-          onChange={(e) => setMonthValue(e.target.value)}
-          style={{ width: "100%", marginBottom: 16 }}
-          autoFocus
-        />
+        <MonthGridPicker value={monthValue} onChange={setMonthValue} />
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
           <button
