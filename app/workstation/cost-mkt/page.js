@@ -233,9 +233,14 @@ export default function WorkstationCostMkt() {
   // doesn't apply to; any value already stored for another brand (legacy
   // data) is left alone, just no longer editable from here.
   const showSupCashback = channelKind === "tiktok" || brand === "TikTok Ads";
+  // Round 475 — on the TikTok Channel tabs the url column is its OWN field
+  // ("Report Link", stored per release+brand on the cost entry), no longer
+  // the release-wide URL Ads Perform. Ads tabs keep URL Ads Perform.
   const costFields = useMemo(
-    () => COST_FIELDS.filter((f) => f.key !== "sup_cashback" || showSupCashback),
-    [showSupCashback]
+    () => COST_FIELDS
+      .filter((f) => f.key !== "sup_cashback" || showSupCashback)
+      .map((f) => (f.key === "report_link" && channelKind === "tiktok" ? { ...f, label: "Report Link" } : f)),
+    [showSupCashback, channelKind]
   );
   const installmentFields = useMemo(
     () => INSTALLMENT_FIELDS.filter((f) => f.key !== "sup_cashback" || showSupCashback),
@@ -359,11 +364,25 @@ export default function WorkstationCostMkt() {
     const tiktokAdsCategoryIds = (cats || []).filter((c) => c.name === "TikTok Channel" || c.name === "Ads").map((c) => c.id);
     const releaseIds = releaseList.map((r) => r.id);
     const [{ data: pkgs }, { data: ents }, ticketRows] = await Promise.all([
+      // Round 475 — was ONE .in("release_id", <every release id>) call. With
+      // ~950 releases that URL is ~35 KB, which the API gateway can reject
+      // outright (the call then returns no data and every "booked"/package
+      // number on this page — Thruplay included — silently reads empty).
+      // Now fetched in chunks of 100 ids.
       releaseIds.length > 0
-        ? supabase
-            .from("media_booking_packages")
-            .select("id, release_id, name, media_booking_package_lines(category_id, brand, quantity, metric_quantities, brand_column_quantities)")
-            .in("release_id", releaseIds)
+        ? (async () => {
+            const chunks = [];
+            for (let i = 0; i < releaseIds.length; i += 100) chunks.push(releaseIds.slice(i, i + 100));
+            const results = await Promise.all(
+              chunks.map((ids) =>
+                supabase
+                  .from("media_booking_packages")
+                  .select("id, release_id, name, media_booking_package_lines(category_id, brand, quantity, metric_quantities, brand_column_quantities)")
+                  .in("release_id", ids)
+              )
+            );
+            return { data: results.flatMap((r) => r.data || []) };
+          })()
         : Promise.resolve({ data: [] }),
       tiktokAdsCategoryIds.length > 0
         ? fetchAllRows(() =>
@@ -475,7 +494,11 @@ export default function WorkstationCostMkt() {
           // totalPost sum, and hasSomething check all keep working with no
           // further changes — pkgSourced just lets the cell pick a
           // different title/tooltip.
-          if (channelKind === "ads" && brand === "YouTube Ads" && col === "Thruplay (Views)") {
+          // Round 475 — Facebook Ads' metrics (Lượt tiếp cận / tương tác /
+          // truy cập) get the same package-only treatment, per request
+          // ("lấy số từ gói, bỏ qua" — take it from the package, ignore the
+          // Booking Board input).
+          if (channelKind === "ads" && (brand === "Facebook Ads" || (brand === "YouTube Ads" && col === "Thruplay (Views)"))) {
             return { added: bookedFor(r, categoryName, brand, platform, subchannelType), booked: null, pkgSourced: true };
           }
           if (fundedBy === "vieent") {
@@ -535,21 +558,36 @@ export default function WorkstationCostMkt() {
       { key: "did", label: "DID" },
       { key: "title", label: "Release" },
     ];
+    // Round 475 — the numbers shown in the table (per-column counts, Total
+    // Post) are exported too, as read-only reference columns. Import ignores
+    // them (readOnly) — they always come from the package / Booking Board.
+    columns.forEach((c, i) => cols.push({ key: `metric_${i}`, label: c, kind: "text", readOnly: true, idx: i }));
     if (channelKind === "tiktok") {
+      cols.push({ key: "total_post", label: "Total Post", kind: "number", readOnly: true });
       POST_FIELDS.forEach((f) => cols.push({ key: f.key, label: f.label, kind: "number" }));
     }
     costFields.forEach((f) => cols.push({ key: f.key, label: f.label, kind: f.type === "number" ? "number" : "text" }));
     return cols;
-  }, [channelKind, costFields]);
+  }, [channelKind, costFields, columns]);
 
+  const metricExport = {
+    total_post: (_r, _v, totalPost) => totalPost ?? "",
+  };
   async function fetchExportRows() {
-    return rows.map(({ release, entry }) => {
+    return rows.map(({ release, entry, values, totalPost }) => {
       const out = { did: release.did, title: release.title };
       importExportColumns.slice(2).forEach((c) => {
         // Round 447 — URL Ads Perform exports/imports from the release
         // itself (releases.ads_perform_url), not the per-row cost entry —
         // see COST_FIELDS' report_link comment.
-        out[c.key] = c.key === "report_link" ? (release.ads_perform_url ?? "") : (entry?.[c.key] ?? "");
+        if (c.readOnly) {
+          if (c.idx != null) {
+            const v = values[c.idx];
+            out[c.key] = !v || (!v.added && v.booked == null) ? "" : v.booked != null ? `${v.added} / ${v.booked}` : v.added;
+          } else out[c.key] = metricExport[c.key]?.(release, values, totalPost) ?? "";
+          return;
+        }
+        out[c.key] = c.key === "report_link" && channelKind !== "tiktok" ? (release.ads_perform_url ?? "") : (entry?.[c.key] ?? "");
       });
       return out;
     });
@@ -619,7 +657,8 @@ export default function WorkstationCostMkt() {
       cost_du_kien: existing?.cost_du_kien ?? null,
       cost_thuc_chay: existing?.cost_thuc_chay ?? null,
       thang_chi_tra: existing?.thang_chi_tra ?? null,
-      // Round 447 — report_link retired from this table; see
+      report_link: existing?.report_link ?? null, // Round 475 — live again for TikTok Channel rows (Ads rows never write it)
+      // Round 447 — report_link was retired for Ads; see
       // saveAdsPerformUrl below. No longer included in this payload at
       // all (not even carried forward), so this column just stops moving
       // for every row going forward — whatever a row already had here is
@@ -922,14 +961,14 @@ export default function WorkstationCostMkt() {
                   {fundedBy === "artist" ? " (or no Booking Không Trong Package ticket matches this Brand/Hạng Mục yet)." : "."}</>}
             </div>
           ) : (
-            <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+            <div className={styles.scrollBox} style={{ overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
               <table className={styles.table}>
                 <thead>
                   <tr>
                     {/* Round 436 — "pops out" on the left when Is_installment
                         is toggled on, ahead of Release. */}
-                    {showOverrideColumn && <th title="Track Tháng Chi Trả as real per-month installment rows for this release">Is_installment?</th>}
-                    <th>Release</th>
+                    {showOverrideColumn && <th className={styles.stickyLead} title="Track Tháng Chi Trả as real per-month installment rows for this release">Is_installment?</th>}
+                    <th className={`${styles.stickyName} ${showOverrideColumn ? styles.stickyLeadOffset : ""}`}>Release</th>
                     <th>PIC</th>
                     {columns.map((c) => <th key={c}>{c}</th>)}
                     {channelKind === "tiktok" && <th>Total Post</th>}
@@ -951,7 +990,7 @@ export default function WorkstationCostMkt() {
                     return (
                       <tr key={release.id}>
                         {showOverrideColumn && (
-                          <td style={{ textAlign: "center" }} title="On = Tháng Chi Trả becomes a mini-table of per-month installments instead of one free-text cell">
+                          <td className={styles.stickyLead} style={{ textAlign: "center" }} title="On = Tháng Chi Trả becomes a mini-table of per-month installments instead of one free-text cell">
                             <PillSwitch
                               size="sm"
                               checked={isInstallment}
@@ -959,7 +998,7 @@ export default function WorkstationCostMkt() {
                             />
                           </td>
                         )}
-                        <td style={{ minWidth: 160 }}>
+                        <td className={`${styles.stickyName} ${showOverrideColumn ? styles.stickyLeadOffset : ""}`} style={{ minWidth: 160 }}>
                           <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
                           <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release.main_artist}</div>
                         </td>
@@ -981,6 +1020,10 @@ export default function WorkstationCostMkt() {
                         {costFields.map((f) => {
                           if (f.key === "cost_du_kien") {
                             return <EditableCell key={f.key} field={f} value={entry?.[f.key]} onSave={(v) => saveField(release, f.key, v)} />;
+                          }
+                          if (f.key === "report_link" && channelKind === "tiktok") {
+                            // Round 475 — own per-row Report Link on TikTok Channel.
+                            return <EditableCell key={f.key} field={f} value={entry?.report_link} onSave={(v) => saveField(release, "report_link", v)} />;
                           }
                           if (f.key === "report_link") {
                             // Round 447 — one shared url per release

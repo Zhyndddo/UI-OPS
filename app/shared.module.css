@@ -519,3 +519,18 @@
     opacity: 1;
   }
 }
+
+/* Round 475 — freeze the header row (already sticky inside .scrollBox) and the
+   release-name column so the song stays visible while scrolling sideways.
+   .stickyName = the Release cell; .stickyLead = an optional narrow column in
+   front of it (Is_installment switch), pinned at left 0 with a fixed width. */
+.stickyName, .stickyLead {
+  position: sticky;
+  z-index: 15;
+  background: var(--bg-card, var(--bg));
+}
+.stickyName { left: 0; }
+.stickyLead { left: 0; width: 96px; min-width: 96px; max-width: 96px; }
+.stickyLeadOffset { left: 96px; }
+.table thead th.stickyName, .table thead th.stickyLead { z-index: 25; }
+.table tr:hover td.stickyName, .table tr:hover td.stickyLead { background: var(--bg-hover); }

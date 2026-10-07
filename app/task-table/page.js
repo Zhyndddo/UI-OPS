@@ -234,7 +234,7 @@ async function loadTicketCounts(map, requesterMap, arProjectsMap, profiles) {
     // Round 389 — .gte("created_at", ...) excludes June 2026-and-earlier
     // tickets straight from the query (created_at is never null, unlike a
     // release's release_date, so this can filter server-side).
-    const { data: tickets } = await supabase.from("tickets").select("id, status, pic_profile_id, pic_profile_ids, requester_profile_id, data").eq("tab_id", tab.id).is("deleted_at", null).gte("created_at", TASK_TABLE_CUTOFF);
+    const { data: tickets } = await supabase.from("tickets").select("id, status, created_at, pic_profile_id, pic_profile_ids, requester_profile_id, data").eq("tab_id", tab.id).is("deleted_at", null).gte("created_at", TASK_TABLE_CUTOFF);
     (tickets || []).forEach((t) => {
       // Round 281 — requester side, ALL tickets (not just undone ones —
       // done ones still count, just under the "done" column instead of
@@ -295,7 +295,7 @@ async function loadTicketCounts(map, requesterMap, arProjectsMap, profiles) {
       // attribution for those.
       const picIds = t.pic_profile_ids && t.pic_profile_ids.length > 0 ? t.pic_profile_ids : [t.pic_profile_id];
       picIds.forEach((picId) => {
-        bumpItem(map, picId, `ticket:${tab.key}`, { id: t.id, label: pickTicketLabel(t.data, t.id), href: TICKET_ROUTES[tab.key] });
+        bumpItem(map, picId, `ticket:${tab.key}`, { id: t.id, label: pickTicketLabel(t.data, t.id), href: TICKET_ROUTES[tab.key], createdAt: t.created_at });
       });
     });
   }));
@@ -651,13 +651,38 @@ function TeamSection({ segment, members, memberItems, title, requesterItems, arP
     : [{ label: null, members: [...members].sort((a, b) => (a.name || "").localeCompare(b.name || "")) }];
   const sortedMembers = subteamGroups.flatMap((g) => g.members);
   const teamHasUnassigned = columns.some((c) => countOf(memberItems, UNASSIGNED, c.id) > 0);
+  // Round 473 — red flag for work nobody owns yet. The "— Unassigned —" row
+  // used to sit grey at the very bottom of the table and was easy to miss;
+  // it now goes to the TOP in red, with a headline badge (count + how long the
+  // oldest ticket has waited). Counts only items this team's columns show.
+  const unassignedItems = columns.flatMap((c) => memberItems[UNASSIGNED]?.[c.id] || []);
+  const unassignedTotal = unassignedItems.length;
+  const oldestUnassignedMs = unassignedItems.reduce((max, it) => (it.createdAt ? Math.max(max, Date.now() - new Date(it.createdAt).getTime()) : max), 0);
+  const unassignedOld = oldestUnassignedMs > 8 * 3600000; // same 8h threshold as the morning nag
+  const waitLabel = oldestUnassignedMs < 3600000 ? "under 1h" : oldestUnassignedMs < 48 * 3600000 ? `${Math.floor(oldestUnassignedMs / 3600000)}h` : `${Math.floor(oldestUnassignedMs / 86400000)}d`;
+  const redFg = "var(--error-fg, #e0392c)";
   const isAR = resolveTeamKey(segment) === "AR";
   const requestedColumns = requestedColumnsForTeam(sortedMembers, requesterItems, columns.map((c) => c.id));
   const dividerStyle = { borderLeft: "2px solid var(--border-strong)" };
 
   return (
     <div style={{ marginBottom: 32 }}>
-      <h2 style={{ fontSize: 15, marginBottom: 8 }}>{title || segment}</h2>
+      <h2 style={{ fontSize: 15, marginBottom: 8 }}>
+        {title || segment}
+        {unassignedTotal > 0 && (
+          <span
+            title="Tickets in this team's columns that nobody has been tagged on yet"
+            style={{
+              marginLeft: 10, fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 999,
+              color: unassignedOld ? "#fff" : redFg,
+              background: unassignedOld ? redFg : "transparent",
+              border: `1px solid ${redFg}`,
+            }}
+          >
+            ⚠ {unassignedTotal} waiting for a PIC{oldestUnassignedMs > 0 ? ` · oldest ${waitLabel}` : ""}
+          </span>
+        )}
+      </h2>
       {columns.length === 0 && requestedColumns.length === 0 ? (
         <div style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 8 }}>No tracked task types own by this team.</div>
       ) : (
@@ -686,6 +711,19 @@ function TeamSection({ segment, members, memberItems, title, requesterItems, arP
               </tr>
             </thead>
             <tbody>
+              {teamHasUnassigned && (
+                <tr style={{ background: "rgba(224,57,44,0.10)", boxShadow: `inset 3px 0 0 ${redFg}` }}>
+                  {groupBySubteam && <td></td>}
+                  <td style={{ color: redFg, fontWeight: 700 }}>⚠ Unassigned — needs a PIC</td>
+                  {columns.map((c) => {
+                    const n = countOf(memberItems, UNASSIGNED, c.id);
+                    return <td key={c.id}>{n ? <Link href={c.href} className={styles.rowLink} style={{ color: redFg, fontWeight: 700 }}>{n}</Link> : <span style={{ color: "var(--text-faint)" }}>0</span>}</td>;
+                  })}
+                  {requestedColumns.map((c, i) => <td key={c.id} style={{ color: "var(--text-faint)", ...(i === 0 ? dividerStyle : {}) }}>0</td>)}
+                  {isAR && <td style={{ color: "var(--text-faint)" }}>0</td>}
+                  <td style={{ fontWeight: 700, color: redFg }}>{columns.reduce((sum, c) => sum + countOf(memberItems, UNASSIGNED, c.id), 0)}</td>
+                </tr>
+              )}
               {subteamGroups.flatMap((g) => g.members.map((m, idx) => {
                 const total = columns.reduce((sum, c) => sum + countOf(memberItems, m.id, c.id), 0);
                 return (
@@ -707,19 +745,6 @@ function TeamSection({ segment, members, memberItems, title, requesterItems, arP
                   </tr>
                 );
               }))}
-              {teamHasUnassigned && (
-                <tr>
-                  {groupBySubteam && <td></td>}
-                  <td style={{ color: "var(--text-faint)" }}>— Unassigned —</td>
-                  {columns.map((c) => {
-                    const n = countOf(memberItems, UNASSIGNED, c.id);
-                    return <td key={c.id}>{n ? <Link href={c.href} className={styles.rowLink}>{n}</Link> : <span style={{ color: "var(--text-faint)" }}>0</span>}</td>;
-                  })}
-                  {requestedColumns.map((c, i) => <td key={c.id} style={{ color: "var(--text-faint)", ...(i === 0 ? dividerStyle : {}) }}>0</td>)}
-                  {isAR && <td style={{ color: "var(--text-faint)" }}>0</td>}
-                  <td style={{ fontWeight: 700 }}>{columns.reduce((sum, c) => sum + countOf(memberItems, UNASSIGNED, c.id), 0)}</td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
