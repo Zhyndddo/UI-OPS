@@ -614,6 +614,14 @@ export default function WorkstationCostMkt() {
   const thisMonthCount = useMemo(() => visibleRows.filter((row) => row.isThisMonth).length, [visibleRows]);
   const allCount = visibleRows.length;
   const displayedRows = monthFilterActive ? visibleRows.filter((row) => row.isThisMonth) : visibleRows;
+  // Round 485 — song search: narrows only what the table shows (title or DID,
+  // accent/case-insensitive). Counters, exports and frozen snapshots ignore it.
+  const [songSearch, setSongSearch] = useState("");
+  const foldText = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/gi, "d").toLowerCase();
+  const searchNeedle = foldText(songSearch.trim());
+  const tableRows = searchNeedle
+    ? displayedRows.filter((row) => foldText(row.release.title).includes(searchNeedle) || foldText(row.release.did).includes(searchNeedle))
+    : displayedRows;
 
   // Round 445 — Import/Export, per explicit request ("make an
   // import/export so that the team can easily get a template, add data
@@ -1132,6 +1140,18 @@ export default function WorkstationCostMkt() {
               />
               <MonthStatCard label="All" value={allCount} active={!monthFilterActive} onClick={() => setMonthFilterActive(false)} />
             </div>
+            <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+              <input
+                className={styles.input}
+                value={songSearch}
+                onChange={(e) => setSongSearch(e.target.value)}
+                placeholder="🔍 Search song or DID…"
+                style={{ fontSize: 12, width: 220, paddingRight: songSearch ? 26 : undefined }}
+              />
+              {songSearch && (
+                <button type="button" onClick={() => setSongSearch("")} title="Clear search" style={{ position: "absolute", right: 6, background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+              )}
+            </div>
             <button
               onClick={() => setShowOverrideColumn((v) => !v)}
               className={`${styles.tabBtn} ${showOverrideColumn ? styles.tabBtnActive : ""}`}
@@ -1242,7 +1262,7 @@ export default function WorkstationCostMkt() {
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
-          ) : displayedRows.length === 0 ? (
+          ) : tableRows.length === 0 ? (
             <div className={styles.emptyState}>
               {monthFilterActive
                 ? `No releases counted for this month yet for ${channelKind === "tiktok" ? shortPartnerLabel(brand) : brand}.`
@@ -1266,7 +1286,7 @@ export default function WorkstationCostMkt() {
                   </tr>
                 </thead>
                 <tbody>
-                  {displayedRows.map(({ release, values, totalPost, entry, installments }) => {
+                  {tableRows.map(({ release, values, totalPost, entry, installments }) => {
                     const key = costEntryKey(release.id, fundedBy, channelKind, brand);
                     const isInstallment = !!entry?.is_installment;
                     const activeIdx = installments.length > 0
