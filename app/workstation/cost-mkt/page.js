@@ -211,6 +211,9 @@ export default function WorkstationCostMkt() {
   const [contentEntries, setContentEntries] = useState([]); // Round 481 — media_booking_content_entries (package-scoped draft counts)
   const [entries, setEntries] = useState([]); // media_booking_entries — Round 316 fix, see below
   const [notInPackageTickets, setNotInPackageTickets] = useState([]);
+  // Round 493 — label name -> LBL_ type (labels.default_lbl_tag), for the Label filter's "External (Hợp Tác)" option.
+  const [labelTagByName, setLabelTagByName] = useState({});
+  const [labelFilter, setLabelFilter] = useState("");
   const [nonDidProducts, setNonDidProducts] = useState([]); // Round 488 — products without a release DID, shown as pseudo-releases on the Artist Trả side
   const [costEntries, setCostEntries] = useState({}); // costEntryKey -> row
   const [installmentsByKey, setInstallmentsByKey] = useState({}); // costEntryKey -> [row], sorted by month asc
@@ -292,7 +295,7 @@ export default function WorkstationCostMkt() {
     setLoading(true);
     const [{ data: rels }, { data: cats }, { data: tabRow }, { data: costEntryRows }, { data: installmentRows }, { data: profs }, { data: assigns }] = await Promise.all([
       fetchAllRows(() =>
-        supabase.from("releases").select("id, did, title, main_artist, release_date, project_type, ads_perform_url").order("release_date", { ascending: false })
+        supabase.from("releases").select("id, did, title, main_artist, release_date, project_type, ads_perform_url, label").order("release_date", { ascending: false })
       ),
       supabase.from("package_categories").select("id, name"),
       supabase.from("ticket_tabs").select("id").eq("key", BOOKING_NOT_IN_PACKAGE_TAB_KEY).maybeSingle(),
@@ -313,9 +316,14 @@ export default function WorkstationCostMkt() {
     // short code standing in for the DID, so every cost / installment / PIC /
     // import path that keys on release.id keeps working unchanged. Before the
     // SQL is applied the fetch just errors and the list stays empty.
+    supabase.from("labels").select("label_name, default_lbl_tag").then(({ data: lbls }) => {
+      const m = {};
+      (lbls || []).forEach((l) => { if (l.label_name) m[l.label_name.trim().toLowerCase()] = l.default_lbl_tag || ""; });
+      setLabelTagByName(m);
+    });
     const nonDidList = await fetchNonDidProducts();
     setNonDidProducts(nonDidList);
-    const pseudoReleases = nonDidList.map((p) => ({ id: p.id, did: p.code, title: p.name, main_artist: p.artist || "Non-DID product", release_date: null, project_type: null, ads_perform_url: null, isNonDid: true }));
+    const pseudoReleases = nonDidList.map((p) => ({ id: p.id, did: p.code, title: p.name, main_artist: p.artist || "Non-DID product", release_date: null, project_type: null, ads_perform_url: null, label: p.label || "", isNonDid: true }));
     const releaseList = [...(rels || []), ...pseudoReleases];
     setReleases(releaseList);
     setCategories(cats || []);
@@ -472,6 +480,11 @@ export default function WorkstationCostMkt() {
     });
     return map;
   }, [notInPackageTickets, nonDidProducts]);
+
+  // Round 493 — a row's Label: the release's own label; a non-DID product uses
+  // its saved label, else the one typed on its booking tickets.
+  const labelOf = (r) => (r.label || (r.isNonDid ? (ticketsByDid[r.did] || []).map((d) => d.label).find(Boolean) : "") || "").trim();
+  const isExternalLabel = (name) => labelTagByName[String(name || "").trim().toLowerCase()] === "LBL_EXTERNAL";
 
   // Artist Trả's per-(release, brand, hạng mục) quantity — sum of
   // Số Lượng across every matching ticket (Brand/Hạng Mục are free text
@@ -646,9 +659,13 @@ export default function WorkstationCostMkt() {
   const [songSearch, setSongSearch] = useState("");
   const foldText = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/gi, "d").toLowerCase();
   const searchNeedle = foldText(songSearch.trim());
-  const tableRows = searchNeedle
-    ? displayedRows.filter((row) => foldText(row.release.title).includes(searchNeedle) || foldText(row.release.did).includes(searchNeedle))
+  const labelOptions = [...new Set(displayedRows.map((row) => labelOf(row.release)).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const labelScoped = labelFilter
+    ? displayedRows.filter((row) => (labelFilter === "__EXTERNAL__" ? isExternalLabel(labelOf(row.release)) : labelOf(row.release) === labelFilter))
     : displayedRows;
+  const tableRows = searchNeedle
+    ? labelScoped.filter((row) => foldText(row.release.title).includes(searchNeedle) || foldText(row.release.did).includes(searchNeedle) || foldText(labelOf(row.release)).includes(searchNeedle))
+    : labelScoped;
 
   // Round 445 — Import/Export, per explicit request ("make an
   // import/export so that the team can easily get a template, add data
@@ -1179,6 +1196,17 @@ export default function WorkstationCostMkt() {
                 <button type="button" onClick={() => setSongSearch("")} title="Clear search" style={{ position: "absolute", right: 6, background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
               )}
             </div>
+            <select
+              className={styles.input}
+              value={labelFilter}
+              onChange={(e) => setLabelFilter(e.target.value)}
+              title="Filter rows by Label"
+              style={{ fontSize: 12, width: 170 }}
+            >
+              <option value="">All labels</option>
+              <option value="__EXTERNAL__">External (Hợp Tác)</option>
+              {labelOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
             <button
               onClick={() => setShowOverrideColumn((v) => !v)}
               className={`${styles.tabBtn} ${showOverrideColumn ? styles.tabBtnActive : ""}`}
@@ -1305,6 +1333,7 @@ export default function WorkstationCostMkt() {
                         is toggled on, ahead of Release. */}
                     {showOverrideColumn && <th className={styles.stickyLead} title="Track Tháng Chi Trả as real per-month installment rows for this release">Is_installment?</th>}
                     <th className={`${styles.stickyName} ${showOverrideColumn ? styles.stickyLeadOffset : ""}`}>Release</th>
+                    <th>Label</th>
                     <th>PIC</th>
                     {columns.map((c) => <th key={c}>{c}</th>)}
                     {channelKind === "tiktok" && <th>Total Post</th>}
@@ -1339,6 +1368,10 @@ export default function WorkstationCostMkt() {
                             ? <span className={styles.rowLink} title="Non-DID product">{release.title}</span>
                             : <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>}
                           <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release.isNonDid ? `Non-DID · ${release.did}` : release.main_artist}</div>
+                        </td>
+                        <td style={{ minWidth: 110, fontSize: 12 }}>
+                          {labelOf(release) || "—"}
+                          {isExternalLabel(labelOf(release)) && <div style={{ fontSize: 10, color: "var(--text-faint)" }}>External · Hợp Tác</div>}
                         </td>
                         <td style={{ minWidth: 160 }}>
                           <PicTagInput styles={styles} value={picAssignments[release.id] ?? picDefaults} onChange={(ids) => updatePics(release, ids)} profiles={picProfiles} />

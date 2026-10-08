@@ -182,9 +182,11 @@ export default function NonPackageBooking() {
   // without a link / quantity is not shown or counted). Audit-logged.
   async function clearEntry(ticket) {
     const isLink = ticket.data?.category === "TikTok Channel";
-    const field = isLink ? "linkUrl" : "soLuong";
+    // Round 492 — a TikTok entry can now be a Số liệu number (soLuong) with no
+    // link, so remove clears whichever of the two it actually has.
+    const field = isLink && !(ticket.data?.soLuong != null && ticket.data?.soLuong !== "") ? "linkUrl" : "soLuong";
     const before = ticket.data?.[field] ?? null;
-    const { error } = await updateEntry(ticket, isLink ? { linkUrl: "" } : { soLuong: null });
+    const { error } = await updateEntry(ticket, isLink && field === "linkUrl" ? { linkUrl: "" } : { soLuong: null });
     if (error) return { error };
     logAudit({ actor: profile?.id, action: "update", entity: "ticket", entityId: ticket.id, field, before: before == null ? null : String(before), after: null });
     return { error: null };
@@ -291,7 +293,7 @@ export default function NonPackageBooking() {
                       {columns.map((col) => {
                         const cellKey = `${did}:${col}`;
                         // Round 491 — an entry whose link / quantity was removed is hidden.
-                        const cellEntries = entries.filter((t) => (t.data?.hangMuc || "") === col && (category === "TikTok Channel" ? !!t.data?.linkUrl : t.data?.soLuong != null && t.data?.soLuong !== ""));
+                        const cellEntries = entries.filter((t) => (t.data?.hangMuc || "") === col && (category === "TikTok Channel" ? !!t.data?.linkUrl || (t.data?.soLuong != null && t.data?.soLuong !== "") : t.data?.soLuong != null && t.data?.soLuong !== ""));
                         return (
                           <NpbCell
                             key={col}
