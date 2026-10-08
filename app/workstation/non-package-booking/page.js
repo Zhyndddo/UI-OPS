@@ -7,6 +7,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { useAuth } from "../../../lib/AuthContext";
 import { fetchAllRows } from "../../../lib/helpers";
+import { nonDidRowKey } from "../../../lib/nonDidProducts";
 import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS } from "../../booking/page";
 import styles from "../../shared.module.css";
 
@@ -125,7 +126,9 @@ export default function NonPackageBooking() {
   const rows = useMemo(() => {
     const byDid = {};
     entriesForBrand.forEach((t) => {
-      const did = t.data?.relatedDid;
+      // Round 488 — a ticket for a non-DID product has no relatedDid; its row
+      // is keyed by the product name instead.
+      const did = t.data?.relatedDid || (t.data?.productName ? nonDidRowKey(t.data.productName) : null);
       if (!did) return;
       (byDid[did] = byDid[did] || []).push(t);
     });
@@ -133,8 +136,9 @@ export default function NonPackageBooking() {
     return Object.entries(byDid)
       .map(([did, entries]) => {
         const release = releasesByDid[did];
-        const label = release?.title || entries[0]?.data?.tenBai || did;
-        return { did, release, entries, label };
+        const isNonDid = did.startsWith("ND:");
+        const label = release?.title || (isNonDid ? entries[0]?.data?.productName : null) || entries[0]?.data?.tenBai || did;
+        return { did, release, entries, label, isNonDid };
       })
       .filter(({ did, release, label }) => {
         if (!q) return true;
@@ -258,7 +262,7 @@ export default function NonPackageBooking() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map(({ did, release, entries, label }) => (
+                  {rows.map(({ did, release, entries, label, isNonDid }) => (
                     <tr key={did}>
                       <td style={{ minWidth: 160 }}>
                         {release ? (
@@ -266,7 +270,7 @@ export default function NonPackageBooking() {
                         ) : (
                           <span>{label}</span>
                         )}
-                        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release?.main_artist || did}</div>
+                        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{isNonDid ? "Non-DID product" : release?.main_artist || did}</div>
                       </td>
                       {columns.map((col) => {
                         const cellKey = `${did}:${col}`;
@@ -282,7 +286,8 @@ export default function NonPackageBooking() {
                             onCycleAdsStatus={cycleAdsStatus}
                             onUpdateEntry={updateEntry}
                             onAdd={(payload) => insertEntry({
-                              relatedDid: did,
+                              relatedDid: isNonDid ? "" : did,
+                              ...(isNonDid ? { productName: label } : {}),
                               tenBai: release?.title || entries[0]?.data?.tenBai || "",
                               category,
                               brand,

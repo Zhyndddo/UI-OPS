@@ -14,6 +14,7 @@ import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS, buildPackageByR
 import ExportButton from "../../../lib/spreadsheetExport";
 import CostMktImportPopup from "../../../lib/CostMktImport";
 import PicTagInput from "../../../lib/PicTagInput";
+import { fetchNonDidProducts } from "../../../lib/nonDidProducts";
 import { filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/workstationHelpers";
 import { logPicReassign } from "../../../lib/auditLog";
 import styles from "../../shared.module.css";
@@ -210,6 +211,7 @@ export default function WorkstationCostMkt() {
   const [contentEntries, setContentEntries] = useState([]); // Round 481 — media_booking_content_entries (package-scoped draft counts)
   const [entries, setEntries] = useState([]); // media_booking_entries — Round 316 fix, see below
   const [notInPackageTickets, setNotInPackageTickets] = useState([]);
+  const [nonDidProducts, setNonDidProducts] = useState([]); // Round 488 — products without a release DID, shown as pseudo-releases on the Artist Trả side
   const [costEntries, setCostEntries] = useState({}); // costEntryKey -> row
   const [installmentsByKey, setInstallmentsByKey] = useState({}); // costEntryKey -> [row], sorted by month asc
   // Round 458 — §3b: real PIC tracking for this workstation for the first
@@ -306,7 +308,15 @@ export default function WorkstationCostMkt() {
       supabase.from("profiles").select("id, name, segment, role").order("name"),
       fetchAllRows(() => supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "cost_mkt")),
     ]);
-    const releaseList = rels || [];
+    // Round 488 — non-DID products (sql/pending/add-round488-non-did-products.sql).
+    // Each becomes a pseudo-release keyed by the product's own id, with its
+    // short code standing in for the DID, so every cost / installment / PIC /
+    // import path that keys on release.id keeps working unchanged. Before the
+    // SQL is applied the fetch just errors and the list stays empty.
+    const nonDidList = await fetchNonDidProducts();
+    setNonDidProducts(nonDidList);
+    const pseudoReleases = nonDidList.map((p) => ({ id: p.id, did: p.code, title: p.name, main_artist: p.artist || "Non-DID product", release_date: null, project_type: null, ads_perform_url: null, isNonDid: true }));
+    const releaseList = [...(rels || []), ...pseudoReleases];
     setReleases(releaseList);
     setCategories(cats || []);
 
@@ -450,13 +460,16 @@ export default function WorkstationCostMkt() {
   // plain object access instead of a filter() per cell.
   const ticketsByDid = useMemo(() => {
     const map = {};
+    const codeByName = {};
+    nonDidProducts.forEach((p) => { codeByName[p.name.trim().toLowerCase()] = p.code; });
     notInPackageTickets.forEach((t) => {
-      const did = t.data?.relatedDid;
+      // Round 488 — a ticket for a non-DID product points at its product code.
+      const did = t.data?.relatedDid || (t.data?.productName ? codeByName[String(t.data.productName).trim().toLowerCase()] : null);
       if (!did) return;
       (map[did] = map[did] || []).push(t.data);
     });
     return map;
-  }, [notInPackageTickets]);
+  }, [notInPackageTickets, nonDidProducts]);
 
   // Artist Trả's per-(release, brand, hạng mục) quantity — sum of
   // Số Lượng across every matching ticket (Brand/Hạng Mục are free text
@@ -1320,8 +1333,10 @@ export default function WorkstationCostMkt() {
                           </td>
                         )}
                         <td className={`${styles.stickyName} ${showOverrideColumn ? styles.stickyLeadOffset : ""}`} style={{ minWidth: 160 }}>
-                          <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
-                          <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release.main_artist}</div>
+                          {release.isNonDid
+                            ? <span className={styles.rowLink} title="Non-DID product">{release.title}</span>
+                            : <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>}
+                          <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{release.isNonDid ? `Non-DID · ${release.did}` : release.main_artist}</div>
                         </td>
                         <td style={{ minWidth: 160 }}>
                           <PicTagInput styles={styles} value={picAssignments[release.id] ?? picDefaults} onChange={(ids) => updatePics(release, ids)} profiles={picProfiles} />
