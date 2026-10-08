@@ -8,6 +8,7 @@ import { supabase } from "../../../lib/supabaseClient";
 import { useAuth } from "../../../lib/AuthContext";
 import { fetchAllRows } from "../../../lib/helpers";
 import { nonDidRowKey } from "../../../lib/nonDidProducts";
+import { logAudit } from "../../../lib/auditLog";
 import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS } from "../../booking/page";
 import styles from "../../shared.module.css";
 
@@ -174,6 +175,21 @@ export default function NonPackageBooking() {
     return { data, error };
   }
 
+  // Round 491 — remove a link (TikTok Channel) / quantity (Ads) from a cell.
+  // This does NOT delete the ticket: it only blanks that field on it, so the
+  // ticket stays in the Booking Không Trong Package list, and the entry drops
+  // out of this workstation and out of Cost Marketing's counts (an entry
+  // without a link / quantity is not shown or counted). Audit-logged.
+  async function clearEntry(ticket) {
+    const isLink = ticket.data?.category === "TikTok Channel";
+    const field = isLink ? "linkUrl" : "soLuong";
+    const before = ticket.data?.[field] ?? null;
+    const { error } = await updateEntry(ticket, isLink ? { linkUrl: "" } : { soLuong: null });
+    if (error) return { error };
+    logAudit({ actor: profile?.id, action: "update", entity: "ticket", entityId: ticket.id, field, before: before == null ? null : String(before), after: null });
+    return { error: null };
+  }
+
   function cycleLinkStatus(ticket) {
     const cur = ticket.data?.linkStatus || LINK_STATUS_OPTIONS[0];
     const next = LINK_STATUS_OPTIONS[(LINK_STATUS_OPTIONS.indexOf(cur) + 1) % LINK_STATUS_OPTIONS.length];
@@ -274,7 +290,8 @@ export default function NonPackageBooking() {
                       </td>
                       {columns.map((col) => {
                         const cellKey = `${did}:${col}`;
-                        const cellEntries = entries.filter((t) => (t.data?.hangMuc || "") === col);
+                        // Round 491 — an entry whose link / quantity was removed is hidden.
+                        const cellEntries = entries.filter((t) => (t.data?.hangMuc || "") === col && (category === "TikTok Channel" ? !!t.data?.linkUrl : t.data?.soLuong != null && t.data?.soLuong !== ""));
                         return (
                           <NpbCell
                             key={col}
@@ -285,6 +302,7 @@ export default function NonPackageBooking() {
                             onCycleLinkStatus={cycleLinkStatus}
                             onCycleAdsStatus={cycleAdsStatus}
                             onUpdateEntry={updateEntry}
+                            onDeleteEntry={clearEntry}
                             onAdd={(payload) => insertEntry({
                               relatedDid: isNonDid ? "" : did,
                               ...(isNonDid ? { productName: label } : {}),
@@ -314,7 +332,7 @@ export default function NonPackageBooking() {
 // own BrandCell/AdsCell use — a number plus a colored status dot), click
 // to expand into a listing of every entry (click an entry's status pill
 // to cycle it) plus a small inline "add another" form.
-function NpbCell({ category, expanded, onToggle, cellEntries, onCycleLinkStatus, onCycleAdsStatus, onUpdateEntry, onAdd }) {
+function NpbCell({ category, expanded, onToggle, cellEntries, onCycleLinkStatus, onCycleAdsStatus, onUpdateEntry, onDeleteEntry, onAdd }) {
   const count = cellEntries.length;
   let dotColor = "var(--text-faint)";
   let summary = "—";
@@ -343,6 +361,7 @@ function NpbCell({ category, expanded, onToggle, cellEntries, onCycleLinkStatus,
           onCycleLinkStatus={onCycleLinkStatus}
           onCycleAdsStatus={onCycleAdsStatus}
           onUpdateEntry={onUpdateEntry}
+          onDeleteEntry={onDeleteEntry}
           onAdd={onAdd}
           onClose={onToggle}
         />
@@ -351,7 +370,22 @@ function NpbCell({ category, expanded, onToggle, cellEntries, onCycleLinkStatus,
   );
 }
 
-function NpbCellPopup({ category, cellEntries, onCycleLinkStatus, onCycleAdsStatus, onUpdateEntry, onAdd, onClose }) {
+function DeleteEntryButton({ t, confirmDelId, setConfirmDelId, onDeleteEntry, setErr }) {
+  if (confirmDelId === t.id) {
+    return (
+      <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
+        <button type="button" onClick={async () => { const { error } = await onDeleteEntry(t); if (error) setErr(error.message || String(error)); setConfirmDelId(null); }} style={{ background: "none", border: "none", color: "#e57373", cursor: "pointer", fontSize: 10, fontWeight: 700, padding: 0 }}>Remove?</button>
+        <button type="button" onClick={() => setConfirmDelId(null)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 10, padding: 0 }}>no</button>
+      </span>
+    );
+  }
+  return (
+    <button type="button" title={t.data?.category === "TikTok Channel" ? "Remove this link (the ticket stays)" : "Remove this quantity (the ticket stays)"} onClick={() => setConfirmDelId(t.id)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 12, padding: 0, flexShrink: 0 }}>🗑</button>
+  );
+}
+
+function NpbCellPopup({ category, cellEntries, onCycleLinkStatus, onCycleAdsStatus, onUpdateEntry, onDeleteEntry, onAdd, onClose }) {
+  const [confirmDelId, setConfirmDelId] = useState(null);
   const [newLink, setNewLink] = useState("");
   const [newQty, setNewQty] = useState("");
   const [saving, setSaving] = useState(false);
@@ -397,7 +431,8 @@ function NpbCellPopup({ category, cellEntries, onCycleLinkStatus, onCycleAdsStat
           {cellEntries.length === 0 && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>Nothing here yet.</div>}
           {cellEntries.map((t) => (
             category === "TikTok Channel" ? (
-              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+              <div key={t.id}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
                 <a href={t.data?.linkUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.data?.linkUrl}>
                   {t.data?.linkUrl || "—"}
                 </a>
@@ -409,9 +444,13 @@ function NpbCellPopup({ category, cellEntries, onCycleLinkStatus, onCycleAdsStat
                 >
                   {t.data?.linkStatus || LINK_STATUS_OPTIONS[0]}
                 </button>
+                <DeleteEntryButton t={t} confirmDelId={confirmDelId} setConfirmDelId={setConfirmDelId} onDeleteEntry={onDeleteEntry} setErr={setErr} />
+              </div>
+              {t.data?.note && <div style={{ fontSize: 10, color: "var(--text-faint)", padding: "0 0 4px", whiteSpace: "pre-line" }} title="Note from the ticket (not used as a link)">📝 {t.data.note}</div>}
               </div>
             ) : (
-              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+              <div key={t.id}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
                 <input
                   type="number"
                   defaultValue={t.data?.soLuong ?? ""}
@@ -426,6 +465,9 @@ function NpbCellPopup({ category, cellEntries, onCycleLinkStatus, onCycleAdsStat
                 >
                   {t.data?.adsStatus || ADS_RUN_STATUS_OPTIONS[0]}
                 </button>
+                <DeleteEntryButton t={t} confirmDelId={confirmDelId} setConfirmDelId={setConfirmDelId} onDeleteEntry={onDeleteEntry} setErr={setErr} />
+              </div>
+              {t.data?.note && <div style={{ fontSize: 10, color: "var(--text-faint)", padding: "0 0 4px", whiteSpace: "pre-line" }} title="Note from the ticket (not used as a link)">📝 {t.data.note}</div>}
               </div>
             )
           ))}

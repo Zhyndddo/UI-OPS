@@ -407,7 +407,7 @@ export default function WorkstationCostMkt() {
           )
         : Promise.resolve({ data: [] }),
       tabRow?.id
-        ? fetchAllRows(() => supabase.from("tickets").select("id, data").eq("tab_id", tabRow.id).is("deleted_at", null))
+        ? fetchAllRows(() => supabase.from("tickets").select("id, data, status").eq("tab_id", tabRow.id).is("deleted_at", null))
         : Promise.resolve({ data: [] }),
       // Round 481 — the package's own DRAFT counts (what was typed in the
       // Media Booking grid per package). INT packages often have these but
@@ -463,6 +463,8 @@ export default function WorkstationCostMkt() {
     const codeByName = {};
     nonDidProducts.forEach((p) => { codeByName[p.name.trim().toLowerCase()] = p.code; });
     notInPackageTickets.forEach((t) => {
+      // Round 491 — cancelled / refunded tickets are not real bookings.
+      if (t.status === "CANCELED" || t.status === "REFUND") return;
       // Round 488 — a ticket for a non-DID product points at its product code.
       const did = t.data?.relatedDid || (t.data?.productName ? codeByName[String(t.data.productName).trim().toLowerCase()] : null);
       if (!did) return;
