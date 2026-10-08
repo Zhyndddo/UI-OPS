@@ -62,7 +62,7 @@ export default function SecretMessagesPage() {
     // Matches NotificationBell's existing 30s polling convention — a
     // message that gets deleted by dev while this page is open will drop
     // off within 30s rather than needing a manual refresh.
-    const interval = setInterval(load, 30000);
+    const interval = setInterval(() => { if (!document.hidden) load(); }, 120000); // Round 490 egress: slower, skips hidden tabs
     return () => clearInterval(interval);
   }, [profile?.id]);
 

@@ -25,7 +25,7 @@ export default function SystemMessagesPage() {
   useEffect(() => {
     if (!supabase || !profile?.id) return;
     load();
-    const interval = setInterval(load, 30000);
+    const interval = setInterval(() => { if (!document.hidden) load(); }, 120000); // Round 490 egress: slower, skips hidden tabs
     return () => clearInterval(interval);
   }, [profile?.id]);
 
