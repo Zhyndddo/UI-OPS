@@ -463,11 +463,23 @@ export default function WorkstationCostMkt() {
   // on that ticket type, so this only picks up a ticket whose text
   // matches this page's own vocabulary exactly — see this round's
   // clarifying-questions answer).
-  function artistQty(release, brandValue, hangMuc) {
+  // Round 487 — the NON-PACKAGE BOOKING workstation writes TikTok Channel
+  // entries as one LINK per ticket (no Số Lượng), so those count 1 each;
+  // before, they summed to 0 here. Ads entries still count their soLuong.
+  // Rows are also matched on their own Hạng Mục category (TikTok Channel vs
+  // Ads) so a same-named brand can't leak across the two kinds. Tickets
+  // from the old New-Ticket form carry no category: they keep the old
+  // soLuong behaviour.
+  function artistQty(release, brandValue, hangMuc, kind) {
     const rows = ticketsByDid[release.did] || [];
+    const catWanted = kind === "tiktok" ? "TikTok Channel" : "Ads";
     return rows
-      .filter((d) => (d.brand || "").trim() === brandValue && (d.hangMuc || "").trim() === hangMuc)
-      .reduce((sum, d) => sum + (Number(d.soLuong) || 0), 0);
+      .filter((d) => (d.brand || "").trim() === brandValue && (d.hangMuc || "").trim() === hangMuc && (!d.category || d.category === catWanted))
+      .reduce((sum, d) => {
+        const q = Number(d.soLuong);
+        if (d.category === "TikTok Channel" && !(q > 0)) return sum + (d.linkUrl ? 1 : 0);
+        return sum + (q || 0);
+      }, 0);
   }
 
   const columns = channelKind === "tiktok" ? TIKTOK_SUBCHANNELS : ADS_METRICS[adsBrand] || [];
@@ -538,7 +550,7 @@ export default function WorkstationCostMkt() {
               draft,
             };
           }
-          return { added: artistQty(r, br, col), booked: null };
+          return { added: artistQty(r, br, col, kind), booked: null };
         });
         const key = costEntryKey(r.id, fundedBy, kind, br);
         const entry = costEntries[key];
