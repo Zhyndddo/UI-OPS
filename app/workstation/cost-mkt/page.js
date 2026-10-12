@@ -439,6 +439,38 @@ export default function WorkstationCostMkt() {
     setEntries(ents || []);
     setNotInPackageTickets(ticketRows?.data || []);
 
+    // Round 504 — self-heal: a Booking Không Trong Package ticket carrying a Non-DID code that has no
+    // non_did_products row (code typed by hand, product row deleted, ...) would never get a Cost
+    // Marketing row. Create the missing product from the ticket's own data, then show it.
+    {
+      const have = new Set(nonDidList.map((p) => p.code));
+      const missing = new Map();
+      (ticketRows?.data || []).forEach((t) => {
+        const d = t.data || {};
+        const code = String(d.nonDidCode || "").trim();
+        if (!code || d.relatedDid || have.has(code) || missing.has(code) || t.status === "CANCELED" || t.status === "REFUND") return;
+        missing.set(code, {
+          name: String(d.productName || d.tenBai || "").trim(),
+          artist: String(d.nonDidArtist || "").trim() || null,
+          label: String(d.label || "").trim() || null,
+          code,
+          created_by: profile?.id || null,
+        });
+      });
+      const rowsToAdd = [...missing.values()].filter((r) => r.name);
+      if (rowsToAdd.length > 0) {
+        let res = await supabase.from("non_did_products").insert(rowsToAdd).select("id, name, artist, note, code, release_date, label");
+        if (res.error) res = await supabase.from("non_did_products").insert(rowsToAdd.map(({ label, ...r }) => r)).select("id, name, artist, note, code");
+        if (!res.error && res.data?.length) {
+          setNonDidProducts((prev) => [...prev, ...res.data]);
+          setReleases((prev) => [
+            ...prev,
+            ...res.data.map((p) => ({ id: p.id, did: p.code, title: p.name, main_artist: p.artist || "Non-DID product", release_date: null, project_type: null, ads_perform_url: null, label: p.label || "", isNonDid: true })),
+          ]);
+        }
+      }
+    }
+
     const byKey = {};
     (costEntryRows || []).forEach((e) => { byKey[costEntryKey(e.release_id, e.funded_by, e.channel_kind, e.brand)] = e; });
     setCostEntries(byKey);
