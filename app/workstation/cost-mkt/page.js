@@ -523,6 +523,21 @@ export default function WorkstationCostMkt() {
     return { added, booked: booked > 0 ? booked : null };
   }
 
+  // Round 497 — Ads brand tabs: the Vieent side lists every Ads brand (package data); the Artist Trả
+  // side lists only the brands that actually exist in Booking Không Trong Package data (tickets /
+  // workstation entries), so the two sides no longer share one list.
+  const artistAdsBrands = useMemo(() => {
+    const seen = new Set();
+    notInPackageTickets.forEach((t) => { if (t.status !== "CANCELED" && t.status !== "REFUND" && t.data?.category === "Ads" && t.data?.brand) seen.add(String(t.data.brand).trim()); });
+    npbEntries.forEach((e) => { if (e.category === "Ads" && e.brand) seen.add(String(e.brand).trim()); });
+    return ADS_BRANDS.filter((b) => seen.has(b));
+  }, [notInPackageTickets, npbEntries]);
+  const adsBrandList = fundedBy === "artist" ? artistAdsBrands : ADS_BRANDS;
+  useEffect(() => {
+    if (fundedBy === "artist" && artistAdsBrands.length > 0 && !artistAdsBrands.includes(adsBrand)) setAdsBrand(artistAdsBrands[0]);
+    if (fundedBy !== "artist" && !ADS_BRANDS.includes(adsBrand)) setAdsBrand(ADS_BRANDS[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fundedBy, artistAdsBrands]);
   const columns = channelKind === "tiktok" ? TIKTOK_SUBCHANNELS : ADS_METRICS[adsBrand] || [];
   const categoryName = channelKind === "tiktok" ? "TikTok Channel" : "Ads";
 
@@ -754,7 +769,7 @@ export default function WorkstationCostMkt() {
     });
   }
   function buildTabs() {
-    const names = channelKind === "tiktok" ? TIKTOK_PARTNERS : ADS_BRANDS;
+    const names = channelKind === "tiktok" ? TIKTOK_PARTNERS : adsBrandList;
     return names.map((b) => {
       const tabRows = b === brand ? rows : computeRows(channelKind, b);
       const byId = {};
@@ -1168,7 +1183,7 @@ export default function WorkstationCostMkt() {
           </div>
 
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 16 }}>
-            {(channelKind === "tiktok" ? TIKTOK_PARTNERS : ADS_BRANDS).map((b) => (
+            {(channelKind === "tiktok" ? TIKTOK_PARTNERS : adsBrandList).map((b) => (
               <button
                 key={b}
                 onClick={() => (channelKind === "tiktok" ? setPartnerBrand(b) : setAdsBrand(b))}

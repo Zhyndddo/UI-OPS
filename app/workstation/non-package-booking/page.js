@@ -52,8 +52,12 @@ export default function NonPackageBooking() {
   const [tiktokGroup, setTiktokGroup] = useState("Partner");
   const [tiktokBrand, setTiktokBrand] = useState(TIKTOK_CHANNEL_GROUPS["Partner"][0]);
   const [adsBrand, setAdsBrand] = useState(ADS_BRANDS[0]);
-  const brand = category === "TikTok Channel" ? tiktokBrand : adsBrand;
-  const columns = category === "TikTok Channel" ? TIKTOK_SUBCHANNELS : ADS_METRICS[adsBrand] || [];
+  // Round 497 — "Unassigned": tickets whose Brand the executor hasn't picked yet. Read-only here
+  // (adding links needs a Brand); they move into the brand tab as soon as Brand is set.
+  const [unassigned, setUnassigned] = useState(false);
+  const brand = unassigned ? "" : category === "TikTok Channel" ? tiktokBrand : adsBrand;
+  const allAdsMetrics = [...new Set(Object.values(ADS_METRICS).flat())];
+  const columns = category === "TikTok Channel" ? TIKTOK_SUBCHANNELS : unassigned ? allAdsMetrics : ADS_METRICS[adsBrand] || [];
 
   const [search, setSearch] = useState("");
   const [expandedCell, setExpandedCell] = useState(null); // `${rowKey}:${col}` or null
@@ -103,6 +107,10 @@ export default function NonPackageBooking() {
   const liveTickets = useMemo(
     () => tickets.filter((t) => t.status !== "CANCELED" && t.status !== "REFUND" && t.data?.category === category && (t.data?.brand || "") === brand),
     [tickets, category, brand]
+  );
+  const unassignedCount = useMemo(
+    () => tickets.filter((t) => t.status !== "CANCELED" && t.status !== "REFUND" && t.data?.category === category && !(t.data?.brand || "").trim()).length,
+    [tickets, category]
   );
   const brandEntries = useMemo(
     () => entries.filter((e) => e.category === category && (e.brand || "") === brand),
@@ -186,7 +194,7 @@ export default function NonPackageBooking() {
             {NPB_CATEGORIES.map((c) => (
               <button
                 key={c}
-                onClick={() => setCategory(c)}
+                onClick={() => { setCategory(c); setUnassigned(false); }}
                 className={`${styles.tabBtn} ${category === c ? styles.tabBtnActive : ""}`}
                 style={{ border: category === c ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: category === c ? "rgba(255,107,26,0.1)" : "transparent" }}
               >
@@ -200,7 +208,7 @@ export default function NonPackageBooking() {
               {["Partner", "In-house"].map((g) => (
                 <button
                   key={g}
-                  onClick={() => { setTiktokGroup(g); setTiktokBrand(TIKTOK_CHANNEL_GROUPS[g][0]); }}
+                  onClick={() => { setUnassigned(false); setTiktokGroup(g); setTiktokBrand(TIKTOK_CHANNEL_GROUPS[g][0]); }}
                   className={`${styles.tabBtn} ${tiktokGroup === g ? styles.tabBtnActive : ""}`}
                   style={{ border: tiktokGroup === g ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: tiktokGroup === g ? "rgba(255,107,26,0.1)" : "transparent", fontSize: 12 }}
                 >
@@ -214,13 +222,21 @@ export default function NonPackageBooking() {
             {(category === "TikTok Channel" ? TIKTOK_CHANNEL_GROUPS[tiktokGroup] : ADS_BRANDS).map((b) => (
               <button
                 key={b}
-                onClick={() => (category === "TikTok Channel" ? setTiktokBrand(b) : setAdsBrand(b))}
-                className={`${styles.tabBtn} ${brand === b ? styles.tabBtnActive : ""}`}
-                style={{ border: brand === b ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: brand === b ? "rgba(255,107,26,0.1)" : "transparent", fontSize: 12 }}
+                onClick={() => { setUnassigned(false); category === "TikTok Channel" ? setTiktokBrand(b) : setAdsBrand(b); }}
+                className={`${styles.tabBtn} ${!unassigned && brand === b ? styles.tabBtnActive : ""}`}
+                style={{ border: !unassigned && brand === b ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: !unassigned && brand === b ? "rgba(255,107,26,0.1)" : "transparent", fontSize: 12 }}
               >
                 {category === "TikTok Channel" ? shortTiktokBrand(b) : b}
               </button>
             ))}
+            <button
+              onClick={() => setUnassigned(true)}
+              className={`${styles.tabBtn} ${unassigned ? styles.tabBtnActive : ""}`}
+              title="Tickets whose Brand hasn't been picked yet"
+              style={{ border: unassigned ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: unassigned ? "rgba(255,107,26,0.1)" : "transparent", fontSize: 12, marginLeft: 8 }}
+            >
+              Unassigned{unassignedCount > 0 ? ` (${unassignedCount})` : ""}
+            </button>
           </div>
 
           <input
@@ -235,7 +251,9 @@ export default function NonPackageBooking() {
             <div className={styles.emptyState}>Loading…</div>
           ) : rows.length === 0 ? (
             <div className={styles.emptyState}>
-              No Booking Không Trong Package tickets with Brand {category === "TikTok Channel" ? shortTiktokBrand(brand) : brand} yet. (The executor sets Brand on the ticket list.)
+              {unassigned
+                ? "No tickets waiting for a Brand."
+                : <>No Booking Không Trong Package tickets with Brand {category === "TikTok Channel" ? shortTiktokBrand(brand) : brand} yet. (The executor sets Brand on the ticket list — tickets without one are under Unassigned.)</>}
             </div>
           ) : (
             <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
@@ -270,7 +288,7 @@ export default function NonPackageBooking() {
                             onCycleStatus={cycleStatus}
                             onPatchEntry={patchEntry}
                             onDeleteEntry={deleteEntry}
-                            disabled={entriesMissing}
+                            disabled={entriesMissing || unassigned}
                             onAdd={(payload) => addEntry(row, col, payload)}
                           />
                         );
