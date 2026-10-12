@@ -99,12 +99,17 @@ export default function NonPackageBooking() {
   // product its generated code (falls back to the name for very old tickets).
   const rowKeyOf = (t) => {
     if (t.data?.relatedDid) return t.data.relatedDid;
+    // Round 502 — a code typed on the ticket itself is the row key, even with no product name.
+    const ownCode = String(t.data?.nonDidCode || "").trim();
+    if (ownCode) return ownCode;
     const name = String(t.data?.productName || "").trim();
     if (name) return t.data?.nonDidCode || codeByName[name.toLowerCase()] || nonDidRowKey(name);
     // Round 500 — a ticket with neither a DID nor a product (e.g. its DID was cleared later) used to be
     // dropped silently. It now gets a row keyed by its Tên bài so it is still visible; Cost Marketing
     // can't match it until a DID / non-DID product is set on the ticket.
     const title = String(t.data?.tenBai || "").trim();
+    // Round 503 — no code on the ticket but a non-DID product with this exact Tên bài exists: use its code.
+    if (title && codeByName[title.toLowerCase()]) return codeByName[title.toLowerCase()];
     return title ? `T:${title.toLowerCase()}` : null;
   };
 

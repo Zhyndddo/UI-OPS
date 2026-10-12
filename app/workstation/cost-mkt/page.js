@@ -478,7 +478,7 @@ export default function WorkstationCostMkt() {
       // Round 491 — cancelled / refunded tickets are not real bookings.
       if (t.status === "CANCELED" || t.status === "REFUND") return;
       // Round 488 — a ticket for a non-DID product points at its product code.
-      const did = t.data?.relatedDid || (t.data?.productName ? codeByName[String(t.data.productName).trim().toLowerCase()] : null);
+      const did = t.data?.relatedDid || String(t.data?.nonDidCode || "").trim() || (t.data?.productName ? codeByName[String(t.data.productName).trim().toLowerCase()] : null) || codeByName[String(t.data?.tenBai || "").trim().toLowerCase()] || null;
       if (!did) return;
       (map[did] = map[did] || []).push(t.data);
     });

@@ -657,7 +657,7 @@ export default function PickPackagePage() {
       const matchedTier = (p.name || "").trim().toLowerCase();
       return {
         value: p.name,
-        label: p.name,
+        label: isFollowUpType ? "Internal Package" : p.name,
         kind: isFollowUpType ? "intMedia" : "real",
         // Round 453 followup — a package's own terms_text_override (set via
         // the Package Builder's "Edit Commitment Terms" popup) wins over the

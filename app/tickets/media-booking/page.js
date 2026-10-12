@@ -329,12 +329,17 @@ function MediaBookingListInner() {
         if (rel && rel.id) {
           const { data: intPkg } = await supabase
             .from("media_booking_packages")
-            .select("id")
+            .select("id, name")
             .eq("release_id", rel.id)
-            .eq("name", "INT MEDIA")
+            .in("name", ["INT MEDIA", "Internal Package"])
             .limit(1)
             .maybeSingle();
-          if (intPkg) {
+          // Round 501 — merged tier: a package built under the new single
+          // "Internal Package" name only auto-locks when this ticket was
+          // opened for the INT follow-up (proposedPackage "INT MEDIA"), so
+          // an Internal Package picked in a normal ticket doesn't suddenly
+          // lock the release. Legacy "INT MEDIA"-named rows behave as before.
+          if (intPkg && (intPkg.name === "INT MEDIA" || t.data?.proposedPackage === "INT MEDIA")) {
             const r = await runOne({ did, legacyDid: "", contractType: "INT MEDIA" }, { allowOverwrite: false });
             if (r.ok) {
               setReleasesByDid((prev) => (prev[did] ? { ...prev, [did]: { ...prev[did], project_type: "INT MEDIA", package_locked: true } } : prev));
@@ -3223,34 +3228,19 @@ function computeLineAmount(line) {
 // hides Vĩnh Viễn once one already exists for this release (a fixed,
 // one-per-release name, not custom-typed like the years tiers).
 //
-// INT MEDIA is no longer a normal, freely-pickable tier here — it's a
-// special add-on package that only ever gets built in response to the
-// "Send INT MEDIA Follow-up" button on the release detail page (see
-// app/releases/[id]/page.js), which sets this ticket's Propose Package to
-// "INT MEDIA". allowIntMedia reflects that — the button only shows at all
-// when this ticket was opened for exactly that purpose.
-function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel }) {
+// Round 501 — INT MEDIA and Internal Package are merged into the single
+// "Internal Package" tier (always pickable, one per release).
+function PackageNamePopup({ existingNames, onConfirm, onCancel }) {
   const vinhVienTaken = existingNames.includes("Độc Quyền Vĩnh Viễn");
-  const intMediaTaken = existingNames.includes("INT MEDIA");
-  // Round 80 — "Internal Package" joins Vĩnh Viễn/Custom Years as a real
-  // pickable tier at package-building time, per explicit request. Fully
-  // editable like Vĩnh Viễn/Custom Years (no locked/read-only behavior
-  // like INT MEDIA) — same one-per-release limit as the other two named
-  // tiers, so it doesn't get accidentally duplicated.
-  const internalTaken = existingNames.includes("Internal Package");
-  // Never auto-default to the INT MEDIA tier, even when it's offered —
-  // it's an internal-only tracking tier (not a real customer-facing
-  // package — see allowIntMedia's own comment above), so silently
-  // pre-selecting it meant clicking "Clone Package" and confirming without
-  // looking could turn a normal clone into an internal one by accident.
-  // INT MEDIA must always be a deliberate click, for both "create" and
-  // "clone". (Round 86 follow-up item 2 — INT MEDIA's package lines are no
-  // longer read-only/names-only afterward; they're fully editable exactly
-  // like every other tier now. This safeguard is unrelated to that and
-  // stays as-is.)
+  // Round 501 — "INT MEDIA" and "Internal Package" are ONE tier now, per
+  // explicit request, labelled "Internal Package". New packages are always
+  // stored under that name; an older package still named "INT MEDIA"
+  // counts as already taken (one per release), and every lookup elsewhere
+  // accepts both names until the legacy rows are renamed by SQL.
+  const internalTaken = existingNames.includes("Internal Package") || existingNames.includes("INT MEDIA");
   const [tierMode, setTierMode] = useState(vinhVienTaken ? "years" : "vinhVien");
   const [years, setYears] = useState("2");
-  const name = tierMode === "vinhVien" ? "Độc Quyền Vĩnh Viễn" : tierMode === "intMedia" ? "INT MEDIA" : tierMode === "internal" ? "Internal Package" : `Độc Quyền ${years} năm`;
+  const name = tierMode === "vinhVien" ? "Độc Quyền Vĩnh Viễn" : tierMode === "internal" ? "Internal Package" : `Độc Quyền ${years} năm`;
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onCancel}>
@@ -3267,17 +3257,6 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
           >
             Vĩnh Viễn
           </button>
-          {allowIntMedia && (
-            <button
-              className={styles.btnSmall}
-              onClick={() => !intMediaTaken && setTierMode("intMedia")}
-              disabled={intMediaTaken}
-              style={tierMode === "intMedia" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}
-              title={intMediaTaken ? "Already created for this release" : "Internal-only tracking package — never shown to the artist"}
-            >
-              INT MEDIA
-            </button>
-          )}
           <button className={styles.btnSmall} onClick={() => setTierMode("years")} style={tierMode === "years" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}>
             Custom Years
           </button>
@@ -3286,7 +3265,7 @@ function PackageNamePopup({ existingNames, allowIntMedia, onConfirm, onCancel })
             onClick={() => !internalTaken && setTierMode("internal")}
             disabled={internalTaken}
             style={tierMode === "internal" ? { border: "1px solid var(--accent)", color: "var(--accent-soft)" } : undefined}
-            title={internalTaken ? "Already created for this release" : undefined}
+            title={internalTaken ? "Already created for this release" : "Internal-only tracking package — never shown to the artist"}
           >
             Internal Package
           </button>
@@ -3648,7 +3627,6 @@ function PackagesPanel({
       {namePopup && (
         <PackageNamePopup
           existingNames={packages.map((p) => p.name)}
-          allowIntMedia={proposedPackage === "INT MEDIA"}
           onCancel={() => setNamePopup(null)}
           onConfirm={(name) => createPackage(name, namePopup === "clone" ? activePackageId : null)}
         />
