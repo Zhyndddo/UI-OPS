@@ -523,21 +523,10 @@ export default function WorkstationCostMkt() {
     return { added, booked: booked > 0 ? booked : null };
   }
 
-  // Round 497 — Ads brand tabs: the Vieent side lists every Ads brand (package data); the Artist Trả
-  // side lists only the brands that actually exist in Booking Không Trong Package data (tickets /
-  // workstation entries), so the two sides no longer share one list.
-  const artistAdsBrands = useMemo(() => {
-    const seen = new Set();
-    notInPackageTickets.forEach((t) => { if (t.status !== "CANCELED" && t.status !== "REFUND" && t.data?.category === "Ads" && t.data?.brand) seen.add(String(t.data.brand).trim()); });
-    npbEntries.forEach((e) => { if (e.category === "Ads" && e.brand) seen.add(String(e.brand).trim()); });
-    return ADS_BRANDS.filter((b) => seen.has(b));
-  }, [notInPackageTickets, npbEntries]);
-  const adsBrandList = fundedBy === "artist" ? artistAdsBrands : ADS_BRANDS;
-  useEffect(() => {
-    if (fundedBy === "artist" && artistAdsBrands.length > 0 && !artistAdsBrands.includes(adsBrand)) setAdsBrand(artistAdsBrands[0]);
-    if (fundedBy !== "artist" && !ADS_BRANDS.includes(adsBrand)) setAdsBrand(ADS_BRANDS[0]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fundedBy, artistAdsBrands]);
+  // Round 499 — Ads brand tabs are the same names on both sides, exactly like TikTok Channel: what
+  // differs is the DATA (Vieent = package board, Artist Trả = non-package tickets / workstation).
+  // A brand tab with no non-package data just shows an empty table — no fallback to package numbers.
+  const adsBrandList = ADS_BRANDS;
   const columns = channelKind === "tiktok" ? TIKTOK_SUBCHANNELS : ADS_METRICS[adsBrand] || [];
   const categoryName = channelKind === "tiktok" ? "TikTok Channel" : "Ads";
 
@@ -584,7 +573,8 @@ export default function WorkstationCostMkt() {
           // truy cập) get the same package-only treatment, per request
           // ("lấy số từ gói, bỏ qua" — take it from the package, ignore the
           // Booking Board input).
-          if (kind === "ads" && (br === "Facebook Ads" || (br === "YouTube Ads" && col === "Thruplay (Views)"))) {
+          // Round 498 — package-sourced numbers belong to the Vieent (package) side only; Artist Trả reads its own tickets below.
+          if (fundedBy === "vieent" && kind === "ads" && (br === "Facebook Ads" || (br === "YouTube Ads" && col === "Thruplay (Views)"))) {
             return { added: bookedFor(r, catName, br, platform, subchannelType), booked: null, pkgSourced: true };
           }
           if (fundedBy === "vieent") {
