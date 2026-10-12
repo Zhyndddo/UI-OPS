@@ -581,7 +581,7 @@ export default function WorkstationCostMkt() {
   // month (filterMonthDate), not always "today" — see filterMonth's own
   // comment above. The field name stays isThisMonth to minimize churn;
   // it now means "matches the currently selected month filter."
-  function computeRows(kind, br) {
+  function computeRows(kind, br, fb = fundedBy) {
     const cols = kind === "tiktok" ? TIKTOK_SUBCHANNELS : ADS_METRICS[br] || [];
     const catName = kind === "tiktok" ? "TikTok Channel" : "Ads";
     return releases
@@ -606,10 +606,10 @@ export default function WorkstationCostMkt() {
           // ("lấy số từ gói, bỏ qua" — take it from the package, ignore the
           // Booking Board input).
           // Round 498 — package-sourced numbers belong to the Vieent (package) side only; Artist Trả reads its own tickets below.
-          if (fundedBy === "vieent" && kind === "ads" && (br === "Facebook Ads" || (br === "YouTube Ads" && col === "Thruplay (Views)"))) {
+          if (fb === "vieent" && kind === "ads" && (br === "Facebook Ads" || (br === "YouTube Ads" && col === "Thruplay (Views)"))) {
             return { added: bookedFor(r, catName, br, platform, subchannelType), booked: null, pkgSourced: true };
           }
-          if (fundedBy === "vieent") {
+          if (fb === "vieent") {
             let booked = bookedFor(r, catName, br, platform, subchannelType);
             let draft = false;
             // Round 481 — no Summarized package line for this cell: fall back
@@ -630,7 +630,7 @@ export default function WorkstationCostMkt() {
           }
           return artistQty(r, br, col, kind);
         });
-        const key = costEntryKey(r.id, fundedBy, kind, br);
+        const key = costEntryKey(r.id, fb, kind, br);
         const entry = costEntries[key];
         // Round 478 — manual overrides imported from a file (see
         // lib/CostMktImport.js): { [column label]: { added, booked? } },
@@ -682,14 +682,14 @@ export default function WorkstationCostMkt() {
   // Booking (package target) is only meaningful on the Vieent tab, so the
   // Artist tab only applies the "posted" half.
   const [hideZero, setHideZero] = useState(true);
-  const isZeroRow = (row) => {
+  const isZeroRow = (row, fb = fundedBy) => {
     const e = row.entry || {};
     const typed = [e.no_booking_post, e.no_support_post, e.cost_du_kien, e.cost_thuc_chay, e.vieent_ho_tro, e.artist_tra, e.sup_cashback].some((v) => v != null && v !== "" && Number(v) !== 0);
     if (typed || (row.installments || []).length > 0) return false;
     const booked = row.values.reduce((sum, v) => sum + (v.booked || 0), 0);
-    const bookingZero = fundedBy === "vieent" && booked === 0 && !row.values.some((v) => v.pkgSourced && v.added);
+    const bookingZero = fb === "vieent" && booked === 0 && !row.values.some((v) => v.pkgSourced && v.added);
     // Round 496 — on Artist Trả a booked target (ticket number) keeps the row even before anything is added.
-    return bookingZero || (row.totalPost === 0 && (fundedBy === "vieent" || booked === 0));
+    return bookingZero || (row.totalPost === 0 && (fb === "vieent" || booked === 0));
   };
   const visibleRows = hideZero ? rows.filter((row) => !isZeroRow(row)) : rows;
   const hiddenZeroCount = rows.length - visibleRows.length;
@@ -1099,60 +1099,67 @@ export default function WorkstationCostMkt() {
   }, [allEntryPairs, releases, monthFilterActive, filterMonthDate]);
   const monthScopeLabel = monthFilterActive ? `Month ${String(filterMonthDate.getMonth() + 1).padStart(2, "0")}/${filterMonthDate.getFullYear()}` : "All months";
 
-  // Frozen-snapshot payload for the CURRENT TikTok tab (partner + month filter).
+  // Round 505 — Frozen-snapshot payload for the CURRENT tab + month. It now covers BOTH Booking
+  // Package and Booking Không Package in one table: the same partner/brand, month filter and 0-row
+  // rule, computed for each side and merged per release (numbers and costs are summed).
   function buildSnapshotPayload() {
-    if (channelKind === "ads") {
-      const adsRows = displayedRows.map(({ release, entry, installments, values }) => ({
-        album: release.title,
-        artist: release.main_artist || "",
-        cells: values.map((v) => (!v || (!v.added && v.booked == null) ? "" : v.booked != null && !v.pkgSourced ? `${v.added} / ${v.booked}` : String(v.added))),
-        added: values.map((v) => v?.added || 0),
-        actualCost: entry ? amountFor(entry, installments, "cost_thuc_chay") : 0,
-      }));
-      const cashbackAds = displayedRows.reduce((sum, { entry, installments }) => sum + (entry ? amountFor(entry, installments, "sup_cashback") : 0), 0);
-      const tongAds = adsRows.reduce((sum, r) => sum + r.actualCost, 0);
-      return {
-        kind: "ads",
-        brandLabel: brand,
-        fundedBy,
-        monthLabel: monthFilterActive ? `Tháng ${filterMonthDate.getMonth() + 1}` : "Tất cả",
-        year: monthFilterActive ? String(filterMonthDate.getFullYear()) : null,
-        tongChiPhi: tongAds,
-        cashback: showSupCashback ? cashbackAds : null,
-        net: tongAds - (showSupCashback ? cashbackAds : 0),
-        tongDuAn: adsRows.length,
-        metricLabels: columns,
-        metricTotals: columns.map((_, i) => adsRows.reduce((sum, r) => sum + (r.added[i] || 0), 0)),
-        rows: adsRows,
-      };
-    }
-    const sheetRows = displayedRows.map(({ release, entry, installments, totalPost }) => {
-      const hasManual = entry && (entry.no_booking_post != null || entry.no_support_post != null);
-      const booking = entry?.no_booking_post != null ? Number(entry.no_booking_post) : null;
-      const support = entry?.no_support_post != null ? Number(entry.no_support_post) : null;
-      return {
-        album: release.title,
-        artist: release.main_artist || "",
-        totalPost: hasManual ? (booking || 0) + (support || 0) : totalPost,
-        booking,
-        support,
-        actualCost: entry ? amountFor(entry, installments, "cost_thuc_chay") : 0,
-      };
+    const sides = ["vieent", "artist"].map((fb) =>
+      computeRows(channelKind, brand, fb)
+        .filter((r) => !hideZero || !isZeroRow(r, fb))
+        .filter((r) => !monthFilterActive || r.isThisMonth)
+    );
+    const merged = new Map();
+    sides.flat().forEach((row) => {
+      const id = row.release.id;
+      const cost = row.entry ? amountFor(row.entry, row.installments, "cost_thuc_chay") : 0;
+      const cash = row.entry ? amountFor(row.entry, row.installments, "sup_cashback") : 0;
+      const hasManual = row.entry && (row.entry.no_booking_post != null || row.entry.no_support_post != null);
+      const booking = row.entry?.no_booking_post != null ? Number(row.entry.no_booking_post) : null;
+      const support = row.entry?.no_support_post != null ? Number(row.entry.no_support_post) : null;
+      const totalPost = hasManual ? (booking || 0) + (support || 0) : row.totalPost;
+      const added = row.values.map((v) => v?.added || 0);
+      const cur = merged.get(id);
+      if (!cur) {
+        merged.set(id, { album: row.release.title, artist: row.release.main_artist || "", totalPost: totalPost || 0, booking, support, actualCost: cost, cashback: cash, added });
+      } else {
+        cur.totalPost += totalPost || 0;
+        cur.booking = booking == null ? cur.booking : (cur.booking || 0) + booking;
+        cur.support = support == null ? cur.support : (cur.support || 0) + support;
+        cur.actualCost += cost;
+        cur.cashback += cash;
+        cur.added = cur.added.map((n, i) => n + (added[i] || 0));
+      }
     });
-    const cashback = displayedRows.reduce((sum, { entry, installments }) => sum + (entry ? amountFor(entry, installments, "sup_cashback") : 0), 0);
-    const tongChiPhi = sheetRows.reduce((sum, r) => sum + r.actualCost, 0);
-    return {
-      kind: "tiktok",
-      brandLabel: shortPartnerLabel(brand),
-      fundedBy,
+    const list = [...merged.values()].sort((a, b) => a.album.localeCompare(b.album));
+    const cashback = list.reduce((sum, r) => sum + r.cashback, 0);
+    const tongChiPhi = list.reduce((sum, r) => sum + r.actualCost, 0);
+    const common = {
+      fundedBy: "all",
       monthLabel: monthFilterActive ? `Tháng ${filterMonthDate.getMonth() + 1}` : "Tất cả",
       year: monthFilterActive ? String(filterMonthDate.getFullYear()) : null,
       tongChiPhi,
+      tongDuAn: list.length,
+    };
+    if (channelKind === "ads") {
+      return {
+        ...common,
+        kind: "ads",
+        brandLabel: brand,
+        cashback: showSupCashback ? cashback : null,
+        net: tongChiPhi - (showSupCashback ? cashback : 0),
+        metricLabels: columns,
+        metricTotals: columns.map((_, i) => list.reduce((sum, r) => sum + (r.added[i] || 0), 0)),
+        rows: list.map((r) => ({ album: r.album, artist: r.artist, cells: r.added.map((n) => (n ? String(n) : "")), added: r.added, actualCost: r.actualCost })),
+      };
+    }
+    return {
+      ...common,
+      kind: "tiktok",
+      brandLabel: shortPartnerLabel(brand),
       cashback,
       net: tongChiPhi - cashback,
-      tongDuAn: sheetRows.length,
-      tongSoPost: sheetRows.reduce((sum, r) => sum + (r.totalPost || 0), 0),
-      rows: sheetRows,
+      tongSoPost: list.reduce((sum, r) => sum + (r.totalPost || 0), 0),
+      rows: list.map((r) => ({ album: r.album, artist: r.artist, totalPost: r.totalPost, booking: r.booking, support: r.support, actualCost: r.actualCost })),
     };
   }
 
@@ -1179,7 +1186,7 @@ export default function WorkstationCostMkt() {
           />
 
           <div style={{ display: "flex", gap: 4, marginTop: 24, marginBottom: 12 }}>
-            {[["vieent", "BOOKING PACKAGE (VIEENT TRẢ)"], ["artist", "BOOKING KHÔNG PACKAGE (ARTIST TRẢ)"]].map(([key, label]) => (
+            {[["vieent", "BOOKING PACKAGE (VIEENT TRẢ)"], ["artist", "BOOKING KHÔNG PACKAGE"]].map(([key, label]) => (
               <button
                 key={key}
                 onClick={() => setFundedBy(key)}
@@ -1310,7 +1317,7 @@ export default function WorkstationCostMkt() {
                 disabled={loading}
                 className={styles.tabBtn}
                 style={{ border: "1px solid var(--border-strong)", borderRadius: 6, fontSize: 11, padding: "6px 12px" }}
-                title="Freeze this tab + month into a shareable, never-changing link"
+                title="Freeze this tab + month (Booking Package and Booking Không Package together) into one shareable, never-changing link"
               >
                 ❄ Freeze & share
               </button>
@@ -1335,7 +1342,7 @@ export default function WorkstationCostMkt() {
               profile={profile}
               defaultTitle={`${channelKind === "tiktok" ? "TikTok Booking" : "Ads"} — ${channelKind === "tiktok" ? shortPartnerLabel(brand) : brand} — ${monthFilterActive ? `${String(filterMonthDate.getMonth() + 1).padStart(2, "0")}/${filterMonthDate.getFullYear()}` : "All"}`}
               buildPayload={buildSnapshotPayload}
-              meta={{ fundedBy, brand, channelKind }}
+              meta={{ fundedBy: "all", brand, channelKind }}
               onClose={() => setShowSnapshot(false)}
             />
           )}

@@ -405,6 +405,7 @@ export default function BookingBoard() {
   const [month, setMonth] = useState("");
   const [round, setRound] = useState("Đợt 1"); // 'INT' | 'Đợt 1' | 'Đợt 2' — now a RELEASE-level (row) filter, see roundFilteredReleases
   const [hangMucFilter, setHangMucFilter] = useState("All"); // 'All' | a category name — determines the columns
+  const loadSeqRef = useRef(0); // Round 506 — latest-request-wins guard for loadPage
   const [subFilter, setSubFilter] = useState(null); // layer-1 pick within hangMucFilter (a brand, or a brand group) — only relevant when CATEGORY_SUBFILTERS[hangMucFilter] exists; resets whenever hangMucFilter changes, see effect below
   const [tiktokBrandFilter, setTiktokBrandFilter] = useState(null); // layer-2 pick, TikTok Channel only — which of the picked group's 4 brands; columns (layer 3) are then that brand's 5 fixed subchannel types. Resets whenever hangMucFilter or subFilter (the group) changes, see effect below.
   const [typeFilter, setTypeFilter] = useState("");
@@ -519,6 +520,9 @@ export default function BookingBoard() {
   // single "pull all 8 tables in full" pass.
   async function loadPage({ silent = false } = {}) {
     if (!supabase) return;
+    // Round 506 — every filter click fires a load; responses can arrive out of order. Only the newest request may write state.
+    const reqId = ++loadSeqRef.current;
+    const isStale = () => reqId !== loadSeqRef.current;
     if (!silent) setLoading(true);
     const { data: rpcResult, error: rpcError } = await supabase.rpc("booking_board_page", {
       p_search: debouncedSearch || null,
@@ -534,6 +538,7 @@ export default function BookingBoard() {
       p_page: page,
       p_page_size: pageSize,
     });
+    if (isStale()) return;
     if (rpcError) {
       // Round 303 — surfaced loudly on purpose: a silent failure here
       // would just show an empty/stale board with no indication why,
@@ -576,6 +581,7 @@ export default function BookingBoard() {
       ),
       supabase.from("media_booking_channel_status").select("release_id, category_id, brand, column_key, status").in("release_id", ids),
     ]);
+    if (isStale()) return;
     // .in("id", ids) doesn't guarantee row order matches `ids` — re-order
     // to the RPC's release_date-desc order rather than whatever order
     // Postgres happened to return them in.
@@ -607,6 +613,7 @@ export default function BookingBoard() {
   // the header numbers up shortly after.
   function refreshCounts() {
     if (!supabase) return;
+    const seqAtStart = loadSeqRef.current;
     supabase
       .rpc("booking_board_page", {
         p_search: debouncedSearch || null,
@@ -624,6 +631,7 @@ export default function BookingBoard() {
       })
       .then(({ data: rpcResult, error: rpcError }) => {
         if (rpcError) { console.error("booking_board_page refresh failed:", rpcError); return; }
+        if (seqAtStart !== loadSeqRef.current) return; // a newer page load already set fresh counts
         setDoneCounts({ done: rpcResult?.done_count || 0, notDone: rpcResult?.not_done_count || 0 });
         setStats({
           total: rpcResult?.final_total || 0,
