@@ -211,6 +211,8 @@ export default function WorkstationCostMkt() {
   const [contentEntries, setContentEntries] = useState([]); // Round 481 — media_booking_content_entries (package-scoped draft counts)
   const [entries, setEntries] = useState([]); // media_booking_entries — Round 316 fix, see below
   const [notInPackageTickets, setNotInPackageTickets] = useState([]);
+  // Round 496 — the URLs / quantities added in the NON-PACKAGE BOOKING workstation (the "added" side of Artist Trả).
+  const [npbEntries, setNpbEntries] = useState([]);
   // Round 493 — label name -> LBL_ type (labels.default_lbl_tag), for the Label filter's "External (Hợp Tác)" option.
   const [labelTagByName, setLabelTagByName] = useState({});
   const [labelFilter, setLabelFilter] = useState("");
@@ -384,7 +386,7 @@ export default function WorkstationCostMkt() {
     // .in() list of every release id in the system.
     const tiktokAdsCategoryIds = (cats || []).filter((c) => c.name === "TikTok Channel" || c.name === "Ads").map((c) => c.id);
     const releaseIds = releaseList.map((r) => r.id);
-    const [{ data: pkgs }, { data: ents }, ticketRows, { data: contentRows }] = await Promise.all([
+    const [{ data: pkgs }, { data: ents }, ticketRows, { data: contentRows }, npbRes] = await Promise.all([
       // Round 475 — was ONE .in("release_id", <every release id>) call. With
       // ~950 releases that URL is ~35 KB, which the API gateway can reject
       // outright (the call then returns no data and every "booked"/package
@@ -429,7 +431,9 @@ export default function WorkstationCostMkt() {
               .order("id")
           )
         : Promise.resolve({ data: [] }),
+      fetchAllRows(() => supabase.from("non_package_booking_entries").select("id, row_key, category, brand, hang_muc, link, quantity, status")),
     ]);
+    setNpbEntries(npbRes?.error ? [] : npbRes?.data || []);
     setContentEntries(contentRows || []);
     setPackages(pkgs || []);
     setEntries(ents || []);
@@ -486,6 +490,12 @@ export default function WorkstationCostMkt() {
   const labelOf = (r) => (r.label || (r.isNonDid ? (ticketsByDid[r.did] || []).map((d) => d.label).find(Boolean) : "") || "").trim();
   const isExternalLabel = (name) => labelTagByName[String(name || "").trim().toLowerCase()] === "LBL_EXTERNAL";
 
+  const npbEntriesByKey = useMemo(() => {
+    const m = {};
+    npbEntries.forEach((e) => { (m[e.row_key] = m[e.row_key] || []).push(e); });
+    return m;
+  }, [npbEntries]);
+
   // Artist Trả's per-(release, brand, hạng mục) quantity — sum of
   // Số Lượng across every matching ticket (Brand/Hạng Mục are free text
   // on that ticket type, so this only picks up a ticket whose text
@@ -498,16 +508,19 @@ export default function WorkstationCostMkt() {
   // Ads) so a same-named brand can't leak across the two kinds. Tickets
   // from the old New-Ticket form carry no category: they keep the old
   // soLuong behaviour.
+  // Round 496 — Artist Trả works like the package side: BOOKED = the tickets' Số
+  // liệu / Số lượng (the target), ADDED = what the NON-PACKAGE BOOKING workstation
+  // recorded (TikTok: one per link, Ads: summed quantity). Tickets with no Brand
+  // (or a Brand not on this tab) don't count anywhere yet.
   function artistQty(release, brandValue, hangMuc, kind) {
     const rows = ticketsByDid[release.did] || [];
     const catWanted = kind === "tiktok" ? "TikTok Channel" : "Ads";
-    return rows
+    const booked = rows
       .filter((d) => (d.brand || "").trim() === brandValue && (d.hangMuc || "").trim() === hangMuc && (!d.category || d.category === catWanted))
-      .reduce((sum, d) => {
-        const q = Number(d.soLuong);
-        if (d.category === "TikTok Channel" && !(q > 0)) return sum + (d.linkUrl ? 1 : 0);
-        return sum + (q || 0);
-      }, 0);
+      .reduce((sum, d) => sum + (Number(d.soLuong) || 0), 0);
+    const mine = (npbEntriesByKey[release.did] || []).filter((e) => e.category === catWanted && (e.brand || "") === brandValue && (e.hang_muc || "") === hangMuc);
+    const added = kind === "tiktok" ? mine.length : mine.reduce((sum, e) => sum + (Number(e.quantity) || 0), 0);
+    return { added, booked: booked > 0 ? booked : null };
   }
 
   const columns = channelKind === "tiktok" ? TIKTOK_SUBCHANNELS : ADS_METRICS[adsBrand] || [];
@@ -578,7 +591,7 @@ export default function WorkstationCostMkt() {
               draft,
             };
           }
-          return { added: artistQty(r, br, col, kind), booked: null };
+          return artistQty(r, br, col, kind);
         });
         const key = costEntryKey(r.id, fundedBy, kind, br);
         const entry = costEntries[key];
@@ -615,7 +628,7 @@ export default function WorkstationCostMkt() {
 
   const rows = useMemo(() => computeRows(channelKind, brand),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  [releases, columns, fundedBy, channelKind, brand, bookedFor, addedFor, entries, contentEntries, packageByRelease, categoryIdByName, costEntries, installmentsByKey, ticketsByDid, filterMonthDate]);
+  [releases, columns, fundedBy, channelKind, brand, bookedFor, addedFor, entries, contentEntries, packageByRelease, categoryIdByName, costEntries, installmentsByKey, ticketsByDid, npbEntriesByKey, filterMonthDate]);
 
   // Round 436 introduced This Month / All counters; Round 447 keeps the
   // same two-card/click-to-filter shape but "This Month" is now "the
@@ -638,7 +651,8 @@ export default function WorkstationCostMkt() {
     if (typed || (row.installments || []).length > 0) return false;
     const booked = row.values.reduce((sum, v) => sum + (v.booked || 0), 0);
     const bookingZero = fundedBy === "vieent" && booked === 0 && !row.values.some((v) => v.pkgSourced && v.added);
-    return bookingZero || row.totalPost === 0;
+    // Round 496 — on Artist Trả a booked target (ticket number) keeps the row even before anything is added.
+    return bookingZero || (row.totalPost === 0 && (fundedBy === "vieent" || booked === 0));
   };
   const visibleRows = hideZero ? rows.filter((row) => !isZeroRow(row)) : rows;
   const hiddenZeroCount = rows.length - visibleRows.length;

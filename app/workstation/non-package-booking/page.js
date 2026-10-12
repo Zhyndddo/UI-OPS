@@ -7,51 +7,20 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { useAuth } from "../../../lib/AuthContext";
 import { fetchAllRows } from "../../../lib/helpers";
-import { nonDidRowKey } from "../../../lib/nonDidProducts";
+import { nonDidRowKey, fetchNonDidProducts } from "../../../lib/nonDidProducts";
 import { logAudit } from "../../../lib/auditLog";
 import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS } from "../../booking/page";
 import styles from "../../shared.module.css";
 
-// Round 448 — new Workstation item, per explicit request: "NON-PACKAGE
-// BOOKING" — Booking Board, shaped the same way (Hạng Mục tabs → brand →
-// columns, a cell per release×column that can hold several entries each
-// with their own status, click-to-expand editing), but reading/writing
-// Booking Không Trong Package tickets (lib/ticketConfigs.js's
-// booking_not_in_package) instead of media_booking_entries/packages —
-// this is the Nghệ Sĩ Trả side Booking Board itself deliberately doesn't
-// touch (see that type's own Round 106 comment: "not related to the
-// current package ticket and booking board"). Confirmed via
-// AskUserQuestion: full Booking-Board-style multi-entry-per-cell +
-// per-entry status + an Add-Link-shaped popup, not a flat one-number
-// grid — that's what's built below.
-//
-// Deliberate scope cuts vs. the real Booking Board (documented here, not
-// silently dropped — see claude/round448-non-package-booking.md for the
-// full writeup):
-//   - No server-side pagination / booking_board_page() RPC equivalent —
-//     every row here is driven by these tickets directly (fetchAllRows,
-//     same pattern Cost Marketing already uses), which are expected to be
-//     a small fraction of Booking Board's full release volume. Revisit if
-//     this ever grows into the thousands.
-//   - No Round (INT/Đợt 1/Đợt 2) filter, no CSV export, no Done/Not-Done
-//     click-filter counters, no booking_channels reference-search in the
-//     Add-Link popup — Booking Board's own peripheral features, not the
-//     core "multiple entries, per-entry status" shape this round was
-//     actually about.
-//   - "Booked" is always "—": there is no package here to compare
-//     against by definition (that's the whole point of "non-package").
-//
-// Entries live as ordinary `tickets` rows (type booking_not_in_package) —
-// NOT a new table — so every entry still has a real ticket id, shows up
-// in that ticket type's own list/detail pages, and keeps its audit trail.
-// "Add" inserts a new ticket row directly (bypassing the full New Ticket
-// form — same idea as Booking Board's own inline Add-Link popup writing
-// straight to media_booking_entries). There is no delete here: nothing
-// else in this app deletes a ticket from the UI (deleted_at is only ever
-// set by an offline cleanup script) — getting an entry "off the board"
-// means cycling it to a terminal status instead (Done, or Ads' own
-// Pending/Cancel-shaped states), same as how Booking Board treats a
-// locked/cancelled Ads cell.
+// Round 448 — NON-PACKAGE BOOKING workstation (Nghệ Sĩ Trả side of the Booking Board).
+// Round 496 — reworked to work exactly like the package Booking Board:
+//   BOOKED = the Booking Không Trong Package TICKETS' Số liệu / Số lượng (the
+//            target, same role as a package line). A ticket's URL is only a
+//            note telling the team which post to run.
+//   ADDED  = the URLs (TikTok) / quantities (Ads) the team adds HERE, stored in
+//            their own table non_package_booking_entries (sql/pending/
+//            add-round496-non-package-booking-entries.sql) — NOT as tickets.
+// A cell shows "added / booked"; Cost Marketing reads the same two numbers.
 
 const NPB_CATEGORIES = ["TikTok Channel", "Ads"];
 const ADS_BRANDS = Object.keys(ADS_METRICS);
@@ -73,9 +42,10 @@ function shortTiktokBrand(b) {
 export default function NonPackageBooking() {
   const { profile } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [tabId, setTabId] = useState(null);
-  const [defaultStatus, setDefaultStatus] = useState(null);
-  const [tickets, setTickets] = useState([]); // every non-deleted booking_not_in_package ticket — each one is an "entry"
+  const [tickets, setTickets] = useState([]); // booking_not_in_package tickets = the BOOKED side
+  const [entries, setEntries] = useState([]); // non_package_booking_entries = the ADDED side
+  const [entriesMissing, setEntriesMissing] = useState(false);
+  const [codeByName, setCodeByName] = useState({});
   const [releasesByDid, setReleasesByDid] = useState({});
 
   const [category, setCategory] = useState("TikTok Channel");
@@ -86,7 +56,7 @@ export default function NonPackageBooking() {
   const columns = category === "TikTok Channel" ? TIKTOK_SUBCHANNELS : ADS_METRICS[adsBrand] || [];
 
   const [search, setSearch] = useState("");
-  const [expandedCell, setExpandedCell] = useState(null); // `${did}:${col}` or null
+  const [expandedCell, setExpandedCell] = useState(null); // `${rowKey}:${col}` or null
 
   useEffect(() => {
     if (!supabase) return;
@@ -95,18 +65,23 @@ export default function NonPackageBooking() {
 
   async function load() {
     setLoading(true);
-    const { data: tab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "booking_not_in_package").maybeSingle();
-    setTabId(tab?.id || null);
-    setDefaultStatus(tab?.default_status || null);
+    const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "booking_not_in_package").maybeSingle();
     if (!tab?.id) { setLoading(false); return; }
-    const { data: ticketRows } = await fetchAllRows(() =>
-      supabase.from("tickets").select("id, data, status, created_at").eq("tab_id", tab.id).is("deleted_at", null).order("created_at")
-    );
+    const [{ data: ticketRows }, entryRes, products] = await Promise.all([
+      fetchAllRows(() => supabase.from("tickets").select("id, data, status, created_at, requester_name").eq("tab_id", tab.id).is("deleted_at", null).order("created_at")),
+      fetchAllRows(() => supabase.from("non_package_booking_entries").select("*").order("created_at")),
+      fetchNonDidProducts(),
+    ]);
     const list = ticketRows || [];
     setTickets(list);
+    setEntriesMissing(!!entryRes.error);
+    setEntries(entryRes.data || []);
+    const cmap = {};
+    (products || []).forEach((p) => { cmap[p.name.trim().toLowerCase()] = p.code; });
+    setCodeByName(cmap);
     const dids = [...new Set(list.map((t) => t.data?.relatedDid).filter(Boolean))];
     if (dids.length > 0) {
-      const { data: rels } = await supabase.from("releases").select("id, did, title, main_artist").in("did", dids);
+      const { data: rels } = await supabase.from("releases").select("id, did, title, main_artist, label").in("did", dids);
       const map = {};
       (rels || []).forEach((r) => { map[r.did] = r; });
       setReleasesByDid(map);
@@ -116,91 +91,78 @@ export default function NonPackageBooking() {
     setLoading(false);
   }
 
-  // Entries for the current category/brand (any column) — used both to
-  // decide which release rows show up, and (filtered further by column)
-  // to fill each cell.
-  const entriesForBrand = useMemo(
-    () => tickets.filter((t) => t.data?.category === category && (t.data?.brand || "") === brand),
+  // The key a ticket's row is identified by — the release DID, or for a non-DID
+  // product its generated code (falls back to the name for very old tickets).
+  const rowKeyOf = (t) => {
+    if (t.data?.relatedDid) return t.data.relatedDid;
+    const name = String(t.data?.productName || "").trim();
+    if (!name) return null;
+    return t.data?.nonDidCode || codeByName[name.toLowerCase()] || nonDidRowKey(name);
+  };
+
+  const liveTickets = useMemo(
+    () => tickets.filter((t) => t.status !== "CANCELED" && t.status !== "REFUND" && t.data?.category === category && (t.data?.brand || "") === brand),
     [tickets, category, brand]
+  );
+  const brandEntries = useMemo(
+    () => entries.filter((e) => e.category === category && (e.brand || "") === brand),
+    [entries, category, brand]
   );
 
   const rows = useMemo(() => {
-    const byDid = {};
-    entriesForBrand.forEach((t) => {
-      // Round 488 — a ticket for a non-DID product has no relatedDid; its row
-      // is keyed by the product name instead.
-      const did = t.data?.relatedDid || (t.data?.productName ? nonDidRowKey(t.data.productName) : null);
-      if (!did) return;
-      (byDid[did] = byDid[did] || []).push(t);
+    const byKey = {};
+    liveTickets.forEach((t) => {
+      const k = rowKeyOf(t);
+      if (!k) return;
+      (byKey[k] = byKey[k] || { tickets: [], entries: [] }).tickets.push(t);
+    });
+    brandEntries.forEach((e) => {
+      (byKey[e.row_key] = byKey[e.row_key] || { tickets: [], entries: [] }).entries.push(e);
     });
     const q = search.trim().toLowerCase();
-    return Object.entries(byDid)
-      .map(([did, entries]) => {
-        const release = releasesByDid[did];
-        const isNonDid = did.startsWith("ND:");
-        const label = release?.title || (isNonDid ? entries[0]?.data?.productName : null) || entries[0]?.data?.tenBai || did;
-        return { did, release, entries, label, isNonDid };
+    return Object.entries(byKey)
+      .map(([key, g]) => {
+        const release = releasesByDid[key] || null;
+        const first = g.tickets[0]?.data || {};
+        const isNonDid = !release && (key.startsWith("ND-") || key.startsWith("ND:"));
+        const label = release?.title || first.productName || first.tenBai || g.entries[0]?.row_label || key;
+        return { key, release, tickets: g.tickets, entries: g.entries, label, isNonDid };
       })
-      .filter(({ did, release, label }) => {
-        if (!q) return true;
-        return did.toLowerCase().includes(q) || label.toLowerCase().includes(q) || (release?.main_artist || "").toLowerCase().includes(q);
-      })
+      .filter(({ key, release, label }) => !q || key.toLowerCase().includes(q) || label.toLowerCase().includes(q) || (release?.main_artist || "").toLowerCase().includes(q))
       .sort((a, b) => a.label.localeCompare(b.label));
-  }, [entriesForBrand, releasesByDid, search]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveTickets, brandEntries, releasesByDid, codeByName, search]);
 
-  async function insertEntry(payload) {
-    if (!tabId) return { error: new Error("Booking Không Trong Package tab not found — did schema.sql get redeployed?") };
+  async function addEntry(row, col, payload) {
     const { data, error } = await supabase
-      .from("tickets")
-      .insert({
-        tab_id: tabId,
-        data: payload,
-        status: defaultStatus,
-        status_log: defaultStatus ? { [defaultStatus]: new Date().toISOString() } : {},
-        requester_segment: profile?.segment || null,
-        requester_name: profile?.name || null,
-        requester_profile_id: profile?.id || null,
-      })
-      .select("id, data, status, created_at")
+      .from("non_package_booking_entries")
+      .insert({ row_key: row.key, row_label: row.label, category, brand, hang_muc: col, created_by: profile?.id || null, ...payload })
+      .select("*")
       .single();
-    if (!error && data) setTickets((prev) => [...prev, data]);
+    if (!error && data) {
+      setEntries((prev) => [...prev, data]);
+      logAudit({ actor: profile?.id, action: "create", entity: "npb_entry", entityId: data.id, field: category === "TikTok Channel" ? "link" : "quantity", before: null, after: String(payload.link ?? payload.quantity ?? "") });
+    }
     return { data, error };
   }
-
-  async function updateEntry(ticket, patch) {
-    const nextData = { ...ticket.data, ...patch };
-    setTickets((prev) => prev.map((t) => (t.id === ticket.id ? { ...t, data: nextData } : t)));
-    const { data, error } = await supabase.from("tickets").update({ data: nextData }).eq("id", ticket.id).select("id, data, status, created_at").single();
-    if (!error && data) setTickets((prev) => prev.map((t) => (t.id === ticket.id ? data : t)));
-    return { data, error };
+  async function patchEntry(entry, patch) {
+    setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, ...patch } : e)));
+    const { error } = await supabase.from("non_package_booking_entries").update(patch).eq("id", entry.id);
+    if (error) setEntries((prev) => prev.map((e) => (e.id === entry.id ? entry : e)));
+    return { error };
   }
-
-  // Round 491 — remove a link (TikTok Channel) / quantity (Ads) from a cell.
-  // This does NOT delete the ticket: it only blanks that field on it, so the
-  // ticket stays in the Booking Không Trong Package list, and the entry drops
-  // out of this workstation and out of Cost Marketing's counts (an entry
-  // without a link / quantity is not shown or counted). Audit-logged.
-  async function clearEntry(ticket) {
-    const isLink = ticket.data?.category === "TikTok Channel";
-    // Round 492 — a TikTok entry can now be a Số liệu number (soLuong) with no
-    // link, so remove clears whichever of the two it actually has.
-    const field = isLink && !(ticket.data?.soLuong != null && ticket.data?.soLuong !== "") ? "linkUrl" : "soLuong";
-    const before = ticket.data?.[field] ?? null;
-    const { error } = await updateEntry(ticket, isLink && field === "linkUrl" ? { linkUrl: "" } : { soLuong: null });
-    if (error) return { error };
-    logAudit({ actor: profile?.id, action: "update", entity: "ticket", entityId: ticket.id, field, before: before == null ? null : String(before), after: null });
-    return { error: null };
+  async function deleteEntry(entry) {
+    const { error } = await supabase.from("non_package_booking_entries").delete().eq("id", entry.id);
+    if (!error) {
+      setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+      logAudit({ actor: profile?.id, action: "delete", entity: "npb_entry", entityId: entry.id, field: entry.category === "TikTok Channel" ? "link" : "quantity", before: String(entry.link ?? entry.quantity ?? ""), after: null });
+    }
+    return { error };
   }
-
-  function cycleLinkStatus(ticket) {
-    const cur = ticket.data?.linkStatus || LINK_STATUS_OPTIONS[0];
-    const next = LINK_STATUS_OPTIONS[(LINK_STATUS_OPTIONS.indexOf(cur) + 1) % LINK_STATUS_OPTIONS.length];
-    updateEntry(ticket, { linkStatus: next });
-  }
-  function cycleAdsStatus(ticket) {
-    const cur = ticket.data?.adsStatus || ADS_RUN_STATUS_OPTIONS[0];
-    const next = ADS_RUN_STATUS_OPTIONS[(ADS_RUN_STATUS_OPTIONS.indexOf(cur) + 1) % ADS_RUN_STATUS_OPTIONS.length];
-    updateEntry(ticket, { adsStatus: next });
+  function cycleStatus(entry) {
+    const opts = entry.category === "TikTok Channel" ? LINK_STATUS_OPTIONS : ADS_RUN_STATUS_OPTIONS;
+    const cur = entry.status || opts[0];
+    patchEntry(entry, { status: opts[(opts.indexOf(cur) + 1) % opts.length] });
   }
 
   return (
@@ -210,10 +172,15 @@ export default function NonPackageBooking() {
           <div className={styles.eyebrow}>// Workstation</div>
           <h1 className={styles.title}>NON-PACKAGE BOOKING</h1>
           <p style={{ color: "var(--text-faint)", fontSize: 12, marginTop: -16, marginBottom: 20, maxWidth: 760 }}>
-            Booking Board, shaped the same way, for Booking Không Trong Package (Nghệ Sĩ Trả) — TikTok Channel and
-            Ads only. Every cell is backed by real tickets of that type; opening one shows every entry and lets you
-            add another.
+            Works like the Booking Board. Each cell shows <b>added / booked</b>: booked is the Số liệu / Số lượng on
+            the Booking Không Trong Package tickets; added is the links (TikTok) or quantity (Ads) you add here. A
+            ticket's URL is only a note about which post to run.
           </p>
+          {entriesMissing && (
+            <div className={styles.errorBox} style={{ marginBottom: 12 }}>
+              The entries table isn't set up yet — run sql/pending/add-round496-non-package-booking-entries.sql. Until then adding is disabled.
+            </div>
+          )}
 
           <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
             {NPB_CATEGORIES.map((c) => (
@@ -268,7 +235,7 @@ export default function NonPackageBooking() {
             <div className={styles.emptyState}>Loading…</div>
           ) : rows.length === 0 ? (
             <div className={styles.emptyState}>
-              No Booking Không Trong Package entries yet for {category === "TikTok Channel" ? shortTiktokBrand(brand) : brand}.
+              No Booking Không Trong Package tickets with Brand {category === "TikTok Channel" ? shortTiktokBrand(brand) : brand} yet. (The executor sets Brand on the ticket list.)
             </div>
           ) : (
             <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
@@ -280,40 +247,31 @@ export default function NonPackageBooking() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map(({ did, release, entries, label, isNonDid }) => (
-                    <tr key={did}>
+                  {rows.map((row) => (
+                    <tr key={row.key}>
                       <td style={{ minWidth: 160 }}>
-                        {release ? (
-                          <Link href={`/releases/${release.id}`} className={styles.rowLink}>{release.title}</Link>
+                        {row.release ? (
+                          <Link href={`/releases/${row.release.id}`} className={styles.rowLink}>{row.release.title}</Link>
                         ) : (
-                          <span>{label}</span>
+                          <span>{row.label}</span>
                         )}
-                        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{isNonDid ? "Non-DID product" : release?.main_artist || did}</div>
+                        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{row.isNonDid ? `Non-DID · ${row.key}` : row.release?.main_artist || row.key}</div>
                       </td>
                       {columns.map((col) => {
-                        const cellKey = `${did}:${col}`;
-                        // Round 491 — an entry whose link / quantity was removed is hidden.
-                        const cellEntries = entries.filter((t) => (t.data?.hangMuc || "") === col && (category === "TikTok Channel" ? !!t.data?.linkUrl || (t.data?.soLuong != null && t.data?.soLuong !== "") : t.data?.soLuong != null && t.data?.soLuong !== ""));
+                        const cellKey = `${row.key}:${col}`;
                         return (
                           <NpbCell
                             key={col}
                             category={category}
                             expanded={expandedCell === cellKey}
                             onToggle={() => setExpandedCell(expandedCell === cellKey ? null : cellKey)}
-                            cellEntries={cellEntries}
-                            onCycleLinkStatus={cycleLinkStatus}
-                            onCycleAdsStatus={cycleAdsStatus}
-                            onUpdateEntry={updateEntry}
-                            onDeleteEntry={clearEntry}
-                            onAdd={(payload) => insertEntry({
-                              relatedDid: isNonDid ? "" : did,
-                              ...(isNonDid ? { productName: label } : {}),
-                              tenBai: release?.title || entries[0]?.data?.tenBai || "",
-                              category,
-                              brand,
-                              hangMuc: col,
-                              ...payload,
-                            })}
+                            bookedTickets={row.tickets.filter((t) => (t.data?.hangMuc || "") === col)}
+                            cellEntries={row.entries.filter((e) => (e.hang_muc || "") === col)}
+                            onCycleStatus={cycleStatus}
+                            onPatchEntry={patchEntry}
+                            onDeleteEntry={deleteEntry}
+                            disabled={entriesMissing}
+                            onAdd={(payload) => addEntry(row, col, payload)}
                           />
                         );
                       })}
@@ -329,42 +287,36 @@ export default function NonPackageBooking() {
   );
 }
 
-// One cell = every entry (ticket) for this release × column. Shows a
-// compact "count + status dot" at rest (same visual idiom Booking Board's
-// own BrandCell/AdsCell use — a number plus a colored status dot), click
-// to expand into a listing of every entry (click an entry's status pill
-// to cycle it) plus a small inline "add another" form.
-function NpbCell({ category, expanded, onToggle, cellEntries, onCycleLinkStatus, onCycleAdsStatus, onUpdateEntry, onDeleteEntry, onAdd }) {
-  const count = cellEntries.length;
-  let dotColor = "var(--text-faint)";
-  let summary = "—";
-  if (category === "TikTok Channel") {
-    const done = cellEntries.filter((t) => t.data?.linkStatus === "Done").length;
-    const sent = cellEntries.filter((t) => t.data?.linkStatus === "Đã Gửi").length;
-    dotColor = count === 0 ? "var(--text-faint)" : done === count ? LINK_STATUS_COLORS.Done : sent + done > 0 ? LINK_STATUS_COLORS["Đã Gửi"] : LINK_STATUS_COLORS["Chưa Booking"];
-    summary = count > 0 ? `${done}/${count}` : "—";
-  } else {
-    const total = cellEntries.reduce((s, t) => s + (Number(t.data?.soLuong) || 0), 0);
-    const worst = cellEntries.find((t) => t.data?.adsStatus === "Chưa Chạy") ? "Chưa Chạy" : cellEntries[0]?.data?.adsStatus;
-    dotColor = count === 0 ? "var(--text-faint)" : ADS_RUN_STATUS_COLORS[worst] || "var(--text-faint)";
-    summary = count > 0 ? String(total) : "—";
-  }
+// One cell = booked (tickets) vs added (entries) for this row × column, shown as
+// "added / booked" with a status dot — same shape as the Booking Board's cells.
+function NpbCell({ category, expanded, onToggle, bookedTickets, cellEntries, onCycleStatus, onPatchEntry, onDeleteEntry, onAdd, disabled }) {
+  const isTiktok = category === "TikTok Channel";
+  const booked = bookedTickets.reduce((s, t) => s + (Number(t.data?.soLuong) || 0), 0);
+  const added = isTiktok ? cellEntries.length : cellEntries.reduce((s, e) => s + (Number(e.quantity) || 0), 0);
+  const colors = isTiktok ? LINK_STATUS_COLORS : ADS_RUN_STATUS_COLORS;
+  const firstStatus = isTiktok ? LINK_STATUS_OPTIONS[0] : ADS_RUN_STATUS_OPTIONS[0];
+  const allDone = cellEntries.length > 0 && cellEntries.every((e) => e.status === (isTiktok ? "Done" : "Đã Chạy"));
+  const anyProgress = cellEntries.some((e) => e.status && e.status !== firstStatus);
+  const dotColor = cellEntries.length === 0 ? "var(--text-faint)" : allDone ? (isTiktok ? colors.Done : colors["Đã Chạy"]) : anyProgress ? (isTiktok ? colors["Đã Gửi"] : colors["Đang Chạy"]) : colors[firstStatus];
+  const summary = added === 0 && booked === 0 ? "—" : `${added}${booked > 0 ? ` / ${booked}` : ""}`;
+  const over = booked > 0 && added > booked;
 
   return (
     <td style={{ verticalAlign: "top", minWidth: 120, position: "relative", boxShadow: expanded ? "inset 0 0 0 2px var(--accent)" : "none" }}>
-      <div onClick={onToggle} style={{ cursor: "pointer", textAlign: "center", padding: "6px 4px" }}>
-        <div style={{ fontSize: 13, fontWeight: 700 }}>{summary}</div>
+      <div onClick={onToggle} style={{ cursor: "pointer", textAlign: "center", padding: "6px 4px" }} title={booked > 0 ? `added ${added} of booked ${booked}` : "no booked number on a ticket yet"}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: over ? "#ff9d5c" : undefined }}>{summary}</div>
         <div style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, margin: "3px auto 0" }} />
       </div>
       {expanded && (
         <NpbCellPopup
           category={category}
+          bookedTickets={bookedTickets}
           cellEntries={cellEntries}
-          onCycleLinkStatus={onCycleLinkStatus}
-          onCycleAdsStatus={onCycleAdsStatus}
-          onUpdateEntry={onUpdateEntry}
+          onCycleStatus={onCycleStatus}
+          onPatchEntry={onPatchEntry}
           onDeleteEntry={onDeleteEntry}
           onAdd={onAdd}
+          disabled={disabled}
           onClose={onToggle}
         />
       )}
@@ -372,21 +324,22 @@ function NpbCell({ category, expanded, onToggle, cellEntries, onCycleLinkStatus,
   );
 }
 
-function DeleteEntryButton({ t, confirmDelId, setConfirmDelId, onDeleteEntry, setErr }) {
-  if (confirmDelId === t.id) {
+function DeleteEntryButton({ e, confirmDelId, setConfirmDelId, onDeleteEntry, setErr }) {
+  if (confirmDelId === e.id) {
     return (
       <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
-        <button type="button" onClick={async () => { const { error } = await onDeleteEntry(t); if (error) setErr(error.message || String(error)); setConfirmDelId(null); }} style={{ background: "none", border: "none", color: "#e57373", cursor: "pointer", fontSize: 10, fontWeight: 700, padding: 0 }}>Remove?</button>
+        <button type="button" onClick={async () => { const { error } = await onDeleteEntry(e); if (error) setErr(error.message || String(error)); setConfirmDelId(null); }} style={{ background: "none", border: "none", color: "#e57373", cursor: "pointer", fontSize: 10, fontWeight: 700, padding: 0 }}>Delete?</button>
         <button type="button" onClick={() => setConfirmDelId(null)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 10, padding: 0 }}>no</button>
       </span>
     );
   }
   return (
-    <button type="button" title={t.data?.category === "TikTok Channel" ? "Remove this link (the ticket stays)" : "Remove this quantity (the ticket stays)"} onClick={() => setConfirmDelId(t.id)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 12, padding: 0, flexShrink: 0 }}>🗑</button>
+    <button type="button" title="Delete this entry (tickets are not touched)" onClick={() => setConfirmDelId(e.id)} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 12, padding: 0, flexShrink: 0 }}>🗑</button>
   );
 }
 
-function NpbCellPopup({ category, cellEntries, onCycleLinkStatus, onCycleAdsStatus, onUpdateEntry, onDeleteEntry, onAdd, onClose }) {
+function NpbCellPopup({ category, bookedTickets, cellEntries, onCycleStatus, onPatchEntry, onDeleteEntry, onAdd, disabled, onClose }) {
+  const isTiktok = category === "TikTok Channel";
   const [confirmDelId, setConfirmDelId] = useState(null);
   const [newLink, setNewLink] = useState("");
   const [newQty, setNewQty] = useState("");
@@ -395,12 +348,12 @@ function NpbCellPopup({ category, cellEntries, onCycleLinkStatus, onCycleAdsStat
 
   async function handleAdd() {
     setErr(null);
-    if (category === "TikTok Channel" && !newLink.trim()) { setErr("Link is required."); return; }
-    if (category === "Ads" && !newQty) { setErr("Số Lượng is required."); return; }
+    if (isTiktok && !newLink.trim()) { setErr("Link is required."); return; }
+    if (!isTiktok && !(Number(newQty) > 0)) { setErr("Số lượng is required."); return; }
     setSaving(true);
-    const payload = category === "TikTok Channel"
-      ? { linkUrl: newLink.trim(), linkStatus: LINK_STATUS_OPTIONS[0] }
-      : { soLuong: newQty, adsStatus: ADS_RUN_STATUS_OPTIONS[0] };
+    const payload = isTiktok
+      ? { link: newLink.trim(), status: LINK_STATUS_OPTIONS[0] }
+      : { quantity: Number(newQty), status: ADS_RUN_STATUS_OPTIONS[0] };
     const { error } = await onAdd(payload);
     setSaving(false);
     if (error) { setErr(error.message || String(error)); return; }
@@ -411,92 +364,74 @@ function NpbCellPopup({ category, cellEntries, onCycleLinkStatus, onCycleAdsStat
   // Round 483 — rendered into document.body as a centred fixed panel so the
   // table's scroll box can no longer clip it.
   if (typeof document === "undefined") return null;
+  const sectionTitle = { fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", margin: "0 0 4px" };
   return createPortal(
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 5000, background: "rgba(0,0,0,0.5)" }} />
       <div
-        onClick={(e) => e.stopPropagation()}
+        onClick={(ev) => ev.stopPropagation()}
         style={{
           position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 5001,
-          width: 340, maxWidth: "92vw", background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8,
+          width: 360, maxWidth: "92vw", background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8,
           padding: 12, boxShadow: "0 12px 36px rgba(0,0,0,0.4)", textAlign: "left",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase" }}>
-            {category === "TikTok Channel" ? "Links" : "Entries"}
-          </div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase" }}>{isTiktok ? "Links" : "Entries"}</div>
           <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
         </div>
 
-        <div style={{ maxHeight: 220, overflowY: "auto", marginBottom: 10 }}>
-          {cellEntries.length === 0 && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>Nothing here yet.</div>}
-          {cellEntries.map((t) => (
-            category === "TikTok Channel" ? (
-              <div key={t.id}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
-                <a href={t.data?.linkUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.data?.linkUrl}>
-                  {t.data?.linkUrl || "—"}
-                </a>
-                <button
-                  type="button"
-                  onClick={() => onCycleLinkStatus(t)}
-                  title="Click to cycle: Chưa Booking → Đã Gửi → Done"
-                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, fontWeight: 700, color: LINK_STATUS_COLORS[t.data?.linkStatus || LINK_STATUS_OPTIONS[0]], whiteSpace: "nowrap" }}
-                >
-                  {t.data?.linkStatus || LINK_STATUS_OPTIONS[0]}
-                </button>
-                <DeleteEntryButton t={t} confirmDelId={confirmDelId} setConfirmDelId={setConfirmDelId} onDeleteEntry={onDeleteEntry} setErr={setErr} />
+        <div style={{ maxHeight: 280, overflowY: "auto", marginBottom: 10 }}>
+          <div style={sectionTitle}>Booked (from tickets)</div>
+          {bookedTickets.length === 0 && <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 6 }}>No ticket for this column.</div>}
+          {bookedTickets.map((t) => (
+            <div key={t.id} style={{ fontSize: 11, padding: "3px 0", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <b>{t.data?.soLuong || 0}</b>
+                <span style={{ color: "var(--text-faint)", fontSize: 10 }}>{t.status}{t.requester_name ? ` · ${t.requester_name}` : ""}</span>
               </div>
-              {t.data?.note && <div style={{ fontSize: 10, color: "var(--text-faint)", padding: "0 0 4px", whiteSpace: "pre-line" }} title="Note from the ticket (not used as a link)">📝 {t.data.note}</div>}
-              </div>
-            ) : (
-              <div key={t.id}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+              {t.data?.linkUrl && <a href={t.data.linkUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-muted)", fontSize: 10, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title="URL on the ticket — a note of which post to run">🔗 {t.data.linkUrl}</a>}
+              {t.data?.note && <div style={{ fontSize: 10, color: "var(--text-faint)", whiteSpace: "pre-line" }}>📝 {t.data.note}</div>}
+            </div>
+          ))}
+
+          <div style={{ ...sectionTitle, marginTop: 10 }}>Added (here)</div>
+          {cellEntries.length === 0 && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>Nothing added yet.</div>}
+          {cellEntries.map((e) => (
+            <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
+              {isTiktok ? (
+                <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={e.link}>{e.link || "—"}</a>
+              ) : (
                 <input
                   type="number"
-                  defaultValue={t.data?.soLuong ?? ""}
-                  onBlur={(e) => { if (e.target.value !== String(t.data?.soLuong ?? "")) onUpdateEntry(t, { soLuong: e.target.value === "" ? null : Number(e.target.value) }); }}
+                  defaultValue={e.quantity ?? ""}
+                  onBlur={(ev) => { if (ev.target.value !== String(e.quantity ?? "")) onPatchEntry(e, { quantity: ev.target.value === "" ? null : Number(ev.target.value) }); }}
                   style={{ width: 70, fontSize: 11, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text)", padding: "2px 4px" }}
                 />
-                <button
-                  type="button"
-                  onClick={() => onCycleAdsStatus(t)}
-                  title="Click to cycle status"
-                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, fontWeight: 700, color: ADS_RUN_STATUS_COLORS[t.data?.adsStatus || ADS_RUN_STATUS_OPTIONS[0]], flex: 1, textAlign: "right", whiteSpace: "nowrap" }}
-                >
-                  {t.data?.adsStatus || ADS_RUN_STATUS_OPTIONS[0]}
-                </button>
-                <DeleteEntryButton t={t} confirmDelId={confirmDelId} setConfirmDelId={setConfirmDelId} onDeleteEntry={onDeleteEntry} setErr={setErr} />
-              </div>
-              {t.data?.note && <div style={{ fontSize: 10, color: "var(--text-faint)", padding: "0 0 4px", whiteSpace: "pre-line" }} title="Note from the ticket (not used as a link)">📝 {t.data.note}</div>}
-              </div>
-            )
+              )}
+              <button
+                type="button"
+                onClick={() => onCycleStatus(e)}
+                title="Click to cycle status"
+                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap", flex: isTiktok ? "none" : 1, textAlign: "right",
+                  color: (isTiktok ? LINK_STATUS_COLORS : ADS_RUN_STATUS_COLORS)[e.status || (isTiktok ? LINK_STATUS_OPTIONS[0] : ADS_RUN_STATUS_OPTIONS[0])] }}
+              >
+                {e.status || (isTiktok ? LINK_STATUS_OPTIONS[0] : ADS_RUN_STATUS_OPTIONS[0])}
+              </button>
+              <DeleteEntryButton e={e} confirmDelId={confirmDelId} setConfirmDelId={setConfirmDelId} onDeleteEntry={onDeleteEntry} setErr={setErr} />
+            </div>
           ))}
         </div>
 
         {err && <div style={{ fontSize: 11, color: "#e57373", marginBottom: 6 }}>{err}</div>}
 
         <div style={{ display: "flex", gap: 6 }}>
-          {category === "TikTok Channel" ? (
-            <input
-              className={styles.input}
-              style={{ fontSize: 11, flex: 1 }}
-              placeholder="https://…"
-              value={newLink}
-              onChange={(e) => setNewLink(e.target.value)}
-            />
+          {isTiktok ? (
+            <input className={styles.input} style={{ fontSize: 11, flex: 1 }} placeholder="https://…" value={newLink} onChange={(ev) => setNewLink(ev.target.value)} />
           ) : (
-            <input
-              type="number"
-              className={styles.input}
-              style={{ fontSize: 11, width: 90 }}
-              placeholder="Số lượng"
-              value={newQty}
-              onChange={(e) => setNewQty(e.target.value)}
-            />
+            <input type="number" className={styles.input} style={{ fontSize: 11, width: 90 }} placeholder="Số lượng" value={newQty} onChange={(ev) => setNewQty(ev.target.value)} />
           )}
-          <button type="button" className={styles.btnPrimary} style={{ fontSize: 11, padding: "4px 10px" }} onClick={handleAdd} disabled={saving}>
+          <button type="button" className={styles.btnPrimary} style={{ fontSize: 11, padding: "4px 10px" }} onClick={handleAdd} disabled={saving || disabled}>
             {saving ? "…" : "+ Add"}
           </button>
         </div>
