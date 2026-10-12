@@ -100,8 +100,12 @@ export default function NonPackageBooking() {
   const rowKeyOf = (t) => {
     if (t.data?.relatedDid) return t.data.relatedDid;
     const name = String(t.data?.productName || "").trim();
-    if (!name) return null;
-    return t.data?.nonDidCode || codeByName[name.toLowerCase()] || nonDidRowKey(name);
+    if (name) return t.data?.nonDidCode || codeByName[name.toLowerCase()] || nonDidRowKey(name);
+    // Round 500 — a ticket with neither a DID nor a product (e.g. its DID was cleared later) used to be
+    // dropped silently. It now gets a row keyed by its Tên bài so it is still visible; Cost Marketing
+    // can't match it until a DID / non-DID product is set on the ticket.
+    const title = String(t.data?.tenBai || "").trim();
+    return title ? `T:${title.toLowerCase()}` : null;
   };
 
   const liveTickets = useMemo(
@@ -273,7 +277,9 @@ export default function NonPackageBooking() {
                         ) : (
                           <span>{row.label}</span>
                         )}
-                        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{row.isNonDid ? `Non-DID · ${row.key}` : row.release?.main_artist || row.key}</div>
+                        {row.key.startsWith("T:")
+                          ? <div style={{ fontSize: 11, color: "#ff9d5c" }} title="Set a DID or a Non-DID product on the ticket so Cost Marketing can match it">⚠ no DID / product — not counted in Cost Marketing</div>
+                          : <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{row.isNonDid ? `Non-DID · ${row.key}` : row.release?.main_artist || row.key}</div>}
                       </td>
                       {columns.map((col) => {
                         const cellKey = `${row.key}:${col}`;
