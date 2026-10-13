@@ -215,7 +215,7 @@ function brandTokens(value) {
       .filter((t) => t && !["PAGE", "TIKTOK", "EXT", "SOCIAL", "BK", "CTV", "MT"].includes(t))
   );
 }
-function brandsLikelyMatch(a, b) {
+export function brandsLikelyMatch(a, b) {
   const ta = brandTokens(a);
   const tb = brandTokens(b);
   for (const t of ta) if (tb.has(t)) return true;

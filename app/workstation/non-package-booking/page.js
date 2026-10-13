@@ -9,7 +9,7 @@ import { useAuth } from "../../../lib/AuthContext";
 import { fetchAllRows } from "../../../lib/helpers";
 import { nonDidRowKey, fetchNonDidProducts } from "../../../lib/nonDidProducts";
 import { logAudit } from "../../../lib/auditLog";
-import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS } from "../../booking/page";
+import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS, brandsLikelyMatch } from "../../booking/page";
 import styles from "../../shared.module.css";
 
 // Round 448 — NON-PACKAGE BOOKING workstation (Nghệ Sĩ Trả side of the Booking Board).
@@ -61,6 +61,12 @@ export default function NonPackageBooking() {
 
   const [search, setSearch] = useState("");
   const [expandedCell, setExpandedCell] = useState(null); // `${rowKey}:${col}` or null
+  // Round 507 — the Booking Board's channel reference list (booking_channels), loaded once, only when a TikTok cell is opened.
+  const [bookingChannels, setBookingChannels] = useState(null);
+  useEffect(() => {
+    if (!supabase || !expandedCell || category !== "TikTok Channel" || bookingChannels) return;
+    supabase.from("booking_channels").select("id, platform, name, brand, note, follower_count, url").then(({ data }) => setBookingChannels(data || []));
+  }, [expandedCell, category, bookingChannels]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -161,6 +167,27 @@ export default function NonPackageBooking() {
       logAudit({ actor: profile?.id, action: "create", entity: "npb_entry", entityId: data.id, field: category === "TikTok Channel" ? "link" : "quantity", before: null, after: String(payload.link ?? payload.quantity ?? "") });
     }
     return { data, error };
+  }
+  // Round 507 — add several entries in ONE insert (bulk URLs, optional channel name each).
+  async function addEntries(row, col, payloads) {
+    const rowsToInsert = payloads.map((payload) => ({ row_key: row.key, row_label: row.label, category, brand, hang_muc: col, created_by: profile?.id || null, ...payload }));
+    const { data, error } = await supabase.from("non_package_booking_entries").insert(rowsToInsert).select("*");
+    if (!error && data) {
+      setEntries((prev) => [...prev, ...data]);
+      logAudit({ actor: profile?.id, action: "create", entity: "npb_entry", entityId: data[0]?.id || null, field: "link", before: null, after: `bulk ${data.length}` });
+    }
+    return { data, error };
+  }
+  // Round 507 — one status for a whole list of entries (the "mark all Done" button).
+  async function patchEntries(list, patch) {
+    const ids = list.map((e) => e.id);
+    if (ids.length === 0) return { error: null };
+    const before = entries;
+    setEntries((prev) => prev.map((e) => (ids.includes(e.id) ? { ...e, ...patch } : e)));
+    const { error } = await supabase.from("non_package_booking_entries").update(patch).in("id", ids);
+    if (error) setEntries(before);
+    else logAudit({ actor: profile?.id, action: "update", entity: "npb_entry", entityId: ids[0], field: "status", before: null, after: `bulk ${ids.length} -> ${patch.status}` });
+    return { error };
   }
   async function patchEntry(entry, patch) {
     setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, ...patch } : e)));
@@ -301,6 +328,10 @@ export default function NonPackageBooking() {
                             onDeleteEntry={deleteEntry}
                             disabled={entriesMissing || unassigned}
                             onAdd={(payload) => addEntry(row, col, payload)}
+                            onAddMany={(payloads) => addEntries(row, col, payloads)}
+                            onPatchMany={patchEntries}
+                            bookingChannels={bookingChannels}
+                            brandName={brand}
                           />
                         );
                       })}
@@ -318,7 +349,7 @@ export default function NonPackageBooking() {
 
 // One cell = booked (tickets) vs added (entries) for this row × column, shown as
 // "added / booked" with a status dot — same shape as the Booking Board's cells.
-function NpbCell({ category, expanded, onToggle, bookedTickets, cellEntries, onCycleStatus, onPatchEntry, onDeleteEntry, onAdd, disabled }) {
+function NpbCell({ category, expanded, onToggle, bookedTickets, cellEntries, onCycleStatus, onPatchEntry, onDeleteEntry, onAdd, onAddMany, onPatchMany, bookingChannels, brandName, disabled }) {
   const isTiktok = category === "TikTok Channel";
   const booked = bookedTickets.reduce((s, t) => s + (Number(t.data?.soLuong) || 0), 0);
   const added = isTiktok ? cellEntries.length : cellEntries.reduce((s, e) => s + (Number(e.quantity) || 0), 0);
@@ -345,6 +376,10 @@ function NpbCell({ category, expanded, onToggle, bookedTickets, cellEntries, onC
           onPatchEntry={onPatchEntry}
           onDeleteEntry={onDeleteEntry}
           onAdd={onAdd}
+          onAddMany={onAddMany}
+          onPatchMany={onPatchMany}
+          bookingChannels={bookingChannels}
+          brandName={brandName}
           disabled={disabled}
           onClose={onToggle}
         />
@@ -367,27 +402,82 @@ function DeleteEntryButton({ e, confirmDelId, setConfirmDelId, onDeleteEntry, se
   );
 }
 
-function NpbCellPopup({ category, bookedTickets, cellEntries, onCycleStatus, onPatchEntry, onDeleteEntry, onAdd, disabled, onClose }) {
+function NpbCellPopup({ category, bookedTickets, cellEntries, onCycleStatus, onPatchEntry, onDeleteEntry, onAdd, onAddMany, onPatchMany, bookingChannels, brandName, disabled, onClose }) {
   const isTiktok = category === "TikTok Channel";
   const [confirmDelId, setConfirmDelId] = useState(null);
   const [newLink, setNewLink] = useState("");
   const [newQty, setNewQty] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState(null);
+  // Round 507 — TikTok: several URLs at once (one per line, optionally "channel, url"), a default channel name
+  // (typed or picked from the Booking Board's channel reference list), and "mark the whole batch Done".
+  const [bulkText, setBulkText] = useState("");
+  const [channelName, setChannelName] = useState("");
+  const [refSearch, setRefSearch] = useState("");
+  const [showRef, setShowRef] = useState(false);
+
+  const refMatches = useMemo(() => {
+    const q = refSearch.trim().toLowerCase();
+    return (bookingChannels || [])
+      .filter((c) => c.platform === "TikTok")
+      .filter((c) => !q || `${c.name} ${c.brand || ""} ${c.note || ""}`.toLowerCase().includes(q))
+      .map((c) => ({ c, likely: brandsLikelyMatch(c.brand, brandName) }))
+      .sort((a, b) => (b.likely - a.likely) || (b.c.follower_count || 0) - (a.c.follower_count || 0))
+      .slice(0, 25);
+  }, [bookingChannels, refSearch, brandName]);
+
+  // "url" per line, or "channel name, url" (first comma only; a line that already starts with http is all URL).
+  function parseLines(text, defaultChannel) {
+    return (text || "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .filter((l) => !/^(channel_name|channel|url)\s*,?\s*(url)?$/i.test(l))
+      .map((l) => {
+        if (/^https?:\/\//i.test(l)) return { channel_name: defaultChannel || null, link: l };
+        const i = l.indexOf(",");
+        if (i === -1) return { channel_name: defaultChannel || null, link: l };
+        return { channel_name: l.slice(0, i).trim() || defaultChannel || null, link: l.slice(i + 1).trim() };
+      })
+      .filter((r) => r.link);
+  }
+  function handleCsvFile(ev) {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setBulkText((prev) => (prev ? prev + "\n" : "") + String(reader.result || ""));
+    reader.readAsText(file);
+    ev.target.value = "";
+  }
 
   async function handleAdd() {
     setErr(null);
-    if (isTiktok && !newLink.trim()) { setErr("Link is required."); return; }
     if (!isTiktok && !(Number(newQty) > 0)) { setErr("Số lượng is required."); return; }
     setSaving(true);
-    const payload = isTiktok
-      ? { link: newLink.trim(), status: LINK_STATUS_OPTIONS[0] }
-      : { quantity: Number(newQty), status: ADS_RUN_STATUS_OPTIONS[0] };
-    const { error } = await onAdd(payload);
+    let error;
+    if (isTiktok) {
+      const rows = parseLines(bulkText, channelName.trim());
+      if (rows.length === 0) { setSaving(false); setErr("Paste at least one URL."); return; }
+      const payloads = rows.map((r) => ({ link: r.link, status: LINK_STATUS_OPTIONS[0], ...(r.channel_name ? { channel_name: r.channel_name } : {}) }));
+      ({ error } = await onAddMany(payloads));
+    } else {
+      ({ error } = await onAdd({ quantity: Number(newQty), status: ADS_RUN_STATUS_OPTIONS[0] }));
+    }
     setSaving(false);
-    if (error) { setErr(error.message || String(error)); return; }
-    setNewLink("");
+    if (error) {
+      const msg = error.message || String(error);
+      setErr(/channel_name/i.test(msg) ? "Channel names need the Round 507 SQL (add-round507-npb-channel-name.sql) — run it, then try again." : msg);
+      return;
+    }
+    setBulkText("");
     setNewQty("");
+  }
+  const doneStatus = isTiktok ? "Done" : "Đã Chạy";
+  const notDoneEntries = cellEntries.filter((e) => e.status !== doneStatus);
+  async function markAllDone() {
+    setErr(null);
+    const { error } = await onPatchMany(notDoneEntries, { status: doneStatus });
+    if (error) setErr(error.message || String(error));
   }
 
   // Round 483 — rendered into document.body as a centred fixed panel so the
@@ -401,7 +491,7 @@ function NpbCellPopup({ category, bookedTickets, cellEntries, onCycleStatus, onP
         onClick={(ev) => ev.stopPropagation()}
         style={{
           position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 5001,
-          width: 360, maxWidth: "92vw", background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8,
+          width: 400, maxWidth: "92vw", background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 8,
           padding: 12, boxShadow: "0 12px 36px rgba(0,0,0,0.4)", textAlign: "left",
         }}
       >
@@ -424,12 +514,22 @@ function NpbCellPopup({ category, bookedTickets, cellEntries, onCycleStatus, onP
             </div>
           ))}
 
-          <div style={{ ...sectionTitle, marginTop: 10 }}>Added (here)</div>
+          <div style={{ ...sectionTitle, marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>Added (here)</span>
+            {notDoneEntries.length > 0 && (
+              <button type="button" onClick={markAllDone} disabled={disabled} style={{ background: "none", border: "1px solid var(--border)", borderRadius: 4, color: "var(--accent-soft)", fontSize: 10, fontWeight: 700, padding: "2px 8px", cursor: "pointer", textTransform: "none" }}>
+                ✓ Mark all {doneStatus === "Done" ? "Done" : "Đã Chạy"} ({notDoneEntries.length})
+              </button>
+            )}
+          </div>
           {cellEntries.length === 0 && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>Nothing added yet.</div>}
           {cellEntries.map((e) => (
             <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", borderBottom: "1px solid var(--border)" }}>
               {isTiktok ? (
-                <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={e.link}>{e.link || "—"}</a>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {e.channel_name && <div style={{ fontSize: 10, color: "var(--text-faint)", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.channel_name}</div>}
+                  <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--text)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={e.link}>{e.link || "—"}</a>
+                </div>
               ) : (
                 <input
                   type="number"
@@ -454,16 +554,55 @@ function NpbCellPopup({ category, bookedTickets, cellEntries, onCycleStatus, onP
 
         {err && <div style={{ fontSize: 11, color: "#e57373", marginBottom: 6 }}>{err}</div>}
 
-        <div style={{ display: "flex", gap: 6 }}>
-          {isTiktok ? (
-            <input className={styles.input} style={{ fontSize: 11, flex: 1 }} placeholder="https://…" value={newLink} onChange={(ev) => setNewLink(ev.target.value)} />
-          ) : (
+        {isTiktok ? (
+          <div>
+            <div style={{ marginBottom: 6, border: "1px solid var(--border)", borderRadius: 6, padding: 6 }}>
+              <button type="button" onClick={() => setShowRef((v) => !v)} style={{ background: "none", border: "none", color: "var(--accent-soft)", fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0, width: "100%", textAlign: "left" }}>
+                {showRef ? "▾" : "▸"} Pick channel from reference list
+              </button>
+              {showRef && (
+                <div style={{ marginTop: 6 }}>
+                  <input className={styles.input} style={{ width: "100%", fontSize: 11, boxSizing: "border-box", marginBottom: 4 }} placeholder="Search channel name…" value={refSearch} onChange={(ev) => setRefSearch(ev.target.value)} />
+                  <div style={{ maxHeight: 120, overflowY: "auto", display: "grid", gap: 2 }}>
+                    {bookingChannels === null && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>Loading…</div>}
+                    {bookingChannels !== null && refMatches.length === 0 && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>No matching channels.</div>}
+                    {refMatches.map(({ c, likely }) => (
+                      <button key={c.id} type="button" onClick={() => { setChannelName(c.name); setShowRef(false); setRefSearch(""); }} title={c.url || ""}
+                        style={{ display: "block", width: "100%", textAlign: "left", background: likely ? "var(--bg-hover)" : "none", border: "none", borderRadius: 4, padding: "3px 6px", cursor: "pointer", color: "var(--text)", fontSize: 11 }}>
+                        {c.name}{c.brand && <span style={{ color: "var(--text-faint)" }}> · {c.brand}</span>}{c.follower_count != null && <span style={{ color: "var(--text-faint)" }}> · {c.follower_count.toLocaleString()}</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <input className={styles.input} style={{ fontSize: 11, width: "100%", boxSizing: "border-box", marginBottom: 6 }} placeholder="Channel name (applies to every line without its own)" value={channelName} onChange={(ev) => setChannelName(ev.target.value)} />
+            <textarea
+              className={styles.textarea}
+              style={{ width: "100%", fontSize: 11, minHeight: 84, boxSizing: "border-box" }}
+              placeholder={"One URL per line\nhttps://…\nhttps://…\n(or: channel name, https://…)"}
+              value={bulkText}
+              onChange={(ev) => setBulkText(ev.target.value)}
+            />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+              <label style={{ fontSize: 10, color: "var(--accent-soft)", cursor: "pointer", textDecoration: "underline" }}>
+                Import CSV
+                <input type="file" accept=".csv,text/csv" onChange={handleCsvFile} style={{ display: "none" }} />
+              </label>
+              <span style={{ fontSize: 10, color: "var(--text-faint)" }}>{parseLines(bulkText, "").length} URL(s)</span>
+            </div>
+            <button type="button" className={styles.btnPrimary} style={{ fontSize: 11, padding: "6px 10px", width: "100%", marginTop: 6 }} onClick={handleAdd} disabled={saving || disabled}>
+              {saving ? "…" : "+ Add all"}
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 6 }}>
             <input type="number" className={styles.input} style={{ fontSize: 11, width: 90 }} placeholder="Số lượng" value={newQty} onChange={(ev) => setNewQty(ev.target.value)} />
-          )}
-          <button type="button" className={styles.btnPrimary} style={{ fontSize: 11, padding: "4px 10px" }} onClick={handleAdd} disabled={saving || disabled}>
-            {saving ? "…" : "+ Add"}
-          </button>
-        </div>
+            <button type="button" className={styles.btnPrimary} style={{ fontSize: 11, padding: "4px 10px" }} onClick={handleAdd} disabled={saving || disabled}>
+              {saving ? "…" : "+ Add"}
+            </button>
+          </div>
+        )}
       </div>
     </>,
     document.body
