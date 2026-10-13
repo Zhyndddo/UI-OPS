@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import { fillMissingCellsAfterClone } from "../../../lib/cloneFillCells";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import AppShell from "../../../lib/AppShell";
@@ -27,7 +28,6 @@ import { runOne } from "../../../lib/packageSimulator";
 import { ARTIST_PROFILE_LINKS_SETTING_KEY, DEFAULT_LINKFIRE_URL } from "../../../lib/externalTools";
 import UrlField from "../../../lib/UrlField";
 import { canEditMediaBookingTicket } from "../../../lib/permissions";
-import { resyncReleasePackages } from "../../../lib/mediaBookingResync";
 
 function fmtVnd(n) {
   if (n === null || n === undefined || n === "") return "—";
@@ -997,7 +997,15 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
     // release's numbers and needs the fresh recompute — nothing here has
     // actually been human-confirmed yet, so there's no locked package to
     // protect. See lib/mediaBookingResync.js for the full Round 433 story.
-    await resyncReleasePackages(release.id, { skipLockedPackage: false });
+    // Round 512 — the post-clone resync was removed (it recomputed lines from grid copies and merged tiers).
+    // A clone keeps the source's lines exactly as they are, with ONE narrow exception: a copied line that has
+    // a total but no per-column Cells gets its Cells filled from its own tier's grid — only when the grid's
+    // total equals the line's total, and never changing any total/price/Chi Tiết (lib/cloneFillCells.js).
+    try {
+      await fillMissingCellsAfterClone(supabase, Array.from(pkgIdMap.values()), categories);
+    } catch (e) {
+      // best effort — the clone itself is already complete
+    }
     await loadAll();
   }
 
@@ -1869,7 +1877,27 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
       // ask before replacing it.
       const prevGroup = groupSummarizedRows(summarizedRows).find((g) => g.categoryId === group.categoryId);
       const prevGridTotal = prevGroup ? prevGroup.totalPosts : null;
-      if (existing.quantity != null && prevGridTotal != null && existing.quantity !== prevGridTotal && group.totalPosts !== existing.quantity) {
+      // Round 510 — a line that is hand-set or restored from a backup
+      // (manual_lock) is only replaced after an explicit OK, and the check
+      // covers the per-column Cells too, not just the total.
+      const cellsJson = (o) => JSON.stringify(Object.keys(o || {}).sort().map((k) => [k, o[k]]));
+      let unlockAfterOverwrite = false;
+      if (existing.manual_lock) {
+        const totalDiffers = group.totalPosts !== existing.quantity;
+        const cellsDiffer = cellsJson(existing.brand_column_quantities) !== cellsJson(group.brandColumnQuantities);
+        if (totalDiffers || cellsDiffer) {
+          const proceedLocked = window.confirm(
+            `"${categoryName}" is LOCKED on this tier (typed by hand or restored from a backup).\n\n` +
+            `On the line now: total ${existing.quantity}.\nFrom this tier's DSP grid: total ${group.totalPosts}${cellsDiffer ? " (the per-column numbers differ too)" : ""}.\n\n` +
+            `OK = replace the line with the grid numbers and unlock it.\nCancel = keep the line as it is.`
+          );
+          if (!proceedLocked) return;
+          unlockAfterOverwrite = true;
+        } else {
+          unlockAfterOverwrite = true; // grid already agrees with the line — lock no longer needed
+        }
+      }
+      if (!existing.manual_lock && existing.quantity != null && prevGridTotal != null && existing.quantity !== prevGridTotal && group.totalPosts !== existing.quantity) {
         const proceed = window.confirm(
           `"${categoryName}" is ${existing.quantity} on this line, but the DSP grid says ${group.totalPosts}.\n\n` +
           `The line was changed by hand. Summarize will replace it with ${group.totalPosts}, and the next Summarize will do the same again.\n\n` +
@@ -1877,7 +1905,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
         );
         if (!proceed) return;
       }
-      const patch = { quantity: group.totalPosts, brand_column_quantities: group.brandColumnQuantities ?? null, ...(existing.unit_price == null && backfillUnitPrice != null ? { unit_price: backfillUnitPrice } : {}) };
+      const patch = { quantity: group.totalPosts, brand_column_quantities: group.brandColumnQuantities ?? null, ...(existing.unit_price == null && backfillUnitPrice != null ? { unit_price: backfillUnitPrice } : {}), ...(unlockAfterOverwrite ? { manual_lock: false } : {}) };
       const amount = computeLineAmount({ ...existing, ...patch });
       const fullPatch = { ...patch, amount };
       // Round 453 — match on the line's own STORED brand (often "" for
@@ -1923,7 +1951,11 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
     // for Ads and just keep whatever amount the line already has.
     const isAdsLine = cat?.name === "Ads";
     const amount = isAdsLine ? line.amount : computeLineAmount(merged);
-    const fullPatch = { ...patch, amount };
+    // Round 510 — typing a total straight into the line marks it LOCKED
+    // (manual_lock), so Resync never rebuilds it from the tier's grid copy and
+    // Summarize asks before replacing it. Falls back to a plain write if the
+    // manual_lock column doesn't exist yet (add-round510 SQL not run).
+    const fullPatch = { ...patch, amount, ...(patch.quantity !== undefined ? { manual_lock: true } : {}) };
     // Round 453 — this is the OTHER way a line's quantity/unit_price can
     // change (manual edit in the "Already in X — edit directly" box, not
     // just Summarize) — check it here too, same reasoning as
@@ -1935,8 +1967,14 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
       });
     }
     auditLineWrite("edit", line, fullPatch);
-    await supabase.from("media_booking_package_lines").update(fullPatch).eq("id", line.id);
-    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...fullPatch } : l)) })));
+    let writePatch = fullPatch;
+    const { error: writeErr } = await supabase.from("media_booking_package_lines").update(fullPatch).eq("id", line.id);
+    if (writeErr && "manual_lock" in fullPatch) {
+      const { manual_lock: _ignored, ...withoutLock } = fullPatch;
+      writePatch = withoutLock;
+      await supabase.from("media_booking_package_lines").update(withoutLock).eq("id", line.id);
+    }
+    setPackages((prev) => prev.map((p) => (p.id !== activePackageId ? p : { ...p, media_booking_package_lines: p.media_booking_package_lines.map((l) => (l.id === line.id ? { ...l, ...writePatch } : l)) })));
   }
 
   // Round 65 — item 2: YouTube Ads is the one Ads brand with exactly one
@@ -3536,6 +3574,16 @@ function PackagesPanel({
                             <span>{line.package_count ?? "—"} Gói</span>
                           ) : (
                             <span>{line.quantity ?? "—"} {line.unit}</span>
+                          )}
+                          {line.manual_lock && (
+                            <button
+                              type="button"
+                              title="Locked: typed by hand or restored from a backup. Resync won't touch it and Summarize asks first. Click to unlock."
+                              onClick={() => updateLine(line, { manual_lock: false })}
+                              style={{ marginLeft: 6, fontSize: 11, border: "1px solid var(--border)", borderRadius: 4, background: "transparent", color: "var(--text-muted)", cursor: "pointer", padding: "0 4px" }}
+                            >
+                              🔒
+                            </button>
                           )}
                         </td>
                         <td style={{ minWidth: 260 }}>
