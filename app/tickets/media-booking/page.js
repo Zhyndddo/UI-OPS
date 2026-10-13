@@ -1514,6 +1514,23 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
     });
   }
 
+  // Round 513 — the TikTok Channel Brand Comparison / EXTERNAL-INTERNAL table
+  // used to read only the tier's grid rollup, which for many tiers was a stale
+  // copy of the shared grid (e.g. showed 50 while the tier's own line said 35).
+  // The tier's line Cells (brand_column_quantities) are the tier's own numbers,
+  // so when the line has them they win; otherwise fall back to the rollup.
+  function tiktokDisplayTotals() {
+    const cells = selectedCategoryId ? lineFor(selectedCategoryId, "")?.brand_column_quantities : null;
+    if (!cells || typeof cells !== "object" || Object.keys(cells).length === 0) return tiktokBrandTotals;
+    const totals = {};
+    TIKTOK_ALL_BRANDS.forEach((b) => (totals[b] = 0));
+    Object.entries(cells).forEach(([k, v]) => {
+      const b = k.split("::")[0];
+      if (b in totals) totals[b] += Number(v) || 0;
+    });
+    return totals;
+  }
+
   function lineFor(categoryId, brand) {
     return (activePackage?.media_booking_package_lines || []).find((l) => l.category_id === categoryId && (l.brand || "") === (brand || ""));
   }
@@ -2179,6 +2196,8 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
     );
   }
 
+  const shownTiktokTotals = isTikTokChannel ? tiktokDisplayTotals() : tiktokBrandTotals;
+
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 0 : 20 }} onClick={onClose}>
       <div
@@ -2320,7 +2339,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
                           onClick={() => setTiktokBrand(b)}
                           style={{ textAlign: "left", padding: "6px 8px", fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: "pointer", border: tiktokBrand === b ? "1px solid var(--accent)" : "1px solid var(--border-strong)", background: tiktokBrand === b ? "rgba(255,107,26,0.1)" : "transparent", color: tiktokBrand === b ? "var(--accent-soft)" : "var(--text)" }}
                         >
-                          {b} {tiktokBrandTotals[b] > 0 && <span style={{ color: "var(--success-fg)" }}>●</span>}
+                          {b} {shownTiktokTotals[b] > 0 && <span style={{ color: "var(--success-fg)" }}>●</span>}
                         </button>
                       ))}
                     </div>
@@ -2806,7 +2825,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
                     request ("not align on the same side as in picture 1") —
                     Brand Comparison now renders above the EXTERNAL/INTERNAL
                     summarize totals table instead of below it. */}
-                {isTikTokChannel && Object.values(tiktokBrandTotals).some((v) => v > 0) && (
+                {isTikTokChannel && Object.values(shownTiktokTotals).some((v) => v > 0) && (
                   <div style={{ marginTop: 14, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 10 }}>
                       Brand Comparison — {selectedCategory?.name}
@@ -2826,7 +2845,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
                                 }}
                               >
                                 <span>{b}</span>
-                                <strong>{tiktokBrandTotals[b] || 0}</strong>
+                                <strong>{shownTiktokTotals[b] || 0}</strong>
                               </div>
                             ))}
                           </div>
@@ -2843,7 +2862,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
                     brandList={brandList}
                     currentBrand={currentBrand}
                     categoryTotals={categoryTotals}
-                    tiktokBrandTotals={tiktokBrandTotals}
+                    tiktokBrandTotals={shownTiktokTotals}
                     tiktokBrand={tiktokBrand}
                   />
                 )}
