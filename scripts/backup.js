@@ -54,7 +54,12 @@ const TABLES = [
   "audit_log",
   "notification_settings",
   "notifications",
+  // Round 509 — written by the DB triggers in add-round509-package-change-log.sql.
+  // OPTIONAL: skipped (not fatal) until that SQL has been run.
+  "package_change_log",
 ];
+
+const OPTIONAL_TABLES = new Set(["package_change_log"]);
 
 const PAGE_SIZE = 1000;
 
@@ -100,7 +105,13 @@ async function main() {
   console.log(`Backing up ${TABLES.length} tables…`);
   for (const table of TABLES) {
     process.stdout.write(`  ${table}... `);
-    const rows = await dumpTable(supabase, table);
+    let rows;
+    try {
+      rows = await dumpTable(supabase, table);
+    } catch (err) {
+      if (OPTIONAL_TABLES.has(table)) { console.log(`skipped (${err.message})`); continue; }
+      throw err;
+    }
     dump.tables[table] = rows;
     totalRows += rows.length;
     console.log(`${rows.length} rows`);
