@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
+import { resolvePackageForRelease } from "../../../lib/resolvePackage";
 import { fmtDate, formatDetailText, fetchAllRows } from "../../../lib/helpers";
 import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, GATE_TICKET_TYPES, CO_TRONG_NET_DRAFT_DEFAULTS, GatePopupShell, GatePanelTrigger } from "../../../lib/GateFields";
 import { META_ITEMS, REQUIRED_META_KEYS } from "../../../lib/metadataChecklist";
@@ -416,13 +417,13 @@ export default function ReleaseDetailPage() {
         // that follow-up is locked in (see sendIntPackage below), so no
         // separate override is needed here the way pick-package's
         // followUpBuilt handles it.
-        const { data: confirmedPkg } = await supabase
+        // Round 514 — resolve like the Booking Board (INT MEDIA is stored as "Internal Package" since Round 501).
+        const { data: confirmedPkgs } = await supabase
           .from("media_booking_packages")
           .select("*, media_booking_package_lines(*)")
           .eq("release_id", id)
-          .eq("name", data.project_type)
-          .order("sort_order", { foreignTable: "media_booking_package_lines" })
-          .maybeSingle();
+          .order("sort_order", { foreignTable: "media_booking_package_lines" });
+        const confirmedPkg = resolvePackageForRelease(data.project_type, confirmedPkgs || []);
         if (confirmedPkg) {
           const { data: pkgCats } = await supabase.from("package_categories").select("id, name");
           const categoryNameById = {};

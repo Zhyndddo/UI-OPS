@@ -11,6 +11,7 @@ import Pagination from "../../lib/Pagination";
 import { useIsMobile } from "../../lib/useIsMobile";
 import { ARTIST_PROFILE_LINKS_SETTING_KEY, DEFAULT_LINKFIRE_URL } from "../../lib/externalTools";
 import YoutubeAdsFields from "../../lib/YoutubeAdsFields";
+import { resolvePackageForRelease } from "../../lib/resolvePackage";
 import styles from "../shared.module.css";
 
 // Every Hạng Mục here uses the same 2-layer pattern: pick a sub-filter
@@ -295,17 +296,7 @@ export function buildPackageByRelease(releasesList, packagesList) {
   const resolved = {};
   releasesList.forEach((r) => {
     const forRelease = map[r.id] || [];
-    let pkg = null;
-    if (r.project_type === "Chỉ Phát Hành") {
-      pkg = forRelease.find((p) => p.name === "INT MEDIA") || null;
-    }
-    if (!pkg) {
-      pkg = forRelease.find((p) => p.name === "Internal Package") || null;
-    }
-    if (!pkg) {
-      pkg = forRelease.find((p) => p.name === r.project_type) || null;
-    }
-    resolved[r.id] = pkg;
+    resolved[r.id] = resolvePackageForRelease(r.project_type, forRelease);
   });
   return resolved;
 }
@@ -2885,13 +2876,13 @@ function PackagePreviewPopup({ release, categories, onClose }) {
 
   useEffect(() => {
     (async () => {
+      // Round 514 — resolve like the board does (INT MEDIA is stored as "Internal Package" since Round 501,
+      // so an exact name match on project_type "INT MEDIA" found nothing).
       const { data } = await supabase
         .from("media_booking_packages")
         .select("*, media_booking_package_lines(*)")
-        .eq("release_id", release.id)
-        .eq("name", release.project_type)
-        .maybeSingle();
-      setPkg(data || null);
+        .eq("release_id", release.id);
+      setPkg(resolvePackageForRelease(release.project_type, data || []));
     })();
   }, [release]);
 

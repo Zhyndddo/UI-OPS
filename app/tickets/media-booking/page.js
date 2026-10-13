@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
+import { resolvePackageForRelease } from "../../../lib/resolvePackage";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
@@ -859,7 +860,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
       // project_type not decided yet), same as before.
       let chosenPackageId = null;
       if (pkgs && pkgs.length > 0) {
-        const chosen = pkgs.find((p) => p.name === rel.project_type);
+        const chosen = resolvePackageForRelease(rel.project_type, pkgs);
         chosenPackageId = (chosen || pkgs[0]).id;
         setActivePackageId(chosenPackageId);
       }
@@ -2633,7 +2634,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
                     picked at all, locked-in or not), with wording that
                     says whether it's locked. */}
                 {activePackage && release?.project_type && (() => {
-                  const isChosenPackage = activePackage.name === release.project_type;
+                  const isChosenPackage = resolvePackageForRelease(release.project_type, packages)?.id === activePackage.id;
                   const label = isChosenPackage
                     ? release.package_locked
                       ? "This package has been chosen by artist, please be advised that changing the number will affect the promotion package url as well as the booking board."
