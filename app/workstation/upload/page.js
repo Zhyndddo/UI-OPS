@@ -576,9 +576,11 @@ function UploadRow({ release, picIds, isOverride, profiles, highlight, dateHighl
         )}
         <Link href={`/releases/${release.id}`} className={dateHighlight ? `${styles.rowLink} ${styles.rowLinkOnDate}` : styles.rowLink} style={linkColor ? { color: linkColor } : undefined}>{release.title}</Link>
         {highlight && <span style={{ marginLeft: 6, fontSize: 9, color: "var(--accent)", fontWeight: 700 }}>THIS/NEXT WEEK</span>}
-        {/* Round 470 — row identity reads as stacked lines (DID dropped, label added):
+        {/* Round 470 — row identity reads as stacked lines (label added):
             label / "Main ft. Feature, Feature" (the "ft." part only when this
-            product has feature artists) / release date + time. */}
+            product has feature artists) / release date + time.
+            Round 517 — DID is back, as its own line right under the title. */}
+        {release.did && <div style={{ fontSize: 11, color: faintColor }}>{release.did}</div>}
         {release.label && <div style={{ fontSize: 11, color: faintColor }}>{release.label}</div>}
         <div style={{ fontSize: 11, color: faintColor }}>
           {release.main_artist}

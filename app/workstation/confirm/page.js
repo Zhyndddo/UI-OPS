@@ -116,6 +116,9 @@ function ConfirmWorkstationInner() {
   // workstation" request (see lib/PhaiSinhSmartlinkPopup.js).
   const [phaiSinhSmartlinks, setPhaiSinhSmartlinks] = useState([]);
   const [showAddSmartlink, setShowAddSmartlink] = useState(false);
+  // Round 517 — a phái sinh smartlink has no release date of its own; it borrows the release date/time of the phái sinh
+  // ticket it came from (ticket.data.releaseDate / releaseTime), or else the release with the same DID.
+  const [psTicketDates, setPsTicketDates] = useState({}); // ticket id -> { date, time }
   const { profile } = useAuth();
 
   useEffect(() => {
@@ -200,12 +203,24 @@ function ConfirmWorkstationInner() {
 
     const { data: psLinks } = await supabase.from("phai_sinh_smartlinks").select("*").order("created_at", { ascending: false });
     setPhaiSinhSmartlinks(psLinks || []);
+    loadPsTicketDates(psLinks || []);
 
     setLoading(false);
   }
 
   // Round 213 — same inline-edit-and-write convention as updateField above,
   // just against phai_sinh_smartlinks instead of releases.
+  async function loadPsTicketDates(rows) {
+    const ids = Array.from(new Set((rows || []).map((r) => r.source_ticket_id).filter(Boolean)));
+    if (ids.length === 0) return;
+    const found = {};
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data } = await supabase.from("tickets").select("id, data").in("id", ids.slice(i, i + 100));
+      (data || []).forEach((t) => { found[t.id] = { date: t.data?.releaseDate || null, time: t.data?.releaseTime || "" }; });
+    }
+    setPsTicketDates((prev) => ({ ...prev, ...found }));
+  }
+
   async function updatePhaiSinhSmartlinkField(row, field, value) {
     setPhaiSinhSmartlinks((prev) => prev.map((r) => (r.id === row.id ? { ...r, [field]: value } : r)));
     await supabase.from("phai_sinh_smartlinks").update({ [field]: value }).eq("id", row.id);
@@ -294,7 +309,34 @@ function ConfirmWorkstationInner() {
     return base.filter((r) => matchesQuery(r, query));
   }, [releases, showDone, showMissingUpcSmartlink, phase, query]);
 
-  const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(filteredReleases);
+  // Round 517 — Phase 2: phái sinh smartlinks are rows of the SAME table as the release smartlinks (one table, one sort,
+  // one highlight). Each gets a release_date/release_time borrowed from its ticket (or the release with the same DID).
+  const psRows = useMemo(() => {
+    if (phase !== "confirm_phase2") return [];
+    const relByDid = {};
+    releases.forEach((r) => { if (r.did) relByDid[r.did] = r; });
+    return phaiSinhSmartlinks
+      .map((row) => {
+        const t = row.source_ticket_id ? psTicketDates[row.source_ticket_id] : null;
+        const rel = row.did ? relByDid[row.did] : null;
+        return {
+          id: `ps:${row.id}`,
+          _ps: true,
+          ps: row,
+          title: row.song_title || "—",
+          main_artist: row.artist || "",
+          did: row.did || "",
+          release_date: t?.date || rel?.release_date || null,
+          release_time: t?.date ? t.time : (rel?.release_time || ""),
+          smartlink: row.smartlink || "",
+          note: row.note || "",
+        };
+      })
+      .filter((r) => matchesQuery(r, query));
+  }, [phase, phaiSinhSmartlinks, psTicketDates, releases, query]);
+  const mergedRows = useMemo(() => (phase === "confirm_phase2" ? [...filteredReleases, ...psRows] : filteredReleases), [phase, filteredReleases, psRows]);
+
+  const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(mergedRows);
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleReleases);
 
   return (
@@ -329,6 +371,11 @@ function ConfirmWorkstationInner() {
           <button onClick={() => setShowMissingUpcSmartlink((s) => !s)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
             {showMissingUpcSmartlink ? "Hide missing UPC/Smartlink" : `Show missing UPC/Smartlink (${missingUpcSmartlinkCount})`}
           </button>
+          {phase === "confirm_phase2" && (
+            <button onClick={() => setShowAddSmartlink(true)} className={styles.btnSmall} style={{ marginBottom: 16, marginLeft: 8 }}>
+              + Add Phái Sinh Smartlink
+            </button>
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
             <ColorLegend entries={DATE_HIGHLIGHT_LEGEND} />
@@ -430,6 +477,18 @@ function ConfirmWorkstationInner() {
                   // own style below) so the highlight doesn't visibly
                   // "stop" at that column.
                   const highlight = rowHighlightColor(r);
+                  if (r._ps) {
+                    return (
+                      <PhaiSinhMergedRow
+                        key={r.id}
+                        r={r}
+                        highlight={highlight}
+                        profiles={profiles}
+                        onUpdateField={updatePhaiSinhSmartlinkField}
+                        onDelete={deletePhaiSinhSmartlink}
+                      />
+                    );
+                  }
                   return (
                   <tr key={r.id} style={highlight ? { background: highlight } : undefined}>
                     <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight || "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}>
@@ -468,51 +527,14 @@ function ConfirmWorkstationInner() {
             </div>
             <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
 
-            {/* Round 213 — item 2: Phái Sinh Smartlinks, second section on
-                this same Phase 2 tab, below the release smartlink table —
-                per the team's explicit "one workstation" decision so
-                there's exactly one place to look for any smartlink. */}
-            <h2 className={styles.subheading} style={{ marginTop: 32 }}>Phái Sinh Smartlinks</h2>
-            <button onClick={() => setShowAddSmartlink(true)} className={styles.btnSmall} style={{ marginBottom: 16 }}>
-              + Add Smartlink
-            </button>
-            {phaiSinhSmartlinks.length === 0 ? (
-              <div className={styles.emptyState}>No phái sinh smartlinks tracked yet.</div>
-            ) : (
-              <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "50vh" }}>
-                <table className={styles.table} style={{ minWidth: 900 }}>
-                  <thead>
-                    <tr>
-                      <th>Song / Artist / DID</th>
-                      <th>Smartlink</th>
-                      <th>Source</th>
-                      <th>PIC</th>
-                      <th>Note</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {phaiSinhSmartlinks.map((r) => (
-                      <PhaiSinhSmartlinkRow
-                        key={r.id}
-                        row={r}
-                        profiles={profiles}
-                        onUpdateField={updatePhaiSinhSmartlinkField}
-                        onDelete={deletePhaiSinhSmartlink}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {showAddSmartlink && (
-              <PhaiSinhSmartlinkPopup
-                profiles={profiles}
-                onClose={() => setShowAddSmartlink(false)}
-                onSaved={(row) => setPhaiSinhSmartlinks((prev) => [row, ...prev])}
-              />
-            )}
             </>
+          )}
+          {showAddSmartlink && (
+            <PhaiSinhSmartlinkPopup
+              profiles={profiles}
+              onClose={() => setShowAddSmartlink(false)}
+              onSaved={(row) => { setPhaiSinhSmartlinks((prev) => [row, ...prev]); loadPsTicketDates([row]); }}
+            />
           )}
         </div>
       </div>
@@ -520,24 +542,36 @@ function ConfirmWorkstationInner() {
   );
 }
 
-function PhaiSinhSmartlinkRow({ row, profiles, onUpdateField, onDelete }) {
+// Round 517 — a phái sinh smartlink as a row of the merged Phase 2 table (same columns as a release row; the columns that
+// only make sense for a release show a dash). `highlight` is the same today/this-week colour a release row gets.
+function PhaiSinhMergedRow({ r, highlight, profiles, onUpdateField, onDelete }) {
+  const row = r.ps;
   const [draftLink, setDraftLink] = useState(row.smartlink || "");
   return (
-    <tr>
-      <td>
-        <div style={{ fontWeight: 700 }}>{row.song_title || "—"}</div>
-        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{row.artist || "—"} · {row.did || "no DID"}</div>
+    <tr style={highlight ? { background: highlight } : undefined}>
+      <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight || "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}>
+        <div style={{ fontWeight: 700 }}>
+          {r.title} <span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.12)", color: "#ff9d5c", fontSize: 9 }}>PHÁI SINH</span>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist || "—"} · {r.did || "no DID"} · {r.release_date ? fmtDate(r.release_date) : "no date"} {r.release_time}</div>
+        <div style={{ fontSize: 11, marginTop: 2 }}>
+          {row.source_ticket_id ? (
+            <Link href={`/tickets/phai-sinh`} className={styles.rowLink} style={{ fontSize: 11 }}>From ticket ↗</Link>
+          ) : (
+            <span style={{ color: "var(--text-faint)" }}>Manual</span>
+          )}
+          {" · "}
+          <button onClick={() => { if (confirm("Remove this smartlink row?")) onDelete(row); }} className={styles.btnSmall} style={{ fontSize: 10 }}>Delete</button>
+        </div>
       </td>
       <td style={{ minWidth: 180 }}>
         <UrlField styles={styles} value={draftLink} onChange={setDraftLink} onBlur={() => onUpdateField(row, "smartlink", draftLink)} />
       </td>
-      <td>
-        {row.source_ticket_id ? (
-          <Link href={`/tickets/phai-sinh`} className={styles.rowLink} style={{ fontSize: 11 }}>From ticket ↗</Link>
-        ) : (
-          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Manual</span>
-        )}
-      </td>
+      <td style={{ color: "var(--text-faint)" }}>—</td>
+      <td style={{ color: "var(--text-faint)" }}>—</td>
+      <td style={{ color: "var(--text-faint)" }}>—</td>
+      <td style={{ color: "var(--text-faint)" }}>—</td>
+      <td style={{ borderLeft: "1px solid var(--border)", color: "var(--text-faint)" }}>—</td>
       <td>
         <select className={styles.select} style={{ minWidth: "16ch" }} value={row.pic_profile_id || ""} onChange={(e) => onUpdateField(row, "pic_profile_id", e.target.value || null)}>
           <option value="">— Unassigned —</option>
@@ -546,9 +580,6 @@ function PhaiSinhSmartlinkRow({ row, profiles, onUpdateField, onDelete }) {
       </td>
       <td>
         <input className={styles.input} style={{ minWidth: 140 }} defaultValue={row.note || ""} onBlur={(e) => onUpdateField(row, "note", e.target.value || null)} />
-      </td>
-      <td>
-        <button onClick={() => { if (confirm("Remove this smartlink row?")) onDelete(row); }} className={styles.btnSmall}>Delete</button>
       </td>
     </tr>
   );
