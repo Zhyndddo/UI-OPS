@@ -5,6 +5,7 @@ import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
 import { useIsMobile } from "../../lib/useIsMobile";
+import { isAdminOrAbove } from "../../lib/permissions";
 import {
   TOOL_DIRECTORY_SETTING_KEY,
   DEFAULT_TOOL_DIRECTORY,
@@ -29,6 +30,10 @@ export default function ToolDirectoryPage() {
   const { profile } = useAuth();
   const isMobile = useIsMobile();
   const isDev = profile?.role === "dev";
+  // Round 518 — per-tool URL edit: dev anywhere; admin only on their own
+  // team's tabs (profile.segment === bucket.team). Everyone else just sees
+  // the tool names as links.
+  const canEditBucket = (bucket) => isDev || (isAdminOrAbove(profile) && !!profile?.segment && profile.segment === bucket.team);
 
   const [directory, setDirectory] = useState(DEFAULT_TOOL_DIRECTORY);
   const [artistLinks, setArtistLinks] = useState({ spotify: "", apple: "", discoveryMode: "", linkfire: "" });
@@ -99,6 +104,34 @@ export default function ToolDirectoryPage() {
     }));
   }
 
+  // Round 518 — saves ONE tool's URL. Re-reads the saved row first and only
+  // patches that tool, so two people editing different tools at once don't
+  // overwrite each other with a stale whole-directory copy.
+  async function saveToolUrl(bucketKey, toolKey, url) {
+    const clean = (url || "").trim();
+    const { data: dirRow } = await supabase.from("app_settings").select("value").eq("key", TOOL_DIRECTORY_SETTING_KEY).maybeSingle();
+    const fresh = mergeToolDirectory(dirRow?.value, MILESTONE_CHART_LINKS);
+    if (!fresh[bucketKey]) return false;
+    fresh[bucketKey] = {
+      ...fresh[bucketKey],
+      tools: fresh[bucketKey].tools.map((t) => (t.key === toolKey ? { ...t, url: clean } : t)),
+    };
+    const { error } = await supabase.from("app_settings").upsert({ key: TOOL_DIRECTORY_SETTING_KEY, value: fresh });
+    if (error) return false;
+    setDirectory(fresh);
+    return true;
+  }
+
+  async function saveArtistLink(field, url) {
+    const clean = (url || "").trim();
+    const { data: row } = await supabase.from("app_settings").select("value").eq("key", "artist_profile_links").maybeSingle();
+    const next = { spotify: "", apple: "", discoveryMode: "", linkfire: "", ...(row?.value || {}), [field]: clean };
+    const { error } = await supabase.from("app_settings").upsert({ key: "artist_profile_links", value: next });
+    if (error) return false;
+    setArtistLinks((p) => ({ ...p, [field]: clean }));
+    return true;
+  }
+
   // Round 413 — lets a dev create a brand-new page group (bucket) under any
   // team, not just edit the hardcoded OPS ones — this is what makes AR/
   // Marketing/Legal actually usable instead of just showing an empty tab.
@@ -158,13 +191,13 @@ export default function ToolDirectoryPage() {
                     <button className={styles.btnPrimary} onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
                   </>
                 ) : (
-                  <button className={styles.btnSmall} onClick={() => setEditing(true)}>✎ Edit (dev)</button>
+                  <button className={styles.btnSmall} onClick={() => setEditing(true)}>⚙ Manage tools (dev)</button>
                 )}
               </div>
             )}
           </div>
           <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 16 }}>
-            View-only reference of external tools each team uses, compiled by page. Editing is reserved to dev.
+            Click a tool to open it in a new tab. Devs can edit any link; admins can edit their own team's links (✎).
           </p>
 
           {loading ? (
@@ -187,43 +220,61 @@ export default function ToolDirectoryPage() {
                 <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 20 }}>No page groups yet for this team.</div>
               )}
 
-              {bucketsForTeam.map(([bucketKey, bucket]) => (
-                <div key={bucketKey} style={{ marginBottom: 28 }}>
-                  <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>{bucket.pageLabel}</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                    {bucket.tools.length === 0 && (
-                      <div style={{ fontSize: 12, color: "var(--text-faint)" }}>No tools listed yet.</div>
-                    )}
-                    {bucket.tools.map((tool) => (
-                      <ToolCard
-                        key={tool.key || tool.label}
-                        tool={tool}
-                        editing={editing}
-                        onChange={(patch) => updateTool(bucketKey, tool.key, patch)}
-                        onRemove={() => removeTool(bucketKey, tool.key)}
-                      />
-                    ))}
-                    {bucketKey === "artistProfile" && (
-                      <>
-                        <LegacyLinkCard label="Spotify for Artists" value={artistLinks.spotify} editing={editing} onChange={(v) => setArtistLinks((p) => ({ ...p, spotify: v }))} />
-                        <LegacyLinkCard label="Apple Music for Artists" value={artistLinks.apple} editing={editing} onChange={(v) => setArtistLinks((p) => ({ ...p, apple: v }))} />
-                        <LegacyLinkCard label="Discovery Mode Clip Tool" value={artistLinks.discoveryMode} editing={editing} onChange={(v) => setArtistLinks((p) => ({ ...p, discoveryMode: v }))} />
-                        {/* Round 413 — was write-only before this (Booking
-                            Board / Media Booking ticket both read this same
-                            "linkfire" field, but nothing in the UI could
-                            edit it — see externalTools.js's DEFAULT_
-                            LINKFIRE_URL comment). Restored here so "we
-                            change to shortlink recently" doesn't need
-                            another round next time it changes again. */}
-                        <LegacyLinkCard label="Short Links Tool (Booking Board / Media Booking)" value={artistLinks.linkfire} editing={editing} onChange={(v) => setArtistLinks((p) => ({ ...p, linkfire: v }))} />
-                      </>
-                    )}
-                    {editing && (
-                      <button className={styles.btnSmall} style={{ alignSelf: "flex-start" }} onClick={() => addTool(bucketKey)}>+ Add Tool</button>
-                    )}
+              {bucketsForTeam.map(([bucketKey, bucket]) => {
+                const canEdit = canEditBucket(bucket);
+                return (
+                  <div key={bucketKey} style={{ marginBottom: 22 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>{bucket.pageLabel}</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-start" }}>
+                      {bucket.tools.length === 0 && (
+                        <div style={{ fontSize: 12, color: "var(--text-faint)" }}>No tools listed yet.</div>
+                      )}
+                      {bucket.tools.map((tool) => (
+                        editing ? (
+                          <ToolCard
+                            key={tool.key || tool.label}
+                            tool={tool}
+                            editing={editing}
+                            onChange={(patch) => updateTool(bucketKey, tool.key, patch)}
+                            onRemove={() => removeTool(bucketKey, tool.key)}
+                          />
+                        ) : (
+                          <ToolChip
+                            key={tool.key || tool.label}
+                            tool={tool}
+                            canEdit={canEdit}
+                            onSaveUrl={(url) => saveToolUrl(bucketKey, tool.key, url)}
+                          />
+                        )
+                      ))}
+                      {bucketKey === "artistProfile" && (
+                        <>
+                          {[
+                            ["spotify", "Spotify for Artists"],
+                            ["apple", "Apple Music for Artists"],
+                            ["discoveryMode", "Discovery Mode Clip Tool"],
+                            ["linkfire", "Short Links Tool (Booking Board / Media Booking)"],
+                          ].map(([field, label]) =>
+                            editing ? (
+                              <LegacyLinkCard key={field} label={label} value={artistLinks[field]} editing={editing} onChange={(v) => setArtistLinks((p) => ({ ...p, [field]: v }))} />
+                            ) : (
+                              <ToolChip
+                                key={field}
+                                tool={{ key: field, label, url: artistLinks[field] }}
+                                canEdit={canEdit}
+                                onSaveUrl={(url) => saveArtistLink(field, url)}
+                              />
+                            )
+                          )}
+                        </>
+                      )}
+                      {editing && (
+                        <button className={styles.btnSmall} style={{ alignSelf: "flex-start" }} onClick={() => addTool(bucketKey)}>+ Add Tool</button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               {editing && (
                 <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
@@ -245,12 +296,91 @@ export default function ToolDirectoryPage() {
   );
 }
 
-function ToolCard({ tool, editing, onChange, onRemove }) {
-  if (tool.generator === "zingPitchNote") {
-    return <ZingPitchCard tool={tool} />;
+// Round 518 — the simple view: just the tool name, click opens the link in a
+// new tab. Generators (Zing, New Release Preview) keep their own cards since
+// they aren't links. When the viewer may edit, a small ✎ next to the name
+// swaps it for a URL input (Save/Cancel) — one tool at a time.
+function ToolChip({ tool, canEdit, onSaveUrl }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const [popupOpen, setPopupOpen] = useState(false);
+  if (tool.generator === "zingPitchNote" || tool.generator === "newReleasePreviewNote") {
+    return (
+      <>
+        <button onClick={() => setPopupOpen(true)} style={{ display: "inline-flex", alignItems: "center", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 150, fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "transparent", cursor: "pointer" }}>
+          {tool.label}
+        </button>
+        {popupOpen && (
+          <ToolPopup title={tool.label} onClose={() => setPopupOpen(false)}>
+            {tool.generator === "zingPitchNote" ? <ZingPitchPanel /> : <NewReleasePreviewPanel />}
+          </ToolPopup>
+        )}
+      </>
+    );
   }
-  if (tool.generator === "newReleasePreviewNote") {
-    return <NewReleasePreviewCard tool={tool} />;
+
+  async function commit() {
+    setSaving(true);
+    setErr("");
+    const ok = await onSaveUrl(draft);
+    setSaving(false);
+    if (ok) setEditing(false);
+    else setErr("Couldn't save — try again.");
+  }
+
+  if (editing) {
+    return (
+      <div style={{ border: "1px solid var(--border-strong)", borderRadius: 8, padding: "8px 10px", minWidth: 280 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{tool.label}</div>
+        <input className={styles.input} style={{ fontSize: 11, width: "100%" }} value={draft} autoFocus placeholder="https://…" onChange={(e) => setDraft(e.target.value)} />
+        {err && <div style={{ fontSize: 11, color: "var(--danger, #e5484d)", marginTop: 4 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+          <button className={styles.btnPrimary} style={{ fontSize: 11, padding: "3px 10px" }} onClick={commit} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+          <button className={styles.btnSmall} onClick={() => setEditing(false)} disabled={saving}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  const pill = {
+    display: "inline-flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+    border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 150,
+    fontSize: 12, fontWeight: 700, textDecoration: "none", color: "var(--accent)",
+    background: "transparent", cursor: tool.url ? "pointer" : "default",
+  };
+  const editBtn = canEdit ? (
+    <button
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDraft(tool.url || ""); setErr(""); setEditing(true); }}
+      aria-label={`Edit ${tool.label} link`}
+      style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}
+    >
+      ✎
+    </button>
+  ) : null;
+  // Whole card is the link (opens in a new tab). No link yet -> greyed, inert.
+  return tool.url ? (
+    <a href={tool.url} target="_blank" rel="noreferrer" style={pill}>
+      <span>{tool.label}</span>
+      {editBtn}
+    </a>
+  ) : (
+    <div style={{ ...pill, color: "var(--text-faint)", opacity: 0.7 }}>
+      <span>{tool.label}</span>
+      {editBtn}
+    </div>
+  );
+}
+
+function ToolCard({ tool, editing, onChange, onRemove }) {
+  if (tool.generator) {
+    return (
+      <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 220, fontSize: 12, fontWeight: 700 }}>
+        {tool.label} <span style={{ fontWeight: 400, color: "var(--text-faint)" }}>(generator — not editable here)</span>
+      </div>
+    );
   }
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 220, position: "relative" }}>
@@ -274,7 +404,7 @@ function ToolCard({ tool, editing, onChange, onRemove }) {
       {editing ? (
         <input className={styles.input} style={{ fontSize: 11 }} value={tool.url || ""} onChange={(e) => onChange({ url: e.target.value })} placeholder="https://…" />
       ) : tool.url ? (
-        <a href={tool.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--accent)" }}>Open ↗</a>
+        <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{tool.url}</span>
       ) : (
         <span style={{ fontSize: 11, color: "var(--text-faint)" }}>No link yet</span>
       )}
@@ -289,7 +419,7 @@ function LegacyLinkCard({ label, value, editing, onChange }) {
       {editing ? (
         <input className={styles.input} style={{ fontSize: 11 }} value={value} onChange={(e) => onChange(e.target.value)} placeholder="https://…" />
       ) : value ? (
-        <a href={value} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--accent)" }}>Open ↗</a>
+        <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{value}</span>
       ) : (
         <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Team is still confirming — blank for now</span>
       )}
@@ -300,8 +430,7 @@ function LegacyLinkCard({ label, value, editing, onChange }) {
 // Pitching's "Zing" tool — batch text generator (see lib/zingPitchNote.js
 // for the formula it ports). Paste a list of DIDs, one per line, matching
 // the sheet's C62:C91 hand-picked-DID-list mechanic.
-function ZingPitchCard({ tool }) {
-  const [open, setOpen] = useState(false);
+function ZingPitchPanel() {
   const [didText, setDidText] = useState("");
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
@@ -319,14 +448,12 @@ function ZingPitchCard({ tool }) {
   }
 
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 260 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{tool.label}</div>
-      <button className={styles.btnSmall} onClick={() => setOpen((o) => !o)}>{open ? "▾" : "▸"} Generate</button>
-      {open && (
-        <div style={{ marginTop: 8 }}>
+    <div>
+      {(
+        <div>
           <textarea
             className={styles.input}
-            style={{ width: "100%", minHeight: 60, fontSize: 11 }}
+            style={{ width: "100%", minHeight: 160, fontSize: 13 }}
             placeholder="Paste DIDs, one per line…"
             value={didText}
             onChange={(e) => setDidText(e.target.value)}
@@ -336,7 +463,7 @@ function ZingPitchCard({ tool }) {
           </button>
           {note && (
             <div style={{ marginTop: 8 }}>
-              <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, background: "var(--bg-hover)", padding: 8, borderRadius: 6 }}>{note}</pre>
+              <pre style={{ whiteSpace: "pre-wrap", fontSize: 13, maxHeight: 320, overflowY: "auto", background: "var(--bg-hover)", padding: 8, borderRadius: 6 }}>{note}</pre>
               <button className={styles.btnSmall} onClick={() => navigator.clipboard?.writeText(note)}>Copy</button>
             </div>
           )}
@@ -353,8 +480,7 @@ function ZingPitchCard({ tool }) {
 // entry in the upload bucket (like Pitching's Zing tool) instead of a
 // special-cased render, so the same button also shows up on New Release
 // Setup's own topbar tool row (lib/ToolsButton.js's NewReleasePreviewButton).
-function NewReleasePreviewCard({ tool }) {
-  const [open, setOpen] = useState(false);
+function NewReleasePreviewPanel() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [picked, setPicked] = useState(null);
@@ -384,23 +510,21 @@ function NewReleasePreviewCard({ tool }) {
   }
 
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 280 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{tool?.label || "New release pre-view"}</div>
-      <button className={styles.btnSmall} onClick={() => setOpen((o) => !o)}>{open ? "▾" : "▸"} Generate</button>
-      {open && (
-        <div style={{ marginTop: 8, position: "relative" }}>
+    <div>
+      {(
+        <div style={{ position: "relative" }}>
           <input
             className={styles.input}
-            style={{ width: "100%", fontSize: 11 }}
+            style={{ width: "100%", fontSize: 13 }}
             placeholder="Search a release…"
             value={query}
             onChange={(e) => search(e.target.value)}
           />
           {loading && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>Searching…</div>}
           {results.length > 0 && (
-            <div style={{ border: "1px solid var(--border-strong)", borderRadius: 6, marginTop: 4, maxHeight: 180, overflowY: "auto" }}>
+            <div style={{ border: "1px solid var(--border-strong)", borderRadius: 6, marginTop: 4, maxHeight: 220, overflowY: "auto" }}>
               {results.map((r) => (
-                <div key={r.id} onClick={() => pick(r)} style={{ padding: "6px 8px", fontSize: 11, cursor: "pointer", borderBottom: "1px solid var(--border)" }}>
+                <div key={r.id} onClick={() => pick(r)} style={{ padding: "8px 10px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid var(--border)" }}>
                   {r.title} — {r.main_artist} <span style={{ color: "var(--text-faint)" }}>({r.did})</span>
                 </div>
               ))}
@@ -408,12 +532,40 @@ function NewReleasePreviewCard({ tool }) {
           )}
           {note && (
             <div style={{ marginTop: 8 }}>
-              <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, background: "var(--bg-hover)", padding: 8, borderRadius: 6 }}>{note}</pre>
+              <pre style={{ whiteSpace: "pre-wrap", fontSize: 13, maxHeight: 360, overflowY: "auto", background: "var(--bg-hover)", padding: 8, borderRadius: 6 }}>{note}</pre>
               <button className={styles.btnSmall} onClick={() => navigator.clipboard?.writeText(note)}>Copy</button>
             </div>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Round 519 — shared modal for the generator tools (Zing, New Release
+// Preview): same functions as before, in a bigger centred panel instead of
+// a tiny inline expander. Closes on ✕, Escape, or a click on the backdrop.
+function ToolPopup({ title, onClose, children }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: "var(--bg-card, var(--bg))", border: "1px solid var(--border-strong)", borderRadius: 12, width: "min(760px, 100%)", maxHeight: "85vh", overflowY: "auto", padding: "18px 22px", boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontSize: 15, fontWeight: 800 }}>{title}</div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }
