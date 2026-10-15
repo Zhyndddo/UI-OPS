@@ -306,8 +306,21 @@ function ToolChip({ tool, canEdit, onSaveUrl }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
-  if (tool.generator === "zingPitchNote") return <ZingPitchCard tool={tool} />;
-  if (tool.generator === "newReleasePreviewNote") return <NewReleasePreviewCard tool={tool} />;
+  const [popupOpen, setPopupOpen] = useState(false);
+  if (tool.generator === "zingPitchNote" || tool.generator === "newReleasePreviewNote") {
+    return (
+      <>
+        <button onClick={() => setPopupOpen(true)} style={{ display: "inline-flex", alignItems: "center", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 150, fontSize: 12, fontWeight: 700, color: "var(--accent)", background: "transparent", cursor: "pointer" }}>
+          {tool.label}
+        </button>
+        {popupOpen && (
+          <ToolPopup title={tool.label} onClose={() => setPopupOpen(false)}>
+            {tool.generator === "zingPitchNote" ? <ZingPitchPanel /> : <NewReleasePreviewPanel />}
+          </ToolPopup>
+        )}
+      </>
+    );
+  }
 
   async function commit() {
     setSaving(true);
@@ -332,33 +345,42 @@ function ToolChip({ tool, canEdit, onSaveUrl }) {
     );
   }
 
-  const pill = { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid var(--border)", borderRadius: 8, padding: "7px 12px", fontSize: 12, fontWeight: 700 };
-  return (
-    <div style={pill}>
-      {tool.url ? (
-        <a href={tool.url} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "none" }}>{tool.label}</a>
-      ) : (
-        <span style={{ color: "var(--text-faint)" }} title="No link yet">{tool.label}</span>
-      )}
-      {canEdit && (
-        <button
-          onClick={() => { setDraft(tool.url || ""); setErr(""); setEditing(true); }}
-          title="Edit link"
-          style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}
-        >
-          ✎
-        </button>
-      )}
+  const pill = {
+    display: "inline-flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+    border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 150,
+    fontSize: 12, fontWeight: 700, textDecoration: "none", color: "var(--accent)",
+    background: "transparent", cursor: tool.url ? "pointer" : "default",
+  };
+  const editBtn = canEdit ? (
+    <button
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDraft(tool.url || ""); setErr(""); setEditing(true); }}
+      aria-label={`Edit ${tool.label} link`}
+      style={{ background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}
+    >
+      ✎
+    </button>
+  ) : null;
+  // Whole card is the link (opens in a new tab). No link yet -> greyed, inert.
+  return tool.url ? (
+    <a href={tool.url} target="_blank" rel="noreferrer" style={pill}>
+      <span>{tool.label}</span>
+      {editBtn}
+    </a>
+  ) : (
+    <div style={{ ...pill, color: "var(--text-faint)", opacity: 0.7 }}>
+      <span>{tool.label}</span>
+      {editBtn}
     </div>
   );
 }
 
 function ToolCard({ tool, editing, onChange, onRemove }) {
-  if (tool.generator === "zingPitchNote") {
-    return <ZingPitchCard tool={tool} />;
-  }
-  if (tool.generator === "newReleasePreviewNote") {
-    return <NewReleasePreviewCard tool={tool} />;
+  if (tool.generator) {
+    return (
+      <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 220, fontSize: 12, fontWeight: 700 }}>
+        {tool.label} <span style={{ fontWeight: 400, color: "var(--text-faint)" }}>(generator — not editable here)</span>
+      </div>
+    );
   }
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 220, position: "relative" }}>
@@ -382,7 +404,7 @@ function ToolCard({ tool, editing, onChange, onRemove }) {
       {editing ? (
         <input className={styles.input} style={{ fontSize: 11 }} value={tool.url || ""} onChange={(e) => onChange({ url: e.target.value })} placeholder="https://…" />
       ) : tool.url ? (
-        <a href={tool.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--accent)" }}>Open ↗</a>
+        <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{tool.url}</span>
       ) : (
         <span style={{ fontSize: 11, color: "var(--text-faint)" }}>No link yet</span>
       )}
@@ -397,7 +419,7 @@ function LegacyLinkCard({ label, value, editing, onChange }) {
       {editing ? (
         <input className={styles.input} style={{ fontSize: 11 }} value={value} onChange={(e) => onChange(e.target.value)} placeholder="https://…" />
       ) : value ? (
-        <a href={value} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--accent)" }}>Open ↗</a>
+        <span style={{ fontSize: 11, color: "var(--text-faint)" }}>{value}</span>
       ) : (
         <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Team is still confirming — blank for now</span>
       )}
@@ -408,8 +430,7 @@ function LegacyLinkCard({ label, value, editing, onChange }) {
 // Pitching's "Zing" tool — batch text generator (see lib/zingPitchNote.js
 // for the formula it ports). Paste a list of DIDs, one per line, matching
 // the sheet's C62:C91 hand-picked-DID-list mechanic.
-function ZingPitchCard({ tool }) {
-  const [open, setOpen] = useState(false);
+function ZingPitchPanel() {
   const [didText, setDidText] = useState("");
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
@@ -427,14 +448,12 @@ function ZingPitchCard({ tool }) {
   }
 
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 260 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{tool.label}</div>
-      <button className={styles.btnSmall} onClick={() => setOpen((o) => !o)}>{open ? "▾" : "▸"} Generate</button>
-      {open && (
-        <div style={{ marginTop: 8 }}>
+    <div>
+      {(
+        <div>
           <textarea
             className={styles.input}
-            style={{ width: "100%", minHeight: 60, fontSize: 11 }}
+            style={{ width: "100%", minHeight: 160, fontSize: 13 }}
             placeholder="Paste DIDs, one per line…"
             value={didText}
             onChange={(e) => setDidText(e.target.value)}
@@ -444,7 +463,7 @@ function ZingPitchCard({ tool }) {
           </button>
           {note && (
             <div style={{ marginTop: 8 }}>
-              <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, background: "var(--bg-hover)", padding: 8, borderRadius: 6 }}>{note}</pre>
+              <pre style={{ whiteSpace: "pre-wrap", fontSize: 13, maxHeight: 320, overflowY: "auto", background: "var(--bg-hover)", padding: 8, borderRadius: 6 }}>{note}</pre>
               <button className={styles.btnSmall} onClick={() => navigator.clipboard?.writeText(note)}>Copy</button>
             </div>
           )}
@@ -461,8 +480,7 @@ function ZingPitchCard({ tool }) {
 // entry in the upload bucket (like Pitching's Zing tool) instead of a
 // special-cased render, so the same button also shows up on New Release
 // Setup's own topbar tool row (lib/ToolsButton.js's NewReleasePreviewButton).
-function NewReleasePreviewCard({ tool }) {
-  const [open, setOpen] = useState(false);
+function NewReleasePreviewPanel() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [picked, setPicked] = useState(null);
@@ -492,23 +510,21 @@ function NewReleasePreviewCard({ tool }) {
   }
 
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 280 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{tool?.label || "New release pre-view"}</div>
-      <button className={styles.btnSmall} onClick={() => setOpen((o) => !o)}>{open ? "▾" : "▸"} Generate</button>
-      {open && (
-        <div style={{ marginTop: 8, position: "relative" }}>
+    <div>
+      {(
+        <div style={{ position: "relative" }}>
           <input
             className={styles.input}
-            style={{ width: "100%", fontSize: 11 }}
+            style={{ width: "100%", fontSize: 13 }}
             placeholder="Search a release…"
             value={query}
             onChange={(e) => search(e.target.value)}
           />
           {loading && <div style={{ fontSize: 11, color: "var(--text-faint)" }}>Searching…</div>}
           {results.length > 0 && (
-            <div style={{ border: "1px solid var(--border-strong)", borderRadius: 6, marginTop: 4, maxHeight: 180, overflowY: "auto" }}>
+            <div style={{ border: "1px solid var(--border-strong)", borderRadius: 6, marginTop: 4, maxHeight: 220, overflowY: "auto" }}>
               {results.map((r) => (
-                <div key={r.id} onClick={() => pick(r)} style={{ padding: "6px 8px", fontSize: 11, cursor: "pointer", borderBottom: "1px solid var(--border)" }}>
+                <div key={r.id} onClick={() => pick(r)} style={{ padding: "8px 10px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid var(--border)" }}>
                   {r.title} — {r.main_artist} <span style={{ color: "var(--text-faint)" }}>({r.did})</span>
                 </div>
               ))}
@@ -516,12 +532,40 @@ function NewReleasePreviewCard({ tool }) {
           )}
           {note && (
             <div style={{ marginTop: 8 }}>
-              <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, background: "var(--bg-hover)", padding: 8, borderRadius: 6 }}>{note}</pre>
+              <pre style={{ whiteSpace: "pre-wrap", fontSize: 13, maxHeight: 360, overflowY: "auto", background: "var(--bg-hover)", padding: 8, borderRadius: 6 }}>{note}</pre>
               <button className={styles.btnSmall} onClick={() => navigator.clipboard?.writeText(note)}>Copy</button>
             </div>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Round 519 — shared modal for the generator tools (Zing, New Release
+// Preview): same functions as before, in a bigger centred panel instead of
+// a tiny inline expander. Closes on ✕, Escape, or a click on the backdrop.
+function ToolPopup({ title, onClose, children }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: "var(--bg-card, var(--bg))", border: "1px solid var(--border-strong)", borderRadius: 12, width: "min(760px, 100%)", maxHeight: "85vh", overflowY: "auto", padding: "18px 22px", boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontSize: 15, fontWeight: 800 }}>{title}</div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }
