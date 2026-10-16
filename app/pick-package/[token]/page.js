@@ -6,8 +6,7 @@ import { supabase } from "../../../lib/supabaseClient";
 import { formatDetailText } from "../../../lib/helpers";
 import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../../lib/troGiaBooking";
 import { useIsMobile } from "../../../lib/useIsMobile";
-import { computeNextMaPL } from "../../../lib/phuLucCounter";
-import { findDuplicateTicketKeys } from "../../../lib/duplicateTicketGuard";
+import { ensurePhuLucTicket } from "../../../lib/ensurePhuLucTicket";
 import { readMagicLinkThemeLock } from "../../../lib/magicLinkThemeLock";
 import styles from "../../shared.module.css";
 
@@ -876,7 +875,6 @@ export default function PickPackagePage() {
   async function confirmChoice() {
     if (isLocked || !selectedValue) return;
     setPicking(true);
-    const wasPipelineStage = ["BRIEF & DATA", "SENT TO MARKETING", "DEALING"].includes(release?.project_type);
     const option = pickOptions.find((o) => o.value === selectedValue);
     const { error: err } = await supabase
       .from("releases")
@@ -922,39 +920,12 @@ export default function PickPackagePage() {
       if (!completeErr) setMediaBookingTicket((t) => ({ ...t, status: "COMPLETE", status_log: newLog }));
     }
 
-    if (wasPipelineStage) {
-      const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "phu_luc").single();
-      if (tab) {
-        // Round 167 — baseline existence check, per
-        // claude/one-ticket-per-key-rule.md: this was the one "code gate"
-        // tier type with no actual re-check before insert — it only ever
-        // fired once in practice because it's tied to a one-time
-        // pipeline-stage transition (wasPipelineStage), not because
-        // anything here confirmed a ticket didn't already exist. Baseline
-        // only this round (no warning popup — this page runs from the
-        // artist-facing magic link, nobody from AR/OPS is present to
-        // dismiss one; silently skipping is the correct equivalent of
-        // "warn, no bypass" when there's no one to show the warning to).
-        // Same releaseId=release.id (UUID) key this ticket type has
-        // always used.
-        const dupes = await findDuplicateTicketKeys(supabase, tab.id, [{ label: release.id, filters: { releaseId: release.id } }]);
-        if (dupes.length === 0) {
-          // Round 161 — Mã PL now auto-assigned at creation, per-label
-          // counter (see lib/phuLucCounter.js). Giá Trị Phụ Lục is no
-          // longer carried in ticket.data at all — it's a plain release
-          // field now (releases.phu_luc_gia_tri, filled in by AR on the
-          // release detail page — see app/releases/[id]/page.js), same
-          // "ticket reads/writes the release directly" pattern
-          // link_phu_luc/phu_luc_ngay_gui/phu_luc_ngay_ky already use on
-          // this exact ticket type — so there's nothing else to seed here.
-          const maPL = await computeNextMaPL(release.label);
-          await supabase.from("tickets").insert({
-            tab_id: tab.id,
-            data: { releaseId: release.id, maPL },
-          });
-        }
-      }
-    }
+    // Round 523 — Phụ Lục ticket now goes through the shared helper: no
+    // longer conditional on the release having been in a pipeline stage
+    // (a locked package with no ticket is always a gap), dup-checked
+    // against the live DB, per-label Mã PL, and the insert error is
+    // logged instead of swallowed. See lib/ensurePhuLucTicket.js.
+    await ensurePhuLucTicket(supabase, release);
 
     // Real packages (including INT MEDIA, which still carries the full
     // underlying quantity/detail data even though it's hidden from this

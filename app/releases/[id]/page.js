@@ -7,6 +7,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { resolvePackageForRelease } from "../../../lib/resolvePackage";
 import { fmtDate, formatDetailText, fetchAllRows } from "../../../lib/helpers";
+import { ensurePhuLucTicket } from "../../../lib/ensurePhuLucTicket";
 import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, GATE_TICKET_TYPES, CO_TRONG_NET_DRAFT_DEFAULTS, GatePopupShell, GatePanelTrigger } from "../../../lib/GateFields";
 import { META_ITEMS, REQUIRED_META_KEYS } from "../../../lib/metadataChecklist";
 import QuickCreate from "../../../lib/QuickCreate";
@@ -530,7 +531,7 @@ export default function ReleaseDetailPage() {
             ? supabase.from("tickets").select("id, status, status_log, data").eq("tab_id", tabByKey.media_booking.id).eq("data->>releaseId", data.did).is("deleted_at", null).limit(1)
             : Promise.resolve({ data: null }),
           gateTicketTypeKeys.some((k) => tabByKey[k])
-            ? supabase.from("tickets").select("*").in("tab_id", gateTicketTypeKeys.filter((k) => tabByKey[k]).map((k) => tabByKey[k].id)).eq("data->>releaseId", data.did).is("deleted_at", null)
+            ? supabase.from("tickets").select("*").in("tab_id", gateTicketTypeKeys.filter((k) => tabByKey[k]).map((k) => tabByKey[k].id)).in("data->>releaseId", [data.did, data.id].filter(Boolean)).is("deleted_at", null)
             : Promise.resolve({ data: null }),
           // Round 86 item 4 — Publishing is matched by data.releaseId ===
           // the release's own id (its real UUID/PK), NOT its did like every
@@ -1125,6 +1126,14 @@ export default function ReleaseDetailPage() {
     // gate_publishing is also excluded — see publishingReady's bespoke
     // block below, same "gated on real required data, plus a different
     // releaseId key" reason Sony Publish is excluded.
+    // Round 523 — a locked, non-pipeline package must have its Phụ Lục
+    // ticket; Save repairs a missing one (safe: helper dup-checks live DB).
+    if (form.package_locked && !PIPELINE_STAGES.includes(form.project_type) && !gateTicketMap.phu_luc) {
+      const pl = await ensurePhuLucTicket(supabase, { id: release.id, label: form.label });
+      if (pl.created) await refreshPhuLucInMap();
+      else if (!pl.ok) console.error("Phụ Lục ensure on Save failed:", pl.error);
+    }
+
     const missingGateEntries = Object.entries(GATE_TICKET_TYPES).filter(
       ([gateKey, ticketType]) =>
         gateKey !== "gate_sony_publish" &&
@@ -1682,6 +1691,23 @@ export default function ReleaseDetailPage() {
     setRelease((rel) => ({ ...rel, ...patch }));
   }
 
+  // Round 523 — creates the Phụ Lục Truyền Thông ticket on demand (button in
+  // the Phụ Lục Truyền Thông field) for a locked release that has none.
+  async function refreshPhuLucInMap() {
+    const { data: tab } = await supabase.from("ticket_tabs").select("id").eq("key", "phu_luc").single();
+    if (!tab || !release?.id) return;
+    const { data: t } = await supabase.from("tickets").select("*").eq("tab_id", tab.id).eq("data->>releaseId", release.id).is("deleted_at", null).order("created_at", { ascending: false }).limit(1);
+    if (t?.[0]) setGateTicketMap((m) => ({ ...m, phu_luc: t[0] }));
+  }
+
+  async function createPhuLucTicket() {
+    const rel = release || form;
+    if (!rel?.id) return;
+    const res = await ensurePhuLucTicket(supabase, { id: rel.id, label: form?.label ?? rel.label });
+    if (!res.ok) { alert(`Could not create the Phụ Lục ticket: ${res.error}`); return; }
+    await refreshPhuLucInMap();
+  }
+
   // Round 188 — "Send Artist" moved here from the Booking Board's Media
   // Report cell, per explicit correction ("I believe i ask you to do it,
   // bet i word it wrong"). Same one-time, irreversible action as before
@@ -2071,6 +2097,7 @@ export default function ReleaseDetailPage() {
             onCopyrightChange={() => setCopyrightGateVersion((v) => v + 1)}
             copyrightGateOk={copyrightGateOk}
             onSendArtistMediaReport={sendArtistMediaReport}
+            onCreatePhuLuc={createPhuLucTicket}
             showLblTag={canViewReleaseTags(profile)}
             releaseTags={effectiveReleaseTags(form)}
           />
@@ -2594,7 +2621,7 @@ function SendUploadSourcePopup({ styles, onPick, onClose }) {
   );
 }
 
-function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntPackage, canSimulate, onSendOnlyPh, canResetToDealing, onResetToDealing, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, updateArtistTags, artistProfileArtistTags, artistProfileDraft, onArtistProfileDraftChange, artistProfileExistingKeys, managementPlatforms, onManagementPlatformsChange, managementDraft, onManagementDraftChange, coTrongNetDraft, onCoTrongNetChange, onSendCoTrongNetYoutube, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError, onCopyrightChange, copyrightGateOk, onSendArtistMediaReport, showLblTag, releaseTags }) {
+function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requiredMetaDoneLive, uploadReady, onSave, saving, onUpload, onUnlockNeedsUpdate, packageItems, magicLinkUrl, onToggleLock, onSendPackageTicket, hasMediaBookingTicket, mediaBookingTicket, onSendIntPackage, canSimulate, onSendOnlyPh, canResetToDealing, onResetToDealing, pitchingTicket, pitchingTypesDraft, onPitchingToggle, pitchingInfoTicket, onSendPitchingInfoTicket, updateArtistTags, artistProfileArtistTags, artistProfileDraft, onArtistProfileDraftChange, artistProfileExistingKeys, managementPlatforms, onManagementPlatformsChange, managementDraft, onManagementDraftChange, coTrongNetDraft, onCoTrongNetChange, onSendCoTrongNetYoutube, gateTicketMap, setTab, pseudoParent, pseudoParentMagicLink, pseudoParentError, onCopyrightChange, copyrightGateOk, onSendArtistMediaReport, onCreatePhuLuc, showLblTag, releaseTags }) {
   const [genres, setGenres] = useState([]);
   const [topics, setTopics] = useState([]);
   const [channels, setChannels] = useState([]);
@@ -3256,6 +3283,8 @@ function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requir
           onChangeYoutubeBookingNote={(v) => update("youtube_ads_booking_note", v)}
           ticketMap={gateTicketMap}
           sonyPublishMetaReady={requiredMetaDoneLive === REQUIRED_META_KEYS.length}
+          onCreatePhuLuc={onCreatePhuLuc}
+          phuLucCreatable={!!form.package_locked && !gateTicketMap?.phu_luc}
           publishingHdLocked={publishingHdLocked}
           sharedLabels={splitShareLabelOptions}
         />
