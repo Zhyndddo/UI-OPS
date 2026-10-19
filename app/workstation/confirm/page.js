@@ -330,13 +330,24 @@ function ConfirmWorkstationInner() {
           release_time: t?.date ? t.time : (rel?.release_time || ""),
           smartlink: row.smartlink || "",
           note: row.note || "",
+          // Round 525 — a manually added row (no ticket, no DID match) has no release date, and the default
+          // "newest date first" sort put every undated row at the very bottom — on the last page — so a row someone
+          // had just added looked like it had not saved. Sort such rows by when they were added instead; the date
+          // column still reads "no date" (this key is only used for ordering).
+          _sort_date: t?.date || rel?.release_date || row.created_at || null,
         };
       })
       .filter((r) => matchesQuery(r, query));
   }, [phase, phaiSinhSmartlinks, psTicketDates, releases, query]);
-  const mergedRows = useMemo(() => (phase === "confirm_phase2" ? [...filteredReleases, ...psRows] : filteredReleases), [phase, filteredReleases, psRows]);
+  const mergedRows = useMemo(
+    () => (phase === "confirm_phase2" ? [...filteredReleases.map((r) => ({ ...r, _sort_date: r.release_date })), ...psRows] : filteredReleases),
+    [phase, filteredReleases, psRows]
+  );
 
-  const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(mergedRows);
+  const { sorted: visibleReleases, sort, toggleSort, resetSort, isDefault } = useSortableRows(mergedRows, {
+    defaultDateKey: phase === "confirm_phase2" ? "_sort_date" : "release_date",
+    dateKeys: ["release_date", "_sort_date"],
+  });
   const { pageRows: pagedReleases, page, setPage, pageSize, setPageSize, totalPages, totalRows } = usePagination(visibleReleases);
 
   return (

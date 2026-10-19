@@ -57,9 +57,24 @@ const TABLES = [
   // Round 509 — written by the DB triggers in add-round509-package-change-log.sql.
   // OPTIONAL: skipped (not fatal) until that SQL has been run.
   "package_change_log",
+  // Round 525 — tables that were never in the backup. All OPTIONAL: skipped
+  // (not fatal) if a table does not exist. config_change_log comes from the
+  // Round 524 SQL; the other three hold real working data (phái sinh
+  // smartlinks, Booking Board Done/Not Done status, Package Builder DSP-grid
+  // snapshots).
+  "config_change_log",
+  "phai_sinh_smartlinks",
+  "media_booking_channel_status",
+  "media_booking_package_entry_snapshots",
 ];
 
-const OPTIONAL_TABLES = new Set(["package_change_log"]);
+const OPTIONAL_TABLES = new Set([
+  "package_change_log",
+  "config_change_log",
+  "phai_sinh_smartlinks",
+  "media_booking_channel_status",
+  "media_booking_package_entry_snapshots",
+]);
 
 const PAGE_SIZE = 1000;
 
