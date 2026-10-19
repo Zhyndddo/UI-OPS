@@ -1811,7 +1811,7 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
         // PackagesPanel's row rendering). Only backfills when currently
         // null; a real (including manually-edited) price is never touched.
         const backfillYoutubeUnitPrice = existing.unit_price == null
-          ? (qty ? Math.round((group.totalMoney ?? 0) / qty) : priceDefaultsRef.current.ads["YouTube Ads"]?.["Thruplay (Views)"] ?? null)
+          ? (qty ? Math.round((group.totalMoney ?? 0) / qty) : (release?.package_locked ? null : priceDefaultsRef.current.ads["YouTube Ads"]?.["Thruplay (Views)"] ?? null))
           : null;
         const patch = isYoutubeAds
           ? { quantity: qty, amount: group.totalMoney ?? null, detail: YOUTUBE_ADS_DEFAULT_DETAIL, metric_quantities: metricQuantities, ...(backfillYoutubeUnitPrice != null ? { unit_price: backfillYoutubeUnitPrice } : {}) }
@@ -1881,7 +1881,9 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
       // price) keeps the "never clobber a manual edit" guarantee while
       // letting a genuinely-never-set price pick up a default once one
       // becomes available.
-      const backfillUnitPrice = existing.unit_price == null ? (priceDefaultsRef.current.categories[categoryName] ?? null) : existing.unit_price;
+      // Round 524 — a locked release keeps blank prices blank: its package is
+      // frozen, so a re-Summarize must not pull today's Config default in.
+      const backfillUnitPrice = existing.unit_price == null ? (release?.package_locked ? null : (priceDefaultsRef.current.categories[categoryName] ?? null)) : existing.unit_price;
       // Round 120 — persist the cumulative per-brand column breakdown on
       // every re-Summarize too, same "recompute in full from the latest
       // rollup rows" treatment quantity/amount already get — see
@@ -3471,7 +3473,7 @@ function PackagesPanel({
             <TermsOverridePopup
               packageName={activePackage.name}
               currentOverride={activePackage.terms_text_override}
-              globalDefault={globalTermsDefault}
+              globalDefault={activePackage.frozen_terms?.terms_text ?? globalTermsDefault}
               onSave={(text) => { onSaveTermsOverride(activePackage, text); setTermsPopupOpen(false); }}
               onClose={() => setTermsPopupOpen(false)}
             />

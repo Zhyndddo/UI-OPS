@@ -631,12 +631,23 @@ export default function PickPackagePage() {
     const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_conditions", "package_terms_shared_b", TRO_GIA_BOOKING_SETTING_KEY]);
     const settingsByKey = {};
     (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
+    // Round 524 — once a release is locked, its package carries a frozen
+    // copy of the terms/shared blocks/Trợ Giá items as they were at lock
+    // (media_booking_packages.frozen_terms, written by a DB trigger). The
+    // page-level shared blocks follow the PICKED package's frozen copy, so a
+    // later Config edit never rewrites what a concluded release shows.
+    // Unlocked releases (and locked ones with no frozen copy) read Config
+    // live exactly as before.
+    const pickedFrozen = rel?.package_locked
+      ? (realPackagesRaw || []).find((p) => p.name === rel.project_type && p.frozen_terms)?.frozen_terms
+      : null;
+    const frozenStr = (v) => (v == null ? "" : typeof v === "string" ? v : JSON.stringify(v));
     setSharedTerms({
-      a: settingsByKey.package_terms_shared_a || "",
-      conditions: settingsByKey.package_terms_conditions || "",
-      b: settingsByKey.package_terms_shared_b || "",
+      a: pickedFrozen ? frozenStr(pickedFrozen.shared_a) : settingsByKey.package_terms_shared_a || "",
+      conditions: pickedFrozen ? frozenStr(pickedFrozen.shared_conditions) : settingsByKey.package_terms_conditions || "",
+      b: pickedFrozen ? frozenStr(pickedFrozen.shared_b) : settingsByKey.package_terms_shared_b || "",
     });
-    setTroGiaBookingItems(parseTroGiaBookingItems(settingsByKey[TRO_GIA_BOOKING_SETTING_KEY]));
+    setTroGiaBookingItems(parseTroGiaBookingItems(pickedFrozen ? frozenStr(pickedFrozen.tro_gia_items) || settingsByKey[TRO_GIA_BOOKING_SETTING_KEY] : settingsByKey[TRO_GIA_BOOKING_SETTING_KEY]));
 
     const realOptions = (realPackages || []).map((p) => {
       // Round 86 follow-up — INT MEDIA used to be a mushed package (Hạng
@@ -665,8 +676,10 @@ export default function PickPackagePage() {
         // Terms, which would change it for every other release on this
         // tier too. Still falls back to the shared default exactly as
         // before when no override is set.
-        termsText: p.terms_text_override || termsByName[matchedTier] || null,
-        troGiaBookingText: troGiaByName[matchedTier] || null,
+        // Round 524 — override wins, then the copy frozen at lock (even if
+        // that copy is empty), else live Config (unlocked / never-frozen).
+        termsText: p.terms_text_override || (rel?.package_locked && p.frozen_terms ? p.frozen_terms.terms_text || null : termsByName[matchedTier] || null),
+        troGiaBookingText: rel?.package_locked && p.frozen_terms ? p.frozen_terms.tro_gia_booking_text || null : troGiaByName[matchedTier] || null,
         showSharedB: SHARED_B_TIERS.includes(matchedTier),
         totalValue: !(p.media_booking_package_lines || []).some((l) => l.amount != null)
           ? null

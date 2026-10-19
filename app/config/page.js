@@ -857,6 +857,28 @@ function InfoTip({ text }) {
   );
 }
 
+// Round 524 — shared warning for every Config edit that feeds packages.
+// Locked packages are frozen (DB trigger copies terms at lock; saved lines
+// keep their own price), so a Config edit only reaches NEW work. The
+// warning says so explicitly, and every confirmed change is written to
+// config_change_log (old value, new value, who, when) by a DB trigger.
+// Returns false when the person cancels, so callers can revert the field.
+function confirmConfigChange(kind, what) {
+  if (typeof window === "undefined") return true;
+  const effect =
+    kind === "price"
+      ? "• New packages and new lines start at this price.\n" +
+        "• Lines that already have a price keep it — nothing is rewritten.\n" +
+        "• A package that is NOT locked yet and has a BLANK price picks the new default up the next time it is Summarized."
+      : "• Packages that are NOT locked yet show this new text on the artist link immediately.\n" +
+        "• Packages that are ALREADY LOCKED keep the text frozen at lock.\n" +
+        "• A package with its own per-package override keeps the override.";
+  return window.confirm(
+    `⚠ You are changing ${what}.\n\n${effect}\n\nPackages already locked keep their frozen terms and saved prices.\n` +
+      "This change is logged with your name.\n\nContinue?"
+  );
+}
+
 function PackageTermsSection() {
   const [packages, setPackages] = useState([]);
   const [sharedA, setSharedA] = useState("");
@@ -890,7 +912,9 @@ function PackageTermsSection() {
     setTimeout(() => setSavedKey((k) => (k === key ? null : k)), 1500);
   }
 
-  async function savePackageTerms(pkg, value) {
+  async function savePackageTerms(pkg, value, el) {
+    if ((pkg.terms_text || "") === (value || "")) return;
+    if (!confirmConfigChange("terms", `the commitment terms of "${pkg.contract_type}"`)) { if (el) el.value = pkg.terms_text || ""; return; }
     setPackages((prev) => prev.map((p) => (p.id === pkg.id ? { ...p, terms_text: value } : p)));
     await supabase.from("contract_type_packages").update({ terms_text: value || null }).eq("id", pkg.id);
     flashSaved(pkg.id);
@@ -902,7 +926,9 @@ function PackageTermsSection() {
   // save-on-blur/immediate-write pattern as everything else here. Supports
   // real HTML (<br/>, <a href>, …) — see the pick-package page's TermsText
   // for the HTML-vs-plain-text detection.
-  async function saveTroGiaBooking(pkg, value) {
+  async function saveTroGiaBooking(pkg, value, el) {
+    if ((pkg.tro_gia_booking_text || "") === (value || "")) return;
+    if (!confirmConfigChange("terms", `the Trợ Giá Booking text of "${pkg.contract_type}"`)) { if (el) el.value = pkg.tro_gia_booking_text || ""; return; }
     setPackages((prev) => prev.map((p) => (p.id === pkg.id ? { ...p, tro_gia_booking_text: value } : p)));
     await supabase.from("contract_type_packages").update({ tro_gia_booking_text: value || null }).eq("id", pkg.id);
     flashSaved(`${pkg.id}-tgb`);
@@ -947,7 +973,7 @@ function PackageTermsSection() {
               style={{ width: "100%", minHeight: 60, fontSize: 12 }}
               defaultValue={p.terms_text || ""}
               placeholder="No terms text — nothing extra shown for this package."
-              onBlur={(e) => savePackageTerms(p, e.target.value)}
+              onBlur={(e) => savePackageTerms(p, e.target.value, e.target)}
             />
             <label className={styles.fieldLabel} style={{ fontSize: 11, display: "flex", justifyContent: "space-between", marginTop: 10 }}>
               <span style={{ display: "flex", alignItems: "center" }}>
@@ -961,7 +987,7 @@ function PackageTermsSection() {
               style={{ width: "100%", minHeight: 60, fontSize: 12 }}
               defaultValue={p.tro_gia_booking_text || ""}
               placeholder="No Trợ Giá Booking rows — nothing extra shown for this package. HTML is OK here (e.g. <br/> for line breaks, real <a href> links)."
-              onBlur={(e) => saveTroGiaBooking(p, e.target.value)}
+              onBlur={(e) => saveTroGiaBooking(p, e.target.value, e.target)}
             />
           </div>
         ))}
@@ -992,7 +1018,7 @@ function PackageTermsSection() {
             className={styles.textarea}
             style={{ width: "100%", minHeight: 60, fontSize: 12 }}
             defaultValue={sharedA}
-            onBlur={(e) => { setSharedA(e.target.value); saveShared("package_terms_shared_a", e.target.value); }}
+            onBlur={(e) => { if (e.target.value === sharedA) return; if (!confirmConfigChange("terms", "the shared terms block A")) { e.target.value = sharedA; return; } setSharedA(e.target.value); saveShared("package_terms_shared_a", e.target.value); }}
           />
         </div>
         <div>
@@ -1004,7 +1030,7 @@ function PackageTermsSection() {
             className={styles.textarea}
             style={{ width: "100%", minHeight: 70, fontSize: 12 }}
             defaultValue={conditions}
-            onBlur={(e) => { setConditions(e.target.value); saveShared("package_terms_conditions", e.target.value); }}
+            onBlur={(e) => { if (e.target.value === conditions) return; if (!confirmConfigChange("terms", "the shared ĐIỀU KIỆN block")) { e.target.value = conditions; return; } setConditions(e.target.value); saveShared("package_terms_conditions", e.target.value); }}
           />
         </div>
         <div>
@@ -1016,7 +1042,7 @@ function PackageTermsSection() {
             className={styles.textarea}
             style={{ width: "100%", minHeight: 110, fontSize: 12 }}
             defaultValue={sharedB}
-            onBlur={(e) => { setSharedB(e.target.value); saveShared("package_terms_shared_b", e.target.value); }}
+            onBlur={(e) => { if (e.target.value === sharedB) return; if (!confirmConfigChange("terms", "the shared terms block B")) { e.target.value = sharedB; return; } setSharedB(e.target.value); saveShared("package_terms_shared_b", e.target.value); }}
           />
         </div>
       </div>
@@ -1034,7 +1060,8 @@ function PackageTermsSection() {
 // "media_booking_unit_price_defaults" (same key/value table PackageTerms
 // above already uses). Editing here only changes what NEW rows/lines
 // default to going forward — it never rewrites unit_price on anything
-// already saved on an existing release's package.
+// already saved on an existing release's package. Round 524: every change
+// now asks for confirmation and is logged (config_change_log).
 const MEDIA_BOOKING_PRICE_CATEGORIES = ["TikTok Channel", "Social", "Community"];
 const MEDIA_BOOKING_PRICE_ADS = {
   "Facebook Ads": ["Lượt tiếp cận", "Lượt tương tác", "Lượt truy cập (Link click)"],
@@ -1102,22 +1129,31 @@ function MediaBookingPricingSection() {
     );
   }
 
-  function updateCategoryPrice(categoryName, value) {
+  function updateCategoryPrice(categoryName, value, el) {
     const num = value === "" ? null : parseFloat(value);
+    const cur = prices.categories[categoryName] ?? null;
+    if (num === cur) return;
+    if (!confirmConfigChange("price", `the default price of "${categoryName}" (${cur ?? "blank"} → ${num ?? "blank"})`)) { if (el) el.value = cur ?? ""; return; }
     const next = { ...prices, categories: { ...prices.categories, [categoryName]: num } };
     saveAll(next);
     flashSaved(`cat:${categoryName}`);
   }
 
-  function updateAdsPrice(brand, metric, value) {
+  function updateAdsPrice(brand, metric, value, el) {
     const num = value === "" ? null : parseFloat(value);
+    const cur = prices.ads[brand]?.[metric] ?? null;
+    if (num === cur) return;
+    if (!confirmConfigChange("price", `the default price of ${brand} — ${metric} (${cur ?? "blank"} → ${num ?? "blank"})`)) { if (el) el.value = cur ?? ""; return; }
     const next = { ...prices, ads: { ...prices.ads, [brand]: { ...prices.ads[brand], [metric]: num } } };
     saveAll(next);
     flashSaved(`ads:${brand}:${metric}`);
   }
 
-  function updateAddonPrice(addonName, value) {
+  function updateAddonPrice(addonName, value, el) {
     const num = value === "" ? null : parseFloat(value);
+    const cur = prices.addons[addonName] ?? null;
+    if (num === cur) return;
+    if (!confirmConfigChange("price", `the default price of the "${addonName}" add-on (${cur ?? "blank"} → ${num ?? "blank"})`)) { if (el) el.value = cur ?? ""; return; }
     const next = { ...prices, addons: { ...prices.addons, [addonName]: num } };
     saveAll(next);
     flashSaved(`addon:${addonName}`);
@@ -1147,7 +1183,7 @@ function MediaBookingPricingSection() {
                 className={styles.input}
                 style={{ width: 120 }}
                 defaultValue={prices.categories[categoryName] ?? ""}
-                onBlur={(e) => updateCategoryPrice(categoryName, e.target.value)}
+                onBlur={(e) => updateCategoryPrice(categoryName, e.target.value, e.target)}
               />
             </div>
           </div>
@@ -1172,7 +1208,7 @@ function MediaBookingPricingSection() {
                       className={styles.input}
                       style={{ width: 120 }}
                       defaultValue={prices.ads[adBrand]?.[metric] ?? ""}
-                      onBlur={(e) => updateAdsPrice(adBrand, metric, e.target.value)}
+                      onBlur={(e) => updateAdsPrice(adBrand, metric, e.target.value, e.target)}
                     />
                   </div>
                 </div>
@@ -1196,7 +1232,7 @@ function MediaBookingPricingSection() {
                 className={styles.input}
                 style={{ width: 120 }}
                 defaultValue={prices.addons?.[addonName] ?? ""}
-                onBlur={(e) => updateAddonPrice(addonName, e.target.value)}
+                onBlur={(e) => updateAddonPrice(addonName, e.target.value, e.target)}
               />
             </div>
           </div>
@@ -1243,12 +1279,15 @@ function TroGiaBookingSection() {
     flashSaved();
   }
 
-  function updateItem(index, field, value) {
+  function updateItem(index, field, value, el) {
+    if ((items[index]?.[field] ?? "") === value) return;
+    if (!confirmConfigChange("terms", "the Trợ Giá Booking list")) { if (el) el.value = items[index]?.[field] ?? ""; return; }
     const next = items.map((it, i) => (i === index ? { ...it, [field]: value } : it));
     saveAll(next);
   }
 
   function addItem() {
+    if (!confirmConfigChange("terms", "the Trợ Giá Booking list (adding a row)")) return;
     saveAll([...items, { title: "", desc: "", href: "" }]);
   }
 
@@ -1281,7 +1320,7 @@ function TroGiaBookingSection() {
               style={{ width: "100%", marginBottom: 10 }}
               defaultValue={it.title}
               placeholder="e.g. TRỢ GIÁ BOOKING TIKTOK CHANNEL"
-              onBlur={(e) => updateItem(i, "title", e.target.value)}
+              onBlur={(e) => updateItem(i, "title", e.target.value, e.target)}
             />
             <label className={styles.fieldLabel}>Description</label>
             <textarea
@@ -1289,7 +1328,7 @@ function TroGiaBookingSection() {
               style={{ width: "100%", minHeight: 50, fontSize: 12, marginBottom: 10 }}
               defaultValue={it.desc}
               placeholder="e.g. HỖ TRỢ 10% - 70% CHI PHÍ TRUYỀN THÔNG"
-              onBlur={(e) => updateItem(i, "desc", e.target.value)}
+              onBlur={(e) => updateItem(i, "desc", e.target.value, e.target)}
             />
             <label className={styles.fieldLabel}>Link</label>
             <input
@@ -1297,7 +1336,7 @@ function TroGiaBookingSection() {
               style={{ width: "100%" }}
               defaultValue={it.href}
               placeholder="https://…"
-              onBlur={(e) => updateItem(i, "href", e.target.value)}
+              onBlur={(e) => updateItem(i, "href", e.target.value, e.target)}
             />
           </div>
         ))}
