@@ -561,13 +561,15 @@ function PhaiSinhMergedRow({ r, highlight, profiles, onUpdateField, onDelete }) 
   return (
     <tr style={highlight ? { background: highlight } : undefined}>
       <td style={{ position: "sticky", left: 0, zIndex: 1, background: highlight || "var(--bg)", borderRight: "2px solid var(--accent)", minWidth: 260 }}>
-        <div style={{ fontWeight: 700 }}>
+        {/* Round 526 — same title colour a release row gets on a highlighted (today / this week) row; without it the
+            title inherited the page's light text and was unreadable on the yellow/blue row colours. */}
+        <div style={{ fontWeight: 700, ...(highlight ? { color: "var(--date-highlight-link, inherit)" } : {}) }}>
           {r.title} <span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.12)", color: "#ff9d5c", fontSize: 9 }}>PHÁI SINH</span>
         </div>
         <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist || "—"} · {r.did || "no DID"} · {r.release_date ? fmtDate(r.release_date) : "no date"} {r.release_time}</div>
         <div style={{ fontSize: 11, marginTop: 2 }}>
           {row.source_ticket_id ? (
-            <Link href={`/tickets/phai-sinh`} className={styles.rowLink} style={{ fontSize: 11 }}>From ticket ↗</Link>
+            <Link href={`/tickets/phai-sinh`} className={highlight ? `${styles.rowLink} ${styles.rowLinkOnDate}` : styles.rowLink} style={{ fontSize: 11 }}>From ticket ↗</Link>
           ) : (
             <span style={{ color: "var(--text-faint)" }}>Manual</span>
           )}
