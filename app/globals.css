@@ -271,3 +271,20 @@ body {
 a {
   color: inherit;
 }
+
+/* Round 527 — Women's Day (20/10) test on the Cosmic theme: set on <html> by
+   lib/CosmicDecor.js only while it is active (zhyn theme, 15–22 Oct). Swaps
+   the blue accent for rose; everything else in the theme stays. */
+[data-theme="zhyn"][data-decor="womens-day"] {
+  --accent: #ff5fa2;
+  --accent-soft: #ffb3d1;
+  --bg: #14081a;
+  --bg-body: #14081a;
+  --bg-card: #231030;
+  --bg-input: #2a1438;
+  --bg-hover: #3a1d4a;
+  --border: #7a3d86;
+  --border-strong: #c05fa8;
+  --text-muted: #e3b5d2;
+  --text-faint: #b88aa9;
+}

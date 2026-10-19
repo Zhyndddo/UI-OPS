@@ -1,0 +1,78 @@
+/* Round 527 — Women's Day (20/10) decoration, Cosmic theme only. See
+   CosmicDecor.js. z-index 250 sits above page content but under the top bar
+   / bottom bar (300) and modals (9000). */
+.layer { position: fixed; inset: 0; z-index: 250; pointer-events: none; overflow: hidden; }
+
+.glowA, .glowB { position: absolute; border-radius: 50%; filter: blur(60px); }
+.glowA { width: 55vw; height: 55vw; left: -15vw; bottom: -25vw; background: radial-gradient(circle, rgba(255,95,162,0.42), transparent 70%); }
+.glowB { width: 45vw; height: 45vw; right: -12vw; top: -20vw; background: radial-gradient(circle, rgba(255,95,162,0.34), transparent 70%); }
+
+.petal {
+  position: absolute; top: -8vh; opacity: 0.8;
+  border-radius: 100% 0 100% 0;
+  animation: wdFall linear infinite;
+  will-change: transform;
+}
+.petalRose  { background: linear-gradient(135deg, #ff9ccb, #ff5fa2); }
+.petalBlush { background: linear-gradient(135deg, #ffe0ee, #ffb3d1); }
+.petalOrchid { background: linear-gradient(135deg, #f0abfc, #c026d3); }
+
+@keyframes wdFall {
+  0%   { transform: translate3d(0, -8vh, 0) rotate(var(--rot)); opacity: 0; }
+  8%   { opacity: 0.8; }
+  50%  { transform: translate3d(5vw, 55vh, 0) rotate(calc(var(--rot) + 160deg)); }
+  92%  { opacity: 0.75; }
+  100% { transform: translate3d(-3vw, 108vh, 0) rotate(calc(var(--rot) + 330deg)); opacity: 0; }
+}
+
+.star { position: absolute; color: #ffd6e8; font-size: 12px; opacity: 0.2; animation: wdTwinkle 3.2s ease-in-out infinite; }
+@keyframes wdTwinkle { 0%, 100% { opacity: 0.12; transform: scale(0.8); } 50% { opacity: 0.8; transform: scale(1.25); } }
+
+.roseTL, .roseBL, .roseTR, .roseMini { position: absolute; filter: drop-shadow(0 0 16px rgba(255,79,152,0.55)); transform-origin: 50% 50%; animation: wdBloom 7s ease-in-out infinite; }
+.roseTL { width: 130px; left: -26px; top: calc(var(--topbar-height) + 4px); transform: rotate(-20deg); opacity: 0.9; }
+.roseTR { width: 110px; right: -20px; top: calc(var(--topbar-height) + 34px); opacity: 0.85; animation-delay: -2s; }
+.roseBL { width: 150px; left: -30px; bottom: calc(var(--bottombar-height) - 16px); opacity: 0.9; animation-delay: -4s; }
+.roseMini { width: 70px; right: 150px; bottom: calc(var(--bottombar-height) + 2px); opacity: 0.9; animation-delay: -1s; }
+@keyframes wdBloom { 0%, 100% { scale: 1; } 50% { scale: 1.06; } }
+
+.lotus {
+  position: absolute; right: 18px; bottom: calc(var(--bottombar-height) + 6px);
+  width: 120px; opacity: 0.85;
+  filter: drop-shadow(0 0 14px rgba(255,126,182,0.5));
+  animation: wdSway 6s ease-in-out infinite; transform-origin: 50% 90%;
+}
+@keyframes wdSway { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
+
+.topLine {
+  position: fixed; left: 0; right: 0; top: var(--topbar-height); height: 2px; z-index: 299; pointer-events: none;
+  background: linear-gradient(90deg, transparent, #ff4f98 15%, #ff7eb6 50%, #ff4f98 85%, transparent);
+  box-shadow: 0 0 10px rgba(255,126,182,0.6);
+}
+
+.pill {
+  position: fixed; top: calc(var(--topbar-height) + 10px); left: 50%; transform: translateX(-50%);
+  z-index: 250; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 24px);
+  padding: 6px 8px 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff;
+  background: linear-gradient(135deg, rgba(255,79,152,0.5), rgba(255,126,182,0.35)), var(--bg-card);
+  border: 1px solid rgba(255,179,209,0.6); box-shadow: 0 4px 18px rgba(217,70,239,0.3);
+  animation: wdPillIn 0.6s ease-out both;
+}
+@keyframes wdPillIn { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.pillFlower { color: #ffb3d1; }
+.pillClose {
+  background: transparent; border: none; color: #ffd6e8; font-size: 16px; line-height: 1; cursor: pointer;
+  width: 22px; height: 22px; border-radius: 50%; pointer-events: auto;
+}
+.pillClose:hover { background: rgba(255,255,255,0.15); }
+.pillClose:focus-visible { outline: 2px solid #ffb3d1; outline-offset: 1px; }
+
+@media (max-width: 768px) {
+  .lotus { width: 84px; right: 8px; }
+  .roseTL { width: 90px; } .roseTR, .roseMini { display: none; } .roseBL { width: 100px; }
+  .pill { font-size: 11px; gap: 6px; padding-left: 10px; }
+  .petal:nth-child(n+14) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .petal, .star, .lotus, .pill, .roseTL, .roseBL, .roseTR, .roseMini { animation: none; }
+  .petal { opacity: 0.4; }
+}
