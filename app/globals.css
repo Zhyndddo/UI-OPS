@@ -272,9 +272,9 @@ a {
   color: inherit;
 }
 
-/* Round 527 — Women's Day (20/10) test on the Cosmic theme: set on <html> by
-   lib/CosmicDecor.js only while it is active (zhyn theme, 15–22 Oct). Swaps
-   the blue accent for rose; everything else in the theme stays. */
+/* Round 527/528 — Women's Day (20/10): set on <html> by lib/CosmicDecor.js
+   while it is active (15–22 Oct), on every theme. Swaps accent + surfaces
+   to rose per theme; removed automatically after the window. */
 [data-theme="zhyn"][data-decor="womens-day"] {
   --accent: #ff5fa2;
   --accent-soft: #ffb3d1;
@@ -287,4 +287,29 @@ a {
   --border-strong: #c05fa8;
   --text-muted: #e3b5d2;
   --text-faint: #b88aa9;
+}
+[data-theme="dark"][data-decor="womens-day"] {
+  --accent: #ff5fa2;
+  --accent-soft: #ffb3d1;
+  --bg: #150912;
+  --bg-body: #150912;
+  --bg-card: #221019;
+  --bg-input: #281420;
+  --bg-hover: #331a2a;
+  --border: #5e2c4a;
+  --border-strong: #a04a7e;
+  --text-muted: #e8bcd3;
+  --text-faint: #b88aa5;
+}
+[data-theme="light"][data-decor="womens-day"] {
+  --accent: #e0307f;
+  --accent-soft: #c2185b;
+  --accent-on: #ffffff;
+  --bg: #fff0f6;
+  --bg-body: #fff0f6;
+  --bg-card: #ffffff;
+  --bg-input: #ffffff;
+  --bg-hover: #ffe0ee;
+  --border: #f0c2d8;
+  --border-strong: #7a2a55;
 }
