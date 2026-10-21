@@ -51,6 +51,9 @@ const TABLES = [
   "dsp_metrics_snapshots",
   "release_stream_metrics",
   "milestone_chart_entries",
+  "milestone_viral_posts",
+  "viral_post_platforms",
+  "viral_post_channels",
   "audit_log",
   "notification_settings",
   "notifications",
@@ -69,6 +72,7 @@ const TABLES = [
 ];
 
 const OPTIONAL_TABLES = new Set([
+  "milestone_viral_posts", "viral_post_platforms", "viral_post_channels", // Round 535
   "package_change_log",
   "config_change_log",
   "phai_sinh_smartlinks",

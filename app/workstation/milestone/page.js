@@ -8,7 +8,8 @@ import { fmtDate, fetchAllRows } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { useIsMobile } from "../../../lib/useIsMobile";
 import { useAuth } from "../../../lib/AuthContext";
-import { isDev } from "../../../lib/permissions";
+import { isDev, isTeamLeadOrAbove } from "../../../lib/permissions";
+import ReferenceCombo from "../../../lib/ReferenceCombo";
 import { isOpsTeam } from "../../../lib/teamTypes";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import DailyPicPanel from "../../../lib/DailyPicPanel";
@@ -1631,12 +1632,35 @@ function bestPerUrl(rows) {
 // table. Plain controlled inputs, no autocomplete — unlike the DID/Title/
 // Artist fields above it (which lean on the existing releases table),
 // there's no existing catalog of "channels" to suggest from.
-function ViralPostRow({ row, onChange, onRemove, canRemove, styles }) {
+function ViralPostRow({ row, onChange, onRemove, canRemove, styles, platformOptions, channelOptionsFor, onAddPlatform, onAddChannel }) {
   const set = (field) => (e) => onChange({ ...row, [field]: e.target.value });
   return (
     <tr>
-      <td><input className={styles.input} style={{ width: 110, fontSize: 12 }} value={row.platform} onChange={set("platform")} placeholder="TikTok…" /></td>
-      <td><input className={styles.input} style={{ width: 140, fontSize: 12 }} value={row.channel_name} onChange={set("channel_name")} placeholder="Channel name" /></td>
+      <td>
+        <ReferenceCombo
+          styles={styles}
+          width={130}
+          value={row.platform}
+          options={platformOptions}
+          placeholder="Platform…"
+          addLabel="Add platform"
+          onChange={(v) => onChange({ ...row, platform: v, channel_name: v === row.platform ? row.channel_name : "" })}
+          onAdd={onAddPlatform}
+        />
+      </td>
+      <td>
+        <ReferenceCombo
+          styles={styles}
+          width={170}
+          value={row.channel_name}
+          options={channelOptionsFor(row.platform)}
+          placeholder={row.platform ? "Channel…" : "Pick platform first"}
+          addLabel="Add channel"
+          disabled={!row.platform}
+          onChange={(v) => onChange({ ...row, channel_name: v })}
+          onAdd={(name) => onAddChannel(row.platform, name)}
+        />
+      </td>
       <td><input className={styles.input} style={{ width: 220, fontSize: 12 }} value={row.url} onChange={set("url")} placeholder="https://…" /></td>
       <td><input className={styles.input} style={{ width: 90, fontSize: 12 }} type="number" value={row.views} onChange={set("views")} placeholder="0" /></td>
       <td><input className={styles.input} style={{ width: 90, fontSize: 12 }} type="number" value={row.reactions} onChange={set("reactions")} placeholder="0" /></td>
@@ -1656,6 +1680,8 @@ function ViralPostRow({ row, onChange, onRemove, canRemove, styles }) {
   );
 }
 
+// Round 535 — platforms always offered in the Platform select (besides whatever booking_channels already holds).
+const VIRAL_BASE_PLATFORMS = ["TikTok", "Facebook", "Instagram", "YouTube", "Thread"];
 const EMPTY_VIRAL_ROW = { platform: "", channel_name: "", url: "", views: "", reactions: "" };
 
 // Round 437 — the popup itself: DID/Title/Artist up top (mimics
@@ -1676,11 +1702,68 @@ const EMPTY_VIRAL_ROW = { platform: "", channel_name: "", url: "", views: "", re
 // blur, same as that popup's row-level DID field already does.
 function ViralPostPopup({ initialRelease, releaseOptions, onClose, onSaved, styles }) {
   const isMobile = useIsMobile();
+  const { profile } = useAuth();
+  // Round 535 — team leaders (and above) may log a track with no matched
+  // release / no DID check at all; what they type is what is saved.
+  const canNoDid = isTeamLeadOrAbove(profile);
   const [did, setDid] = useState(initialRelease?.did || "");
   const [trackTitle, setTrackTitle] = useState(initialRelease?.title || "");
   const [artist, setArtist] = useState(initialRelease?.main_artist || "");
-  const [matchedRelease, setMatchedRelease] = useState(initialRelease || null);
+  const [matchedRelease, setMatchedRelease] = useState(initialRelease?.id ? initialRelease : null);
   const [rows, setRows] = useState([{ ...EMPTY_VIRAL_ROW }]);
+  // Round 535 — reference lists for the Platform / Channel selects, loaded once when the popup opens.
+  const [bookingChannels, setBookingChannels] = useState([]); // booking_channels (platform, name)
+  const [customPlatforms, setCustomPlatforms] = useState([]); // viral_post_platforms — used only by this field
+  const [customChannels, setCustomChannels] = useState([]); // viral_post_channels — channels of custom platforms
+  useEffect(() => {
+    if (!supabase) return;
+    Promise.all([
+      supabase.from("booking_channels").select("platform, name, sort_order"),
+      supabase.from("viral_post_platforms").select("name").order("name"),
+      supabase.from("viral_post_channels").select("platform, name"),
+    ]).then(([a, b, c]) => {
+      setBookingChannels(a.data || []);
+      setCustomPlatforms((b.data || []).map((r) => r.name));
+      setCustomChannels(c.data || []);
+    });
+  }, []);
+  const bookingPlatformSet = useMemo(() => new Set([...VIRAL_BASE_PLATFORMS, ...bookingChannels.map((c) => c.platform).filter(Boolean)]), [bookingChannels]);
+  const platformOptions = useMemo(
+    () => [...new Set([...bookingPlatformSet, ...customPlatforms])].sort((x, y) => x.localeCompare(y)),
+    [bookingPlatformSet, customPlatforms]
+  );
+  function channelOptionsFor(platform) {
+    if (!platform) return [];
+    const names = [...bookingChannels.filter((c) => c.platform === platform).map((c) => c.name), ...customChannels.filter((c) => c.platform === platform).map((c) => c.name)];
+    return [...new Set(names.filter(Boolean))].sort((x, y) => x.localeCompare(y));
+  }
+  async function addPlatform(text) {
+    const hit = platformOptions.find((o) => o.toLowerCase() === text.toLowerCase());
+    if (hit) return hit;
+    // Not in booking_channels' list: kept in its own list, only ever used by this field.
+    const { error: e } = await supabase.from("viral_post_platforms").insert({ name: text, created_by: profile?.id || null });
+    if (e) { setError(`Could not add platform: ${e.message}`); return null; }
+    setCustomPlatforms((p) => [...p, text]);
+    return text;
+  }
+  async function addChannel(platform, text) {
+    const hit = channelOptionsFor(platform).find((o) => o.toLowerCase() === text.toLowerCase());
+    if (hit) return hit;
+    if (bookingPlatformSet.has(platform)) {
+      // A platform the Booking Channels reference already knows: add the channel to that table (type Direct — editable on Booking Channels).
+      const siblings = bookingChannels.filter((c) => c.platform === platform);
+      const maxSort = Math.max(-1, ...siblings.map((c) => c.sort_order ?? 0));
+      const { error: e } = await supabase.from("booking_channels").insert({ name: text, platform, channel_type: "Direct", sort_order: maxSort + 1 });
+      if (e) { setError(`Could not add channel: ${e.message}`); return null; }
+      setBookingChannels((c) => [...c, { platform, name: text, sort_order: maxSort + 1 }]);
+    } else {
+      // A custom platform never touches booking_channels.
+      const { error: e } = await supabase.from("viral_post_channels").insert({ platform, name: text, created_by: profile?.id || null });
+      if (e) { setError(`Could not add channel: ${e.message}`); return null; }
+      setCustomChannels((c) => [...c, { platform, name: text }]);
+    }
+    return text;
+  }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -1725,14 +1808,16 @@ function ViralPostPopup({ initialRelease, releaseOptions, onClose, onSaved, styl
   }
 
   async function handleSave() {
-    if (!matchedRelease) return setError("Pick a real release by DID first — Viral Posts need a matched release to show up on this table or the media report link.");
+    if (!matchedRelease && !canNoDid) return setError("Pick a real release by DID first — Viral Posts need a matched release to show up on this table or the media report link.");
+    if (!matchedRelease && !trackTitle.trim() && !did.trim()) return setError("Type the release name (or a DID) for this track.");
     const payload = rows
       .filter((r) => r.url.trim())
       .map((r) => ({
-        release_id: matchedRelease.id,
-        did: matchedRelease.did,
-        track_title: trackTitle.trim() || matchedRelease.title,
-        artist: artist.trim() || matchedRelease.main_artist,
+        release_id: matchedRelease ? matchedRelease.id : null,
+        did: matchedRelease ? matchedRelease.did : did.trim() || null,
+        track_title: trackTitle.trim() || matchedRelease?.title || null,
+        artist: artist.trim() || matchedRelease?.main_artist || null,
+        created_by: profile?.id || null,
         platform: r.platform.trim() || null,
         channel_name: r.channel_name.trim() || null,
         url: r.url.trim(),
@@ -1800,6 +1885,8 @@ function ViralPostPopup({ initialRelease, releaseOptions, onClose, onSaved, styl
         </div>
         {matchedRelease ? (
           <div style={{ fontSize: 11, color: "var(--success-fg)", marginTop: 6 }}>✓ Matched release: {matchedRelease.title} — {matchedRelease.did}</div>
+        ) : canNoDid ? (
+          <div style={{ fontSize: 11, color: "var(--warn-fg)", marginTop: 6 }}>No release matched — this will be saved as a standalone track with exactly what you typed (no DID check). Double-check the name, artist and DID.</div>
         ) : (
           <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>Pick a DID suggestion (or type an exact one and click out of the field) to match a release.</div>
         )}
@@ -1826,6 +1913,10 @@ function ViralPostPopup({ initialRelease, releaseOptions, onClose, onSaved, styl
                     onRemove={() => removeRow(i)}
                     canRemove={rows.length > 1}
                     styles={styles}
+                    platformOptions={platformOptions}
+                    channelOptionsFor={channelOptionsFor}
+                    onAddPlatform={addPlatform}
+                    onAddChannel={addChannel}
                   />
                 ))}
               </tbody>
@@ -1855,6 +1946,8 @@ function ViralPostPopup({ initialRelease, releaseOptions, onClose, onSaved, styl
 // (or the standalone button above the table) opens ViralPostPopup,
 // pre-filled with this row's release when clicked from a row.
 function ViralPostsPanel({ styles, profiles }) {
+  const { profile: panelProfile } = useAuth();
+  const canAddStandalone = isTeamLeadOrAbove(panelProfile); // Round 535 — only team leaders+ can add tracks without a DID
   const [loading, setLoading] = useState(true);
   const [releases, setReleases] = useState([]);
   const [packages, setPackages] = useState([]);
@@ -1920,9 +2013,25 @@ function ViralPostsPanel({ styles, profiles }) {
     return map;
   }, [packages]);
 
+  // Round 535 — tracks logged without a matched release (team leaders only can add them), grouped per typed track.
+  const standaloneGroups = useMemo(() => {
+    const groups = new Map();
+    viralPosts.filter((v) => !v.release_id).forEach((v) => {
+      const key = `${v.did || ""}|${v.track_title || ""}|${v.artist || ""}`.toLowerCase();
+      if (!groups.has(key)) groups.set(key, { key, did: v.did, title: v.track_title, artist: v.artist, rows: [] });
+      groups.get(key).rows.push(v);
+    });
+    return [...groups.values()].map((g) => ({ ...g, posts: bestPerUrl(g.rows) }));
+  }, [viralPosts]);
+  const filteredStandalone = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return standaloneGroups;
+    return standaloneGroups.filter((g) => `${g.title || ""} ${g.artist || ""} ${g.did || ""}`.toLowerCase().includes(q));
+  }, [standaloneGroups, search]);
+
   const viralPostsByRelease = useMemo(() => {
     const map = {};
-    viralPosts.forEach((v) => {
+    viralPosts.filter((v) => v.release_id).forEach((v) => {
       (map[v.release_id] = map[v.release_id] || []).push(v);
     });
     const collapsed = {};
@@ -2018,6 +2127,43 @@ function ViralPostsPanel({ styles, profiles }) {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {filteredStandalone.length > 0 && (
+        <div style={{ marginTop: 22 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-faint)", marginBottom: 6, textTransform: "uppercase" }}>
+            Tracks without a matched release ({filteredStandalone.length}) — typed in by team leaders, not checked against any DID
+          </div>
+          <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+            <table className={styles.table}>
+              <thead><tr><th>Track</th><th>Channel : URL</th></tr></thead>
+              <tbody>
+                {filteredStandalone.map((g) => (
+                  <tr key={g.key}>
+                    <td style={{ minWidth: 160 }}>
+                      <div style={{ fontWeight: 700 }}>{g.title || "—"}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{g.artist || "—"} · {g.did || "no DID"}</div>
+                    </td>
+                    <td
+                      onClick={canAddStandalone ? () => setPopupRelease({ standalone: true, did: g.did, title: g.title, main_artist: g.artist }) : undefined}
+                      style={{ cursor: canAddStandalone ? "pointer" : "default", fontSize: 11, maxWidth: 300, minWidth: 180 }}
+                      title={canAddStandalone ? "Click to log another snapshot for this track" : undefined}
+                    >
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        {g.posts.map((p) => (
+                          <div key={p.id} style={{ wordBreak: "break-all" }}>
+                            <span style={{ color: "var(--text)", fontWeight: 700 }}>{p.channel_name || p.platform || "—"}: </span>
+                            <span style={{ color: "#ff6b1a" }}>{p.url}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
