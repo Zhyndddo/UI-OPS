@@ -1339,8 +1339,8 @@ function ImplementReleaseField({ value, onChange, releases, matchKey, placeholde
       {open && matches.length > 0 && (
         <div
           style={{
-            position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10,
-            background: "var(--bg-hover)", border: "1px solid #333", borderRadius: 6,
+            position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,
+            background: "var(--bg-hover)", border: "1px solid #333", borderRadius: 6, boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
             marginTop: 4, maxHeight: 220, overflowY: "auto",
           }}
         >
