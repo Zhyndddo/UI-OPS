@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { fetchArtistRollupWith, fetchSongRollupWith } from "../../../lib/performanceRollupData";
 import { loadPickPackage, confirmPick, submitPickFeedback } from "../../../lib/pickPackageServer";
 
 // Round 540 — token-scoped read layer for the public magic-link pages
@@ -17,6 +18,20 @@ import { loadPickPackage, confirmPick, submitPickFeedback } from "../../../lib/p
 
 export const dynamic = "force-dynamic";
 
+const PUBLIC_SETTING_KEYS = ["magic_link_theme_lock", "channel_reference_intro", "channel_reference_sheet_snapshot"];
+
+// Round 543 hotfix — pick-package tokens are human-readable codes that can contain
+// non-ASCII letters (e.g. "LDTĐ-22102026-0180"), which my first strict [A-Za-z0-9_-]
+// check rejected (-> 404, page "failed to load"). Tokens are only ever used as bound
+// query values, so just require a sane length and no control characters, and undo a
+// percent-encoding the URL may still carry.
+function cleanToken(raw) {
+  let t = String(raw || "").trim();
+  if (/%[0-9A-Fa-f]{2}/.test(t)) { try { t = decodeURIComponent(t); } catch { /* keep as is */ } }
+  if (!t || t.length > 200 || /[\u0000-\u001f]/.test(t)) return "";
+  return t;
+}
+
 const noStore = { "Cache-Control": "no-store" };
 const notFound = () => NextResponse.json({ error: "not_found" }, { status: 404, headers: noStore });
 
@@ -24,8 +39,19 @@ export async function GET(request) {
   if (!supabaseAdmin) return NextResponse.json({ error: "server_not_configured" }, { status: 500, headers: noStore });
   const { searchParams } = new URL(request.url);
   const kind = searchParams.get("kind") || "";
-  const token = (searchParams.get("token") || "").trim();
-  if (!token || token.length > 200 || !/^[A-Za-z0-9_-]+$/.test(token)) return notFound();
+  const token = cleanToken(searchParams.get("token"));
+
+  // Round 542 — the three public display settings the magic-link pages read
+  // (theme lock, channel-reference intro text, sheet snapshot). Whitelisted
+  // keys only: the rest of global_settings is NOT reachable from here.
+  if (kind === "setting") {
+    const key = searchParams.get("key") || "";
+    if (!PUBLIC_SETTING_KEYS.includes(key)) return notFound();
+    const { data } = await supabaseAdmin.from("global_settings").select("value").eq("key", key).maybeSingle();
+    return NextResponse.json({ value: data?.value ?? null }, { headers: { "Cache-Control": "public, max-age=30, s-maxage=30" } });
+  }
+
+  if (!token) return notFound();
 
   try {
     if (kind === "cost") {
@@ -38,6 +64,19 @@ export async function GET(request) {
       const { data, error } = await supabaseAdmin.from("performance_share_links").select("*").eq("token", token).maybeSingle();
       if (error || !data) return notFound();
       return NextResponse.json({ row: data }, { headers: noStore });
+    }
+
+    if (kind === "perf-rollup") {
+      // Round 542 — the rollup for ONE performance share link. What gets
+      // queried (song id / artist name) comes from the link row, never from
+      // the browser, and an expired link returns nothing.
+      const { data: link } = await supabaseAdmin.from("performance_share_links").select("query_type, query_value, expires_at").eq("token", token).maybeSingle();
+      if (!link) return notFound();
+      if (link.expires_at && new Date(link.expires_at) < new Date()) return notFound();
+      const rollup = link.query_type === "song"
+        ? await fetchSongRollupWith(supabaseAdmin, link.query_value)
+        : await fetchArtistRollupWith(supabaseAdmin, link.query_value);
+      return NextResponse.json({ rollup: rollup || null }, { headers: noStore });
     }
 
     if (kind === "pick") {
@@ -80,8 +119,8 @@ export async function POST(request) {
   if (!supabaseAdmin) return NextResponse.json({ error: "server_not_configured" }, { status: 500, headers: noStore });
   let body;
   try { body = await request.json(); } catch { return notFound(); }
-  const token = String(body?.token || "").trim();
-  if (!token || token.length > 200 || !/^[A-Za-z0-9_-]+$/.test(token)) return notFound();
+  const token = cleanToken(body?.token);
+  if (!token) return notFound();
   try {
     let res;
     if (body.kind === "pick-confirm") {
