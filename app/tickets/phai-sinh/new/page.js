@@ -349,7 +349,7 @@ export default function PhaiSinhNewTicket() {
                 <div className={styles.field}>
                   <label className={styles.fieldLabel}>Songs — paste or import a file</label>
                   <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 0, marginBottom: 8 }}>
-                    Expected column order: {BATCH_ITEM_COLUMNS.join(" · ")}. A header row is auto-skipped either way.
+                    Any column order works if the first row is a header (matched by name); otherwise the template order is used: {BATCH_ITEM_COLUMNS.join(" · ")}.
                     If you import a file, it takes priority over anything pasted below.
                   </p>
                   <BatchFileImport styles={styles} onParsed={setFileRows} />

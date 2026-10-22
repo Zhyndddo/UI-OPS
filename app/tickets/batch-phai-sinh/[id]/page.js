@@ -206,10 +206,10 @@ export default function BatchPhaiSinhDetail() {
             <form onSubmit={handleAddPaste} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14, marginBottom: 20 }}>
               {pasteError && <div className={styles.errorBox}>{pasteError}</div>}
               <p style={{ color: "var(--text-faint)", fontSize: 11, marginTop: 0, marginBottom: 6 }}>
-                Same column order as batch creation: {BATCH_ITEM_COLUMNS.join(" · ")}
+                Files are matched by header name, in any order. Pasted rows follow the template order unless the first line is a header: {BATCH_ITEM_COLUMNS.join(" · ")}
               </p>
               <div style={{ marginBottom: 10 }}>
-                <BatchFileImport styles={styles} onParsed={handleAddFile} />
+                <BatchFileImport styles={styles} onParsed={handleAddFile} allowEmpty={false} />
               </div>
               <textarea
                 className={styles.textarea}
