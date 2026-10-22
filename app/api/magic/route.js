@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { loadPickPackage, confirmPick, submitPickFeedback } from "../../../lib/pickPackageServer";
 
 // Round 540 — token-scoped read layer for the public magic-link pages
 // (cost-report, performance-report, channels). These pages used to query
@@ -39,6 +40,12 @@ export async function GET(request) {
       return NextResponse.json({ row: data }, { headers: noStore });
     }
 
+    if (kind === "pick") {
+      const bundle = await loadPickPackage(token);
+      if (!bundle || !bundle.release) return notFound();
+      return NextResponse.json(bundle, { headers: noStore });
+    }
+
     if (kind === "channels") {
       const { data: link, error: linkErr } = await supabaseAdmin
         .from("channel_reference_share_links")
@@ -64,4 +71,31 @@ export async function GET(request) {
     return NextResponse.json({ error: "failed" }, { status: 500, headers: noStore });
   }
   return notFound();
+}
+
+// Round 541 — the two things an artist can DO on the pick-package page.
+// POST /api/magic  { kind: "pick-confirm", token, value }
+//                  { kind: "pick-feedback", token, text }
+export async function POST(request) {
+  if (!supabaseAdmin) return NextResponse.json({ error: "server_not_configured" }, { status: 500, headers: noStore });
+  let body;
+  try { body = await request.json(); } catch { return notFound(); }
+  const token = String(body?.token || "").trim();
+  if (!token || token.length > 200 || !/^[A-Za-z0-9_-]+$/.test(token)) return notFound();
+  try {
+    let res;
+    if (body.kind === "pick-confirm") {
+      const value = String(body.value || "");
+      if (!value || value.length > 200) return notFound();
+      res = await confirmPick(token, value);
+    } else if (body.kind === "pick-feedback") {
+      res = await submitPickFeedback(token, body.text);
+    } else {
+      return notFound();
+    }
+    if (res?.status) return NextResponse.json({ error: res.error }, { status: res.status, headers: noStore });
+    return NextResponse.json(res, { headers: noStore });
+  } catch (e) {
+    return NextResponse.json({ error: "failed" }, { status: 500, headers: noStore });
+  }
 }

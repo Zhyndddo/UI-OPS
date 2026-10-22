@@ -51,7 +51,8 @@
 // page in this app already has, so an unknown token, a revoked/missing
 // release, an RLS denial, or any other Supabase hiccup all fall back to
 // the generic title/description instead of crashing the page.
-import { supabase } from "../../../lib/supabaseClient";
+import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { pickPackageMeta } from "../../../lib/pickPackageServer";
 
 const SITE_URL = "https://internal.vieent.com";
 const FALLBACK_TITLE = "Package Offer — VIEENT";
@@ -59,17 +60,10 @@ const FALLBACK_DESCRIPTION = "A VIEENT distribution support package offer.";
 const FALLBACK_METADATA = { title: FALLBACK_TITLE, description: FALLBACK_DESCRIPTION };
 
 export async function generateMetadata({ params }) {
-  if (!supabase) return FALLBACK_METADATA;
+  if (!supabaseAdmin) return FALLBACK_METADATA;
 
   try {
-    const { data: link } = await supabase.from("magic_links").select("release_id").eq("token", params.token).maybeSingle();
-    if (!link) return FALLBACK_METADATA;
-
-    const { data: release } = await supabase
-      .from("releases")
-      .select("title, main_artist, media_report_status")
-      .eq("id", link.release_id)
-      .maybeSingle();
+    const release = await pickPackageMeta(params.token);
     if (!release) return FALLBACK_METADATA;
 
     const kind = release.media_report_status ? "Media Report" : "Package Offer";

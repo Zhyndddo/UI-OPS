@@ -6,7 +6,6 @@ import { supabase } from "../../../lib/supabaseClient";
 import { formatDetailText } from "../../../lib/helpers";
 import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../../lib/troGiaBooking";
 import { useIsMobile } from "../../../lib/useIsMobile";
-import { ensurePhuLucTicket } from "../../../lib/ensurePhuLucTicket";
 import { readMagicLinkThemeLock } from "../../../lib/magicLinkThemeLock";
 import styles from "../../shared.module.css";
 
@@ -505,7 +504,7 @@ export default function PickPackagePage() {
   }, []);
 
   useEffect(() => {
-    if (!supabase || !token) return;
+    if (!token) return;
     load();
   }, [token]);
 
@@ -553,20 +552,23 @@ export default function PickPackagePage() {
     setLoading(true);
     setError(null);
 
-    const { data: link, error: linkErr } = await supabase
-      .from("magic_links")
-      .select("*")
-      .eq("token", token)
-      .maybeSingle();
+    // Round 541 — one token-scoped server read (app/api/magic/route.js,
+    // kind=pick) replaces the ~15 direct anon-key queries this used to run.
+    let bundle = null;
+    try {
+      const r = await fetch(`/api/magic?kind=pick&token=${encodeURIComponent(token)}`, { cache: "no-store" });
+      bundle = r.ok ? await r.json() : null;
+    } catch (e) { bundle = null; }
 
-    if (linkErr || !link) {
+    if (!bundle?.link || !bundle.release) {
       setError("This link doesn't look valid. Double-check the URL you were sent.");
       setLoading(false);
       return;
     }
+    const link = bundle.link;
     setMagicLink(link);
 
-    const { data: rel } = await supabase.from("releases").select("*").eq("id", link.release_id).single();
+    const rel = bundle.release;
     setRelease(rel);
 
     // Media Booking ticket for this release — its status_log is the real
@@ -577,19 +579,8 @@ export default function PickPackagePage() {
     // in progress (ticket back to REQUESTED) — a rebook is a purely
     // internal do-over, this page only needs to update once the new build
     // reaches COMPLETE again, not the moment a reopen starts.
-    const { data: mbTab } = await supabase.from("ticket_tabs").select("id").eq("key", "media_booking").single();
-    let ticketRow = null;
-    if (mbTab) {
-      const { data: mbTix } = await supabase
-        .from("tickets")
-        .select("id, status, status_log, data")
-        .eq("tab_id", mbTab.id)
-        .eq("data->>releaseId", rel?.did)
-        .is("deleted_at", null)
-        .limit(1);
-      ticketRow = mbTix?.[0] || null;
-      setMediaBookingTicket(ticketRow);
-    }
+    const ticketRow = bundle.mediaBookingTicket || null;
+    setMediaBookingTicket(ticketRow);
     const packagesEverCompleted = !!ticketRow?.status_log?.COMPLETE;
 
     // Round 65 — item 4: the nested media_booking_package_lines(*) embed
@@ -599,14 +590,9 @@ export default function PickPackagePage() {
     // drag-to-reorder order set in the Package Builder ticket. The outer
     // .order("sort_order") only orders the packages themselves, not their
     // nested lines — needs its own foreignTable-scoped .order() too.
-    const { data: realPackagesRaw } = await supabase
-      .from("media_booking_packages")
-      .select("*, media_booking_package_lines(*)")
-      .eq("release_id", link.release_id)
-      .order("sort_order")
-      .order("sort_order", { foreignTable: "media_booking_package_lines" });
+    const realPackagesRaw = bundle.packages || [];
     const realPackages = packagesEverCompleted ? realPackagesRaw : [];
-    const { data: pkgCategories } = await supabase.from("package_categories").select("id, name");
+    const pkgCategories = bundle.categories || [];
     const categoryNameById = {};
     (pkgCategories || []).forEach((c) => (categoryNameById[c.id] = c.name));
 
@@ -617,7 +603,7 @@ export default function PickPackagePage() {
     // same per-package/admin-edited pattern (Config → Package Terms) — a
     // separate block so Marketing can add/edit these rows without wading
     // through the main terms_text blob, and per package like they asked.
-    const { data: termsRows } = await supabase.from("contract_type_packages").select("contract_type, terms_text, tro_gia_booking_text");
+    const termsRows = bundle.termsRows || [];
     const termsByName = {};
     const troGiaByName = {};
     (termsRows || []).forEach((t) => {
@@ -628,7 +614,7 @@ export default function PickPackagePage() {
 
     // Round 84 — added TRO_GIA_BOOKING_SETTING_KEY to this same
     // already-batched global_settings read rather than a separate query.
-    const { data: settingsRows } = await supabase.from("global_settings").select("key, value").in("key", ["package_terms_shared_a", "package_terms_conditions", "package_terms_shared_b", TRO_GIA_BOOKING_SETTING_KEY]);
+    const settingsRows = bundle.settingsRows || [];
     const settingsByKey = {};
     (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
     // Round 524 — once a release is locked, its package carries a frozen
@@ -747,46 +733,23 @@ export default function PickPackagePage() {
     const confirmedPkgRaw = (realPackages || []).find((p) => p.name === confirmedPackageName);
     setPackageLines(confirmedPkgRaw?.media_booking_package_lines || []);
 
-    const { data: cats } = await supabase.from("package_categories").select("id, name").order("sort_order");
-    setCategories(cats || []);
-    const { data: entries } = await supabase.from("media_booking_entries").select("*").eq("release_id", link.release_id);
-    setBookingEntries(entries || []);
-
-    const { data: streamRow } = await supabase.from("release_stream_metrics").select("*").eq("release_id", link.release_id).maybeSingle();
-    setStreamMetrics(streamRow || null);
-    if (rel?.did) {
-      const { data: chart } = await supabase.from("milestone_chart_entries").select("*").eq("did", rel.did).order("entry_date", { ascending: false });
-      setMilestones(chart || []);
-    }
+    setCategories(bundle.categories || []);
+    setBookingEntries(bundle.bookingEntries || []);
+    setStreamMetrics(bundle.streamMetrics || null);
+    if (rel?.did) setMilestones(bundle.milestones || []);
 
     // Round 106 item 4a — YouTube Ads tickets (lib/ticketConfigs.js's
     // "youtube_ads" type — ads run OUTSIDE the Booking Board/Package flow
     // entirely, no shared data with media_booking) whose relatedDid
     // matches this release, shown as their own card right next to the
-    // normal package display — per explicit request: "add a column right
-    // next to the normal package in the magic links so that the booking
-    // number show how many has been booked and what is the result."
-    if (rel?.did) {
-      const { data: yaTab } = await supabase.from("ticket_tabs").select("id").eq("key", "youtube_ads").maybeSingle();
-      if (yaTab) {
-        const { data: yaTix } = await supabase
-          .from("tickets")
-          .select("id, status, data")
-          .eq("tab_id", yaTab.id)
-          .eq("data->>relatedDid", rel.did)
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false });
-        setYoutubeAdsTickets(yaTix || []);
-      }
-    }
+    // normal package display.
+    if (rel?.did) setYoutubeAdsTickets(bundle.youtubeAdsTickets || []);
 
     // Round 437 — every snapshot row for this release (append-only, one
-    // row per check-in — see the table's own migration comment); the
-    // render below collapses these to one per url via bestPerUrl.
-    const { data: viralRows } = await supabase.from("milestone_viral_posts").select("*").eq("release_id", link.release_id).order("created_at", { ascending: false });
-    setViralPosts(viralRows || []);
+    // row per check-in); the render below collapses these to one per url
+    // via bestPerUrl. (The "last opened" stamp is now written server-side.)
+    setViralPosts(bundle.viralPosts || []);
 
-    supabase.from("magic_links").update({ last_used_at: new Date().toISOString() }).eq("id", link.id);
     setLoading(false);
   }
 
@@ -889,71 +852,29 @@ export default function PickPackagePage() {
     if (isLocked || !selectedValue) return;
     setPicking(true);
     const option = pickOptions.find((o) => o.value === selectedValue);
-    const { error: err } = await supabase
-      .from("releases")
-      .update({
-        project_type: selectedValue,
-        package_total_value: option?.totalValue ?? null,
-        // The artist confirming their own pick now locks it in directly —
-        // no more separate manual "Lock editing" step for AR on this path
-        // (AR's toggle still exists for everything else, e.g. correcting
-        // a pick made on the artist's behalf).
-        package_locked: true,
-      })
-      .eq("id", release.id);
+    // Round 541 — the server re-derives the release, price and items from the
+    // token (it ignores any client-sent total) and does the lock, the Phụ Lục
+    // ticket, the simple-option auto-complete and the release_package_items
+    // seed in one call. Same end state as before.
+    let result = null;
+    let err = null;
+    try {
+      const r = await fetch("/api/magic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "pick-confirm", token, value: selectedValue }),
+      });
+      result = await r.json().catch(() => null);
+      if (!r.ok) err = { message: result?.error || "Couldn't confirm your choice. Please try again." };
+    } catch (e) { err = { message: "Couldn't confirm your choice. Please try again." }; }
     setPicking(false);
     if (err) { setError(err.message); return; }
-    setRelease((r) => ({ ...r, project_type: selectedValue, package_total_value: option?.totalValue ?? null, package_locked: true }));
+    setRelease((r) => ({ ...r, project_type: selectedValue, package_total_value: result?.totalValue ?? null, package_locked: true }));
     setConfirmed(true);
-
-    // Round 160 — per explicit report: an artist picking "Chỉ Phát Hành"
-    // (or any other simple, no-package option — see SIMPLE_OPTIONS) here
-    // used to leave the release's Media Booking ticket exactly as-is. That
-    // ticket is created up front, at Send Upload time (see sendPackageTicket
-    // in app/releases/[id]/page.js), before anyone knows what the artist
-    // will end up picking — Marketing can (and does, via handleGenerateLink
-    // in app/tickets/media-booking/page.js, which has no status gate) send
-    // this very magic link out while the ticket is still sitting in
-    // REQUESTED, planning to mark it COMPLETE later. If that "later" never
-    // happens — easy to forget once the link's already out — the ticket
-    // just sits open forever with data.proposedPackage still null, showing
-    // "—" in the Media Booking ticket list exactly as if nobody had ever
-    // looked at it, even though the release is fully resolved. (Real/INT
-    // MEDIA package picks don't have this gap the same way — Marketing
-    // normally completes those tickets themselves as part of building the
-    // package, before generating the link at all.)
-    // Auto-completes the SAME way updateStatus()'s COMPLETE branch does in
-    // the ticket list (status + status_log timestamp) — mirrors, not
-    // replaces, that path, so it fires the exact same completion behavior
-    // (including whatever AR-facing "ready" notification a real Marketing
-    // completion already sends) rather than a new, different one.
-    if (option?.kind === "simple" && mediaBookingTicket && mediaBookingTicket.status !== "COMPLETE") {
-      const newLog = { ...(mediaBookingTicket.status_log || {}), COMPLETE: new Date().toISOString() };
-      const { error: completeErr } = await supabase.from("tickets").update({ status: "COMPLETE", status_log: newLog }).eq("id", mediaBookingTicket.id);
-      if (!completeErr) setMediaBookingTicket((t) => ({ ...t, status: "COMPLETE", status_log: newLog }));
-    }
-
-    // Round 523 — Phụ Lục ticket now goes through the shared helper: no
-    // longer conditional on the release having been in a pipeline stage
-    // (a locked package with no ticket is always a gap), dup-checked
-    // against the live DB, per-label Mã PL, and the insert error is
-    // logged instead of swallowed. See lib/ensurePhuLucTicket.js.
-    await ensurePhuLucTicket(supabase, release);
-
-    // Real packages (including INT MEDIA, which still carries the full
-    // underlying quantity/detail data even though it's hidden from this
-    // client-facing view) have items to seed release_package_items with —
-    // simple options (Chỉ Phát Hành etc.) genuinely have none.
-    if ((option?.kind === "real" || option?.kind === "intMedia") && option.items.length > 0) {
-      const { data: existingItems } = await supabase.from("release_package_items").select("id").eq("release_id", release.id).limit(1);
-      if (!existingItems || existingItems.length === 0) {
-        const rows = option.items.map((it, i) => ({
-          release_id: release.id, category: it.category, unit: it.unit,
-          quantity: it.quantity, detail: it.detail, amount: it.amount, sort_order: i,
-        }));
-        await supabase.from("release_package_items").insert(rows);
-      }
-    }
+    if (result?.ticketCompleted && result.statusLog) setMediaBookingTicket((t) => (t ? { ...t, status: "COMPLETE", status_log: result.statusLog } : t));
+    // Round 160 / 523 (now server-side, Round 541): picking a simple option
+    // auto-completes the Media Booking ticket, the Phụ Lục ticket is ensured
+    // once, and a real package's lines seed release_package_items.
   }
 
   // Feed Back — the artist's alternative to confirming: leaves a note for
@@ -965,22 +886,24 @@ export default function PickPackagePage() {
   async function submitFeedback() {
     if (!mediaBookingTicket || !feedbackText.trim() || submittingFeedback) return;
     setSubmittingFeedback(true);
-    const newData = { ...(mediaBookingTicket.data || {}), feedback: { text: feedbackText.trim(), submittedAt: new Date().toISOString() } };
-    const { error: err } = await supabase.from("tickets").update({ data: newData }).eq("id", mediaBookingTicket.id);
+    let err = null;
+    let newData = null;
+    try {
+      const r = await fetch("/api/magic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "pick-feedback", token, text: feedbackText.trim() }),
+      });
+      const body = await r.json().catch(() => null);
+      if (!r.ok) err = { message: body?.error || "Couldn't send your feedback. Please try again." };
+      else newData = body?.data || null;
+    } catch (e) { err = { message: "Couldn't send your feedback. Please try again." }; }
     if (err) {
       setSubmittingFeedback(false);
       setError(err.message);
       return;
     }
-    setMediaBookingTicket((t) => ({ ...t, data: newData }));
-    await supabase.rpc("fanout_notification", {
-      p_team: "AR",
-      p_type: "media_booking_feedback",
-      p_title: "Artist request package changed",
-      p_body: `${release?.main_artist || "An artist"} left feedback on ${release?.title || "their release"}'s media booking package.`,
-      p_link: `/releases/${release.id}?focus=media_booking`,
-      p_ticket_id: mediaBookingTicket.id,
-    });
+    if (newData) setMediaBookingTicket((t) => ({ ...t, data: newData }));
     setSubmittingFeedback(false);
     setFeedbackSent(true);
     setShowFeedbackBox(false);
