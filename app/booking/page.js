@@ -396,6 +396,7 @@ export default function BookingBoard() {
   const [month, setMonth] = useState("");
   const [round, setRound] = useState("Đợt 1"); // 'INT' | 'Đợt 1' | 'Đợt 2' — now a RELEASE-level (row) filter, see roundFilteredReleases
   const [hangMucFilter, setHangMucFilter] = useState("All"); // 'All' | a category name — determines the columns
+  const linkFetchRef = useRef(new Set()); // Round 545 — entry ids whose link text was already requested
   const loadSeqRef = useRef(0); // Round 506 — latest-request-wins guard for loadPage
   const [subFilter, setSubFilter] = useState(null); // layer-1 pick within hangMucFilter (a brand, or a brand group) — only relevant when CATEGORY_SUBFILTERS[hangMucFilter] exists; resets whenever hangMucFilter changes, see effect below
   const [tiktokBrandFilter, setTiktokBrandFilter] = useState(null); // layer-2 pick, TikTok Channel only — which of the picked group's 4 brands; columns (layer 3) are then that brand's 5 fixed subchannel types. Resets whenever hangMucFilter or subFilter (the group) changes, see effect below.
@@ -509,6 +510,24 @@ export default function BookingBoard() {
   // release ids — the actual release rows plus their entries/packages/
   // channel statuses needed to render the cells. Replaces the old load()'s
   // single "pull all 8 tables in full" pass.
+  // Round 545 — fetches the link text for just these entries (the page load leaves `link`
+  // undefined to save egress). Safe to call repeatedly: ids already requested are skipped.
+  async function ensureLinks(list) {
+    if (!supabase) return;
+    const ids = (list || []).filter((e) => e && e.link === undefined && !linkFetchRef.current.has(e.id)).map((e) => e.id);
+    if (ids.length === 0) return;
+    ids.forEach((id) => linkFetchRef.current.add(id));
+    const got = {};
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      const { data, error } = await supabase.from("media_booking_entries").select("id, link").in("id", chunk);
+      if (error) { chunk.forEach((id) => linkFetchRef.current.delete(id)); continue; }
+      (data || []).forEach((r) => { got[r.id] = r.link ?? null; });
+    }
+    if (Object.keys(got).length === 0) return;
+    setEntries((prev) => prev.map((e) => (e.id in got && e.link === undefined ? { ...e, link: got[e.id] } : e)));
+  }
+
   async function loadPage({ silent = false } = {}) {
     if (!supabase) return;
     // Round 506 — every filter click fires a load; responses can arrive out of order. Only the newest request may write state.
@@ -566,7 +585,10 @@ export default function BookingBoard() {
       fetchAllRows(() =>
         supabase
           .from("media_booking_entries")
-          .select("id, release_id, category_id, channel_name, platform, subchannel_type, quantity, status, booking_round, link, channel_type")
+          // Round 545 — `link` (the long URL text) is NOT downloaded with the page any more:
+          // it's only shown inside an expanded cell / the Add Link popup / a hover tooltip,
+          // so it is fetched for just those entries on demand (ensureLinks below).
+          .select("id, release_id, category_id, channel_name, platform, subchannel_type, quantity, status, booking_round, channel_type")
           .in("release_id", ids)
           .order("id")
       ),
@@ -582,6 +604,7 @@ export default function BookingBoard() {
 
     setReleases(orderedRels);
     setPackages(pkgs || []);
+    linkFetchRef.current = new Set(); // Round 545 — entries were replaced (no links yet), forget what was fetched
     setEntries(ents || []);
     const statusMap = {};
     (chanStatuses || []).forEach((s) => {
@@ -1359,6 +1382,7 @@ export default function BookingBoard() {
             saveAdsQuantity={saveAdsQuantity}
             updateYoutubeAdsField={updateYoutubeAdsField}
             cycleStatusAll={cycleStatusAll}
+            ensureLinks={ensureLinks}
             updateEntry={updateEntry}
             deleteEntry={deleteEntry}
             channelStatuses={channelStatuses}
@@ -1573,6 +1597,7 @@ export default function BookingBoard() {
                         onAddBulk={(rows) => addEntries(r.id, c.categoryName, c.brand, c.platform, c.subchannelType, rows)}
                         onCycleStatus={cycleStatus}
                         onCycleStatusAll={cycleStatusAll}
+                        onNeedLinks={ensureLinks}
                         onUpdateEntry={updateEntry}
                         onDeleteEntry={deleteEntry}
                         canAdd={hangMucFilter !== "All"}
@@ -1617,7 +1642,7 @@ function BookingBoardCards({
   hangMucFilter, subFilter, round, phuLucStatus, setPackagePreview, updateReleaseNote,
   convertMediaReport, expandedCell, setExpandedCell, addEntry, addEntries,
   cycleStatus, bookingChannels, saveAdsQuantity, updateYoutubeAdsField,
-  cycleStatusAll, updateEntry, deleteEntry, channelStatuses, saveChannelStatus,
+  cycleStatusAll, updateEntry, deleteEntry, channelStatuses, saveChannelStatus, ensureLinks,
 }) {
   // Same grouping the table's header uses (columns are already sorted by
   // category upstream in the `columns` useMemo) — just collected into
@@ -1770,6 +1795,7 @@ function BookingBoardCards({
                               onAddBulk={(rows) => addEntries(r.id, c.categoryName, c.brand, c.platform, c.subchannelType, rows)}
                               onCycleStatus={cycleStatus}
                               onCycleStatusAll={cycleStatusAll}
+                              onNeedLinks={ensureLinks}
                               onUpdateEntry={updateEntry}
                               onDeleteEntry={deleteEntry}
                               canAdd={hangMucFilter !== "All"}
@@ -2096,7 +2122,7 @@ function blankChannel() {
   return { channelName: "", urls: [""] };
 }
 
-function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, onAdd, onAddBulk, onCycleStatus, onCycleStatusAll, onUpdateEntry, onDeleteEntry, canAdd, cellBorderLeft, referenceChannels, showStatus, channelStatus, onSaveStatus }) {
+function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, onAdd, onAddBulk, onCycleStatus, onCycleStatusAll, onNeedLinks, onUpdateEntry, onDeleteEntry, canAdd, cellBorderLeft, referenceChannels, showStatus, channelStatus, onSaveStatus }) {
   const anchorRef = useRef(null);
   const [showAddPopup, setShowAddPopup] = useState(false);
   const [channels, setChannels] = useState([blankChannel()]);
@@ -2114,6 +2140,12 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
   const [editChannelName, setEditChannelName] = useState("");
   const [editLink, setEditLink] = useState("");
   const [editError, setEditError] = useState(null);
+  // Round 545 — link text isn't part of the page download; load it for this cell's entries
+  // as soon as the cell is expanded or its Add Link popup is open.
+  useEffect(() => {
+    if ((expanded || showAddPopup) && cellEntries.length > 0 && onNeedLinks) onNeedLinks(cellEntries);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, showAddPopup, cellEntries.length]);
   const added = cellEntries.length;
   const isDone = booked != null && booked > 0 && added >= booked;
   // Round 431 — "nothing is ever booked in that bracket" should read as a
@@ -2162,7 +2194,7 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
     setEditError(null);
   }
   async function handleDelete(e) {
-    if (!window.confirm(`Delete this link?\n${e.link}`)) return;
+    if (!window.confirm(`Delete this link?\n${e.link ?? ""}`)) return;
     await onDeleteEntry(e);
     if (editingId === e.id) setEditingId(null);
   }
@@ -2206,7 +2238,9 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
       <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, marginBottom: 4, gap: 6 }}>
         <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
           {e.platform && <span style={{ color: "#ff9d5c", fontWeight: 700 }}>{e.platform}: </span>}
-          <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-muted)" }}>{e.link}</a>
+          {e.link === undefined
+            ? <span style={{ color: "var(--text-faint)" }}>loading…</span>
+            : <a href={e.link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-muted)" }}>{e.link}</a>}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
           {showStatusCycle && (
@@ -2340,7 +2374,8 @@ function BrandCell({ release, column, booked, cellEntries, expanded, onToggle, o
       <div
         onClick={onToggle}
         style={{ cursor: "pointer", fontSize: 17, textAlign: "center", fontWeight: isDone ? 800 : 600 }}
-        title={cellEntries.map((e) => `${e.platform ? e.platform + ": " : ""}${e.status}: ${e.link}`).join("\n")}
+        onMouseEnter={() => { if (cellEntries.length > 0 && onNeedLinks) onNeedLinks(cellEntries); }}
+        title={cellEntries.map((e) => `${e.platform ? e.platform + ": " : ""}${e.status}${e.link !== undefined ? ": " + e.link : ""}`).join("\n")}
       >
         {isDone ? (
           <span style={{ color: "#7ee6a8" }}>DONE</span>

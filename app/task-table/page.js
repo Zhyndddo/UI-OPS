@@ -112,6 +112,30 @@ function isRecent(dateStr) {
   return !dateStr || dateStr >= TASK_TABLE_CUTOFF;
 }
 
+// Round 546 — egress pass 5. This page used to download the releases table FOUR separate
+// times (youtube-ads subteams, upload/confirm/pre-release workstation counts, subteam
+// project counts, and a per-subteam booking lookup), each with its own column list, then
+// throw away every release that isRecent() rejects. Now ONE request fetches only the
+// releases isRecent() keeps (same rule, done in the query: undated OR dated on/after the
+// cutoff) with the union of the columns those consumers read, and they all share it.
+// Same rows reach the same logic, so every count/list is unchanged.
+const RECENT_RELEASE_FIELDS = [
+  ...DSP_CHECK_FIELDS,
+  "id", "did", "title", "release_date", "tags", "requested",
+  "link_lbm", "link_share", "smartlink", "link_preorder", "gate_pre_order", "upload_status",
+  "confirm_tag", "confirm_insta_sound", "confirm_tiktok_sound_updated", "confirm_smartlink_updated",
+  "canva_mv_status", "canva_status", "musixmatch_link", "musixmatch_status", "nct_lyric", "zing_lyric",
+].join(", ");
+let recentReleasesPromise = null;
+function loadRecentReleases() {
+  if (!recentReleasesPromise) {
+    recentReleasesPromise = fetchAllRows(() =>
+      supabase.from("releases").select(RECENT_RELEASE_FIELDS).or(`release_date.is.null,release_date.gte.${TASK_TABLE_CUTOFF}`).order("id")
+    ).then((res) => res.data || []);
+  }
+  return recentReleasesPromise;
+}
+
 const TERMINAL_EXECUTOR = ["COMPLETE", "CANCELED", "REFUND"];
 const TERMINAL_REPORT_CONFLICT_EXECUTOR = ["Hoàn thành", "Từ chối", "Hủy"];
 const TERMINAL_DESIGN = ["COMPLETE", "CANCEL"];
@@ -222,7 +246,9 @@ async function loadTicketCounts(map, requesterMap, arProjectsMap, profiles) {
   });
   const releaseSubteamsByDid = {};
   if (tabs.some((t) => t.key === "youtube_ads")) {
-    const { data: releases } = await fetchAllRows(() => supabase.from("releases").select("id, did, title, tags").order("id"));
+    // Round 546 — only did + tags are read here, and a release with no tags can never carry a
+    // subteam (effectiveSubteamTags gives [] for it), so neither the other columns nor those rows are fetched.
+    const { data: releases } = await fetchAllRows(() => supabase.from("releases").select("did, tags").not("did", "is", null).not("tags", "is", null).order("id"));
     (releases || []).forEach((r) => {
       if (!r.did) return;
       const subteams = effectiveSubteamTags(r);
@@ -317,24 +343,17 @@ async function loadAssignMap(workstationKeys) {
 // combined via the shared `map` below), so they don't need to run one
 // after another either — same Promise.all fix as loadTicketCounts above.
 async function loadWorkstationCounts(map) {
-  const [assignMap, uploadsRes, confirmRes, preReleaseRes] = await Promise.all([
+  const [assignMap, recentReleases] = await Promise.all([
     loadAssignMap(["upload", "confirm_phase1", "confirm_phase2", "pre_release"]),
-    // Round 389 — "release_date" added to every releases select below so
-    // isRecent() (see its comment up top) has something to check; filtered
-    // in JS rather than a query .gte() since release_date CAN be null
-    // (undated release) and null must stay IN, not be excluded by a plain
-    // date comparison.
-    supabase.from("releases").select("id, did, title, release_date, upload_status, link_lbm, link_share, smartlink, link_preorder, gate_pre_order").eq("requested", true),
-    fetchAllRows(() =>
-      supabase.from("releases").select([...DSP_CHECK_FIELDS, "id", "did", "title", "release_date", "link_lbm", "confirm_tag", "smartlink", "confirm_insta_sound", "confirm_tiktok_sound_updated", "confirm_smartlink_updated"].join(", ")).order("id")
-    ),
-    fetchAllRows(() =>
-      supabase.from("releases").select("id, did, title, release_date, canva_mv_status, canva_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric").order("id")
-    ),
+    loadRecentReleases(),
   ]);
-  const uploads = uploadsRes.data;
-  const confirmRows = confirmRes.data;
-  const preReleaseRows = preReleaseRes.data;
+  // Round 546 — the three per-workstation releases queries that used to sit in the Promise.all above
+  // (upload: requested = true; confirm; pre-release) now read the one shared recent-releases list.
+  // Round 389 note kept: release_date CAN be null (undated release) and null stays IN, which the
+  // shared query's `release_date.is.null OR >= cutoff` filter preserves.
+  const uploads = recentReleases.filter((r) => r.requested === true);
+  const confirmRows = recentReleases;
+  const preReleaseRows = recentReleases;
 
   (uploads || []).filter((r) => isRecent(r.release_date)).forEach((r) => {
     const pic = assignMap.upload?.[r.id];
@@ -380,9 +399,8 @@ async function loadWorkstationCounts(map) {
 // than needing any new per-column rendering logic in TeamSection/
 // MyTasksView.
 async function loadSubteamProjectCounts(map, profiles) {
-  const { data: releases } = await fetchAllRows(() =>
-    supabase.from("releases").select("id, did, title, release_date, tags").order("id")
-  );
+  // Round 546 — shared recent-releases list (see loadRecentReleases at the top).
+  const releases = await loadRecentReleases();
   const marketingMembersBySubteam = {};
   (profiles || []).forEach((p) => {
     if (p.segment !== SUBTEAM_TAG_TEAM || !p.subteam) return;
@@ -436,12 +454,10 @@ async function loadSubteamBookingCounts(map, profiles) {
       (data?.release_ids || []).forEach((id) => ids.add(id));
     });
     if (failed || ids.size === 0) continue;
-    const idList = [...ids];
-    const rows = [];
-    for (let i = 0; i < idList.length; i += 200) {
-      const { data } = await supabase.from("releases").select("id, did, title, release_date").in("id", idList.slice(i, i + 200));
-      (data || []).forEach((r) => rows.push(r));
-    }
+    // Round 546 — look the rows up in the shared recent-releases list instead of querying again
+    // (anything not in it is older than the cutoff, which isRecent() below drops anyway).
+    const recentById = new Map((await loadRecentReleases()).map((r) => [r.id, r]));
+    const rows = [...ids].map((id) => recentById.get(id)).filter(Boolean);
     rows.filter((r) => isRecent(r.release_date)).forEach((r) => {
       const item = { id: r.id, label: releaseLabel(r), href: "/booking" };
       members.forEach((memberId) => bumpItem(map, memberId, "subteam:booking", item));
@@ -1156,6 +1172,7 @@ export default function TaskTablePage() {
       const map = {};
       const reqMap = {};
       const arProjectsMap = {};
+      recentReleasesPromise = null; // Round 546 — each load re-reads the shared recent-releases list once (see loadRecentReleases)
       await Promise.all([loadTicketCounts(map, reqMap, arProjectsMap, profs || []), loadWorkstationCounts(map), loadSubteamProjectCounts(map, profs || []), loadSubteamBookingCounts(map, profs || [])]);
       setMemberItems(map);
       setRequesterItems(reqMap);

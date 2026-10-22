@@ -10,7 +10,7 @@ import { useAuth } from "../../../lib/AuthContext";
 import { fetchAllRows } from "../../../lib/helpers";
 import UrlField from "../../../lib/UrlField";
 import PillSwitch from "../../../lib/PillSwitch";
-import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS, buildPackageByRelease, makeBookedFor, makeAddedFor } from "../../booking/page";
+import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS, buildPackageByRelease, makeBookedFor } from "../../booking/page";
 import ExportButton from "../../../lib/spreadsheetExport";
 import CostMktImportPopup from "../../../lib/CostMktImport";
 import PicTagInput from "../../../lib/PicTagInput";
@@ -200,6 +200,60 @@ function monthInputToDate(monthStr) {
 function currentMonthInputValue() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+// Round 543 — Cost Marketing used to download EVERY TikTok-Channel/Ads row of
+// media_booking_entries (+ media_booking_content_entries) just to count them
+// per (release, category, brand, platform, subchannel): ~8 paged requests,
+// ~560 kB per page load. The two RPCs in
+// sql/pending/add-round543-cost-mkt-entry-totals.sql return the SAME counts
+// already grouped on the server. Rows below are the grouped shape:
+//   entry totals:   { release_id, category_id, channel_name, platform, subchannel_type, n, qty }
+//   content totals: { release_id, package_id, category_id, brand, platform, n, posts }
+// If the SQL hasn't been run yet (RPC missing) the page falls back to the old
+// full download and groups it on the client into the same shape, so nothing
+// breaks in between.
+function groupEntryRows(rows) {
+  const m = new Map();
+  (rows || []).forEach((e) => {
+    const key = [e.release_id, e.category_id, e.channel_name || "", e.platform || "", e.subchannel_type || ""].join("|");
+    const g = m.get(key) || { release_id: e.release_id, category_id: e.category_id, channel_name: e.channel_name || "", platform: e.platform || "", subchannel_type: e.subchannel_type || "", n: 0, qty: 0 };
+    g.n += 1;
+    g.qty += Number(e.quantity) || 0;
+    m.set(key, g);
+  });
+  return [...m.values()];
+}
+function groupContentRows(rows) {
+  const m = new Map();
+  (rows || []).forEach((c) => {
+    const key = [c.release_id, c.package_id, c.category_id, c.brand ?? "\u0000", c.platform || ""].join("|");
+    const g = m.get(key) || { release_id: c.release_id, package_id: c.package_id, category_id: c.category_id, brand: c.brand ?? null, platform: c.platform || "", n: 0, posts: 0 };
+    g.n += 1;
+    g.posts += Number(c.count_posts) || 0;
+    m.set(key, g);
+  });
+  return [...m.values()];
+}
+async function fetchEntryTotals(categoryIds) {
+  const { data, error } = await supabase.rpc("cost_mkt_entry_totals", { p_category_ids: categoryIds });
+  if (!error && Array.isArray(data)) {
+    return data.map((a) => ({ release_id: a[0], category_id: a[1], channel_name: a[2] || "", platform: a[3] || "", subchannel_type: a[4] || "", n: Number(a[5]) || 0, qty: Number(a[6]) || 0 }));
+  }
+  const { data: raw } = await fetchAllRows(() =>
+    supabase.from("media_booking_entries").select("id, release_id, category_id, channel_name, platform, subchannel_type, quantity").in("category_id", categoryIds).order("id")
+  );
+  return groupEntryRows(raw);
+}
+async function fetchContentTotals(categoryIds) {
+  const { data, error } = await supabase.rpc("cost_mkt_content_totals", { p_category_ids: categoryIds });
+  if (!error && Array.isArray(data)) {
+    return data.map((a) => ({ release_id: a[0], package_id: a[1], category_id: a[2], brand: a[3], platform: a[4] || "", n: Number(a[5]) || 0, posts: Number(a[6]) || 0 }));
+  }
+  const { data: raw } = await fetchAllRows(() =>
+    supabase.from("media_booking_content_entries").select("id, release_id, package_id, category_id, brand, platform, count_posts").in("category_id", categoryIds).order("id")
+  );
+  return groupContentRows(raw);
 }
 
 export default function WorkstationCostMkt() {
@@ -407,14 +461,9 @@ export default function WorkstationCostMkt() {
             return { data: results.flatMap((r) => r.data || []) };
           })()
         : Promise.resolve({ data: [] }),
+      // Round 543 — grouped on the server (see fetchEntryTotals above).
       tiktokAdsCategoryIds.length > 0
-        ? fetchAllRows(() =>
-            supabase
-              .from("media_booking_entries")
-              .select("id, release_id, category_id, channel_name, platform, subchannel_type, quantity")
-              .in("category_id", tiktokAdsCategoryIds)
-              .order("id")
-          )
+        ? fetchEntryTotals(tiktokAdsCategoryIds).then((data) => ({ data }))
         : Promise.resolve({ data: [] }),
       tabRow?.id
         ? fetchAllRows(() => supabase.from("tickets").select("id, data, status").eq("tab_id", tabRow.id).is("deleted_at", null))
@@ -423,13 +472,7 @@ export default function WorkstationCostMkt() {
       // Media Booking grid per package). INT packages often have these but
       // were never Summarized into package lines, so they showed nothing.
       tiktokAdsCategoryIds.length > 0
-        ? fetchAllRows(() =>
-            supabase
-              .from("media_booking_content_entries")
-              .select("id, release_id, package_id, category_id, brand, platform, count_posts")
-              .in("category_id", tiktokAdsCategoryIds)
-              .order("id")
-          )
+        ? fetchContentTotals(tiktokAdsCategoryIds).then((data) => ({ data }))
         : Promise.resolve({ data: [] }),
       fetchAllRows(() => supabase.from("non_package_booking_entries").select("id, row_key, category, brand, hang_muc, link, quantity, status")),
     ]);
@@ -496,7 +539,20 @@ export default function WorkstationCostMkt() {
   }, [categories]);
   const packageByRelease = useMemo(() => buildPackageByRelease(releases, packages), [releases, packages]);
   const bookedFor = useMemo(() => makeBookedFor(packageByRelease, categoryIdByName), [packageByRelease, categoryIdByName]);
-  const addedFor = useMemo(() => makeAddedFor(categoryIdByName), [categoryIdByName]);
+  // Round 543 — same matching rule as makeAddedFor (app/booking/page.js), but over the
+  // grouped totals: Ads sums quantity, every other category counts rows.
+  const addedFor = useMemo(() => (release, categoryName, brand, platform, subchannelType, pool) => {
+    const categoryId = categoryIdByName[categoryName];
+    let total = 0;
+    for (const e of pool) {
+      if (e.release_id !== release.id || e.category_id !== categoryId) continue;
+      if (!(brand === null || (e.channel_name || "") === (brand || ""))) continue;
+      if (!(platform == null || (e.platform || "") === platform)) continue;
+      if (!(subchannelType == null || (e.subchannel_type || "") === subchannelType)) continue;
+      total += categoryName === "Ads" ? e.qty : e.n;
+    }
+    return total;
+  }, [categoryIdByName]);
 
   // Booking Không Trong Package tickets, indexed by the release DID they
   // point at (ticket.data.relatedDid — see lib/ticketConfigs.js's
@@ -622,7 +678,7 @@ export default function WorkstationCostMkt() {
               const pkgId = packageByRelease[r.id]?.id;
               if (pkgId) {
                 const hits = contentEntries.filter((c) => c.release_id === r.id && c.package_id === pkgId && c.category_id === categoryIdByName[catName] && c.brand === br && (c.platform || "") === col);
-                if (hits.length > 0) { booked = hits.reduce((sum, c) => sum + (Number(c.count_posts) || 0), 0); draft = true; }
+                if (hits.length > 0) { booked = hits.reduce((sum, c) => sum + c.posts, 0); draft = true; }
               }
             }
             return {
