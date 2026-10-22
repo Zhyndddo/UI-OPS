@@ -1,3 +1,4 @@
+856fe92c3d6017422ee703a4cfdada6f  .DS_Store
 8165f05f0d4ad3a0723ff9756036162c  .env.local.example
 e277646570fd3dcd0c65209b44a18b07  .env.local.template
 04f43a6ca138b80fa8156f35f812b0c5  .eslintrc.json
@@ -6,6 +7,63 @@ e277646570fd3dcd0c65209b44a18b07  .env.local.template
 160018e56d3c5dff39a22445d1ed0c42  .github/workflows/data-fixes.yml
 889b389090f0604197521d0391702725  .gitignore
 7a62ca1c65bf908e0bea979f27eefc33  BACKUP.md
+656a5cae16a3deb0d892ed9e729b630e  Claude outputs/.DS_Store
+9771fbe2600809434871259c6c9c57f2  Claude outputs/add-round287-package-entry-snapshots.sql
+aed2849baa7e1130f831081f55a1f274  Claude outputs/add-round294-project-rights-type.sql
+c5acf4d40dbe8dc1fe6eb3edab89c0e6  Claude outputs/add-round296-workstation-assignment-auto-flag.sql
+0b8675d797ac30847a4c3517f1f6b873  Claude outputs/add-round302-releases-ar-pic.sql
+4fe87f2ca936592d79f76480d7bbc8b5  Claude outputs/add-round303-booking-board-pagination.sql
+e2620ececb4b75e1edf926bd989c0cb3  Claude outputs/add-round304-booking-channels-reference-import.sql
+d3fb206c3defb0e597fe85d6db836995  Claude outputs/add-round305-channel-reference-share-links.sql
+55cc9f7799ab831069ccc5bfb883a62f  Claude outputs/add-round307-ads-perform-url.sql
+bdaabd9b6669995785cb118dfb7ff122  Claude outputs/add-round308-rename-promotion-package-to-ads-perform.sql
+ab63a84c4c5b61ef3846a6e0ececa4f2  Claude outputs/add-round309-restore-promotion-package-url.sql
+39a94826a6751604910a83cc8e6608c4  Claude outputs/add-round315-workstation-cost-mkt.sql
+599e3e94dcf66034f9a11ebfdec9b3b2  Claude outputs/add-round319-release-tags.sql
+4d0b57043a8e89e82bffe46571f48837  Claude outputs/add-round321-fold-subteam-tags.sql
+d08b2833440b129d03e50a68d34a7468  Claude outputs/add-round324-label-catalog-import.sql
+ae7c83b8fb14c9e2e1f9f00e8768a6ca  Claude outputs/add-round324b-catalog-product-tags.sql
+6ddbb7d477e2cc1ce64b06c02e2915fa  Claude outputs/add-round429-step2-media-booking-package-lines-cleanup.sql
+4d1d0f31349c4753bd90970358ad469d  Claude outputs/add-round433-dhkl-surgical-fix.sql
+38f318de27f75145ea46e57557e5242b  Claude outputs/add-round433-step1-find-resync-corrupted-lines-diagnostic.sql
+7caa62b647e72a1656b15173f83851c1  Claude outputs/add-round433-step2-pull-pre-friday-locked-line-values.sql
+ac7b8abc9b8c7dd7a5941601c6d6867c  Claude outputs/add-round433-step3-restore-corrupted-locked-lines.sql
+4c1fc6b773779b83fc68f407bf0e883a  Claude outputs/add-round433-step3b-restore-atomic.sql
+e896c45d713a90077fea0e2a09a9ff28  Claude outputs/add-round433-step4-full-sweep-verify-current.sql
+338621e808afdc1d585bf59ecc8a8b5c  Claude outputs/add-round433-step5-full-restore-36-locked-lines.sql
+672f2a1d37de808ee399d419835aab77  Claude outputs/add-round433-step6-final-verify-all-fields.sql
+b4d59f6f2ca8da0b2981960480344e65  Claude outputs/add-round435-empq-copyright-diagnostic.sql
+631bf69e5d0b3f57d84d5d8728bd3982  Claude outputs/add-round436-cost-mkt-override-month.sql
+c916edd2630d99a00fb6fb8c52b512c0  Claude outputs/add-round437-milestone-viral-posts.sql
+6a82920aaf882d81e376e9cbbfe7d140  Claude outputs/add-round442-package-scope-content-entries.sql
+445755044009136aae914f655a02675b  Claude outputs/add-round453-package-terms-text-override.sql
+ab2d3a35fd283a6c34024181b7a9e99c  Claude outputs/add-round453-per-tab-notify-toggle.sql
+b94a5feac52ed949a6df8823f9699f18  Claude outputs/add-round455-batch-phai-sinh-item-pic-profile-ids.sql
+5f11bba26d69a2ef6666bc23564b854d  Claude outputs/add-round457-workstation-assignments-pic-profile-ids.sql
+34a26f25e707f7e208a9d133c784e3f2  Claude outputs/add-round468-dev-notify-opt-in.sql
+d7ed206602801516b0793635ff216072  Claude outputs/add-round469-notify-assignment-and-backlog.sql
+44cbd54d99e1a705c2757f5fc9a33fab  Claude outputs/bb-mobile-375.png
+c009269d71ba25758edfc2b91dfb534f  Claude outputs/bb-mobile-fixed-375.png
+819ae461a12bb88c3246e1da86a69657  Claude outputs/check-package-builder-schema.sql
+8c5b044fd7f5c4a3ec5355a775b96a9d  Claude outputs/converged_packages_recently_fixed.csv
+afc4a413ac6ec54d82c2fb1cd86c5d40  Claude outputs/converged_packages_still_broken.csv
+2654f6fe51c8d1fa475b14f9cbeda4d3  Claude outputs/fix-round464-hikari2-doc-quyen-2-nam-restore.sql
+437d1aac34207ada4fbe503901953236  Claude outputs/fix-round464-tn-08102026-0123-social-community.sql
+9f2f6e88a21bb68295af5cd2f4c42325  Claude outputs/milestone_chart_entries_backup_2026-09-03_03h.csv
+4b20c54fe450d2a14f2f6c02b8bcb643  Claude outputs/milestone_chart_entries_backup_2026-09-03_03h.json
+82e087cf559ba47accb8b33a29daf298  Claude outputs/og-vsounder-preview7.png
+c1129bfa43403932c6e4bc8646e67979  Claude outputs/repo-md5.txt
+4f9f4dd10e9deffab9a19e1dae5772ab  Claude outputs/round433-full-sweep-report.md
+1f4445c71dfac89fed0bafb6808a8d83  Claude outputs/round433-step4-results-and-final-list.md
+9d1200481361565cb19cb9f41e7dd40f  Claude outputs/round433-team-handoff-list.md
+d3b6b412c443fa7c0ac700f9b4cde25d  Claude outputs/round446-cost-mkt-installments.sql
+624d9993b7eb6c1ca893822d006cd4f5  Claude outputs/round522/.DS_Store
+997712d89dfcc383164fa5c63f056120  Claude outputs/round522/doc522.md
+ce877444207a25da9b1880361a62308c  Claude outputs/round522/sql/.DS_Store
+485c9f918eb9854a7789dfe5f63df4d1  Claude outputs/round522/sql/pending/add-round522-backfill-missing-phu-luc-tickets.sql
+d7e48c00b26b852ae06f07b09b315f31  Claude outputs/run-round324b.sh
+328ce0d0c840e156334ec9151778b569  Claude outputs/urgent-fix-anon-permission-denied-releases-v2.sql
+3fb5e8482b5ecf093519928d211db172  Claude outputs/urgent-fix-anon-permission-denied-releases.sql
 2cb09167830ab3068a3d9a95e07bd49c  DATA_FIXES.md
 b263ac0bfd511fac42e00c0cd85ead41  PREVIEW_SETUP.md
 c0702a2d07c028c88eadc76b13b116a2  README.md
@@ -56,7 +114,7 @@ c5e428a085c4b00246ad5907a008f66e  app/fonts/BeVietnamPro-Regular.ttf
 f48f456b9dd791c9b867b886f1d67233  app/fonts/BeVietnamPro-SemiBold.ttf
 5ee7e5adcbed7ab075f5cc7c3c39f2f4  app/fonts/OFL.txt
 3ba29e8c5e28d256693840d8439db1da  app/global-error.js
-aba9b3323763b1286aad07cafd03a1b4  app/globals.css
+f619e4be2e10cd60205ec8db9f45528f  app/globals.css
 e3459501f5442f31308d7fda28026dda  app/kpi/page.js
 d56997731b0163ada67742b8e91e2c91  app/labels/page.js
 427864b88cd75f42da5832a9c26e589a  app/layout.js
@@ -151,9 +209,10 @@ e66e84fc9a9cf531de42c5d99f96f663  app/tickets/split-share/new/page.js
 92c0e811556cb945f64131a0bf0ba80d  app/tools/converged-packages/page.js
 87da19477a0a4e5d1cf1c7c35d276ffd  app/tools/page.js
 65c27f1f5c36c754dc09ae49a76a4cda  app/tro-gia-booking/page.js
+b00af56501cdcf03766599cb3e85cdec  app/ui-lab/page.js
 0f11dc24b64f545a434a06fb99d779dd  app/workstation/confirm/page.js
 185ef097a725500d4b62590b6911e236  app/workstation/cost-mkt/page.js
-15a2b1c4cb2c22293d0eee5ddabc489c  app/workstation/milestone/page.js
+80632bd45d7540bfe4b062359dd90eb1  app/workstation/milestone/page.js
 40f1fdcd3e7b8d47846b8a90021e0c84  app/workstation/non-package-booking/page.js
 fd93be295a17c52c07862ed43ff7bfe4  app/workstation/package-price/page.js
 6042fa4b4c11d09c38d698de2b6b0968  app/workstation/page.js
@@ -197,11 +256,18 @@ e2c430b14a02e786b64337443ba2036c  doc513.md
 787c23cf51fbadcf6606db7543080d3b  doc519.md
 c095e87f09098b429e55fd19f5d8d45d  doc520.md
 da104e47ccbe98c8cc09cce881318f0e  doc521.md
+997712d89dfcc383164fa5c63f056120  doc522.md
 2f5aedaae74a0d27fd8eb3c76183a71d  doc523.md
 01a0776196e5297ad35a6b8599c3e280  doc524.md
 70fd8047e5284bbaa9d34b4571d74b1d  doc525.md
-f491a1a909a513108abc9a1a77eb9a7c  doc527.md
-eb0010385e79bce7045cf7b889703fbb  lib/AppShell.js
+9cbafb68e7b681f5ee1667ab7dfbfd0a  doc527.md
+c65cc0a3c1a97354a291b512cdc58096  doc529.md
+57f14ccad1cb9f1a381d13d4abb91e7d  doc530.md
+76a9626f4efe37d6d600806b2e07c2d2  doc533.md
+04d52a9c0a2207dfb14266a2c8d8764a  doc535.md
+3151359cc84b78352a49246a74b8fac2  doc536.md
+fce109a16db40c7a5eb6144b418acca6  doc538.md
+4e91bdab8ec3e769bcb3cb0893c4707b  lib/AppShell.js
 89ff41906a3964112000bb60066adfe5  lib/ArtistDetailPopup.js
 04ab9cf9dca883229932eec8eaba5ff2  lib/ArtistProfileEditPopup.js
 4ba7aa5c8caa57295da5e1f78b67a0cd  lib/ArtistProfileFieldGroup.js
@@ -215,6 +281,7 @@ fef239bef253a73de92dcf035d3fca6b  lib/BoSungDataReminder.js
 de861706858fe0ceefcf83e117f8ed54  lib/BottomBar.js
 da58f270d7a8287f0935425c1edbb9f4  lib/BottomBarContext.js
 2e64ba77cf97a4baf285d8cf08648e34  lib/BulkReleaseImport.js
+e3c433dca31358d3272ae7b84d656726  lib/ChatDock.js
 0507ee70671f1e3a6387fc1787005a36  lib/ColorLegend.js
 7c6624ff753d1cf098a5d56da1d0a114  lib/ColumnVisibility.js
 b02dbc3017c4bed341ad5bb43d9faa08  lib/CopyrightChecklistFields.js
@@ -254,6 +321,7 @@ adcbc2091ff96795a11e7bdfe731a0d6  lib/PlatformIcon.js
 49bcab30bad158a92af61d4e0e467ab5  lib/ProfileSearchField.js
 55aeafbd02c88d5c3017cc78b8907ef7  lib/ProjectRightsTypeTag.js
 7956ed23d215e92acc45014b5d4082b7  lib/QuickCreate.js
+1e4365da72dd5e1065583c520db38d9b  lib/ReferenceCombo.js
 6d4f83030e04425053e80bb0fe3ed6c2  lib/ReferenceInputs.js
 1acb1b5abab0ba20c25c433f160032c7  lib/RelatedDidField.js
 0d9e74dae98d354e98bf720137f3d26e  lib/ReleaseNotePopup.js
@@ -269,6 +337,7 @@ c3109e0b0f2a3daf763b53a737fb00f3  lib/TicketListPage.js
 2e331940f8ee8521bf1962a3a5bed43c  lib/TopBar.js
 46a0962e3134bb3a03331633d4302fb4  lib/TopBarReleaseSearch.js
 e6c25a1f85cd7d94e592270e5b8a2c82  lib/TypeSwitcher.js
+16e5830752d5247a8f0a729c93bde5b9  lib/UiNextHost.js
 7e79255dce213e78b1d9302d3fa7cb3a  lib/UrlField.js
 f1545b0319d77d85afdfa10562741859  lib/YoutubeAdsFields.js
 9104f2401abeb1d285823015bad71937  lib/YoutubeAdsPopupButton.js
@@ -283,6 +352,7 @@ e1e2f32c66ea2f2afa66ea1d2c75f32e  lib/brandAssets.js
 e15e27a3e058a9ec17c9df46bfff2658  lib/channelReferenceSheetCount.js
 9df6dafaef3d4ca26ee3bf4c308ac36a  lib/channelReferenceSheetSnapshot.js
 4bbe3976d1e5b3adfe70ab4b8a3ffda8  lib/channelSubteams.js
+f26fcfe687ad11cad17b8954adbd1402  lib/chatProto.js
 621302124f9817cbd57995895b63855e  lib/cloneFillCells.js
 186748112661fa49ce855bb0b56dab12  lib/copyrightChecklist.js
 7dfd6cdbf161fb252f30528cbb050bbd  lib/designFlow.js
@@ -342,6 +412,7 @@ e6ec1fb7f421e355bd00cafae4485821  lib/systemMessages.js
 5fad413e0463dae333082134f5c9093c  lib/ticketConfigs.js
 572d20d4504b8606675f28ab6270afb8  lib/toolDirectory.js
 2ea044a696677cd8bdc16072a168bcc2  lib/troGiaBooking.js
+cc0ba077beaf75d5d11d74500c5d9663  lib/uiNext.js
 f5e66b8f387acf9985100d5f559f6e77  lib/useIsMobile.js
 3c73399659d67b1d14d9550ab157a3fb  lib/usePagination.js
 687d967a74de287aca52bffb5a674d10  lib/useSonyPublishDids.js
@@ -385,7 +456,7 @@ d0e565848f6e5253268638591d850dff  scripts/backfill-did-suffix.js
 56caa7a5a97b9fc61bdfe88441bb1428  scripts/backfill-linkshare-timing.js
 8681b4b78c1c5b384886372861552059  scripts/backfill-round174-sort-order.js
 4658ac261250b1b215d8c5822aeb3eca  scripts/backfill-send-upload.js
-13795689f221838bc2a5139e0e38bb75  scripts/backup.js
+4988e093bead209deab4db000f80719c  scripts/backup.js
 3f549dd4877eb47f393a1e6d1f85dd3b  scripts/bulk-create-team.js
 c5e7d6c2cf73fc4e05e281560b01035a  scripts/cleanup-duplicate-media-booking.js
 ac76245bca4b8559f90a7a525fa9875f  scripts/fix-booking-channels-direct.js
@@ -406,438 +477,7 @@ d66365e3d8180b206f0010825f3a3962  scripts/import-milestone-total-today.js
 062b90c967908f7134086f566a051f15  scripts/repair-brief-ticks.js
 4f6aef971f6b36187796544d9a215193  scripts/repair-project-type-prefix.js
 c517ad6da96d203eb20a2482560b81ec  scripts/restore.js
-8165f05f0d4ad3a0723ff9756036162c  sp/.env.local.example
-e277646570fd3dcd0c65209b44a18b07  sp/.env.local.template
-04f43a6ca138b80fa8156f35f812b0c5  sp/.eslintrc.json
-05bdb783ee6514c8c072e47680af8ff7  sp/.gitattributes
-31bfa91fcf62a98e81fe984068e11b7a  sp/.github/workflows/backup.yml
-160018e56d3c5dff39a22445d1ed0c42  sp/.github/workflows/data-fixes.yml
-889b389090f0604197521d0391702725  sp/.gitignore
-7a62ca1c65bf908e0bea979f27eefc33  sp/BACKUP.md
-2cb09167830ab3068a3d9a95e07bd49c  sp/DATA_FIXES.md
-b263ac0bfd511fac42e00c0cd85ead41  sp/PREVIEW_SETUP.md
-c0702a2d07c028c88eadc76b13b116a2  sp/README.md
-24c0f0e735f03f5497a4d57a84c98dfe  sp/SESSION_HANDOFF_2026-08-17.md
-193dff9599cfd98bac669774d391c5b6  sp/Sam_milstone2.0.2026(2).xlsx
-f38d4b70fc44be1886e6d97b9153c74d  sp/app/api/admin/delete-user/route.js
-44a5071a746f412ea762d1029623f4d9  sp/app/api/admin/invite-user/route.js
-ab159e87ca1c6faa78c1f95869cf9952  sp/app/api/admin/kick-user/route.js
-ed39208d9b138200e9d084a261f8dc69  sp/app/api/admin/list-sessions/route.js
-19a951785b75a785db39ba8216c5a00a  sp/app/api/admin/restore-user/route.js
-83bc056fda44732621e4f6dbaf1d04f3  sp/app/api/admin/update-email/route.js
-c7bad14e235310c6c9924d832938def8  sp/app/api/crawl-og-image/route.js
-0325384499f690285f881cc1f0de6f12  sp/app/api/cron/daily-digest/route.js
-6cf8e5bbc4e984d0e419738eeb261713  sp/app/api/refresh-youtube-stats/route.js
-a00d44efed91b06e18e036bf39e9a772  sp/app/artists/page.js
-747f0efd8b2d124144730d5bd083eb32  sp/app/booking-channels/page.js
-7e2c1660112b2cace90a1b8e7539eb53  sp/app/booking/page.js
-f38b54283c9fe632abc2ade222d2f22d  sp/app/calendar/page.js
-06bbc5c068ccf3bc1e6dc96bf94b3a53  sp/app/config/page.js
-c976628f237835bebd0e1022166922d7  sp/app/error.js
-3ba29e8c5e28d256693840d8439db1da  sp/app/global-error.js
-1c6a74210da99fff84dc1321e832107f  sp/app/globals.css
-ad46dcbfa6a030a4213831179390645f  sp/app/labels/page.js
-78a93d81161b46d4739d6848b42bd886  sp/app/layout.js
-92f341783d42d2d873f0851270b983c4  sp/app/login/page.js
-70b04830f3b3878b598390b73b59bbd3  sp/app/login/page.pseudo.js.bak
-d4a1f16c92be54eafb2861961d38ee1f  sp/app/login/page.real.js.bak
-f549dce3d4d5707b91ac67622ba506f6  sp/app/new-release/page.js
-cc2ca51bf7526ff693b2a27a2ffd4ee9  sp/app/new-release/styles.module.css
-58a7724b3c458df5694220454fb4b712  sp/app/package-categories/page.js
-364996c23976a5b4d2c51b3298f1471e  sp/app/package-runner/page.js
-34808daf0f7410de9e697cfc6fc17c7d  sp/app/page.js
-e30bbcff28bcb819f87161db5eb9776a  sp/app/performance-report/[token]/page.js
-36026f788dac0578000ad11745819a6a  sp/app/pick-package/[token]/page.js
-6b8f65017e7f417cba0f2120609f51d0  sp/app/reference/page.js
-24abe92e533cc4499a8ae11041d787ad  sp/app/releases/[id]/page.js
-194dce3b04bedb25920a3af1dde62fae  sp/app/releases/page.js
-dd4b1fd044636b350278a4a6d0762874  sp/app/report/page.js
-d1be0003b65da43f868bbaf4d0510a6c  sp/app/reset-password/page.js
-1f72b98ac6cbf3687090126cd5e40497  sp/app/set-password/page.js
-38834b42c0a9bf02320966c6f1c3881f  sp/app/shared.module.css
-5e5378f36a58f02635a71fac0e5cd24c  sp/app/summary/page.js
-d83d2739388cfb43bb6dbc7a1bedee6a  sp/app/task-table/page.js
-fbef1436f32b9a330ce8322b2b9ae4a1  sp/app/team-building-survey/page.js
-b3a4c7f6885eac097a2b4c786d552e40  sp/app/tickets/artist-profile/new/page.js
-b2c8c11b0c34b7fc6ff96a5c9e461512  sp/app/tickets/artist-profile/page.js
-8855537fbe67f6322598600e9dc1a6e0  sp/app/tickets/batch-phai-sinh/[id]/page.js
-c304822529f62609f752473e60dde6ba  sp/app/tickets/batch-phai-sinh/new/page.js
-5516fe92cabc25b0370ab6213437624f  sp/app/tickets/batch-phai-sinh/page.js
-f19e9b20c7dd440ac0da3dd815a0efcf  sp/app/tickets/booking-not-in-package/new/page.js
-e5247c0857caefc2e42d85a9b0700e43  sp/app/tickets/booking-not-in-package/page.js
-9e17bb65dfba6db460ee5f0488fdcdc9  sp/app/tickets/co-trong-net-youtube/new/page.js
-6b88170c3116996ce1b8995530a82a2f  sp/app/tickets/co-trong-net-youtube/page.js
-bd47f70b809a8488487554d29c171a13  sp/app/tickets/design/new/page.js
-41a6d5e7e5358f2c66b252e46bffd91e  sp/app/tickets/design/page.js
-a96a2f2d47a953ee4060d5cd12079dca  sp/app/tickets/discovery-mode-spotify/new/page.js
-9d02742d95bb75d6092c7dad4c244b96  sp/app/tickets/discovery-mode-spotify/page.js
-6cc67ef9e049fdf64e75a5218584f5ba  sp/app/tickets/hop-dong-nhac-so/new/page.js
-292f0f23f508fa50d124a91ad03c7170  sp/app/tickets/hop-dong-nhac-so/page.js
-0d17c810399cc0212d2eeaf68e0ba471  sp/app/tickets/hop-dong-publishing/new/page.js
-299a41b1bf851c55f744dc91c09621b8  sp/app/tickets/hop-dong-publishing/page.js
-83626bf2c7b6741ec4566192d83ddd03  sp/app/tickets/hop-dong-youtube/new/page.js
-52d0d07047c615df3ac3f4e3e789ae40  sp/app/tickets/hop-dong-youtube/page.js
-b87b07abeca0ccd0e6e96c7771cec870  sp/app/tickets/khac/new/page.js
-36a29a56b9d7ddba969b3b7ff79fae61  sp/app/tickets/khac/page.js
-6ddf795bf30dd24e887de52d23fd43db  sp/app/tickets/manual-claim/new/page.js
-e51b938e34747e2ff3f83ea3bb6c8965  sp/app/tickets/manual-claim/page.js
-f03ffb6fcc23829571901efff232770c  sp/app/tickets/media-booking/new/page.js
-419200c74d5864148a2b9708cea641da  sp/app/tickets/media-booking/page.js
-c1112f03ad2cae0e82d02f80941b192e  sp/app/tickets/mv-spotify/new/page.js
-ccb34cd083f2d1431fbbdcbb881a181e  sp/app/tickets/mv-spotify/page.js
-a1329defc35f64ba6927620b7bb02800  sp/app/tickets/newrelease-upload/new/page.js
-244b71c21ba99bf586e4afe474af5b4e  sp/app/tickets/newrelease-upload/page.js
-ff38d2e240c7d3b3dbfd13ca602c5a9c  sp/app/tickets/page.js
-8164f650a6ea57914a01fd3a276f5b16  sp/app/tickets/phai-sinh/new/page.js
-adc1d6c81ae23859fab81b2db8201f45  sp/app/tickets/phai-sinh/page.js
-660de61e836bf018425065113bf6e80c  sp/app/tickets/phu-luc-mg/new/page.js
-721969d3b8a1a00e74e794927ceaf945  sp/app/tickets/phu-luc-mg/page.js
-487b69934316447cdac9d3e459ab55e8  sp/app/tickets/phu-luc-publishing/new/page.js
-5e94c9d91e328f73c4de5dfc80170f20  sp/app/tickets/phu-luc-publishing/page.js
-17901604855e06e22655dba8a3e0ffff  sp/app/tickets/phu-luc-truyen-thong/new/page.js
-2b0ef1189eb4ee836dbac3783351206a  sp/app/tickets/phu-luc-truyen-thong/page.js
-7644676859c30b87f8e25865026fa186  sp/app/tickets/phu-luc/new/page.js
-c9df68c0daaac0f11f3a684b6a3c07cd  sp/app/tickets/phu-luc/page.js
-89f1fd22a947fdd875a6aacb20b0cd96  sp/app/tickets/pitching-info/page.js
-639afbc4ae682d7a8b7cc285834542ad  sp/app/tickets/pitching/page.js
-46296f2c5990fb448dd3a5052312bc4c  sp/app/tickets/pre-order-itunes/new/page.js
-e72b60db55d6c9ed946274707af5b611  sp/app/tickets/pre-order-itunes/page.js
-569496599bfabf609276a3ca5cdcb54f  sp/app/tickets/priority-sync-lyric/new/page.js
-cbcd84407d715449bf5ae120a9440f36  sp/app/tickets/priority-sync-lyric/page.js
-ea02b91d19f1c0490557e9f85358e8bf  sp/app/tickets/publishing/new/page.js
-528fe45f17a4a60a19f3b2b1227d3205  sp/app/tickets/publishing/page.js
-e57a965dd96e3daeb0c31e80195653d0  sp/app/tickets/report-conflict/new/page.js
-29d0940b1af28576ac7bd77fe2cf5b82  sp/app/tickets/report-conflict/page.js
-8d7a819e5f37c609b840368205b42792  sp/app/tickets/sony-publish/new/page.js
-e6bc6c6f9d7b0a35018dea11e427d43e  sp/app/tickets/sony-publish/page.js
-e66e84fc9a9cf531de42c5d99f96f663  sp/app/tickets/split-share/new/page.js
-67e93554548fb0a61c5ff039a797577a  sp/app/tickets/split-share/page.js
-6df47acdc7965d53de8b70ded637885d  sp/app/tickets/stream-update/new/page.js
-195b9adf62c3c5237be910cf6eb262c9  sp/app/tickets/stream-update/page.js
-334d6f6da6ec23f1d379ab208dde7e4a  sp/app/tickets/youtube-ads/new/page.js
-394829113d968912ade7b7c2f0b1beae  sp/app/tickets/youtube-ads/page.js
-6d1932a2292c0c6fc9608bab75f3e02d  sp/app/tool-directory/page.js
-87da19477a0a4e5d1cf1c7c35d276ffd  sp/app/tools/page.js
-65c27f1f5c36c754dc09ae49a76a4cda  sp/app/tro-gia-booking/page.js
-01800b06024ab5f898f6ec4f08b459c6  sp/app/workstation/confirm/page.js
-0f449b1aa1f7cfaced68029dac1f93cb  sp/app/workstation/milestone/page.js
-fd93be295a17c52c07862ed43ff7bfe4  sp/app/workstation/package-price/page.js
-bbc2b0eb23ee89a27a9d55f04ec20aaf  sp/app/workstation/page.js
-8a6047e06801430e6432d419d87f63c1  sp/app/workstation/pitching/page.js
-4914d8a528333d585de941622ce11d80  sp/app/workstation/pre-release/page.js
-edc78dc1721a224f018ee1e3f5d5f6b7  sp/app/workstation/stream/page.js
-2c18345886ec2bd1b50d4420930fb515  sp/app/workstation/upload/page.js
-2e00bedc4a8111fac2ff0c46211d17d0  sp/claude/booking-board-lazy-load-pitch.md
-0be1d34a4e462b58e5778fc45c84d066  sp/claude/load-reduction-additional-ideas.md
-4dec69f52589f9bd43813aa94d1a585c  sp/claude/one-ticket-per-key-rule.md
-8cd8f3b1ee5888b6c841549a855b05bc  sp/claude/server-side-pagination-pitch.md
-ba08b62da1825d346a9005fc8ef5dca7  sp/data/booking-channels-import.json
-38cd3fde039211521b83b400d6abd33a  sp/data/design-tickets-import.json
-5807f58587a5ffc607324335e201247b  sp/data/manual-claim-export.json
-4336e76eb4ef02f1dbf4c270b7b1ae2a  sp/data/phai-sinh-export.json
-d96c5703c8df0fea258ae67a1762d7e8  sp/data/team-import-template.csv
-12b5acd5e7a62d19ee0ff583fb31c26b  sp/lib/AppShell.js
-89ff41906a3964112000bb60066adfe5  sp/lib/ArtistDetailPopup.js
-f881a24d04417547ab38bad583c6b668  sp/lib/ArtistProfileEditPopup.js
-0348c9fa6dbe86fa4c584fb0df67f15f  sp/lib/ArtistTagInput.js
-b7294ff9e7342c1313282605cd29b534  sp/lib/AuthContext.js
-45ece1db1e263703e79566cae4aeb008  sp/lib/AuthContext.pseudo.js.bak
-2b8c1303e06fbc9eab291421d8d937d8  sp/lib/AuthContext.real.js.bak
-500da7761eb4b6dd0a7f6757041b9d55  sp/lib/BatchFileImport.js
-b02dbc3017c4bed341ad5bb43d9faa08  sp/lib/CopyrightChecklistFields.js
-582eabab5fcb6ca071365c589447abc5  sp/lib/CopyrightPreviewPopup.js
-5ed61c079cf5c8c15a0007a3149533ef  sp/lib/CopyrightRights.js
-c8647cc7605b36d6d065bdca854d9fce  sp/lib/CopyrightRightsPopup.js
-aaa2cc189a1fd29f17789cb120a63f8f  sp/lib/DateRangeFilter.js
-e7c5202fd4eb198f7ffcd2642b5f3600  sp/lib/DuplicateTicketWarning.js
-c7ea9db9e3dcc5b349d3860e87f4d43a  sp/lib/GateFields.js
-093e8a818b10f36da28e99cbfa77f9ee  sp/lib/LinkLbmSourceBadge.js
-ad4695d55f1d1f6582f3752d6d95f7cd  sp/lib/LinkOrEditCell.js
-c6240b15e73f1bba5d0b5b3675e588b4  sp/lib/MultiLinkCell.js
-143bfc137e0820a51e3dade6161b546c  sp/lib/NewArtistProfileTicketPopup.js
-8a22f721df4c20b556a59832365ce846  sp/lib/NewReleaseTemplateTools.js
-a93b6e9f31ea05b2bf74a58599cb8d0c  sp/lib/NewTicketPage.js
-e16c3ea009da81d2d651b49e32d91c4a  sp/lib/NoteCell.js
-551da1214bc3edd8f59416d1ddc24dec  sp/lib/NotificationBell.js
-d70dda8685771214016173e0746be7c4  sp/lib/Pagination.js
-2b4571df623e7f9b5c797551cc5f63f8  sp/lib/PerformanceReport.js
-d93eb89cb6981efa663f648f5797f6d0  sp/lib/PhaiSinhSmartlinkPopup.js
-a7c15aae8b3209b417ded5a76c029c04  sp/lib/PhuLucStyleTicketList.js
-80d73138257e29288cf3df3f722f088b  sp/lib/PickSelect.js
-99ebc3665f7236e5cb3bb2ebc5fced83  sp/lib/ProfileSearchField.js
-7956ed23d215e92acc45014b5d4082b7  sp/lib/QuickCreate.js
-8715136ad3d35760f867051686888dc5  sp/lib/ReferenceInputs.js
-83bef1babb97b11d45dc4f39fcedbb37  sp/lib/RelatedDidField.js
-0d9e74dae98d354e98bf720137f3d26e  sp/lib/ReleaseNotePopup.js
-01ec3b617a67f033d4480ccb8f17c8a3  sp/lib/ReleasePicker.js
-011e6784d2212e682aae6a6e0968f04e  sp/lib/SearchBox.js
-a57b36c762816ab9fececca065264024  sp/lib/Sidebar.js
-241dfdd8e5ea19a321622d58a5f1810e  sp/lib/SonyPublishLockRow.js
-256006e33af6dbe884a58e1fb8b42ad3  sp/lib/SortableTh.js
-6a75df89d746508dd22f53e12816494f  sp/lib/StatusCounter.js
-b7abb2efbd3531292144c3edc3915879  sp/lib/ThemeContext.js
-98da3750b2a1b38bd6b12c7ecbdd561f  sp/lib/TicketListPage.js
-0b33d46045b2c6f75d64f1694153cedc  sp/lib/ToolsButton.js
-139bbdb58f346814935c5afe284de5b6  sp/lib/TopBar.js
-46a0962e3134bb3a03331633d4302fb4  sp/lib/TopBarReleaseSearch.js
-e6c25a1f85cd7d94e592270e5b8a2c82  sp/lib/TypeSwitcher.js
-7e79255dce213e78b1d9302d3fa7cb3a  sp/lib/UrlField.js
-f1545b0319d77d85afdfa10562741859  sp/lib/YoutubeAdsFields.js
-9104f2401abeb1d285823015bad71937  sp/lib/YoutubeAdsPopupButton.js
-2c1ae93f24cf76613576f16de1894167  sp/lib/artistProfileRequestTypes.js
-d8d0b1882b501c54984638e3cfa6d14e  sp/lib/batchPhaiSinhStatus.js
-186748112661fa49ce855bb0b56dab12  sp/lib/copyrightChecklist.js
-7dfd6cdbf161fb252f30528cbb050bbd  sp/lib/designFlow.js
-40f625626f20608f1245f667d3a41e88  sp/lib/didHelpers.js
-affba30b5e62b062676d5c49487c87e4  sp/lib/duplicateTicketGuard.js
-e85e315cfe00e049fec076d72f39f24a  sp/lib/externalTools.js
-d26408268a3fc2bec6bd460d9e0c4309  sp/lib/helpers.js
-f32d87c9e78a15eba35aa3340f76bd17  sp/lib/labelHelpers.js
-cd4c6f13ebe870a1c55ef99e672eaafd  sp/lib/labelHopTacStatus.js
-d92ebf0058961e72c3dce8f16ebca1a5  sp/lib/magicLinkThemeLock.js
-6a50bf38919d405fcbcfeda77bc1769c  sp/lib/manualClaimBatchParse.js
-0ba408096138f3aced9fd61ffc08bebf  sp/lib/milestoneChartLinks.js
-b3c5f7868ebb14bb3d13c005e6f340f0  sp/lib/milestoneChartMap.js
-15740059bf43b441779e8015b1756931  sp/lib/milestoneHighlight.js
-7d20aaba85d90f3b57a596cf094c4525  sp/lib/newReleasePreviewNote.js
-6645f5f7bd79235440813b70fb324e79  sp/lib/notDoneCounts.js
-05b08098db371323b340841a881b4c23  sp/lib/packageSimulator.js
-d83d6f3eeaae559357d95255c8f9122e  sp/lib/permissions.js
-1d8d1732bd05ac0c79105b200480830e  sp/lib/phaiSinhBatchParse.js
-cead03837dc08e9d9728f2724f291f6b  sp/lib/phaiSinhTypes.js
-68a5caedaac4c04f5a94f2be678eee01  sp/lib/phuLucCounter.js
-66e0b0669cd79cf07c4dec879a570315  sp/lib/pickerOptions.js
-b5bfe31b5cfd257f9b5d8589c0aeaa0e  sp/lib/pingNotification.js
-c97d6a54514c86349b895c77ea19df76  sp/lib/pitchingDomesticServices.js
-7cbc8a236d5b6a750f82595cd1dc5ab5  sp/lib/pitchingPicList.js
-7bfe75d6acd3711d24f6ed2e998ce8d3  sp/lib/productTags.js
-6ffe23032349bda582fffd34e82b7ad7  sp/lib/releaseDateHighlight.js
-96e60aaa67d29195e7f5de3672e445b1  sp/lib/releaseNotes.js
-8da26d28d18f485c7b8402761e4a58d7  sp/lib/statusNoteGate.js
-66badc95995345ed1eaaf5c0c32dc965  sp/lib/supabaseAdmin.js
-eb484eb01535d8ef80f7adc5438a7ffd  sp/lib/supabaseClient.js
-ffb6eb5200d52828b4ae4f68556c251f  sp/lib/taskPhases.js
-148e414a63a4fc06900fc427bbb8521c  sp/lib/teamBuildingSurveyQuestions.js
-96e7fa1afc47d9cdb3e2f06c949fca58  sp/lib/teamTypes.js
-1209b29ca35d9ab769c9e80b359dc1f7  sp/lib/ticketConfigs.js
-43d896d1ef07720695b5dd6fc4fa41c1  sp/lib/toolDirectory.js
-2ea044a696677cd8bdc16072a168bcc2  sp/lib/troGiaBooking.js
-f5e66b8f387acf9985100d5f559f6e77  sp/lib/useIsMobile.js
-3c73399659d67b1d14d9550ab157a3fb  sp/lib/usePagination.js
-687d967a74de287aca52bffb5a674d10  sp/lib/useSonyPublishDids.js
-76cbf238a24069892994983204052aae  sp/lib/useSortableRows.js
-22e13d4171222e5c3c150a10c8501456  sp/lib/workstationHelpers.js
-b6e3066aef87043d3012e1d6a1f45fde  sp/lib/zingPitchNote.js
-9244ec8688b5b15c856c3cc597aba46c  sp/next.config.mjs
-0069a046af4af2e6c9bc0edbc65a697c  sp/package-lock.json
-9967a0959c3bc44f607b3c0e7fb67bdb  sp/package.json
-5c0d2b7354e63067c68394d5fb32481f  sp/psql_output.log
-f6701e50c63bcd11213bc063fa1dc6ae  sp/scripts/audit-booking-board.js
-0d333a19fbb43d8e20708e4eb38f8994  sp/scripts/audit-pre-release-fields.js
-5bf7b88d8a8902aefd9a23bcf0c24e2c  sp/scripts/audit-release-channel.js
-132488910caacc4afdfcf02ef9037774  sp/scripts/backfill-ar-to-ops.js
-1735d1939389d5ef254908dbbf97e62f  sp/scripts/backfill-design-executor-profile.js
-d0e565848f6e5253268638591d850dff  sp/scripts/backfill-did-suffix.js
-6f84072d78bad9715508c653de244666  sp/scripts/backfill-legacy-id.js
-56caa7a5a97b9fc61bdfe88441bb1428  sp/scripts/backfill-linkshare-timing.js
-8681b4b78c1c5b384886372861552059  sp/scripts/backfill-round174-sort-order.js
-4658ac261250b1b215d8c5822aeb3eca  sp/scripts/backfill-send-upload.js
-e2967ce8f955fd4d4b73fd01bfadd338  sp/scripts/backup.js
-3f549dd4877eb47f393a1e6d1f85dd3b  sp/scripts/bulk-create-team.js
-c5e7d6c2cf73fc4e05e281560b01035a  sp/scripts/cleanup-duplicate-media-booking.js
-ac76245bca4b8559f90a7a525fa9875f  sp/scripts/fix-booking-channels-direct.js
-9bcd623e33484b985c493831f89bbd01  sp/scripts/generate-milestone-round239-sql.js
-2160dd775bcb3a0f1681c237c9558f86  sp/scripts/import-booking-channels.js
-448e652f50152b91b38de745bf96c9d3  sp/scripts/import-booking.js
-6522c71438068a67f43e40a54da49c78  sp/scripts/import-brief.js
-1707975a536d15e7f4fb265a8420a9ed  sp/scripts/import-design-tickets.js
-567502b1db9464ff5b236fd45f685099  sp/scripts/import-legacy-orders.js
-3261067deb093bb85d67ca9386e36c5d  sp/scripts/import-milestone-input.js
-6380ca9a21d2dac237265426bcd202b0  sp/scripts/import-milestone-round239-csv.js
-d2ad2ee6180669a12811a0d45d5fa04d  sp/scripts/import-milestone-total-streak.js
-d66365e3d8180b206f0010825f3a3962  sp/scripts/import-milestone-total-today.js
-3fecde026851498ab5842535511c6971  sp/scripts/import-ops-tracking.js
-1e8c996f49745e13fcda3b1327bbce06  sp/scripts/import-phu-luc.js
-344aedd13ec30c17aededd012cd0227b  sp/scripts/prune-backups.js
-062b90c967908f7134086f566a051f15  sp/scripts/repair-brief-ticks.js
-4f6aef971f6b36187796544d9a215193  sp/scripts/repair-project-type-prefix.js
-c517ad6da96d203eb20a2482560b81ec  sp/scripts/restore.js
-667f7f85ae0821f0087b68d21725552e  sp/sql/README.md
-e27ee9a9fa655d83f32469128b81536a  sp/sql/applied/add-round153-pitching-spotify-banner-drive-link.sql
-b65ebc5e0c2a8c5a08472af583b2617e  sp/sql/applied/add-round154-splitshare-cancel-status.sql
-1bad841409a4723094a6fb109b149d99  sp/sql/applied/add-round161-phu-luc-gia-tri-column.sql
-4e7c0182f22c1614c1c143e8c3d1b586  sp/sql/applied/add-round174-milestone-sort-order.sql
-61cddf1aa0f24f3a2fa4c9f4ed3e7ff7  sp/sql/applied/add-round176-internal-package-requested.sql
-b3928cc78ea5b130eab21b0366dcf2c1  sp/sql/applied/add-round207-youtube-chart-renames.sql
-648dd650b0c900e361b5eda8c0e0a61f  sp/sql/applied/add-round211-link-lbm-source.sql
-cb8d956953271ca6ff09f16456782d8c  sp/sql/applied/add-round213-phai-sinh-smartlinks.sql
-f3185527121c235344b077a4f614e344  sp/sql/pending/add-round222-performance-share-links.sql
-3ebec7b272e29bd37db2a0125b05af77  sp/sql/pending/add-round226-normalize-apple-platform.sql
-81ab95462419c9734c58141cd4b9c16e  sp/sql/pending/add-round229-tool-directory-preview-tool.sql
-fe5064dace8c366108875099954d299e  sp/sql/pending/add-round232-digest-custom-note.sql
-51550479d9f1f94a349cd7a520570da2  sp/sql/pending/add-round247-media-booking-entry-totals.sql
-3e6537b3eb40311f6c2d882c3af145b7  sp/sql/pending/round240-milestone-wipe-reinstate.sql
-139e97454dd462cea2c06f2e0c1de3c3  sp/sql/reference/prod_schema_clean.sql
-8165f05f0d4ad3a0723ff9756036162c  sp/starter/.env.local.example
-97f6389fccd2f43cb9eaeb0932f14597  sp/starter/.github/workflows/backup.yml
-160018e56d3c5dff39a22445d1ed0c42  sp/starter/.github/workflows/data-fixes.yml
-cd6e739c16c589155a29d1083b73854e  sp/starter/.gitignore
-7a62ca1c65bf908e0bea979f27eefc33  sp/starter/BACKUP.md
-da906aced420d363950fd293acf1aea4  sp/starter/DATA_FIXES.md
-c0702a2d07c028c88eadc76b13b116a2  sp/starter/README.md
-f38d4b70fc44be1886e6d97b9153c74d  sp/starter/app/api/admin/delete-user/route.js
-80c086608dcf4ea6c081a93482bf11b0  sp/starter/app/api/admin/invite-user/route.js
-ab159e87ca1c6faa78c1f95869cf9952  sp/starter/app/api/admin/kick-user/route.js
-ed39208d9b138200e9d084a261f8dc69  sp/starter/app/api/admin/list-sessions/route.js
-19a951785b75a785db39ba8216c5a00a  sp/starter/app/api/admin/restore-user/route.js
-83bc056fda44732621e4f6dbaf1d04f3  sp/starter/app/api/admin/update-email/route.js
-f3ff17bd946b0515bbb1dfdb3178395a  sp/starter/app/api/cron/daily-digest/route.js
-f59f5de6714242a4d53a0d417e91b78f  sp/starter/app/artists/page.js
-badd8161b0a632da30e9ff8b16ca81d3  sp/starter/app/booking-channels/page.js
-beaf3655d38a266800dad95f87a4f6c8  sp/starter/app/booking/page.js
-95c43be687db71ec28e7386f37837bc1  sp/starter/app/config/page.js
-aa250f0162e885d42ba181020a693f2e  sp/starter/app/globals.css
-c140582b090206fab024cef4171d3650  sp/starter/app/labels/page.js
-78a93d81161b46d4739d6848b42bd886  sp/starter/app/layout.js
-92f341783d42d2d873f0851270b983c4  sp/starter/app/login/page.js
-70b04830f3b3878b598390b73b59bbd3  sp/starter/app/login/page.pseudo.js.bak
-d4a1f16c92be54eafb2861961d38ee1f  sp/starter/app/login/page.real.js.bak
-ed9c0fc0b490d71b1f2fe65f5492f887  sp/starter/app/new-release/page.js
-8fac1993d42b642b90576c421d971d6c  sp/starter/app/new-release/styles.module.css
-58a7724b3c458df5694220454fb4b712  sp/starter/app/package-categories/page.js
-34808daf0f7410de9e697cfc6fc17c7d  sp/starter/app/page.js
-0b8989672b458167f2f2f6dff0274f94  sp/starter/app/pick-package/[token]/page.js
-eb7cfb54f8bda097e91f7da7367a7caa  sp/starter/app/reference/page.js
-7d2a6073d59cc247303918bf2d3b77d4  sp/starter/app/releases/[id]/page.js
-20509602f5fff2bf30a26c2df2816207  sp/starter/app/releases/page.js
-d1be0003b65da43f868bbaf4d0510a6c  sp/starter/app/reset-password/page.js
-1f72b98ac6cbf3687090126cd5e40497  sp/starter/app/set-password/page.js
-97f512c592b6edad50de46a0c39ab7d1  sp/starter/app/shared.module.css
-ba9023dbd5e5d8e76846c80d87d48e7d  sp/starter/app/summary/page.js
-1a3f5d7928fcc51907cb39723b3885a9  sp/starter/app/tickets/artist-profile/new/page.js
-5736b343f3a6a89c7a97c61e1047f719  sp/starter/app/tickets/artist-profile/page.js
-5e46982a3a19a8d4eb68e858b8080f5b  sp/starter/app/tickets/co-trong-net-youtube/new/page.js
-4172bf5cde1ed7b333535e595ce8f2a7  sp/starter/app/tickets/co-trong-net-youtube/page.js
-cf47251426d0cf97f4dcc6d7114b3fdb  sp/starter/app/tickets/design/new/page.js
-30c1eb33db9a2f3e30209bfd079af0de  sp/starter/app/tickets/design/page.js
-19cfbb07eb1af0b3afff65d57c1056e4  sp/starter/app/tickets/discovery-mode-spotify/new/page.js
-69e4fe6fbeeb9a38476c9e23dfe29733  sp/starter/app/tickets/discovery-mode-spotify/page.js
-b87b07abeca0ccd0e6e96c7771cec870  sp/starter/app/tickets/khac/new/page.js
-36a29a56b9d7ddba969b3b7ff79fae61  sp/starter/app/tickets/khac/page.js
-6ddf795bf30dd24e887de52d23fd43db  sp/starter/app/tickets/manual-claim/new/page.js
-c09af0c1c8be0f4680d21e7ad53e1437  sp/starter/app/tickets/manual-claim/page.js
-f03ffb6fcc23829571901efff232770c  sp/starter/app/tickets/media-booking/new/page.js
-cc3ab73999a4a1533b74a2322e359378  sp/starter/app/tickets/media-booking/page.js
-c1112f03ad2cae0e82d02f80941b192e  sp/starter/app/tickets/mv-spotify/new/page.js
-5e32ddbb64b75b1f7142390b05834563  sp/starter/app/tickets/mv-spotify/page.js
-a1329defc35f64ba6927620b7bb02800  sp/starter/app/tickets/newrelease-upload/new/page.js
-8ae684039fd5afdc41c45b199388e840  sp/starter/app/tickets/newrelease-upload/page.js
-9fd36730ed2d3db304b3e1fac52a3231  sp/starter/app/tickets/page.js
-e9047a4c473b93df917d278db9b5ded1  sp/starter/app/tickets/phai-sinh/new/page.js
-85988923a4477cfef2427c0837043a1d  sp/starter/app/tickets/phai-sinh/page.js
-660de61e836bf018425065113bf6e80c  sp/starter/app/tickets/phu-luc-mg/new/page.js
-721969d3b8a1a00e74e794927ceaf945  sp/starter/app/tickets/phu-luc-mg/page.js
-487b69934316447cdac9d3e459ab55e8  sp/starter/app/tickets/phu-luc-publishing/new/page.js
-d0d802a09023109a4085e1f425c8235d  sp/starter/app/tickets/phu-luc-publishing/page.js
-17901604855e06e22655dba8a3e0ffff  sp/starter/app/tickets/phu-luc-truyen-thong/new/page.js
-2b0ef1189eb4ee836dbac3783351206a  sp/starter/app/tickets/phu-luc-truyen-thong/page.js
-6b2a9d7f9150569683e75372bec2935b  sp/starter/app/tickets/phu-luc/new/page.js
-04a53fa9bccb99ed3d30b74d7754a182  sp/starter/app/tickets/phu-luc/page.js
-bd9857bd769e9860c9184076bb3baee8  sp/starter/app/tickets/pitching-info/page.js
-db5dbca11c0ac0b093970410db831894  sp/starter/app/tickets/pitching/page.js
-46296f2c5990fb448dd3a5052312bc4c  sp/starter/app/tickets/pre-order-itunes/new/page.js
-ecddf770d7889370f9d959559562122e  sp/starter/app/tickets/pre-order-itunes/page.js
-569496599bfabf609276a3ca5cdcb54f  sp/starter/app/tickets/priority-sync-lyric/new/page.js
-4ab68091bec625d55dffe7d4f9e1bba5  sp/starter/app/tickets/priority-sync-lyric/page.js
-b122b1ec31b9a21a5161443a9ae44238  sp/starter/app/tickets/report-conflict/new/page.js
-0eba015bc3a959824a865299ed321baa  sp/starter/app/tickets/report-conflict/page.js
-8d7a819e5f37c609b840368205b42792  sp/starter/app/tickets/sony-publish/new/page.js
-917a4d45743367c0b6c848b929658328  sp/starter/app/tickets/sony-publish/page.js
-e66e84fc9a9cf531de42c5d99f96f663  sp/starter/app/tickets/split-share/new/page.js
-c64dcd349ad51474c39bed7ad3105f74  sp/starter/app/tickets/split-share/page.js
-6df47acdc7965d53de8b70ded637885d  sp/starter/app/tickets/stream-update/new/page.js
-195b9adf62c3c5237be910cf6eb262c9  sp/starter/app/tickets/stream-update/page.js
-d4d0db51c1342d1e7175f9c15b14b027  sp/starter/app/tools/page.js
-99894a4220ef34b9d28a73fc0535f5e2  sp/starter/app/workstation/confirm/page.js
-807b5c0d915ec3a49ce58179ecabc2a8  sp/starter/app/workstation/milestone/page.js
-fd93be295a17c52c07862ed43ff7bfe4  sp/starter/app/workstation/package-price/page.js
-8050baaa09be778f97a5cec5677860b8  sp/starter/app/workstation/page.js
-bf30e3ea70d621c9aa25a0b1d25e341b  sp/starter/app/workstation/pitching/page.js
-e9271bb5de789a99ef7a14f8b8774bf7  sp/starter/app/workstation/pre-release/page.js
-760dc2420159d8d5af836c7dc4ee366a  sp/starter/app/workstation/stream/page.js
-7404487817af2115c9f62423bbf61df7  sp/starter/app/workstation/upload/page.js
-ba08b62da1825d346a9005fc8ef5dca7  sp/starter/data/booking-channels-import.json
-38cd3fde039211521b83b400d6abd33a  sp/starter/data/design-tickets-import.json
-5807f58587a5ffc607324335e201247b  sp/starter/data/manual-claim-export.json
-4336e76eb4ef02f1dbf4c270b7b1ae2a  sp/starter/data/phai-sinh-export.json
-d96c5703c8df0fea258ae67a1762d7e8  sp/starter/data/team-import-template.csv
-c89f4e6a9f85c78c17a58a99ec04bf9b  sp/starter/lib/AppShell.js
-143c7f931f2a59a16dc2a81f4d2c49cb  sp/starter/lib/AuthContext.js
-45ece1db1e263703e79566cae4aeb008  sp/starter/lib/AuthContext.pseudo.js.bak
-2b8c1303e06fbc9eab291421d8d937d8  sp/starter/lib/AuthContext.real.js.bak
-f4deec165d2463f7dd8440e872e31e47  sp/starter/lib/GateFields.js
-ad4695d55f1d1f6582f3752d6d95f7cd  sp/starter/lib/LinkOrEditCell.js
-34bb377a1abca1d095c6fcf55c7f6f0a  sp/starter/lib/MultiLinkCell.js
-9b78cd108dc661707fccf0ff7e2defe9  sp/starter/lib/NewTicketPage.js
-551da1214bc3edd8f59416d1ddc24dec  sp/starter/lib/NotificationBell.js
-6acbc0805b7854d2761120102e13515d  sp/starter/lib/Pagination.js
-170e49fb2da4b3b0d2640bd8480e090b  sp/starter/lib/PhuLucStyleTicketList.js
-80d73138257e29288cf3df3f722f088b  sp/starter/lib/PickSelect.js
-8a7cea826fecb4e647721345736f613f  sp/starter/lib/QuickCreate.js
-8715136ad3d35760f867051686888dc5  sp/starter/lib/ReferenceInputs.js
-83bef1babb97b11d45dc4f39fcedbb37  sp/starter/lib/RelatedDidField.js
-fed2ee7ce54290da9a82acca3cd5e768  sp/starter/lib/ReleaseNotePopup.js
-f522c67a81580f3d15bcdc944e532cd4  sp/starter/lib/ReleasePicker.js
-636a8c87c76c039d23bd1c303d962f44  sp/starter/lib/Sidebar.js
-241dfdd8e5ea19a321622d58a5f1810e  sp/starter/lib/SonyPublishLockRow.js
-256006e33af6dbe884a58e1fb8b42ad3  sp/starter/lib/SortableTh.js
-6a75df89d746508dd22f53e12816494f  sp/starter/lib/StatusCounter.js
-f0b37253730cb9aa6a9bdd0dbdc87066  sp/starter/lib/ThemeContext.js
-576613d57375ff056b3013751a1239a7  sp/starter/lib/TicketListPage.js
-fcaea2a5830870b74a8671d549ec0f16  sp/starter/lib/TopBar.js
-e6c25a1f85cd7d94e592270e5b8a2c82  sp/starter/lib/TypeSwitcher.js
-cae8c04d915dccfa28a3c4692b0b7d92  sp/starter/lib/UrlField.js
-f3e30881efd0d6c1f7bba1fefa999f75  sp/starter/lib/helpers.js
-f32d87c9e78a15eba35aa3340f76bd17  sp/starter/lib/labelHelpers.js
-2c2a96686ef250606aa2594e6ea7b016  sp/starter/lib/notDoneCounts.js
-66e0b0669cd79cf07c4dec879a570315  sp/starter/lib/pickerOptions.js
-1d38210547ed7cd014ab51795ae828ba  sp/starter/lib/releaseNotes.js
-66badc95995345ed1eaaf5c0c32dc965  sp/starter/lib/supabaseAdmin.js
-eb484eb01535d8ef80f7adc5438a7ffd  sp/starter/lib/supabaseClient.js
-87e25651b10de2e61f5a41e4b28cb3ba  sp/starter/lib/teamTypes.js
-fdaac400d3f953d93abf51305fdc3112  sp/starter/lib/ticketConfigs.js
-0611859a67153313faf57da9004c9c28  sp/starter/lib/usePagination.js
-687d967a74de287aca52bffb5a674d10  sp/starter/lib/useSonyPublishDids.js
-af1d644a0b3cd71c67a7d238030aa355  sp/starter/lib/useSortableRows.js
-528fcf7011cc4961a6125b4063594a17  sp/starter/lib/workstationHelpers.js
-9244ec8688b5b15c856c3cc597aba46c  sp/starter/next.config.mjs
-b78def8a944c3430e6223aa65f1fa84c  sp/starter/package.json
-f6701e50c63bcd11213bc063fa1dc6ae  sp/starter/scripts/audit-booking-board.js
-0d333a19fbb43d8e20708e4eb38f8994  sp/starter/scripts/audit-pre-release-fields.js
-5bf7b88d8a8902aefd9a23bcf0c24e2c  sp/starter/scripts/audit-release-channel.js
-132488910caacc4afdfcf02ef9037774  sp/starter/scripts/backfill-ar-to-ops.js
-1735d1939389d5ef254908dbbf97e62f  sp/starter/scripts/backfill-design-executor-profile.js
-d0e565848f6e5253268638591d850dff  sp/starter/scripts/backfill-did-suffix.js
-6f84072d78bad9715508c653de244666  sp/starter/scripts/backfill-legacy-id.js
-56caa7a5a97b9fc61bdfe88441bb1428  sp/starter/scripts/backfill-linkshare-timing.js
-4658ac261250b1b215d8c5822aeb3eca  sp/starter/scripts/backfill-send-upload.js
-c797006ffbbd60e166b8cf5b58a78b60  sp/starter/scripts/backup.js
-9a98775954b5d145171c668c3dbde677  sp/starter/scripts/bulk-create-team.js
-c5e7d6c2cf73fc4e05e281560b01035a  sp/starter/scripts/cleanup-duplicate-media-booking.js
-ac76245bca4b8559f90a7a525fa9875f  sp/starter/scripts/fix-booking-channels-direct.js
-2160dd775bcb3a0f1681c237c9558f86  sp/starter/scripts/import-booking-channels.js
-448e652f50152b91b38de745bf96c9d3  sp/starter/scripts/import-booking.js
-6522c71438068a67f43e40a54da49c78  sp/starter/scripts/import-brief.js
-1707975a536d15e7f4fb265a8420a9ed  sp/starter/scripts/import-design-tickets.js
-567502b1db9464ff5b236fd45f685099  sp/starter/scripts/import-legacy-orders.js
-3fecde026851498ab5842535511c6971  sp/starter/scripts/import-ops-tracking.js
-1d420fd160300796513b4e5312da20c8  sp/starter/scripts/prune-backups.js
-062b90c967908f7134086f566a051f15  sp/starter/scripts/repair-brief-ticks.js
-4f6aef971f6b36187796544d9a215193  sp/starter/scripts/repair-project-type-prefix.js
-fe92be6e6dd6608510712d8ef55936cb  sp/starter/scripts/restore.js
-ec08437a1da6294a628620f656e93358  sp/starter/vercel.json
-a57e93f5f6def6cc980c1cdfb5b86e2a  sp/team-created-credentials.csv
-ec08437a1da6294a628620f656e93358  sp/vercel.json
+90f9a81e956d1315a1828fb32236b319  sql/.DS_Store
 667f7f85ae0821f0087b68d21725552e  sql/README.md
 e27ee9a9fa655d83f32469128b81536a  sql/applied/add-round153-pitching-spotify-banner-drive-link.sql
 b65ebc5e0c2a8c5a08472af583b2617e  sql/applied/add-round154-splitshare-cancel-status.sql
@@ -915,15 +555,56 @@ da7b5e262c13901a9c574f9dd583d7cb  sql/pending/add-round439-locked-package-drift-
 29a8b6844ed0c492fa714fe3f174e3e6  sql/pending/add-round439-locked-package-drift-monitor.sql
 19d09af94c2b559362c3c5a54efd7e2d  sql/pending/add-round439-media-booking-lines-updated-at.sql
 690418d73a2259694f8dae6976cef760  sql/pending/add-round439-step6-verify-with-edit-timestamps.sql
+fc4caa43158ea233c642a5ad1ae18ede  sql/pending/add-round442-check-hkh484-divergence.sql
 6a82920aaf882d81e376e9cbbfe7d140  sql/pending/add-round442-package-scope-content-entries.sql
 5c47b8b1bf40345c6a0b5a8f5bbef959  sql/pending/add-round442-step0-find-orphaned-releases.sql
 0dfa2846a68dace6a7deafae02860d71  sql/pending/add-round442-step0b-check-schema-state.sql
 e461108626b8be586bcf790565c5fcd5  sql/pending/add-round442-step2-post-deploy-verify.sql
+d3b6b412c443fa7c0ac700f9b4cde25d  sql/pending/add-round446-cost-mkt-installments.sql
+445755044009136aae914f655a02675b  sql/pending/add-round453-package-terms-text-override.sql
+ab2d3a35fd283a6c34024181b7a9e99c  sql/pending/add-round453-per-tab-notify-toggle.sql
+b94a5feac52ed949a6df8823f9699f18  sql/pending/add-round455-batch-phai-sinh-item-pic-profile-ids.sql
+5f11bba26d69a2ef6666bc23564b854d  sql/pending/add-round457-workstation-assignments-pic-profile-ids.sql
+69af6ff58ff54e061f49e7e47ec22eee  sql/pending/add-round461-task-kpi-snapshots.sql
+34a26f25e707f7e208a9d133c784e3f2  sql/pending/add-round468-dev-notify-opt-in.sql
+d7ed206602801516b0793635ff216072  sql/pending/add-round469-notify-assignment-and-backlog.sql
+95743362ddc3aeb9d4050bd58d853b4c  sql/pending/add-round478-cost-mkt-metric-overrides.sql
+f4a519e830bd6a5badf7a89fa371e422  sql/pending/add-round480-cost-mkt-snapshots.sql
+f484fe15c43531f3426bd2897376f75f  sql/pending/add-round488-non-did-products.sql
+808bd4d7836faed2f982295edbc97ef3  sql/pending/add-round491-backfill-complete-old-media-booking.sql
+b792c131c6c8662454ea3acd80fb5b00  sql/pending/add-round492-non-did-generated-did.sql
+3725f678015862294bc27999b861c47e  sql/pending/add-round493-label-external.sql
+633eb5210d50644eb8eafb2a32ff25c4  sql/pending/add-round496-non-package-booking-entries.sql
+6603c7e7f3b000cf3a326907d86943d0  sql/pending/add-round501-merge-int-media-into-internal-package.sql
+a73f2473cb4d2ff43f9760b749ee85c1  sql/pending/add-round507-npb-channel-name.sql
+0af67838fe0c77c1cf5a644530eff921  sql/pending/add-round509-package-change-log.sql
+0cd0bacb8f710d70adea4cd018f8a358  sql/pending/add-round510-line-manual-lock.sql
 c162427cf7a01958c9588ea9d37dfed8  sql/pending/add-round518-repopulate-tools-directory.sql
+485c9f918eb9854a7789dfe5f63df4d1  sql/pending/add-round522-backfill-missing-phu-luc-tickets.sql
 042667b74dc3db13da4b44c3f719501c  sql/pending/add-round524-freeze-package-terms-config-log.sql
+06871ff21c5af48e7002359d2c455fbd  sql/pending/add-round529-booking-board-hide-empty-chi-phat-hanh.sql
+bbe9d05d5a0086b242517d91dc2c7e58  sql/pending/add-round530-chat-prototype.sql
+e2d4664102e590cc45bd0fc30d1d8b8e  sql/pending/add-round535-viral-posts-no-did-reference-lists.sql
+018f24770f9ab405d4bbf613414c8998  sql/pending/align-round513-grid-to-restored-lines.sql
+483b6a805d157ab25a461f1dd42f4081  sql/pending/cancel-round495-blank-workstation-tickets.sql
+524f8596bc858d46fe6d7db2439a06c3  sql/pending/check-round494-test-tickets.sql
+30f28c045e7cf8ff6e11ee5418144c00  sql/pending/check-round536-rls-audit.sql
 5401ddfac726e60da94d03f895118886  sql/pending/consolidated-2026-09-09.sql
+e3ed42d824eafefa9c94423782f084ce  sql/pending/convert-round515-old-brand-lines-to-combined.sql
+ee4ecc3449eb7e85a5de6559d20fbf65  sql/pending/fix-round463-sahg-19082026-0514-stray-int-media-package.sql
+2654f6fe51c8d1fa475b14f9cbeda4d3  sql/pending/fix-round464-hikari2-doc-quyen-2-nam-restore.sql
+437d1aac34207ada4fbe503901953236  sql/pending/fix-round464-tn-08102026-0123-social-community.sql
+aed1a76f167364e82ec4370784fcc35f  sql/pending/fix-round503-stamp-nondid-code-chim-sao.sql
+7f9065ad93aa4625bb5158e5635c8f00  sql/pending/fix-round506-booking-board-brand-target-filter.sql
+2ca9c4f1c6621d2c84a99bdd07fe5133  sql/pending/fix-round516-booking-board-internal-package-resolver.sql
 ce991e050c661a0c8f492e0e479abe68  sql/pending/fix-round521-anon-ticket-insert-notifications.sql
+babf22f5c43a82f513eaa62629ca2032  sql/pending/optional-round489-trim-old-notifications.sql
+9540703b5e5d30530390e807daf79084  sql/pending/preview-round507-convert-old-packages-split.sql
+beb219cfc1b9149a248ba226608b0e0a  sql/pending/restore-round510-package-lines-from-backups.sql
 3e6537b3eb40311f6c2d882c3af145b7  sql/pending/round240-milestone-wipe-reinstate.sql
+ed46cec089610c994da557576bfc400f  sql/pending/round444-cleanup-stale-ads-rows-hkh484.sql
+328ce0d0c840e156334ec9151778b569  sql/pending/urgent-fix-anon-permission-denied-releases-v2.sql
+3fb5e8482b5ecf093519928d211db172  sql/pending/urgent-fix-anon-permission-denied-releases.sql
 139e97454dd462cea2c06f2e0c1de3c3  sql/reference/prod_schema_clean.sql
 8165f05f0d4ad3a0723ff9756036162c  starter/.env.local.example
 97f6389fccd2f43cb9eaeb0932f14597  starter/.github/workflows/backup.yml

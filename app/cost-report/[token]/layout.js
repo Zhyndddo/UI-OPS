@@ -7,7 +7,7 @@
 // Only the snapshot's title and month label are used. Best-effort / fail-open like the pick-package layout: unknown token,
 // RLS denial or a Supabase hiccup all fall back to generic copy instead of crashing the request (generateMetadata
 // throwing is a hard 500).
-import { supabase } from "../../../lib/supabaseClient";
+import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 const SITE_URL = "https://internal.vieent.com";
 const FALLBACK_TITLE = "Cost Report — VIEENT";
@@ -15,9 +15,9 @@ const FALLBACK_DESCRIPTION = "A VIEENT marketing cost report.";
 const FALLBACK_METADATA = { title: FALLBACK_TITLE, description: FALLBACK_DESCRIPTION };
 
 export async function generateMetadata({ params }) {
-  if (!supabase) return FALLBACK_METADATA;
+  if (!supabaseAdmin) return FALLBACK_METADATA;
   try {
-    const { data: snap } = await supabase.from("cost_mkt_snapshots").select("title, month_label").eq("token", params.token).maybeSingle();
+    const { data: snap } = await supabaseAdmin.from("cost_mkt_snapshots").select("title, month_label").eq("token", params.token).maybeSingle();
     if (!snap) return FALLBACK_METADATA;
     const title = snap.title ? `${snap.title} — Cost report` : FALLBACK_TITLE;
     const description = snap.month_label ? `${snap.month_label} · VIEENT marketing cost report` : FALLBACK_DESCRIPTION;

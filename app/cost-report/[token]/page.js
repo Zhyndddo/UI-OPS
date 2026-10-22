@@ -25,12 +25,21 @@ export default function CostReportPage() {
   }, []);
 
   useEffect(() => {
-    if (!supabase || !token) return;
-    supabase.from("cost_mkt_snapshots").select("*").eq("token", token).maybeSingle().then(({ data, error: err }) => {
-      if (err || !data) setError("This link doesn't look valid, or it was removed. Double-check the URL you were sent.");
-      else { setRow(data); document.title = `${data.title} — Cost report`; }
-      setLoading(false);
-    });
+    if (!token) return;
+    // Round 540 — read via /api/magic (token-scoped, server-side) instead of
+    // querying cost_mkt_snapshots with the public anon key.
+    fetch(`/api/magic?kind=cost&token=${encodeURIComponent(token)}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        const data = body?.row;
+        if (!data) setError("This link doesn't look valid, or it was removed. Double-check the URL you were sent.");
+        else { setRow(data); document.title = `${data.title} — Cost report`; }
+        setLoading(false);
+      })
+      .catch(() => {
+        setError("This link doesn't look valid, or it was removed. Double-check the URL you were sent.");
+        setLoading(false);
+      });
   }, [token]);
 
   if (loading) return <div className={styles.page} data-theme={themeLock || undefined}><div className={styles.container}>Loading…</div></div>;

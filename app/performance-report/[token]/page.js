@@ -37,14 +37,20 @@ export default function PerformanceSharePage() {
   }, []);
 
   useEffect(() => {
-    if (!supabase || !token) return;
+    if (!token) return;
     load();
   }, [token]);
 
   async function load() {
     setLoading(true);
     setError(null);
-    const { data: row, error: err } = await supabase.from("performance_share_links").select("*").eq("token", token).maybeSingle();
+    // Round 540 — token-scoped server read (see app/api/magic/route.js).
+    let row = null;
+    let err = null;
+    try {
+      const r = await fetch(`/api/magic?kind=perf&token=${encodeURIComponent(token)}`, { cache: "no-store" });
+      row = r.ok ? (await r.json())?.row || null : null;
+    } catch (e) { err = e; }
     if (err || !row) {
       setError("This link doesn't look valid. Double-check the URL you were sent.");
       setLoading(false);

@@ -738,7 +738,7 @@ export default function ChannelReferenceSharePage() {
   const sheetTitleLines2 = useMemo(() => detectMergedTitleLines(sheetData2?.headers), [sheetData2]);
 
   useEffect(() => {
-    if (!supabase || !token) return;
+    if (!token) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
@@ -746,37 +746,25 @@ export default function ChannelReferenceSharePage() {
   async function load() {
     setLoading(true);
     setError(null);
-    const { data: link, error: linkErr } = await supabase
-      .from("channel_reference_share_links")
-      .select("*")
-      .eq("token", token)
-      .maybeSingle();
-    if (linkErr || !link) {
+    // Round 540 — token-scoped server read (see app/api/magic/route.js):
+    // validates the link, stamps last_viewed_at and returns the channel rows,
+    // so the anon key no longer needs access to these tables.
+    let body = null;
+    try {
+      const r = await fetch(`/api/magic?kind=channels&token=${encodeURIComponent(token)}`, { cache: "no-store" });
+      body = r.ok ? await r.json() : null;
+    } catch (e) { body = null; }
+    if (!body) {
       setError("This link doesn't look valid. Double-check the URL you were sent.");
       setLoading(false);
       return;
     }
-    if (link.revoked_at) {
+    if (body.revoked) {
       setError("This link is no longer active. Ask whoever sent it for a new one.");
       setLoading(false);
       return;
     }
-    // Best-effort — a failed write here shouldn't block showing the page.
-    supabase
-      .from("channel_reference_share_links")
-      .update({ last_viewed_at: new Date().toISOString() })
-      .eq("id", link.id)
-      .then(() => {});
-
-    // Round 311 — every platform now, not just TikTok (channel_group
-    // spans platforms, e.g. VIEENT - SOCIAL is TikTok+YouTube+Facebook+
-    // Instagram+Thread) — only still excludes rows with no group set at
-    // all, so an ungrouped channel doesn't silently show up here.
-    const { data: rows } = await supabase
-      .from("booking_channels")
-      .select("id, name, platform, channel_group, url, follower_count, note")
-      .not("channel_group", "is", null)
-      .order("follower_count", { ascending: false, nullsFirst: false });
+    const rows = body.rows || [];
     const grouped = {};
     (rows || []).forEach((r) => {
       (grouped[r.channel_group] = grouped[r.channel_group] || []).push(r);
