@@ -10,6 +10,8 @@ import { fetchAllRows } from "../../../lib/helpers";
 import { nonDidRowKey, fetchNonDidProducts } from "../../../lib/nonDidProducts";
 import { logAudit } from "../../../lib/auditLog";
 import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS, brandsLikelyMatch } from "../../booking/page";
+import { isUiTester } from "../../../lib/uiTesters";
+import NpbFilterBar from "../../../lib/NpbFilterBar";
 import styles from "../../shared.module.css";
 
 // Round 448 — NON-PACKAGE BOOKING workstation (Nghệ Sĩ Trả side of the Booking Board).
@@ -40,7 +42,9 @@ function shortTiktokBrand(b) {
 }
 
 export default function NonPackageBooking() {
-  const { profile } = useAuth();
+  const { profile, realProfile } = useAuth();
+  // Round 548 — compact filter bar, tester only (lib/uiTesters.js); everyone else keeps the original rows.
+  const compactFilters = isUiTester(realProfile);
   const [loading, setLoading] = useState(true);
   const [tickets, setTickets] = useState([]); // booking_not_in_package tickets = the BOOKED side
   const [entries, setEntries] = useState([]); // non_package_booking_entries = the ADDED side
@@ -60,6 +64,28 @@ export default function NonPackageBooking() {
   const columns = category === "TikTok Channel" ? TIKTOK_SUBCHANNELS : unassigned ? allAdsMetrics : ADS_METRICS[adsBrand] || [];
 
   const [search, setSearch] = useState("");
+
+  // Round 548 — compact-filter testers get their last category / group / brand back (this browser only).
+  const [filtersRestored, setFiltersRestored] = useState(false);
+  useEffect(() => {
+    if (!compactFilters || filtersRestored) return;
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("npb_filters_v1") || "null");
+      if (saved) {
+        if (NPB_CATEGORIES.includes(saved.category)) setCategory(saved.category);
+        if (TIKTOK_CHANNEL_GROUPS[saved.tiktokGroup]) {
+          setTiktokGroup(saved.tiktokGroup);
+          if (TIKTOK_CHANNEL_GROUPS[saved.tiktokGroup].includes(saved.tiktokBrand)) setTiktokBrand(saved.tiktokBrand);
+        }
+        if (ADS_BRANDS.includes(saved.adsBrand)) setAdsBrand(saved.adsBrand);
+      }
+    } catch {}
+    setFiltersRestored(true);
+  }, [compactFilters, filtersRestored]);
+  useEffect(() => {
+    if (!compactFilters || !filtersRestored) return;
+    try { window.localStorage.setItem("npb_filters_v1", JSON.stringify({ category, tiktokGroup, tiktokBrand, adsBrand })); } catch {}
+  }, [compactFilters, filtersRestored, category, tiktokGroup, tiktokBrand, adsBrand]);
   const [expandedCell, setExpandedCell] = useState(null); // `${rowKey}:${col}` or null
   // Round 507 — the Booking Board's channel reference list (booking_channels), loaded once, only when a TikTok cell is opened.
   const [bookingChannels, setBookingChannels] = useState(null);
@@ -226,6 +252,27 @@ export default function NonPackageBooking() {
             </div>
           )}
 
+          {compactFilters ? (
+            <NpbFilterBar
+              categories={NPB_CATEGORIES}
+              category={category}
+              onCategory={(c) => { setCategory(c); setUnassigned(false); }}
+              groups={["Partner", "In-house"]}
+              group={tiktokGroup}
+              onGroup={(g) => { setUnassigned(false); setTiktokGroup(g); setTiktokBrand(TIKTOK_CHANNEL_GROUPS[g][0]); }}
+              brands={category === "TikTok Channel" ? TIKTOK_CHANNEL_GROUPS[tiktokGroup] : ADS_BRANDS}
+              brand={category === "TikTok Channel" ? tiktokBrand : adsBrand}
+              onBrand={(b) => { setUnassigned(false); category === "TikTok Channel" ? setTiktokBrand(b) : setAdsBrand(b); }}
+              shortBrand={(b) => (category === "TikTok Channel" ? shortTiktokBrand(b) : b)}
+              unassigned={unassigned}
+              unassignedCount={unassignedCount}
+              onUnassigned={setUnassigned}
+              search={search}
+              onSearch={setSearch}
+              onReset={() => { setCategory("TikTok Channel"); setTiktokGroup("Partner"); setTiktokBrand(TIKTOK_CHANNEL_GROUPS["Partner"][0]); setAdsBrand(ADS_BRANDS[0]); setUnassigned(false); setSearch(""); }}
+            />
+          ) : (
+          <>
           <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
             {NPB_CATEGORIES.map((c) => (
               <button
@@ -282,6 +329,8 @@ export default function NonPackageBooking() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          </>
+          )}
 
           {loading ? (
             <div className={styles.emptyState}>Loading…</div>
