@@ -26,6 +26,7 @@ import { PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import PicTagInput from "../../../lib/PicTagInput";
 import styles from "../../shared.module.css";
 
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Same tool, visited twice — Phase 1 while waiting for release, Phase 2
 // after it's live. Rebuilt from scratch: the 6 individual DSP checks now
 // live behind one bulk Yes/No (only reads "Yes" once every one of them
@@ -393,7 +394,7 @@ function ConfirmWorkstationInner() {
           </div>
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : visibleReleases.length === 0 ? (
             <div className={styles.emptyState}>{releases.length === 0 ? "No releases yet." : "Nothing outstanding."}</div>
           ) : phase === "confirm_phase1" ? (

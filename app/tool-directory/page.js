@@ -20,6 +20,7 @@ import { buildZingPitchNote } from "../../lib/zingPitchNote";
 import { buildNewReleasePreviewNote } from "../../lib/newReleasePreviewNote";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 // Round 155 item 1 — the compiled external-tools directory: team-per-tab,
 // tools grouped by page within each tab. View-only for everyone; editing
 // (adding/renaming/re-urling a tool) is dev-only. Desktop only, per
@@ -201,7 +202,7 @@ export default function ToolDirectoryPage() {
           </p>
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : (
             <>
               <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>

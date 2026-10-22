@@ -14,6 +14,7 @@ import { filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/worksta
 import { logPicReassign } from "../../../lib/auditLog";
 import styles from "../../shared.module.css";
 
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // The real v1 "Stream" component (STREAM_COLS_DEF in app.js) — manually
 // entered per-platform metrics. Reorganized per the doc into 3 tabs
 // instead of v1's Summarize + 12 separate month tabs: Today Check (fresh
@@ -387,7 +388,7 @@ export default function StreamWorkstation() {
           </div>
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : tab === "today" ? (
             todayCheckReleases.length === 0 ? (
               <div className={styles.emptyState}>Nothing released yesterday, day-before-yesterday, or exactly a week ago.</div>

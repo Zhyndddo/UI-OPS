@@ -18,6 +18,7 @@ import PicTagInput from "../../../../lib/PicTagInput";
 import { canEditLockedDeadline, canViewProjectRightsType, canEditProjectRightsType } from "../../../../lib/permissions";
 import ProjectRightsTypeTag from "../../../../lib/ProjectRightsTypeTag";
 import styles from "../../../shared.module.css";
+import LoadingSkeleton from "../../../../lib/LoadingSkeleton";
 // Round 282 — audit log / requester attribution. Batch items live in
 // phai_sinh_batch_items, a different table from tickets, so item-level
 // writes use logAudit/logPicReassign/logDeadlineChange directly with
@@ -173,7 +174,7 @@ export default function BatchPhaiSinhDetail() {
   }
 
   if (loading) {
-    return <AppShell><div className={styles.page}><div className={styles.container}><div className={styles.emptyState}>Loading…</div></div></div></AppShell>;
+    return <AppShell><div className={styles.page}><div className={styles.container}><LoadingSkeleton /></div></div></AppShell>;
   }
   if (!ticket) {
     return <AppShell><div className={styles.page}><div className={styles.container}><div className={styles.emptyState}>Batch not found.</div></div></div></AppShell>;

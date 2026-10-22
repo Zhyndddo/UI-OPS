@@ -7,3 +7,4 @@ node_modules
 sp/
 .DS_Store
 starter/
+prod_full.sql

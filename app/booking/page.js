@@ -14,6 +14,7 @@ import YoutubeAdsFields from "../../lib/YoutubeAdsFields";
 import { resolvePackageForRelease } from "../../lib/resolvePackage";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 // Every Hạng Mục here uses the same 2-layer pattern: pick a sub-filter
 // (a brand, or a brand group), and THAT determines the columns shown.
 // CATEGORY_SUBFILTERS is layer 1 — MUST stay in sync with the equivalent
@@ -1350,7 +1351,7 @@ export default function BookingBoard() {
         )}
 
         {loading ? (
-          <div className={styles.emptyState}>Loading…</div>
+          <LoadingSkeleton />
         ) : releases.length === 0 ? (
           <div style={{ textAlign: "center", padding: "80px 0" }}>
             <div style={{ fontSize: 48, fontWeight: 900, color: "#1c1c1c", letterSpacing: 4 }}>EMPTY</div>
@@ -2937,7 +2938,7 @@ function PackagePreviewPopup({ release, categories, onClose }) {
         </div>
 
         {pkg === undefined ? (
-          <div className={styles.emptyState}>Loading…</div>
+          <LoadingSkeleton />
         ) : pkg === null ? (
           <div className={styles.emptyState}>No itemized breakdown for this pick.</div>
         ) : isIntMedia ? (

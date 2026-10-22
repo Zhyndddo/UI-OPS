@@ -6,6 +6,7 @@ import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 // Round 404 item 3 — "Dev still see it in the log": every system_messages
 // row ever created, regardless of expires_at (recipients stop seeing a
 // row once it expires or they hide it — see lib/systemMessages.js and
@@ -90,7 +91,7 @@ export default function SystemLogPage() {
           )}
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : visibleRows.length === 0 ? (
             <div className={styles.emptyState}>Nothing logged yet.</div>
           ) : (

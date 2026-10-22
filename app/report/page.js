@@ -12,6 +12,7 @@ import { canViewCrossTeam, canViewPerformanceReport } from "../../lib/permission
 import { fetchDistinctArtists, usePerformanceRollup, PerformanceRollupView } from "../../lib/PerformanceReport";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 // Round 56 — "Report" nav item: KPI cards, tables, and column/pie charts
 // across releases/media_booking_package_categories/package value fields —
 // (A) Release Pipeline Health, (B) Booking Board Activity, (C) Package/
@@ -462,7 +463,7 @@ function ReportPageInner() {
           {tab === "performance" ? (
             <PerformanceTab profile={profile} />
           ) : loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : tab === "worklist" ? (
             <>
               {isCrossTeam ? (
@@ -515,7 +516,7 @@ function ReportPageInner() {
 
               <div className={styles.subheading} style={{ marginTop: 0 }}>Ticket</div>
               {ticketStatsLoading ? (
-                <div className={styles.emptyState}>Loading…</div>
+                <LoadingSkeleton />
               ) : ticketStatsByType.length === 0 ? (
                 <div className={styles.emptyState}>No ticket types visible for this team.</div>
               ) : (
@@ -954,7 +955,7 @@ function PerformanceTab({ profile }) {
       {queryValue && (
         <>
           {rollupLoading || !data ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : (
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 10 }}>
@@ -1020,7 +1021,7 @@ function PerformanceTab({ profile }) {
         than adding a new one — a link's row only ever multiplies if "Generate New Link" was used instead of Renew.
       </p>
       {linksLoading ? (
-        <div className={styles.emptyState}>Loading…</div>
+        <LoadingSkeleton />
       ) : (
         <>
           <ShareLinkHistoryTable title="Artist Links" rows={artistLinks} copiedToken={copiedToken} onCopy={copyLink} now={now} />

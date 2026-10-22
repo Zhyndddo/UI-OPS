@@ -14,6 +14,7 @@ import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import PicTagInput from "../../../lib/PicTagInput";
 import styles from "../../shared.module.css";
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 282 — audit log / requester attribution. No deadline-change log
 // here — this list only ever displays t.deadline (fmtDate), it's never
 // edited from this page (only set once at creation, in new/page.js).
@@ -112,7 +113,7 @@ export default function NewreleaseUploadList() {
         <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
 
         {loading ? (
-          <div className={styles.emptyState}>Loading…</div>
+          <LoadingSkeleton />
         ) : visibleTickets.length === 0 ? (
           <div className={styles.emptyState}>No tickets yet.</div>
         ) : (

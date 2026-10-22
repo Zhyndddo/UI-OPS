@@ -7,6 +7,7 @@ import { useAuth } from "../../lib/AuthContext";
 import { isAdminOrAbove } from "../../lib/permissions";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 // Round 408 — item 2 from the original Round 404 request, finally built:
 // a searchable, read-only reference list of VCPMC's catalog (title /
 // music author / lyrics author / singer). Sidebar label and route are
@@ -350,7 +351,7 @@ function ReportsQueue() {
     setReports((prev) => prev.filter((r) => r.id !== report.id));
   }
 
-  if (loading) return <div className={styles.emptyState}>Loading…</div>;
+  if (loading) return <LoadingSkeleton />;
   if (reports.length === 0) return <div className={styles.emptyState}>No open reports.</div>;
 
   return (

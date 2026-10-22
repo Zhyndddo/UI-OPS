@@ -15,6 +15,7 @@ import { TEAMS, TEAM_SUBTEAMS } from "../../lib/teamTypes";
 import { MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 // Round 264/Config's own "hardcoded, not admin-editable" subteam map,
 // duplicated here rather than imported from app/config/page.js since that
 // file doesn't export it — same source lists (Marketing's own from
@@ -114,7 +115,7 @@ export default function SecretMessagesPage() {
               </p>
 
               {loading ? (
-                <div className={styles.emptyState}>Loading…</div>
+                <LoadingSkeleton />
               ) : messages.length === 0 ? (
                 <div className={styles.emptyState}>Nothing here right now.</div>
               ) : (
@@ -366,7 +367,7 @@ function SendSecretMessageSection({ profile }) {
       </form>
 
       {loading ? (
-        <div className={styles.emptyState}>Loading…</div>
+        <LoadingSkeleton />
       ) : visibleMessages.length === 0 ? (
         <div className={styles.emptyState}>No secret messages sent yet.</div>
       ) : (

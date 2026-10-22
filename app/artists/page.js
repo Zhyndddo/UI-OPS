@@ -9,6 +9,7 @@ import Pagination from "../../lib/Pagination";
 import SearchBox from "../../lib/SearchBox";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 const DSP_FIELDS = [
   ["spotify_url", "Spotify"],
   ["apple_url", "Apple"],
@@ -225,7 +226,7 @@ export default function ArtistsPage() {
         )}
 
         {loading ? (
-          <div className={styles.emptyState}>Loading…</div>
+          <LoadingSkeleton />
         ) : totalRows === 0 ? (
           <div className={styles.emptyState}>{debouncedSearch ? "No artists match this search." : "No artists yet."}</div>
         ) : (

@@ -16,6 +16,7 @@ import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import { useIsMobile } from "../../../lib/useIsMobile";
 import styles from "../../shared.module.css";
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 281 — audit log / requester attribution
 import { logTicketStatusChange } from "../../../lib/auditLog";
 
@@ -166,7 +167,7 @@ export default function BoSungDataList() {
           )}
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : visibleTickets.length === 0 ? (
             <div className={styles.emptyState}>{isExecutorView ? `No ${statusFilter.toLowerCase()} tickets.` : "No tickets yet."}</div>
           ) : isMobile ? (

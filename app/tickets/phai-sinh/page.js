@@ -22,6 +22,7 @@ import { projectRightsTypeInfo, projectRightsTypePillClass } from "../../../lib/
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import { useIsMobile } from "../../../lib/useIsMobile";
 import styles from "../../shared.module.css";
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 282 — audit log / requester attribution
 import { logTicketStatusChange, logPicReassign, logDeadlineChange } from "../../../lib/auditLog";
 import PicTagInput, { picIdsOfTicket, picNamesOf } from "../../../lib/PicTagInput";
@@ -376,7 +377,7 @@ export default function PhaiSinhList() {
           )}
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : visibleTickets.length === 0 ? (
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (

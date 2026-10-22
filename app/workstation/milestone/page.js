@@ -19,6 +19,7 @@ import { TOOL_DIRECTORY_SETTING_KEY, mergeToolDirectory } from "../../../lib/too
 import { SharedLabelInput } from "../../../lib/ReferenceInputs";
 import styles from "../../shared.module.css";
 
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Real platform → chart lists, straight from v1's MILESTONE_PLATFORM_TABS.
 const PLATFORM_CHARTS = {
   Zing: ["ZMP3|ZING CHART", "ZMP3|BXH NHẠC MỚI"],
@@ -665,7 +666,7 @@ export default function MilestoneWorkstation() {
   // duplicated twice and doesn't drift between the two call sites.
   const logTableEl =
     logEntries === null ? (
-      <div className={styles.emptyState}>Loading…</div>
+      <LoadingSkeleton />
     ) : (
       <LogTable
         entries={logEntries}
@@ -692,7 +693,7 @@ export default function MilestoneWorkstation() {
           </div>
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : tab === "input" && hasFullAccess ? (
             <>
             <DailyPicPanel styles={styles} workstation="milestone_input" dates={inputLogDates} defaultEmail="hie.tran@vieent.vn" profiles={profiles} label="Today's Log" />
@@ -2061,7 +2062,7 @@ function ViralPostsPanel({ styles, profiles }) {
     load();
   }
 
-  if (loading) return <div className={styles.emptyState}>Loading…</div>;
+  if (loading) return <LoadingSkeleton />;
 
   return (
     <div>

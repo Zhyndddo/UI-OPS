@@ -54,6 +54,7 @@ import { RELEASE_CRITICAL_FIELDS, notifyReleaseCriticalChange } from "../../../l
 import { ensureRemarketingIntPackage } from "../../../lib/remarketingIntPackage";
 import styles from "../../shared.module.css";
 
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 const TABS = [
   { key: "overview", label: "Tổng Hợp" },
   { key: "copyrights", label: "Copyrights" },
@@ -4200,7 +4201,7 @@ function StreamingMilestoneTab({ form }) {
       </div>
 
       {loading ? (
-        <div className={styles.emptyState}>Loading…</div>
+        <LoadingSkeleton />
       ) : (
         <>
           <div className={styles.subheading}>Stream Numbers</div>

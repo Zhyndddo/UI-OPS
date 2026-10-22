@@ -67,6 +67,7 @@ import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 // uses (Round 144).
 import ReleasePicker from "../../../lib/ReleasePicker";
 import styles from "../../shared.module.css";
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 282 — audit log / requester attribution
 import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 import PicTagInput, { picIdsOfTicket, picNamesOf } from "../../../lib/PicTagInput";
@@ -308,7 +309,7 @@ export default function ReportConflictPage() {
       <AppShell>
         <div className={styles.page}>
           <div className={styles.container}>
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           </div>
         </div>
       </AppShell>

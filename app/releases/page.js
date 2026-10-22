@@ -27,6 +27,7 @@ import ExportButton from "../../lib/spreadsheetExport";
 import BulkReleaseImportPopup from "../../lib/BulkReleaseImport";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 // Round 417 — Releases dashboard export column set. Deliberately a
 // curated subset of RELEASE_COLUMNS (below), not every raw DB column —
 // this is meant to read as a clean spreadsheet a human opens, not a
@@ -1236,7 +1237,7 @@ export default function ReleasesDashboard() {
         )}
 
         {loading ? (
-          <div className={styles.emptyState}>Loading…</div>
+          <LoadingSkeleton />
         ) : releases.length === 0 ? (
           <div className={styles.emptyState}>No releases match these filters.</div>
         ) : (

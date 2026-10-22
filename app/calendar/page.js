@@ -10,6 +10,7 @@ import { localDateStr } from "../../lib/releaseDateHighlight";
 import SearchBox, { matchesQuery } from "../../lib/SearchBox";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 // Round 172 item 3 — new sidebar entry, per explicit request: "make me a
 // new side bar item, label 'Calendar'; this is like a kanban calendar.
 // taking the result from the recent 3 weeks, last-this-next for data."
@@ -345,7 +346,7 @@ export default function CalendarPage() {
           {!loading && <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />}
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : (
             <div style={{ display: "flex", gap: 16, alignItems: "flex-start", overflowX: "auto" }}>
               {weeks.map((week) => {

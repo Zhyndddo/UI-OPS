@@ -10,6 +10,7 @@ import UrlField from "../../lib/UrlField";
 import { CHANNEL_REFERENCE_INTRO_KEY, readChannelReferenceIntro, serializeChannelReferenceIntro } from "../../lib/channelReferenceIntro";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 const BOOKING_PLATFORMS = ["TikTok", "Facebook", "Instagram", "YouTube", "Thread"];
 const BOOKING_CHANNEL_TYPES = ["Direct", "Partner"];
 
@@ -734,7 +735,7 @@ export default function BookingChannelsPage() {
         )}
 
         {loading ? (
-          <div className={styles.emptyState}>Loading…</div>
+          <LoadingSkeleton />
         ) : visibleChannels.length === 0 ? (
           <div className={styles.emptyState}>{channels.length === 0 ? "No channels yet." : "No channels match that search/filter."}</div>
         ) : (

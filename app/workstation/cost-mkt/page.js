@@ -19,6 +19,7 @@ import { filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/worksta
 import { logPicReassign } from "../../../lib/auditLog";
 import styles from "../../shared.module.css";
 
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 315 — new Workstation item, per explicit request + the
 // "workstation template.xlsx" reference sheet. A cost-tracking layer on
 // top of data that mostly already lives elsewhere: TikTok Channel
@@ -1433,7 +1434,7 @@ export default function WorkstationCostMkt() {
           )}
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : tableRows.length === 0 ? (
             <div className={styles.emptyState}>
               {monthFilterActive

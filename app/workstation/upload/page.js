@@ -28,6 +28,7 @@ import { PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import PicTagInput from "../../../lib/PicTagInput";
 import styles from "../../shared.module.css";
 
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 const UPLOAD_STATUS_OPTS = ["Running", "Pending", "Cancel"];
 
 // Round 399 — egress reduction (see project doc "server-side-pagination-
@@ -401,11 +402,11 @@ export default function UploadWorkstation() {
           </div>
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : visibleReleases.length === 0 ? (
             <div className={styles.emptyState}>{classifyRows.length === 0 ? "No releases have had SEND UPLOAD clicked yet." : "Nothing outstanding — everything's done."}</div>
           ) : pageLoading || releases.length === 0 ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : (
             <>
             <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>

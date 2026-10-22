@@ -24,6 +24,7 @@ import { useSonyPublishDids } from "../../../lib/useSonyPublishDids";
 import PicTagInput from "../../../lib/PicTagInput";
 import styles from "../../shared.module.css";
 
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Field labels swapped per the redesign: the column that used to show as
 // "CANVA MV" is now labeled CANVA, and the one that used to show as
 // "CANVA" is now labeled MV — same underlying columns, just relabeled,
@@ -259,7 +260,7 @@ export default function PreReleaseWorkstation() {
           </div>
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : visibleReleases.length === 0 ? (
             <div className={styles.emptyState}>{releases.length === 0 ? "No releases yet." : "Nothing outstanding."}</div>
           ) : (

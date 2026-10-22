@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 export default function PackageCategoriesPage() {
   const [categories, setCategories] = useState([]);
   const [name, setName] = useState("");
@@ -54,7 +55,7 @@ export default function PackageCategoriesPage() {
         </form>
 
         {loading ? (
-          <div className={styles.emptyState}>Loading…</div>
+          <LoadingSkeleton />
         ) : categories.length === 0 ? (
           <div className={styles.emptyState}>No categories yet.</div>
         ) : (

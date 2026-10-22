@@ -8,6 +8,7 @@ import { useAuth } from "../../../lib/AuthContext";
 import { isAdminOrAbove } from "../../../lib/permissions";
 import styles from "../../shared.module.css";
 
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 451 — live sweep + inline fix for the Round 442-followup data
 // cleanup (claude/round442-followup-12-releases-converged-package-lines.md).
 // Those 12 releases had their package lines backfilled by Round 442's
@@ -150,7 +151,7 @@ export default function ConvergedPackagesPage() {
           </p>
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : releases.length === 0 ? (
             <div className={styles.emptyState}>
               Nothing converged right now — every release with 2+ packages has distinct lines. 🎉

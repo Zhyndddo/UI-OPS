@@ -19,6 +19,7 @@ import KpiPerformanceView from "../../lib/KpiPerformanceView";
 import { BOOKING_ROUNDS, BOOKING_TEAM_SCOPES, bookingColumnsForScope } from "../../lib/bookingTeamScopes";
 import { DSP_CHECK_FIELDS, isUploadDone, isConfirmPhase1Done, isConfirmPhase2Done, isPreReleaseDone } from "../../lib/workstationDoneRules";
 import styles from "../shared.module.css";
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 // Round 404 item 1 — Weekly Tasks: admin-assigned free-text recurring
 // tasks, one popup-once-a-day reminder (see lib/Sidebar.js) plus the
 // actual management UI here.
@@ -1264,7 +1265,7 @@ export default function TaskTablePage() {
           )}
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : mainTab === "perf" ? (
             <KpiPerformanceView groups={perfGroups} />
           ) : hasPersonalView ? (

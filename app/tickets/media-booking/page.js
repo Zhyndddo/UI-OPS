@@ -15,6 +15,7 @@ import Pagination from "../../../lib/Pagination";
 import SearchBox from "../../../lib/SearchBox";
 import PicTagInput from "../../../lib/PicTagInput";
 import styles from "../../shared.module.css";
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 import { statusNeedsNote, withStatusNote } from "../../../lib/statusNoteGate";
 import YoutubeAdsFields from "../../../lib/YoutubeAdsFields";
 import { useIsMobile } from "../../../lib/useIsMobile";
@@ -390,7 +391,7 @@ function MediaBookingListInner() {
           )}
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : tickets.length === 0 ? (
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (

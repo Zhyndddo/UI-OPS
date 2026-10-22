@@ -34,6 +34,7 @@ import { useAuth } from "../../../lib/AuthContext";
 import { logAudit, logTicketStatusChange } from "../../../lib/auditLog";
 import styles from "../../shared.module.css";
 
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 const STATUS_OPTS = ["", "Chưa thực hiện", "Đang thực hiện", "Đã pitching", "Không thực hiện"];
 const NCT_ZING_OPTS = ["", "Chưa thực hiện", "Đã pitching", "Không hỗ trợ", "Có gói"];
 const CANCEL_VALUES = ["Không thực hiện", "Không hỗ trợ"];
@@ -509,7 +510,7 @@ export default function PitchingWorkstation() {
           </div>
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : visibleRows.length === 0 ? (
             <div className={styles.emptyState}>{rows.length === 0 ? "No Pitching tickets with UPC filled yet." : "Nothing outstanding."}</div>
           ) : (

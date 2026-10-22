@@ -18,6 +18,7 @@ import { canEditPhuLucMaPL } from "../../../lib/permissions";
 import { logAudit, logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 import styles from "../../shared.module.css";
 
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 const PHU_LUC_COLOR = {
   "Chưa Soạn": { bg: "rgba(255,255,255,0.06)", fg: "var(--text-faint)" },
   "Đã Soạn": { bg: "rgba(33,150,243,0.15)", fg: "#5cb3ff" },
@@ -199,7 +200,7 @@ export default function PhuLucList() {
         </div>
 
         {loading ? (
-          <div className={styles.emptyState}>Loading…</div>
+          <LoadingSkeleton />
         ) : visibleTickets.length === 0 ? (
           <div className={styles.emptyState}>No tickets yet.</div>
         ) : (

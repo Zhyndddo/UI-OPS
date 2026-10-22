@@ -24,6 +24,7 @@ import { MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
 import { TEAM_SUBTEAMS } from "../../lib/teamTypes";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 const CATEGORIES = ["contract_type", "genre", "topic", "channel"];
 // release_category is a fixed 2-value single choice ("New Release" /
 // "Remarketing"), hardcoded directly in the New Release form and release
@@ -225,7 +226,7 @@ function LookupOptionsSection() {
       </form>
 
       {loading ? (
-        <div className={styles.emptyState}>Loading…</div>
+        <LoadingSkeleton />
       ) : filtered.length === 0 ? (
         <div className={styles.emptyState}>No values yet for {category}.</div>
       ) : (
@@ -499,7 +500,7 @@ function TeamSection({ profile }) {
       </div>
 
       {loading ? (
-        <div className={styles.emptyState}>Loading…</div>
+        <LoadingSkeleton />
       ) : visibleProfiles.length === 0 ? (
         <div className={styles.emptyState}>{profile?.role === "teamlead" ? "No one on your team's roster yet — add someone above." : "No one on the roster yet — add yourself first."}</div>
       ) : searchedProfiles.length === 0 ? (
@@ -1873,7 +1874,7 @@ function PlatformsSection() {
         <button className={styles.btnPrimary} type="submit">+ Add</button>
       </form>
       {loading ? (
-        <div className={styles.emptyState}>Loading…</div>
+        <LoadingSkeleton />
       ) : (
         <div style={{ display: "grid", gap: 6 }}>
           {platforms.map((p) => (
@@ -1938,7 +1939,7 @@ function DesignTypesSection() {
         <button className={styles.btnPrimary} type="submit">+ Add</button>
       </form>
       {loading ? (
-        <div className={styles.emptyState}>Loading…</div>
+        <LoadingSkeleton />
       ) : (
         platforms.map((p) => {
           const group = types.filter((t) => t.platform_id === p.id);
@@ -2009,7 +2010,7 @@ function SizesSection() {
         <button className={styles.btnPrimary} type="submit">+ Add</button>
       </form>
       {loading ? (
-        <div className={styles.emptyState}>Loading…</div>
+        <LoadingSkeleton />
       ) : (
         types.map((t) => {
           const group = sizes.filter((s) => s.design_type_id === t.id);
@@ -2105,7 +2106,7 @@ function SessionsSection() {
       {error && <div className={styles.errorBox}>{error}</div>}
 
       {loading ? (
-        <div className={styles.emptyState}>Loading…</div>
+        <LoadingSkeleton />
       ) : sessions.length === 0 ? (
         <div className={styles.emptyState}>No linked accounts yet.</div>
       ) : (

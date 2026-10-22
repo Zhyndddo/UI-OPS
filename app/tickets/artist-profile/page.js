@@ -18,6 +18,7 @@ import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 import { picIdsOfTicket, picNamesOf } from "../../../lib/PicTagInput";
 import styles from "../../shared.module.css";
 
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 172 — bespoke (not the generic TicketListPage), same reason as
 // before (see git history pre-this-round): request-type-dependent fields,
 // a computed/view-only field, a Note column. This round replaced the wide
@@ -146,7 +147,7 @@ export default function ArtistProfileTicketList() {
           )}
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : visibleTickets.length === 0 ? (
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (

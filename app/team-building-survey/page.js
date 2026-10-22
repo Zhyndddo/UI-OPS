@@ -25,6 +25,7 @@ import {
 } from "../../lib/teamBuildingSurveyQuestions";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 const CHART_COLORS = ["#ff6b1a", "#5b9dff", "#7ee6a8", "#ffca4d", "#e0672c", "#a78bfa", "#ff8a80", "#3fa7a0"];
 
 export default function TeamBuildingSurveyPage() {
@@ -117,7 +118,7 @@ export default function TeamBuildingSurveyPage() {
           {tab === "report" && canSeeReport ? (
             <ReportView loading={reportLoading} responses={responses} />
           ) : loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : (
             <SurveyForm
               answers={myAnswers}
@@ -330,7 +331,7 @@ function StyleTally({ responses }) {
 function ReportView({ loading, responses }) {
   const [expanded, setExpanded] = useState(null);
 
-  if (loading) return <div className={styles.emptyState}>Loading…</div>;
+  if (loading) return <LoadingSkeleton />;
   if (responses.length === 0) return <div className={styles.emptyState}>No responses yet.</div>;
 
   const generalBars = GENERAL_QUESTIONS.map((q) => avgRatingBar(q, "general", responses));

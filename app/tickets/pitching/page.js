@@ -14,6 +14,7 @@ import Pagination from "../../../lib/Pagination";
 import SearchBox, { matchesQuery } from "../../../lib/SearchBox";
 import styles from "../../shared.module.css";
 
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // "Move Pitching to the ticket system" per explicit request — the
 // `pitching` ticket already existed (auto-created at New Release creation
 // when any DSP is requested — see app/releases/[id]/page.js's "Which
@@ -110,7 +111,7 @@ export default function PitchingTicketList() {
           )}
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : visibleRows.length === 0 ? (
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (

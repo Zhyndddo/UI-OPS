@@ -26,6 +26,7 @@ import { canEditLockedDeadline } from "../../../lib/permissions";
 import { logAudit, logTicketStatusChange, logPicReassign, logDeadlineChange } from "../../../lib/auditLog";
 import styles from "../../shared.module.css";
 
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 const OVERLOAD_EMAIL = "anh.duong@vieent.vn";
 const OVERLOAD_THRESHOLD = 11;
 
@@ -358,7 +359,7 @@ export default function DesignList() {
           )}
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : visibleTickets.length === 0 ? (
             <div className={styles.emptyState}>{isExecutorView ? `No tickets with status "${statusFilter}".` : "No tickets yet."}</div>
           ) : (

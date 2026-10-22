@@ -7,6 +7,7 @@ import { useAuth } from "../../lib/AuthContext";
 import { loadMyActiveSystemMessages, getHiddenSystemMessageIds, hideSystemMessageForProfile, getSnoozedSystemMessageIds } from "../../lib/systemMessages";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 // Round 404 item 3 — the recipient side of System Messages: whatever the
 // app has auto-generated for this profile in the last 24h (weekly task
 // reminder, a release's critical info changing, the Bổ Sung DATA daily
@@ -60,7 +61,7 @@ export default function SystemMessagesPage() {
           </p>
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : messages.length === 0 ? (
             <div className={styles.emptyState}>Nothing here right now.</div>
           ) : (

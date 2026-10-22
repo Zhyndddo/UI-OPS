@@ -15,6 +15,7 @@ import { useAuth } from "../../lib/AuthContext";
 import { validateSlugFormat, normalizeSlug, canRewriteToDestination } from "../../lib/shortLinks";
 import styles from "../shared.module.css";
 
+import LoadingSkeleton from "../../lib/LoadingSkeleton";
 const SITE_URL = "https://internal.vieent.com";
 
 export default function ShortLinksPage() {
@@ -185,7 +186,7 @@ export default function ShortLinksPage() {
           </form>
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : loadError ? (
             <div className={styles.emptyState}>{loadError}</div>
           ) : links.length === 0 ? (

@@ -14,6 +14,7 @@ import { isUiTester } from "../../../lib/uiTesters";
 import NpbFilterBar from "../../../lib/NpbFilterBar";
 import styles from "../../shared.module.css";
 
+import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 448 — NON-PACKAGE BOOKING workstation (Nghệ Sĩ Trả side of the Booking Board).
 // Round 496 — reworked to work exactly like the package Booking Board:
 //   BOOKED = the Booking Không Trong Package TICKETS' Số liệu / Số lượng (the
@@ -333,7 +334,7 @@ export default function NonPackageBooking() {
           )}
 
           {loading ? (
-            <div className={styles.emptyState}>Loading…</div>
+            <LoadingSkeleton />
           ) : rows.length === 0 ? (
             <div className={styles.emptyState}>
               {unassigned
