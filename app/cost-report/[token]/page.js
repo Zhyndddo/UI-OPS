@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { supabase } from "../../../lib/supabaseClient";
+import { publicSettingsClient } from "../../../lib/publicSettings";
 import { readMagicLinkThemeLock } from "../../../lib/magicLinkThemeLock";
 import styles from "../../shared.module.css";
 
@@ -20,8 +20,7 @@ export default function CostReportPage() {
   const [themeLock, setThemeLock] = useState(null);
 
   useEffect(() => {
-    if (!supabase) return;
-    readMagicLinkThemeLock(supabase).then(setThemeLock);
+    readMagicLinkThemeLock(publicSettingsClient).then(setThemeLock);
   }, []);
 
   useEffect(() => {

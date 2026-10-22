@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { supabase } from "../../../lib/supabaseClient";
+import { publicSettingsClient } from "../../../lib/publicSettings";
 import { formatDetailText } from "../../../lib/helpers";
 import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../../lib/troGiaBooking";
 import { useIsMobile } from "../../../lib/useIsMobile";
@@ -499,8 +499,7 @@ export default function PickPackagePage() {
   // before" — the visitor's own saved theme.
   const [themeLock, setThemeLock] = useState(null);
   useEffect(() => {
-    if (!supabase) return;
-    readMagicLinkThemeLock(supabase).then(setThemeLock);
+    readMagicLinkThemeLock(publicSettingsClient).then(setThemeLock);
   }, []);
 
   useEffect(() => {

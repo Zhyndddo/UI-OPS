@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { supabase } from "../../../lib/supabaseClient";
+import { publicSettingsClient } from "../../../lib/publicSettings";
 import { usePerformanceRollup, PerformanceRollupView } from "../../../lib/PerformanceReport";
 import { readMagicLinkThemeLock } from "../../../lib/magicLinkThemeLock";
 import styles from "../../shared.module.css";
@@ -32,8 +32,7 @@ export default function PerformanceSharePage() {
   // data-theme> ThemeContext already sets globally.
   const [themeLock, setThemeLock] = useState(null);
   useEffect(() => {
-    if (!supabase) return;
-    readMagicLinkThemeLock(supabase).then(setThemeLock);
+    readMagicLinkThemeLock(publicSettingsClient).then(setThemeLock);
   }, []);
 
   useEffect(() => {
@@ -65,7 +64,7 @@ export default function PerformanceSharePage() {
     setLoading(false);
   }
 
-  const { data, loading: rollupLoading } = usePerformanceRollup(link?.query_type, link?.query_value);
+  const { data, loading: rollupLoading } = usePerformanceRollup(link?.query_type, link?.query_value, token);
 
   // Round 230 — song-mode only: crawl the one release's link_share page
   // (a Labelmaster share URL) for its cover image via /api/crawl-og-image,

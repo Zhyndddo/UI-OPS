@@ -40,7 +40,7 @@
 // once that's confirmed live, since a scraper hitting a dead og:url can
 // fail the whole preview even if the page itself is still reachable at
 // the old domain.
-import { supabase } from "../../../lib/supabaseClient";
+import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { readChannelReferenceIntro } from "../../../lib/channelReferenceIntro";
 
 const SITE_URL = "https://internal.vieent.com";
@@ -55,7 +55,7 @@ function truncate(text, max) {
 }
 
 export async function generateMetadata({ params }) {
-  const intro = await readChannelReferenceIntro(supabase);
+  const intro = await readChannelReferenceIntro(supabaseAdmin);
   const title = intro.title ? `${intro.title} — VIEENT` : FALLBACK_TITLE;
   const description = truncate(intro.text, 200) || FALLBACK_DESCRIPTION;
   const url = `${SITE_URL}/channels/${params.token}`;

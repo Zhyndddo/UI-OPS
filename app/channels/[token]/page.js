@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { supabase } from "../../../lib/supabaseClient";
+import { publicSettingsClient } from "../../../lib/publicSettings";
 import { readMagicLinkThemeLock } from "../../../lib/magicLinkThemeLock";
 import { readChannelReferenceIntro, toCanvaEmbedUrl } from "../../../lib/channelReferenceIntro";
 import { readChannelReferenceSheetSnapshot } from "../../../lib/channelReferenceSheetSnapshot";
@@ -520,8 +520,7 @@ export default function ChannelReferenceSharePage() {
 
   const [themeLock, setThemeLock] = useState(null);
   useEffect(() => {
-    if (!supabase) return;
-    readMagicLinkThemeLock(supabase).then(setThemeLock);
+    readMagicLinkThemeLock(publicSettingsClient).then(setThemeLock);
   }, []);
 
   // Round 317 — configurable intro text block, admin-edited from
@@ -530,8 +529,7 @@ export default function ChannelReferenceSharePage() {
   // doesn't render — see the conditional in the JSX below).
   const [intro, setIntro] = useState({ title: "", text: "", canvaUrl: "", sheetUrl: "" });
   useEffect(() => {
-    if (!supabase) return;
-    readChannelReferenceIntro(supabase).then(setIntro);
+    readChannelReferenceIntro(publicSettingsClient).then(setIntro);
   }, []);
   // Round 327 — null when canvaUrl isn't an actual Canva link (or is
   // blank), so the JSX falls back to a plain outbound link for anything
@@ -599,8 +597,7 @@ export default function ChannelReferenceSharePage() {
   // which localStorage can't.
   const [sheetSnapshot, setSheetSnapshot] = useState(null);
   useEffect(() => {
-    if (!supabase) return;
-    readChannelReferenceSheetSnapshot(supabase).then(setSheetSnapshot);
+    readChannelReferenceSheetSnapshot(publicSettingsClient).then(setSheetSnapshot);
   }, []);
   useEffect(() => {
     if (!intro.sheetUrl) {
