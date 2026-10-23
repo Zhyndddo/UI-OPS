@@ -14,6 +14,9 @@ create extension if not exists pg_trgm;
 create index if not exists releases_did_trgm_idx   on releases using gin (did   gin_trgm_ops);
 create index if not exists releases_title_trgm_idx on releases using gin (title gin_trgm_ops);
 
+-- 3. OPTIONAL housekeeping (run now and then): chat pings that were read more than 7 days ago.
+delete from notifications where type in ('chat_mention','chat_help') and read_at is not null and read_at < now() - interval '7 days';
+
 -- VERIFY: expect UPLOAD, SMARTLINK, CONFIRM, PITCHING only ...
 select name from chatx_channels order by created_at, name;
 -- ... and both indexes (2 rows)
