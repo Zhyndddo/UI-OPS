@@ -1,0 +1,54 @@
+/* Round 558 — Halloween decoration. See HalloweenDecor.js. z-index 250 sits above page content but
+   under the top bar / bottom bar (300) and modals (9000). Click-through everywhere. */
+.layer { position: fixed; inset: 0; z-index: 250; pointer-events: none; overflow: hidden; }
+
+.glowA, .glowB { position: absolute; border-radius: 50%; filter: blur(70px); }
+.glowA { width: 55vw; height: 55vw; left: -15vw; bottom: -28vw; background: radial-gradient(circle, rgba(255,122,26,0.38), transparent 70%); }
+.glowB { width: 45vw; height: 45vw; right: -12vw; top: -22vw; background: radial-gradient(circle, rgba(139,92,246,0.36), transparent 70%); }
+
+.piece {
+  position: absolute; top: -8vh; opacity: 0.85; line-height: 1;
+  animation: hwFall linear infinite; will-change: transform;
+  filter: drop-shadow(0 0 6px rgba(255,122,26,0.45));
+}
+@keyframes hwFall {
+  0%   { transform: translate3d(0, -8vh, 0) rotate(var(--rot)); opacity: 0; }
+  8%   { opacity: 0.85; }
+  50%  { transform: translate3d(4vw, 55vh, 0) rotate(calc(var(--rot) + 40deg)); }
+  92%  { opacity: 0.8; }
+  100% { transform: translate3d(-3vw, 108vh, 0) rotate(calc(var(--rot) - 30deg)); opacity: 0; }
+}
+
+.pumpkin {
+  position: absolute; left: 262px; bottom: calc(var(--bottombar-height) - 10px); width: 110px; opacity: 0.92;
+  filter: drop-shadow(0 0 18px rgba(255,122,26,0.65));
+  animation: hwBob 5s ease-in-out infinite; transform-origin: 50% 100%;
+}
+@keyframes hwBob { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg) translateY(-2px); } }
+.face { animation: hwFlicker 3.4s ease-in-out infinite; }
+@keyframes hwFlicker { 0%, 100% { opacity: 1; } 45% { opacity: 0.75; } 50% { opacity: 1; } 78% { opacity: 0.85; } }
+
+.web { position: absolute; left: 250px; top: var(--topbar-height); width: 120px; color: #cbb8ff; opacity: 0.35; }
+
+.topLine {
+  position: fixed; left: 0; right: 0; top: var(--topbar-height); height: 2px; z-index: 299; pointer-events: none;
+  background: linear-gradient(90deg, transparent, #ff7a1a 15%, #8b5cf6 50%, #ff7a1a 85%, transparent);
+  box-shadow: 0 0 10px rgba(255,122,26,0.55);
+}
+
+@media (max-width: 768px) {
+  .pumpkin { left: 8px; width: 78px; }
+  .web { left: 0; width: 80px; }
+  .piece:nth-child(n+14) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .piece, .pumpkin, .face { animation: none; }
+  .piece { opacity: 0.35; }
+}
+
+/* light theme: a "daylight Halloween" — no dark glow, darker web, pieces get a soft shadow so they stay visible on cream */
+:global([data-theme="light"]) .glowA, :global([data-theme="light"]) .glowB { opacity: 0.35; }
+:global([data-theme="light"]) .piece { opacity: 0.8; filter: drop-shadow(0 1px 3px rgba(91,42,134,0.45)); }
+:global([data-theme="light"]) .web { color: #5b2a86; opacity: 0.28; }
+:global([data-theme="light"]) .pumpkin { filter: drop-shadow(0 2px 6px rgba(194,65,12,0.4)); }
+:global([data-theme="light"]) .topLine { box-shadow: 0 0 6px rgba(255,122,26,0.35); }
