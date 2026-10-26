@@ -95,7 +95,7 @@ create policy chatx_messages_upd_r559 on chatx_messages for update to authentica
   with check (sender_id = public.chat_me() and public.chat_can_read(channel_id));
 
 revoke all on chatx_channels, chatx_members, chatx_messages from public, anon;
-revoke insert, update, delete on chatx_channels, chatx_members from authenticated;
+revoke all on chatx_channels, chatx_members, chatx_messages from authenticated;   -- Supabase grants ALL by default (incl. TRUNCATE/DELETE)
 grant select on chatx_channels, chatx_members to authenticated;
 grant select, insert, update on chatx_messages to authenticated;
 

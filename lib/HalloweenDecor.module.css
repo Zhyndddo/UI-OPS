@@ -44,7 +44,7 @@
 @keyframes hwFlicker { 0%, 100% { opacity: 1; } 45% { opacity: 0.75; } 50% { opacity: 1; } 78% { opacity: 0.85; } }
 
 
-.web { position: absolute; right: 0; top: var(--topbar-height); width: 96px; color: #cbb8ff; opacity: 0.42; transform: scaleX(-1); }
+.web { position: absolute; left: 250px; top: var(--topbar-height); width: 110px; color: #cbb8ff; opacity: 0.42; }
 
 .topLine {
   position: fixed; left: 0; right: 0; top: var(--topbar-height); height: 2px; z-index: 299; pointer-events: none;
@@ -54,7 +54,7 @@
 
 @media (max-width: 768px) {
   .pumpkin { left: 8px; width: 78px; }
-  .web { width: 70px; }
+  .web { left: 0; width: 76px; }
   .piece:nth-child(n+14) { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
