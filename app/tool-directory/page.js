@@ -27,6 +27,12 @@ import LoadingSkeleton from "../../lib/LoadingSkeleton";
 // explicit request — mobile users still see the sidebar link (lib/
 // Sidebar.js's NAV), they just land on a "desktop only" notice here
 // instead of the real content.
+// Round 556 — "Equipment" tab: view-only PDF guide(s), not a team's tool list.
+const EQUIPMENT_TAB = "__equipment";
+const EQUIPMENT_GUIDES = [
+  { key: "sound", title: "Bật / tắt hệ thống âm thanh (Sound system on/off)", src: "/equipment/vieent-sound-system-guide.pdf" },
+];
+
 export default function ToolDirectoryPage() {
   const { profile } = useAuth();
   const isMobile = useIsMobile();
@@ -175,7 +181,8 @@ export default function ToolDirectoryPage() {
     );
   }
 
-  const bucketsForTeam = Object.entries(directory).filter(([, b]) => b.team === activeTeam);
+  const onEquipment = activeTeam === EQUIPMENT_TAB;
+  const bucketsForTeam = onEquipment ? [] : Object.entries(directory).filter(([, b]) => b.team === activeTeam);
 
   return (
     <AppShell>
@@ -215,9 +222,31 @@ export default function ToolDirectoryPage() {
                     {TEAM_LABELS[t] || t}
                   </button>
                 ))}
+                <button
+                  className={`${styles.tabBtn} ${onEquipment ? styles.tabBtnActive : ""}`}
+                  onClick={() => { setActiveTeam(EQUIPMENT_TAB); setEditing(false); }}
+                >
+                  Equipment
+                </button>
               </div>
 
-              {bucketsForTeam.length === 0 && (
+              {onEquipment && EQUIPMENT_GUIDES.map((g) => (
+                <div key={g.key} style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>{g.title}</div>
+                  <div
+                    onContextMenu={(e) => e.preventDefault()}
+                    style={{ position: "relative", width: "100%", maxWidth: 900, border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden", background: "var(--bg-card)" }}
+                  >
+                    <iframe
+                      title={g.title}
+                      src={`${g.src}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+                      style={{ width: "100%", height: "min(1250px, 88vh)", border: "none", display: "block" }}
+                    />
+                  </div>
+                </div>
+              ))}
+
+              {!onEquipment && bucketsForTeam.length === 0 && (
                 <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 20 }}>No page groups yet for this team.</div>
               )}
 
@@ -277,7 +306,7 @@ export default function ToolDirectoryPage() {
                 );
               })}
 
-              {editing && (
+              {editing && !onEquipment && (
                 <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
                   <input
                     className={styles.input}
