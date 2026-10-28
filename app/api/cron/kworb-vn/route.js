@@ -1,4 +1,4 @@
-// Round 561 — runs every 12 hours (vercel.json): pulls kworb's Vietnam Spotify daily totals and stores the tracks that are
+// Round 561 — runs every 12 hours (vercel.json): pulls kworb's Vietnam Spotify totals + daily chart and YouTube trending and stores the tracks that are
 // ours or suspicious. See lib/kworbVn.js. Same CRON_SECRET convention as the other cron routes.
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";

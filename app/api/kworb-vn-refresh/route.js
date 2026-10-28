@@ -12,8 +12,10 @@ export async function POST(request) {
   if (!supabaseAdmin) return NextResponse.json({ error: "Server not configured." }, { status: 500 });
   const caller = await getCallerProfile(request);
   if (!caller || !(caller.role === "dev" || isOpsTeam(caller.segment))) return NextResponse.json({ error: "Not authorized." }, { status: 403 });
+  let dry = false;
+  try { dry = !!(await request.json())?.dry; } catch {}   // "Test parse" sends {dry:true}: read + classify only, nothing saved
   try {
-    return NextResponse.json(await runKworbVnRefresh(supabaseAdmin));
+    return NextResponse.json(await runKworbVnRefresh(supabaseAdmin, { dry }));
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
