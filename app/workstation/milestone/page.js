@@ -17,6 +17,7 @@ import { MILESTONE_HIGHLIGHT_SETTING_KEY, DEFAULT_MILESTONE_HIGHLIGHT_CONFIG, pa
 import { MILESTONE_CHART_LINKS } from "../../../lib/milestoneChartLinks";
 import { TOOL_DIRECTORY_SETTING_KEY, mergeToolDirectory } from "../../../lib/toolDirectory";
 import { SharedLabelInput } from "../../../lib/ReferenceInputs";
+import KworbVnPanel from "../../../lib/KworbVnPanel";
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
@@ -158,7 +159,7 @@ function findPriorRows(entries, platform, chart, today) {
 // own round-315 comment) — social-post tracking is a Marketing job, not
 // an OPS one, so it's deliberately NOT folded into FULL_ACCESS_TABS'
 // existing Input/Implement/Report (those stay OPS-only daily chart work).
-const FULL_ACCESS_TABS = [["input", "Input"], ["implement", "Implement"], ["viralPosts", "Viral Posts"], ["report", "Report"], ["log", "Log"]];
+const FULL_ACCESS_TABS = [["input", "Input"], ["implement", "Implement"], ["viralPosts", "Viral Posts"], ["spotifyVn", "Spotify VN"], ["report", "Report"], ["log", "Log"]];
 const MARKETING_TABS = [["viralPosts", "Viral Posts"], ["log", "Log"]];
 const LOG_ONLY_TABS = [["log", "Log"]];
 
@@ -713,6 +714,8 @@ export default function MilestoneWorkstation() {
             <ImplementPanel styles={styles} onSaved={refreshAfterSave} />
           ) : tab === "viralPosts" && (hasFullAccess || isMarketing) ? (
             <ViralPostsPanel styles={styles} profiles={profiles} />
+          ) : tab === "spotifyVn" && hasFullAccess ? (
+            <KworbVnPanel styles={styles} />
           ) : tab === "report" && hasFullAccess ? (
             <ReportAndHighlight digest={digest} highlight={highlight} report={report} highlightConfig={highlightConfig} />
           ) : (
