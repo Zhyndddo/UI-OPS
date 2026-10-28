@@ -2816,7 +2816,7 @@ function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requir
                   value={labelDraft}
                   onChange={setLabelDraft}
                   onBlur={(e) => {
-                    const check = validateLabelNameEdit(form.label, e.target.value);
+                    const check = validateLabelNameEdit(form.label, e.target.value, labelsList);
                     if (!check.ok) {
                       window.alert(check.message);
                       setLabelDraft(form.label || "");

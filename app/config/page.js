@@ -5,6 +5,8 @@ import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
 import { DEFAULT_DESIGN_NOTIFICATION_TEMPLATES } from "../../lib/designFlow";
+import TeamAccessSection from "../../lib/TeamAccessSection";
+import { canEditTeamAccess } from "../../lib/teamAccess";
 import { ROLES, ROLE_LABELS, isDev as isDevRole, isAdminOrAbove, canManageOrgConfig, canManageTeamMembers, assignableRoles, scopeableTeamMembers } from "../../lib/permissions";
 import { filterProfilesByTeam } from "../../lib/workstationHelpers";
 import PicTagInput from "../../lib/PicTagInput";
@@ -40,8 +42,11 @@ const TEAMS = ["AR", "Marketing", "Design", "OPS", "Legal"];
 const SUBTEAM_OPTIONS = { Marketing: MARKETING_SUBTEAM_TAGS, ...TEAM_SUBTEAMS };
 
 export default function ConfigPage() {
-  const { profile } = useAuth();
+  const { profile, realProfile } = useAuth();
   const isDev = isDevRole(profile);
+  // Round 562 — Team Access (the authorizor) is for the owner's own account only; judged on the REAL profile
+  // so "View As" can't hide or reveal it.
+  const canAccessTab = canEditTeamAccess(realProfile);
   const canOrgConfig = canManageOrgConfig(profile); // admin+ — Lookup Options, Package Terms, Pricing, Platforms, Design Types, Sizes, PIC Defaults, External Tool Links
   const canTeam = canManageTeamMembers(profile); // teamlead+ — Team tab, scoped to own segment for teamlead
   // Round 57 — Config used to have almost no role gating at all: any
@@ -93,6 +98,7 @@ export default function ConfigPage() {
       ["labelTypes", "Label Types"],
     ] : []),
     ...(isDev ? [["notifications", "Notifications"], ["magicLinkTheme", "Magic Link Theme"], ["designNotifications", "Design Notifications"], ["sessions", "Sessions"], ["sidebarLabel", "Sidebar Label"]] : []),
+    ...(canAccessTab ? [["teamAccess", "Team Access"]] : []),
     // Round 306 — Secret Messages moved out of Config entirely, onto its
     // own sidebar item (/secret-messages, Send tab) so team admins can
     // reach it without also getting every other dev-only Config tab. See
@@ -153,6 +159,7 @@ export default function ConfigPage() {
               {section === "designNotifications" && isDev && <DesignNotificationsSection />}
               {section === "sessions" && isDev && <SessionsSection />}
               {section === "sidebarLabel" && isDev && <SidebarLabelSection />}
+              {section === "teamAccess" && canAccessTab && <TeamAccessSection />}
             </>
           )}
         </div>
