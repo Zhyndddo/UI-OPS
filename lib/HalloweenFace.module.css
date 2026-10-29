@@ -22,7 +22,7 @@
   animation: hwfFly 6s cubic-bezier(.35,.1,.65,.9) forwards;
 }
 .batFlip { animation-name: hwfFlyBack; }
-.bat > span { display: inline-block; animation: hwfFlap .28s ease-in-out infinite; transform-origin: 50% 50%; }
+.bat > span { display: inline-block; scale: -1 1; /* the emoji's head faces left; we fly left -> right */ animation: hwfFlap .28s ease-in-out infinite; transform-origin: 50% 50%; }
 @keyframes hwfFly {
   0%   { transform: translate3d(0, 0, 0) rotate(-6deg); }
   25%  { transform: translate3d(30vw, 10vh, 0) rotate(6deg); }
