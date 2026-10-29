@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { fetchArtistRollupWith, fetchSongRollupWith } from "../../../lib/performanceRollupData";
+import { publicChannelRows, publicSettingValue } from "../../../lib/channelReferencePublic";
 import { loadPickPackage, confirmPick, submitPickFeedback } from "../../../lib/pickPackageServer";
 
 // Round 540 — token-scoped read layer for the public magic-link pages
@@ -32,7 +33,7 @@ function cleanToken(raw) {
   return t;
 }
 
-const noStore = { "Cache-Control": "no-store" };
+const noStore = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
 const notFound = () => NextResponse.json({ error: "not_found" }, { status: 404, headers: noStore });
 
 export async function GET(request) {
@@ -48,7 +49,10 @@ export async function GET(request) {
     const key = searchParams.get("key") || "";
     if (!PUBLIC_SETTING_KEYS.includes(key)) return notFound();
     const { data } = await supabaseAdmin.from("global_settings").select("value").eq("key", key).maybeSingle();
-    return NextResponse.json({ value: data?.value ?? null }, { headers: { "Cache-Control": "public, max-age=30, s-maxage=30" } });
+    // Round 564 — the rate-sheet URLs only come out with prices=1 (sent when a visitor presses "View rates").
+    const prices = searchParams.get("prices") === "1";
+    const value = data?.value != null ? publicSettingValue(key, data.value, prices) : null;
+    return NextResponse.json({ value }, { headers: { "Cache-Control": "public, max-age=30, s-maxage=30", "X-Robots-Tag": "noindex, nofollow" } });
   }
 
   if (!token) return notFound();
@@ -104,7 +108,8 @@ export async function GET(request) {
         .select("id, name, platform, channel_group, url, follower_count, note")
         .not("channel_group", "is", null)
         .order("follower_count", { ascending: false, nullsFirst: false });
-      return NextResponse.json({ rows: rows || [] }, { headers: noStore });
+      // Round 564 — the rate-sheet link (Distribution Support row) only with prices=1.
+      return NextResponse.json({ rows: publicChannelRows(rows, searchParams.get("prices") === "1") }, { headers: noStore });
     }
   } catch (e) {
     return NextResponse.json({ error: "failed" }, { status: 500, headers: noStore });

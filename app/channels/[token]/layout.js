@@ -42,6 +42,7 @@
 // the old domain.
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { readChannelReferenceIntro } from "../../../lib/channelReferenceIntro";
+import { SEO_INDEXED_TOKENS } from "../../../lib/channelReferencePublic";
 
 const SITE_URL = "https://internal.vieent.com";
 const FALLBACK_TITLE = "Channel Reference — VIEENT";
@@ -60,10 +61,16 @@ export async function generateMetadata({ params }) {
   const description = truncate(intro.text, 200) || FALLBACK_DESCRIPTION;
   const url = `${SITE_URL}/channels/${params.token}`;
 
+  // Round 564 — only the tokens listed in SEO_INDEXED_TOKENS (lib/channelReferencePublic.js) may be indexed; every
+  // other /channels/<token> link says noindex. The indexed one also declares its one canonical address.
+  const indexed = SEO_INDEXED_TOKENS.includes(params.token);
   return {
     title,
     description,
+    alternates: indexed ? { canonical: url } : undefined,
+    robots: indexed ? { index: true, follow: true } : { index: false, follow: false },
     openGraph: {
+      locale: "vi_VN",
       title,
       description,
       url,

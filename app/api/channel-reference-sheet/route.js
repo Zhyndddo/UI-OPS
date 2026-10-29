@@ -76,6 +76,6 @@ export async function GET(request) {
   // 344's timeout theory) are both the kind of transient hiccup a second
   // attempt can just sail through.
   const result = await fetchSheetCsv(requested.spreadsheetId, requested.gid);
-  if (result.ok) return NextResponse.json(result.data, { headers: { "Cache-Control": "public, max-age=60" } });
+  if (result.ok) return NextResponse.json(result.data, { headers: { "Cache-Control": "public, max-age=60", "X-Robots-Tag": "noindex, nofollow" } });
   return NextResponse.json({ error: result.error }, { status: 502 });
 }
