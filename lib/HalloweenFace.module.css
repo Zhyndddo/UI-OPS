@@ -6,8 +6,9 @@
   position: absolute; top: -420px; font-size: 380px;  /* TEST x10 (was top -70, 38px) */ line-height: 1; pointer-events: auto; cursor: pointer; user-select: none;
   -webkit-tap-highlight-color: transparent; padding: 6px;
   filter: drop-shadow(0 0 10px rgba(255,200,80,0.95)) drop-shadow(0 0 22px rgba(255,122,26,0.8));
-  animation: hwfFall 11s linear forwards, hwfPulse 1.1s ease-in-out infinite;
+  animation: hwfFall 24s linear forwards, hwfPulse 1.1s ease-in-out infinite;
 }
+.sticker:hover { animation-play-state: paused; }  /* freezes while the pointer is on it */
 @keyframes hwfFall { 0% { transform: translate3d(0,0,0) rotate(-12deg); } 50% { transform: translate3d(2.5vw,55vh,0) rotate(14deg); } 100% { transform: translate3d(-2vw,112vh,0) rotate(-10deg); } }
 @keyframes hwfPulse { 0%,100% { scale: 1; } 50% { scale: 1.22; } }
 
@@ -55,3 +56,13 @@
 .big { font-size: 54px; line-height: 1; margin: 6px 0; }
 .msg { font-size: 15px; line-height: 1.5; margin: 8px 0 14px; }
 .small { font-size: 11px; color: var(--text-faint, #8f87b0); margin-top: 8px; }
+
+/* TEST (owner only): the cobweb spider is replaced by the sticker, so no need to wait for a random fall.
+   Sits where the spider was: web is left 250px / width 110px, spider at (70,56) of 120. */
+.spiderBtn {
+  position: fixed; left: 314px; top: calc(var(--topbar-height, 56px) + 51px); transform: translate(-50%, -50%);
+  font-size: 40px; line-height: 1; padding: 6px; cursor: pointer; user-select: none; pointer-events: auto;
+  filter: drop-shadow(0 0 10px rgba(255,200,80,0.95)) drop-shadow(0 0 22px rgba(255,122,26,0.8));
+  animation: hwfPulse 1.1s ease-in-out infinite;
+}
+@media (max-width: 768px) { .spiderBtn { left: 44px; top: calc(var(--topbar-height, 56px) + 35px); } }
