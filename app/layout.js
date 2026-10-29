@@ -45,6 +45,8 @@ export const metadata = {
   title: "Task Tracking v2",
   description: "Vercel + Supabase — VIEENT Task Tracking v2",
   metadataBase: new URL("https://internal.vieent.com"),
+  // Round 564 — Google Search Console ownership (URL-prefix property, "HTML tag" method). Keep it for as long as the property exists.
+  verification: { google: "2bpsncbxxHZyVgf6XhCf5sa8QLDiRUPpqs97NFt5XF8" },
 };
 
 export default function RootLayout({ children }) {
