@@ -7,7 +7,7 @@ export default function robots() {
   return {
     rules: [{
       userAgent: "*",
-      allow: [...SEO_INDEXED_TOKENS.map((t) => `/channels/${t}`), "/_next/static/", "/_next/image", "/brand/", "/fonts/", "/vieent-logo-watermark.png"],
+      allow: [...SEO_INDEXED_TOKENS.map((t) => `/channels/${t}`), "/sitemap.xml", "/robots.txt", "/_next/static/", "/_next/image", "/brand/", "/fonts/", "/vieent-logo-watermark.png"],
       disallow: ["/api/", "/"],
     }],
     sitemap: `${SITE_URL}/sitemap.xml`,
