@@ -31,8 +31,10 @@ export async function GET(request) {
 }
 
 async function sendToDrive({ filename, b64 }) {
-  const url = process.env.HALLOWEEN_DRIVE_WEBHOOK_URL;
-  const secret = process.env.HALLOWEEN_DRIVE_SECRET;
+  // trim stray spaces / line breaks / quotes pasted into Vercel
+  const clean = (v) => String(v || "").trim().replace(/^["']+|["']+$/g, "").trim();
+  const url = clean(process.env.HALLOWEEN_DRIVE_WEBHOOK_URL);
+  const secret = clean(process.env.HALLOWEEN_DRIVE_SECRET);
   if (!url || !secret) return { ok: false, error: "Drive webhook not configured" };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 12000);
