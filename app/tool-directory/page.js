@@ -21,6 +21,7 @@ import { buildNewReleasePreviewNote } from "../../lib/newReleasePreviewNote";
 import styles from "../shared.module.css";
 
 import LoadingSkeleton from "../../lib/LoadingSkeleton";
+import PictureRender from "../../lib/PictureRender";
 // Round 155 item 1 — the compiled external-tools directory: team-per-tab,
 // tools grouped by page within each tab. View-only for everyone; editing
 // (adding/renaming/re-urling a tool) is dev-only. Desktop only, per
@@ -29,6 +30,8 @@ import LoadingSkeleton from "../../lib/LoadingSkeleton";
 // instead of the real content.
 // Round 556 — "Equipment" tab: view-only PDF guide(s), not a team's tool list.
 const EQUIPMENT_TAB = "__equipment";
+// Round 569 — "Picture render" tab (admin / dev): names onto a designated picture, see lib/pictureRenderConfig.js.
+const PICTURE_TAB = "__picture_render";
 const EQUIPMENT_GUIDES = [
   { key: "sound", title: "Bật / tắt hệ thống âm thanh (Sound system on/off)", src: "/equipment/vieent-sound-system-guide.pdf" },
 ];
@@ -182,7 +185,9 @@ export default function ToolDirectoryPage() {
   }
 
   const onEquipment = activeTeam === EQUIPMENT_TAB;
-  const bucketsForTeam = onEquipment ? [] : Object.entries(directory).filter(([, b]) => b.team === activeTeam);
+  const canPicture = isAdminOrAbove(profile);
+  const onPicture = activeTeam === PICTURE_TAB && canPicture;
+  const bucketsForTeam = onEquipment || onPicture ? [] : Object.entries(directory).filter(([, b]) => b.team === activeTeam);
 
   return (
     <AppShell>
@@ -228,7 +233,17 @@ export default function ToolDirectoryPage() {
                 >
                   Equipment
                 </button>
+                {canPicture && (
+                  <button
+                    className={`${styles.tabBtn} ${onPicture ? styles.tabBtnActive : ""}`}
+                    onClick={() => { setActiveTeam(PICTURE_TAB); setEditing(false); }}
+                  >
+                    Picture render
+                  </button>
+                )}
               </div>
+
+              {onPicture && <PictureRender />}
 
               {onEquipment && EQUIPMENT_GUIDES.map((g) => (
                 <div key={g.key} style={{ marginBottom: 24 }}>
@@ -246,7 +261,7 @@ export default function ToolDirectoryPage() {
                 </div>
               ))}
 
-              {!onEquipment && bucketsForTeam.length === 0 && (
+              {!onEquipment && !onPicture && bucketsForTeam.length === 0 && (
                 <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 20 }}>No page groups yet for this team.</div>
               )}
 
@@ -306,7 +321,7 @@ export default function ToolDirectoryPage() {
                 );
               })}
 
-              {editing && !onEquipment && (
+              {editing && !onEquipment && !onPicture && (
                 <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
                   <input
                     className={styles.input}
