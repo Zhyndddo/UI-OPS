@@ -27,6 +27,7 @@ export async function POST(request) {
   const buf = Buffer.from(await request.arrayBuffer());
   if (buf.length === 0 || buf.length > MAX_BYTES) return NextResponse.json({ error: `Picture too big for Drive upload (${(buf.length / 1048576).toFixed(1)} MB, max 4.4 MB).` }, { status: 413, headers: noStore });
 
+  const logName = (() => { try { return decodeURIComponent(request.headers.get("x-name") || "").replace(/\s+/g, " ").trim().slice(0, 120); } catch (e) { return ""; } })();
   const url = clean(process.env.DRIVE_WEBHOOK_URL || process.env.HALLOWEEN_DRIVE_WEBHOOK_URL);
   const secret = clean(process.env.DRIVE_SECRET || process.env.HALLOWEEN_DRIVE_SECRET);
   if (!url || !secret) return NextResponse.json({ error: "Drive webhook not configured" }, { status: 500, headers: noStore });
@@ -36,7 +37,7 @@ export async function POST(request) {
   try {
     const res = await fetch(url, {
       method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, redirect: "follow", signal: ctrl.signal,
-      body: JSON.stringify({ secret, filename, mimeType: mime, dataBase64: buf.toString("base64"), subfolder: folder }),
+      body: JSON.stringify({ secret, filename, mimeType: mime, dataBase64: buf.toString("base64"), subfolder: folder, logName, logSource: "staff: " + String(caller.email || caller.name || caller.role || "").slice(0, 80) }),
     });
     const j = await res.json().catch(() => null);
     if (!j?.ok) return NextResponse.json({ error: j?.error || `Drive answered HTTP ${res.status}` }, { status: 502, headers: noStore });
