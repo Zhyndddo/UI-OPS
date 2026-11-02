@@ -106,6 +106,7 @@ export default function UploadTest() {
           <div style={{ marginTop: 12 }}>
             <div><b>Done.</b> {result.name} · {mb(Number(result.size) || 0)} · {result.mimeType}</div>
             <div><a href={result.url} target="_blank" rel="noreferrer">Open in Drive</a></div>
+            {result.sharing && <div style={{ fontSize: 12.5, marginTop: 4, color: result.sharing === "domain-with-link" ? "inherit" : "#ff9a6b" }}>Sharing: {result.sharing}</div>}
             <iframe title="preview" src={result.previewUrl} style={{ width: "100%", height: 320, border: "1px solid #666", borderRadius: 8, marginTop: 8 }} />
           </div>
         )}

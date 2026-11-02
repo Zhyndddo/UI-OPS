@@ -61,7 +61,7 @@ export async function POST(request) {
   if (body.action === "finalize") {
     const j = await callScript({ action: "finalize", name: String(body.name || ""), size: Number(body.size) || 0, fileId: body.fileId ? String(body.fileId) : "" });
     if (!j.ok) return NextResponse.json({ error: j.error || "Could not verify the file." }, { status: 502, headers: noStore });
-    return NextResponse.json({ file: { id: j.id, name: j.name, size: j.size, mimeType: j.mimeType, url: j.url, previewUrl: j.previewUrl } }, { headers: noStore });
+    return NextResponse.json({ file: { sharing: j.sharing || "", id: j.id, name: j.name, size: j.size, mimeType: j.mimeType, url: j.url, previewUrl: j.previewUrl } }, { headers: noStore });
   }
 
   return NextResponse.json({ error: "Unknown action." }, { status: 400, headers: noStore });

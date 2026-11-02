@@ -136,10 +136,13 @@ function finalizeUpload_(d) {
   if (!file) return { ok: false, error: 'file not found in Drive' };
   if (!isUnder_(file, FOLDER_ID)) return { ok: false, error: 'file is outside the upload folder' };
   if (d.size && Number(file.getSize()) !== Number(d.size)) return { ok: false, error: 'size mismatch: Drive has ' + file.getSize() + ', expected ' + d.size };
+  // Sharing the single file may be blocked by the Workspace admin ("Access denied: DriveApp"). The upload itself already worked, so do NOT fail:
+  // report it, and let the folder-level sharing (share the chat-uploads folder with the VIEENT domain once, in Drive) cover new files.
+  let sharing = 'domain-with-link';
   try { file.setSharing(DriveApp.Access.DOMAIN_WITH_LINK, DriveApp.Permission.VIEW); }
-  catch (err) { return { ok: false, error: 'could not share with the domain: ' + err }; }
+  catch (err) { sharing = 'not set on the file (' + String(err).slice(0, 120) + ') - relies on the folder sharing'; }
   const id = file.getId();
-  return { ok: true, id: id, name: file.getName(), size: file.getSize(), mimeType: file.getMimeType(), url: file.getUrl(), previewUrl: 'https://drive.google.com/file/d/' + id + '/preview' };
+  return { ok: true, sharing: sharing, id: id, name: file.getName(), size: file.getSize(), mimeType: file.getMimeType(), url: file.getUrl(), previewUrl: 'https://drive.google.com/file/d/' + id + '/preview' };
 }
 
 
