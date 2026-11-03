@@ -183,6 +183,12 @@ const INSTALLMENT_FIELDS = [
   { key: "sup_cashback", label: "Sup Cashback", type: "number" },
 ];
 
+// Round 579 — when a release is in Is_installment mode, these three also get a value PER MONTH (columns of the same names on
+// workstation_cost_mkt_installments; sql/pending/add-round579-cost-mkt-month-numbers.sql). What was typed on the flat entry before
+// months existed stays as an "all months" BASE: the All view = base + every month, a picked month = that month only.
+// (Cost Thực Chạy was already per month; its flat value keeps being ignored once months exist, exactly as before.)
+const MONTHLY_BASE_KEYS = ["no_booking_post", "no_support_post", "cost_du_kien"];
+
 // "2026-08-01" -> "08/2026". Installments are always stored at the 1st of
 // the month (see the Round 446 SQL migration's comment) — this only ever
 // reads the month/year back off that, same display format the old free-
@@ -641,10 +647,8 @@ export default function WorkstationCostMkt() {
   function computeRows(kind, br, fb = fundedBy) {
     const cols = kind === "tiktok" ? TIKTOK_SUBCHANNELS : ADS_METRICS[br] || [];
     const catName = kind === "tiktok" ? "TikTok Channel" : "Ads";
-    // Round 507 — YouTube Ads only lists songs flagged "Có Trong Net YouTube" on the release.
-    const youtubeNetOnly = kind === "ads" && br === "YouTube Ads";
+    // Round 579 — the Round 507 "Có Trong Net YouTube" gate on the YouTube Ads list is removed (it hid non-DID products and any song not flagged, on both sides).
     return releases
-      .filter((r) => !youtubeNetOnly || r.gate_co_trong_net_youtube === "true")
       .map((r) => {
         const values = cols.map((col) => {
           const platform = kind === "ads" ? col : null;
@@ -1123,6 +1127,21 @@ export default function WorkstationCostMkt() {
     if (!monthFilterActive) return Number(entry[field]) || 0;
     return thangChiTraMatchesMonth(entry.thang_chi_tra, filterMonthDate) ? Number(entry[field]) || 0 : 0;
   }
+  // Round 579 — Post / Cost Dự Kiến numbers: base (flat entry) + months. null = nothing typed anywhere.
+  function monthlyNumber(entry, installments, field) {
+    if (!entry) return null;
+    const flat = entry[field] === "" ? null : entry[field];
+    if (entry.is_installment && installments.length > 0) {
+      const pool = monthFilterActive ? installments.filter((inst) => sameMonth(inst.month, filterMonthDate)) : installments;
+      const vals = pool.map((inst) => inst[field]).filter((v) => v != null && v !== "");
+      const base = !monthFilterActive && flat != null ? Number(flat) || 0 : null;
+      if (!vals.length && base == null) return null;
+      return vals.reduce((x, v) => x + (Number(v) || 0), 0) + (base || 0);
+    }
+    if (flat == null) return null;
+    if (!monthFilterActive) return Number(flat) || 0;
+    return thangChiTraMatchesMonth(entry.thang_chi_tra, filterMonthDate) ? Number(flat) || 0 : null;
+  }
   function sumField(pred, field) {
     return allEntryPairs.reduce((sum, { entry, installments }) => {
       if (!entry || !pred(entry)) return sum;
@@ -1173,9 +1192,9 @@ export default function WorkstationCostMkt() {
       const id = row.release.id;
       const cost = row.entry ? amountFor(row.entry, row.installments, "cost_thuc_chay") : 0;
       const cash = row.entry ? amountFor(row.entry, row.installments, "sup_cashback") : 0;
-      const hasManual = row.entry && (row.entry.no_booking_post != null || row.entry.no_support_post != null);
-      const booking = row.entry?.no_booking_post != null ? Number(row.entry.no_booking_post) : null;
-      const support = row.entry?.no_support_post != null ? Number(row.entry.no_support_post) : null;
+      const booking = monthlyNumber(row.entry, row.installments, "no_booking_post");
+      const support = monthlyNumber(row.entry, row.installments, "no_support_post");
+      const hasManual = booking != null || support != null;
       const totalPost = hasManual ? (booking || 0) + (support || 0) : row.totalPost;
       const added = row.values.map((v) => v?.added || 0);
       const cur = merged.get(id);
@@ -1504,11 +1523,17 @@ export default function WorkstationCostMkt() {
                         )}
                         {channelKind === "tiktok" &&
                           POST_FIELDS.map((f) => (
-                            <EditableCell key={f.key} field={f} value={entry?.[f.key]} onSave={(v) => saveField(release, f.key, v)} />
+                            isInstallment && activeInstallment
+                              ? <MonthNumberCell key={f.key} field={{ ...f, type: "number" }} installment={activeInstallment} activeIdx={activeIdx} base={entry?.[f.key]}
+                                  onSave={(v) => saveInstallmentField(release, activeInstallment, f.key, v)} onSaveBase={(v) => saveField(release, f.key, v)} />
+                              : <EditableCell key={f.key} field={f} value={entry?.[f.key]} onSave={(v) => saveField(release, f.key, v)} />
                           ))}
                         {costFields.map((f) => {
                           if (f.key === "cost_du_kien") {
-                            return <EditableCell key={f.key} field={f} value={entry?.[f.key]} onSave={(v) => saveField(release, f.key, v)} />;
+                            return isInstallment && activeInstallment
+                              ? <MonthNumberCell key={f.key} field={f} installment={activeInstallment} activeIdx={activeIdx} base={entry?.[f.key]}
+                                  onSave={(v) => saveInstallmentField(release, activeInstallment, f.key, v)} onSaveBase={(v) => saveField(release, f.key, v)} />
+                              : <EditableCell key={f.key} field={f} value={entry?.[f.key]} onSave={(v) => saveField(release, f.key, v)} />;
                           }
                           if (f.key === "report_link" && channelKind === "tiktok") {
                             // Round 475 — own per-row Report Link on TikTok Channel.
@@ -1741,6 +1766,27 @@ function InstallmentEditableCell({ field, installment, activeIdx, onSave }) {
         onChange={(e) => setLocal(e.target.value)}
         onBlur={() => onSave(local === "" ? null : field.type === "number" ? Number(local) : local)}
       />
+    </td>
+  );
+}
+
+// Round 579 — a number that has its own value for the month on screen (flips with ◀/▶ like the rest of the row), plus the
+// "all months" base typed before months existed (small field under it; counts only in the All view).
+function MonthNumberCell({ field, installment, activeIdx, base, onSave, onSaveBase }) {
+  const [local, setLocal] = useState(installment?.[field.key] ?? "");
+  const [localBase, setLocalBase] = useState(base ?? "");
+  useEffect(() => { setLocal(installment?.[field.key] ?? ""); }, [installment, field.key]);
+  useEffect(() => { setLocalBase(base ?? ""); }, [base]);
+  const num = (v) => (v === "" ? null : Number(v));
+  return (
+    <td key={activeIdx} className={styles.flipFace}>
+      <input className={styles.input} style={{ width: 90, fontSize: 12 }} type="number" title={`${field.label} for this month`} value={local}
+        onChange={(e) => setLocal(e.target.value)} onBlur={() => onSave(num(local))} />
+      <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 3, fontSize: 10, color: "var(--text-faint)" }} title="Typed before months were added. Counts in the All view only; a picked month shows that month only.">
+        base
+        <input className={styles.input} style={{ width: 62, fontSize: 10, padding: "1px 4px" }} type="number" value={localBase}
+          onChange={(e) => setLocalBase(e.target.value)} onBlur={() => onSaveBase(num(localBase))} />
+      </div>
     </td>
   );
 }
