@@ -647,8 +647,11 @@ export default function WorkstationCostMkt() {
   function computeRows(kind, br, fb = fundedBy) {
     const cols = kind === "tiktok" ? TIKTOK_SUBCHANNELS : ADS_METRICS[br] || [];
     const catName = kind === "tiktok" ? "TikTok Channel" : "Ads";
-    // Round 579 — the Round 507 "Có Trong Net YouTube" gate on the YouTube Ads list is removed (it hid non-DID products and any song not flagged, on both sides).
+    // Round 580 — the Round 507 "Có Trong Net YouTube" gate stays on the BOOKING PACKAGE (Vieent trả) side only: its YouTube Ads list shows
+    // songs flagged "Có Trong Net YouTube". Booking Không Package (artist trả) is not gated (Round 579), so non-DID products and unflagged songs show there.
+    const youtubeNetOnly = kind === "ads" && br === "YouTube Ads" && fb === "vieent";
     return releases
+      .filter((r) => !youtubeNetOnly || r.gate_co_trong_net_youtube === "true")
       .map((r) => {
         const values = cols.map((col) => {
           const platform = kind === "ads" ? col : null;
