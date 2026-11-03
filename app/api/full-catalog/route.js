@@ -28,16 +28,25 @@ export async function POST(request) {
       return NextResponse.json({ meta: data || null });
     }
 
-    if (b.action === "search") {
-      const q = String(b.q || "").trim().replace(/[%,()]/g, " ").slice(0, 80);
-      if (q.length < 2) return NextResponse.json({ rows: [] });
-      const num = /^\d+$/.test(q) ? Number(q) : null;
-      const orParts = [`title.ilike.%${q}%`, `product_title.ilike.%${q}%`, `main_artist.ilike.%${q}%`, `featured_artist.ilike.%${q}%`, `upc.ilike.%${q}%`, `isrc.ilike.%${q}%`];
-      if (num != null) orParts.push(`id.eq.${num}`);
-      const { data, error } = await supabaseAdmin.from("full_catalog").select("id, isrc, upc, title, title_version, product_title, label, main_artist, featured_artist, release_date")
-        .or(orParts.join(",")).order("id", { ascending: false }).limit(60);
+    if (b.action === "browse") {   // one page of 50, newest first; filters narrow in the database. Asks for 51 rows to know if a next page exists (no count scan).
+      const clean = (v, n = 80) => String(v || "").trim().replace(/[%,()]/g, " ").slice(0, n);
+      const q = clean(b.q), label = clean(b.label), artist = clean(b.artist);
+      const year = /^\d{4}$/.test(String(b.year || "")) ? String(b.year) : "";
+      const page = Math.max(0, Math.min(Number(b.page) || 0, 2000));
+      const PAGE = 50;
+      let query = supabaseAdmin.from("full_catalog").select("id, isrc, upc, title, title_version, product_title, label, main_artist, featured_artist, release_date");
+      if (q) {
+        const orParts = [`title.ilike.%${q}%`, `product_title.ilike.%${q}%`, `main_artist.ilike.%${q}%`, `featured_artist.ilike.%${q}%`, `upc.ilike.%${q}%`, `isrc.ilike.%${q}%`];
+        if (/^\d+$/.test(q)) orParts.push(`id.eq.${Number(q)}`);
+        query = query.or(orParts.join(","));
+      }
+      if (label) query = query.ilike("label", `%${label}%`);
+      if (artist) query = query.or(`main_artist.ilike.%${artist}%,featured_artist.ilike.%${artist}%`);
+      if (year) query = query.gte("release_date", `${year}-01-01`).lte("release_date", `${year}-12-31`);
+      const { data, error } = await query.order("id", { ascending: false }).range(page * PAGE, page * PAGE + PAGE);
       if (error) return bad(missing(error), 500);
-      return NextResponse.json({ rows: data || [] });
+      const rows = data || [];
+      return NextResponse.json({ rows: rows.slice(0, PAGE), hasNext: rows.length > PAGE, page });
     }
 
     if (b.action === "hashes") {   // id + row_hash of what is stored, so the browser can send only new / changed rows

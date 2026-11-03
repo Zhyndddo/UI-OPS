@@ -28,8 +28,11 @@ export default function FullCatalogPage() {
   const [progress, setProgress] = useState("");
   const [err, setErr] = useState("");
   const [done, setDone] = useState("");
-  const [q, setQ] = useState("");
-  const [found, setFound] = useState(null);
+  const [f, setF] = useState({ q: "", label: "", artist: "", year: "" });   // browse filters
+  const [pageNo, setPageNo] = useState(0);
+  const [view, setView] = useState(null);       // { rows, hasNext } of the page on screen
+  const [browsing, setBrowsing] = useState(false);
+  const cache = useRef(new Map());              // "filters|page" -> result; pages already opened are not fetched again
   const fileRef = useRef(null);
 
   const call = useCallback(async (body) => {
@@ -101,10 +104,20 @@ export default function FullCatalogPage() {
     setProgress(""); setBusy(false);
   }
 
-  async function search(e) {
-    e?.preventDefault();
-    try { const j = await call({ action: "search", q }); setFound(j.rows); setErr(""); } catch (ex) { setErr(ex.message); }
+  async function show(filters, page) {
+    const key = JSON.stringify([filters, page]);
+    setErr("");
+    if (cache.current.has(key)) { setView(cache.current.get(key)); setPageNo(page); return; }
+    setBrowsing(true);
+    try {
+      const j = await call({ action: "browse", ...filters, page });
+      const res = { rows: j.rows, hasNext: j.hasNext };
+      cache.current.set(key, res);
+      setView(res); setPageNo(page);
+    } catch (ex) { setErr(ex.message); }
+    setBrowsing(false);
   }
+  function submit(e) { e?.preventDefault(); cache.current = new Map(); show(f, 0); }
 
   if (profile && profile.role !== "dev") return <AppShell><div style={{ padding: 24 }}>This page is for the dev account only.</div></AppShell>;
 
@@ -152,17 +165,21 @@ export default function FullCatalogPage() {
         </div>
 
         <div style={card}>
-          <div style={{ fontWeight: 800, marginBottom: 8 }}>Search the catalog</div>
-          <form onSubmit={search} style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Title, artist, UPC or Id" style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-input, transparent)", color: "inherit" }} />
-            <button type="submit" style={btnGhost}>Search</button>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}>Browse the catalog</div>
+          <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 8 }}>Nothing loads until you ask. 50 tracks per page, newest first; filters are applied in the database, so only the page you open is downloaded.</div>
+          <form onSubmit={submit} style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+            {[["q", "Title, artist, UPC, ISRC or Id", 2], ["artist", "Artist", 1], ["label", "Label", 1], ["year", "Year", 0]].map(([k, ph, grow]) => (
+              <input key={k} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} placeholder={ph} inputMode={k === "year" ? "numeric" : undefined} maxLength={k === "year" ? 4 : 80}
+                style={{ flex: grow || "0 0 80px", minWidth: grow ? 140 : 80, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-input, transparent)", color: "inherit" }} />
+            ))}
+            <button type="submit" style={btnGhost} disabled={browsing}>{f.q || f.artist || f.label || f.year ? "Search" : "Show newest"}</button>
           </form>
-          {found && (found.length === 0 ? <div style={{ fontSize: 13, color: "var(--text-faint)" }}>Nothing found.</div> : (
+          {view && (view.rows.length === 0 ? <div style={{ fontSize: 13, color: "var(--text-faint)" }}>Nothing found.</div> : (
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr><th style={th}>Id</th><th style={th}>Track</th><th style={th}>Artist</th><th style={th}>Product</th><th style={th}>Label</th><th style={th}>ISRC</th><th style={th}>UPC</th><th style={th}>Release</th></tr></thead>
                 <tbody>
-                  {found.map((x) => (
+                  {view.rows.map((x) => (
                     <tr key={x.id}>
                       <td style={td}>{x.id}</td>
                       <td style={td}>{x.title}{x.title_version ? <span style={{ color: "var(--text-faint)" }}> ({x.title_version})</span> : null}</td>
@@ -172,7 +189,12 @@ export default function FullCatalogPage() {
                   ))}
                 </tbody>
               </table>
-              {found.length >= 60 && <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 6 }}>Showing the newest 60 — narrow the search.</div>}
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 10, fontSize: 13 }}>
+                <button type="button" style={btnGhost} disabled={browsing || pageNo === 0} onClick={() => show(f, pageNo - 1)}>← Previous</button>
+                <span>Page {pageNo + 1}</span>
+                <button type="button" style={btnGhost} disabled={browsing || !view.hasNext} onClick={() => show(f, pageNo + 1)}>Next →</button>
+                {browsing && <span style={{ color: "var(--text-faint)" }}>Loading…</span>}
+              </div>
             </div>
           ))}
         </div>
