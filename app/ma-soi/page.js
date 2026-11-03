@@ -1,0 +1,274 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import AppShell from "../../lib/AppShell";
+import { supabase } from "../../lib/supabaseClient";
+
+// Round 576 — Ma Sói (Werewolf) office game, slice 1. All rules run in the database (sql/pending/add-round576-ma-soi.sql);
+// this page only shows what the server says this player may see, and sends the player's answers.
+const POLL_MS = 20000;
+const card = { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 14, marginBottom: 12 };
+const btn = { padding: "9px 16px", fontWeight: 800, borderRadius: 8, border: "none", background: "#ff7a1a", color: "#fff", cursor: "pointer" };
+const btnGhost = { padding: "8px 14px", fontWeight: 700, borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "inherit", cursor: "pointer" };
+const PHASE_LABEL = { night: "🌙 Đêm", day: "☀️ Ngày — bỏ phiếu", runoff: "⚖️ Bỏ phiếu lại", hunter: "🏹 Phát súng cuối" };
+
+function fmtLeft(ms) {
+  if (ms <= 0) return "đang chốt…";
+  const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return `${h ? h + " giờ " : ""}${String(m).padStart(h ? 2 : 1, "0")} phút ${String(sec).padStart(2, "0")} giây`;
+}
+function fmtAt(iso) {
+  try { return new Date(iso).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }); } catch (e) { return ""; }
+}
+
+function Countdown({ endsAt, skew }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(t); }, []);
+  if (!endsAt) return null;
+  const left = new Date(endsAt).getTime() - (Date.now() + skew);
+  return <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtLeft(left)}</span>;
+}
+
+function Picker({ options, value, onPick, disabled, extra }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, margin: "8px 0" }}>
+      {options.map((o) => (
+        <button key={o.id} type="button" disabled={disabled} onClick={() => onPick(o.id)}
+          style={{ ...btnGhost, ...(value === o.id ? { background: "#ff7a1a", color: "#fff", borderColor: "#ff7a1a" } : {}), opacity: disabled ? 0.6 : 1 }}>{o.name}</button>
+      ))}
+      {extra}
+    </div>
+  );
+}
+
+export default function MaSoiPage() {
+  const [st, setSt] = useState(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [skew, setSkew] = useState(0);
+  const [showRole, setShowRole] = useState(true);
+  const [auto, setAuto] = useState("6");
+  const timer = useRef(null);
+
+  const call = useCallback(async (body) => {
+    const { data } = await supabase.auth.getSession();
+    const r = await fetch("/api/ma-soi", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${data?.session?.access_token || ""}` }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `Lỗi ${r.status}`);
+    return j;
+  }, []);
+
+  const load = useCallback(async () => {
+    try {
+      const j = await call({ action: "state" });
+      setSkew(j.now ? new Date(j.now).getTime() - Date.now() : 0);
+      setSt(j);
+    } catch (e) { setErr(e.message); }
+  }, [call]);
+
+  useEffect(() => {
+    load();
+    const start = () => { clearInterval(timer.current); timer.current = setInterval(() => { if (document.visibilityState === "visible") load(); }, POLL_MS); };
+    start();
+    const vis = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", vis);
+    return () => { clearInterval(timer.current); document.removeEventListener("visibilitychange", vis); };
+  }, [load]);
+
+  async function run(body) {
+    if (busy) return;
+    setBusy(true); setErr("");
+    try { await call(body); await load(); } catch (e) { setErr(e.message); await load(); }
+    setBusy(false);
+  }
+  const act = (kind, target, data) => run({ action: "act", kind, target: target || null, data: data || {} });
+
+  const g = st?.game;
+  const pr = st?.prompt;
+  const roleCard = st?.cards?.find((c) => c.kind === "role");
+  const others = (st?.cards || []).filter((c) => c.kind !== "role");
+
+  return (
+    <AppShell>
+      <div style={{ maxWidth: 760, margin: "0 auto", padding: "16px 14px 60px" }}>
+        <h1 style={{ fontSize: 22, margin: "0 0 4px" }}>🐺 Ma Sói</h1>
+        <p style={{ fontSize: 12.5, color: "var(--text-faint)", margin: "0 0 14px" }}>
+          Mỗi ngày một lượt: đêm chốt lúc 00:00, buổi bỏ phiếu chốt lúc 19:00 (sớm hơn nếu mọi người đã trả lời xong).
+        </p>
+        {err && <div style={{ ...card, borderColor: "#ff6b6b", color: "#ff9a9a", fontSize: 13.5 }}>{err}</div>}
+        {!st && !err && <div style={{ fontSize: 14, color: "var(--text-faint)" }}>Đang tải…</div>}
+
+        {st && !g && (
+          <div style={card}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>Chưa có ván chơi nào</div>
+            {st.dev ? (
+              <div>
+                <div style={{ fontSize: 13, marginBottom: 8 }}>Tự bắt đầu khi đủ <input value={auto} onChange={(e) => setAuto(e.target.value.replace(/\D/g, ""))} style={{ width: 44, padding: 4, borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "inherit", textAlign: "center" }} /> người (0 = chỉ dev bấm bắt đầu).</div>
+                <button type="button" style={btn} disabled={busy} onClick={() => run({ action: "create", auto: parseInt(auto, 10) || 0 })}>Mở ván mới</button>
+              </div>
+            ) : <div style={{ fontSize: 13, color: "var(--text-faint)" }}>Khi có ván mới, bạn sẽ thấy ở đây.</div>}
+          </div>
+        )}
+
+        {g?.status === "lobby" && (
+          <div style={card}>
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 6 }}>🌕 Làng đang chờ người</div>
+            <div style={{ fontSize: 13, marginBottom: 8 }}>
+              {st.players.length} người đã tham gia{g.auto_start ? ` — ván tự bắt đầu khi đủ ${g.auto_start} người` : ""}.
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+              {st.players.map((p) => <span key={p.id} style={{ border: "1px solid var(--border)", borderRadius: 999, padding: "3px 10px", fontSize: 13 }}>{p.name}</span>)}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {st.joined
+                ? <button type="button" style={btnGhost} disabled={busy} onClick={() => run({ action: "leave" })}>Rời hàng chờ</button>
+                : <button type="button" style={btn} disabled={busy} onClick={() => run({ action: "join" })}>Tham gia</button>}
+              {st.dev && <button type="button" style={btn} disabled={busy || st.players.length < 4} onClick={() => run({ action: "start" })}>Bắt đầu ngay ({st.players.length})</button>}
+              {st.dev && <button type="button" style={btnGhost} disabled={busy} onClick={() => { if (confirm("Huỷ ván này?")) run({ action: "cancel" }); }}>Huỷ ván</button>}
+            </div>
+          </div>
+        )}
+
+        {(g?.status === "running" || g?.status === "paused") && (
+          <>
+            <div style={{ ...card, display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>{PHASE_LABEL[g.phase] || ""} · Ngày {g.day_no}</div>
+                {g.status === "running" && <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Còn lại <Countdown endsAt={g.ends_at} skew={skew} /> · {st.progress.answered}/{st.progress.expected} đã xong</div>}
+              </div>
+              {st.dev && <button type="button" style={btnGhost} disabled={busy} onClick={() => { if (confirm("Huỷ ván đang chơi?")) run({ action: "cancel" }); }}>Huỷ ván</button>}
+            </div>
+
+            {g.status === "paused" && (
+              <div style={{ ...card, borderColor: "#d98a00" }}>
+                <div style={{ fontWeight: 800, marginBottom: 6 }}>⏸️ Làng đang tạm nghỉ</div>
+                <div style={{ fontSize: 13, marginBottom: 8 }}>Không ai trả lời trong lượt trước nên ván được tạm dừng.</div>
+                {(st.alive || st.dev) && <button type="button" style={btn} disabled={busy} onClick={() => run({ action: "resume" })}>Tiếp tục</button>}
+              </div>
+            )}
+
+            {roleCard && (
+              <div style={{ ...card, background: "rgba(255,122,26,0.10)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <div style={{ fontWeight: 800 }}>{showRole ? roleCard.title : "🎭 Thẻ vai trò (đang ẩn)"}</div>
+                  <button type="button" style={btnGhost} onClick={() => setShowRole((x) => !x)}>{showRole ? "Ẩn" : "Hiện"}</button>
+                </div>
+                {showRole && <div style={{ fontSize: 13.5, marginTop: 6, lineHeight: 1.55 }}>{roleCard.body}</div>}
+              </div>
+            )}
+
+            {g.status === "running" && pr && (
+              <div style={{ ...card, borderColor: "#ff7a1a" }}>
+                {pr.type === "dead" && <div style={{ fontSize: 14 }}>💀 Bạn đã rời cuộc chơi. Hãy xem các thẻ bên dưới và giữ bí mật vai trò của người khác.</div>}
+                {pr.type === "sleep" && <div style={{ fontSize: 14 }}>😴 Đêm nay bạn ngủ yên. Chờ đến sáng nhé.</div>}
+                {pr.type === "wait" && <div style={{ fontSize: 14 }}>Chờ người khác hoàn thành lượt…</div>}
+
+                {pr.type === "wolf" && (
+                  <div>
+                    <div style={{ fontWeight: 800 }}>🐺 Chọn nạn nhân của bầy sói</div>
+                    <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Mỗi con sói chọn và bấm "Xác nhận". Khi tất cả sói xác nhận, lựa chọn mới được tính.</div>
+                    <Picker options={pr.options} value={pr.my_vote} disabled={busy} onPick={(id) => act("wolf_vote", id)} />
+                    <div style={{ fontSize: 13, margin: "6px 0" }}>
+                      {pr.wolves.map((w, i) => <div key={i}>{w.me ? "👉 " : ""}{w.name}: {w.vote ? `chọn ${w.vote}` : "chưa chọn"}{w.confirmed ? " ✅ đã xác nhận" : ""}</div>)}
+                    </div>
+                    <button type="button" style={btn} disabled={busy || !pr.my_vote || pr.my_confirmed} onClick={() => act("wolf_confirm")}>{pr.my_confirmed ? "Đã xác nhận" : "Xác nhận"}</button>
+                  </div>
+                )}
+
+                {pr.type === "seer" && (
+                  <div>
+                    <div style={{ fontWeight: 800 }}>🔮 Bạn muốn soi ai đêm nay?</div>
+                    {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã soi rồi — kết quả nằm trong thẻ bên dưới.</div>
+                      : <Picker options={pr.options} disabled={busy} onPick={(id) => { if (confirm("Soi người này?")) act("seer", id); }} />}
+                  </div>
+                )}
+
+                {pr.type === "guard" && (
+                  <div>
+                    <div style={{ fontWeight: 800 }}>🛡️ Bạn bảo vệ ai đêm nay?</div>
+                    {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã chọn rồi.</div>
+                      : <Picker options={pr.options} disabled={busy} onPick={(id) => { if (confirm("Bảo vệ người này?")) act("guard", id); }} />}
+                  </div>
+                )}
+
+                {pr.type === "witch" && (
+                  <div>
+                    <div style={{ fontWeight: 800 }}>🧪 Lượt của Phù thủy</div>
+                    <div style={{ fontSize: 13.5, margin: "6px 0" }}>{pr.victim ? `Bầy sói đã nhắm vào ${pr.victim}.` : "Bầy sói chưa chọn được ai."}</div>
+                    {pr.done ? <div style={{ fontSize: 13 }}>Bạn đã quyết định xong.</div> : (
+                      <>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                          {pr.can_heal && <button type="button" style={btn} disabled={busy} onClick={() => { if (confirm(`Dùng bình cứu cho ${pr.victim}?`)) act("witch", null, { heal: true }); }}>Cứu {pr.victim}</button>}
+                          <button type="button" style={btnGhost} disabled={busy} onClick={() => act("witch", null, {})}>Không làm gì</button>
+                        </div>
+                        {pr.can_poison && (
+                          <>
+                            <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Hoặc dùng bình độc cho:</div>
+                            <Picker options={pr.options} disabled={busy} onPick={(id) => { if (confirm("Đầu độc người này? Không thể hoàn tác.")) act("witch", id, { poison: true }); }} />
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {pr.type === "vote" && (
+                  <div>
+                    <div style={{ fontWeight: 800 }}>{pr.runoff ? "⚖️ Bỏ phiếu lại — chỉ giữa những người hoà phiếu" : "☀️ Làng nên trục xuất ai?"}</div>
+                    <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Bạn có thể đổi phiếu cho đến khi lượt kết thúc.</div>
+                    <Picker options={pr.options} value={pr.my_vote} disabled={busy} onPick={(id) => act("vote", id)}
+                      extra={<button type="button" disabled={busy} onClick={() => act("vote", null)} style={{ ...btnGhost, ...(pr.voted && !pr.my_vote ? { background: "#555", color: "#fff" } : {}) }}>Bỏ phiếu trắng</button>} />
+                  </div>
+                )}
+
+                {pr.type === "hunter" && (
+                  <div>
+                    <div style={{ fontWeight: 800 }}>🏹 Bạn bắn ai?</div>
+                    {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã bắn xong.</div>
+                      : <Picker options={pr.options} disabled={busy} onPick={(id) => { if (confirm("Bắn người này?")) act("hunter", id); }} />}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {g?.status === "finished" && (
+          <div style={{ ...card, background: "rgba(255,122,26,0.10)" }}>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>{g.winner === "wolves" ? "🐺 Bầy sói chiến thắng" : g.winner === "village" ? "🏡 Dân làng chiến thắng" : "Ván chơi đã kết thúc"}</div>
+            {st.dev && <div style={{ marginTop: 10 }}><button type="button" style={btn} disabled={busy} onClick={() => run({ action: "create", auto: parseInt(auto, 10) || 0 })}>Mở ván mới</button></div>}
+          </div>
+        )}
+
+        {g && g.status !== "lobby" && (
+          <div style={card}>
+            <div style={{ fontWeight: 800, marginBottom: 6 }}>Dân làng</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {st.players.map((p) => (
+                <span key={p.id} style={{ border: "1px solid var(--border)", borderRadius: 999, padding: "3px 10px", fontSize: 13, opacity: p.alive ? 1 : 0.5, textDecoration: p.alive ? "none" : "line-through" }}>
+                  {p.alive ? "" : "💀 "}{p.name}{p.role ? ` — ${p.role === "wolf" ? "Sói" : p.role === "villager" ? "Dân làng" : p.role === "seer" ? "Tiên tri" : p.role === "witch" ? "Phù thủy" : p.role === "hunter" ? "Thợ săn" : "Bảo vệ"}` : ""}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {others.length > 0 && (
+          <div>
+            <div style={{ fontWeight: 800, margin: "16px 0 8px" }}>📜 Thẻ & bản tin</div>
+            {others.map((c) => (
+              <div key={c.id} style={{ ...card, ...(c.kind === "story" ? { borderLeft: "4px solid #ff7a1a" } : c.kind === "final" ? { borderColor: "#ff7a1a" } : {}) }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <div style={{ fontWeight: 800 }}>{c.title}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{fmtAt(c.at)}</div>
+                </div>
+                <div style={{ fontSize: 13.5, lineHeight: 1.6, marginTop: 6, whiteSpace: "pre-wrap" }}>{c.body}</div>
+                {c.kind !== "story" && c.kind !== "info" && c.kind !== "final" && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>Chỉ mình bạn thấy thẻ này.</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </AppShell>
+  );
+}

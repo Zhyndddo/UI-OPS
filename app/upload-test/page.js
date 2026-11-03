@@ -77,7 +77,7 @@ export default function UploadTest() {
       }
       if (!fileId) log(unreadable ? "Upload finished, but the browser could not read Google's answer — looking the file up by name" : "Upload finished — looking the file up by name");
       const fin = await api("/api/chat-upload", { action: "finalize", name: init.name, size: file.size, fileId });
-      log("Verified and shared with the VIEENT domain");
+      log(fin.file?.sharing === "domain-with-link" ? "Verified and shared with the VIEENT domain" : "Verified (file-level sharing not set — see the Sharing line below)");
       setResult(fin.file);
     } catch (e) {
       log("FAILED: " + e.message);
