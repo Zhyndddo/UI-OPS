@@ -80,7 +80,11 @@ export default function MaSoiPage() {
   async function run(body) {
     if (busy) return;
     setBusy(true); setErr("");
-    try { await call(body); await load(); } catch (e) { setErr(e.message); await load(); }
+    try {
+      const j = await call(body);
+      if (j && j.state) { setSkew(j.state.now ? new Date(j.state.now).getTime() - Date.now() : 0); setSt(j.state); }
+      else await load();
+    } catch (e) { setErr(e.message); await load(); }
     setBusy(false);
   }
   const act = (kind, target, data) => run({ action: "act", kind, target: target || null, data: data || {} });
@@ -192,7 +196,7 @@ export default function MaSoiPage() {
                       : <>
                           <Picker options={pr.options} value={sel} disabled={busy} onPick={setSel} />
                           <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Chọn một người, bạn vẫn đổi ý được cho đến khi bấm Xác nhận.</div>
-                          <button type="button" style={btn} disabled={busy || !sel} onClick={() => act("seer", sel)}>Xác nhận soi</button>
+                          <button type="button" style={btn} disabled={busy || !sel} onClick={() => act("seer", sel)}>{busy ? "Đang gửi…" : "Xác nhận soi"}</button>
                         </>}
                   </div>
                 )}
@@ -204,7 +208,7 @@ export default function MaSoiPage() {
                       : <>
                           <Picker options={pr.options} value={sel} disabled={busy} onPick={setSel} />
                           <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Chọn một người, bạn vẫn đổi ý được cho đến khi bấm Xác nhận.</div>
-                          <button type="button" style={btn} disabled={busy || !sel} onClick={() => act("guard", sel)}>Xác nhận bảo vệ</button>
+                          <button type="button" style={btn} disabled={busy || !sel} onClick={() => act("guard", sel)}>{busy ? "Đang gửi…" : "Xác nhận bảo vệ"}</button>
                         </>}
                   </div>
                 )}
@@ -227,7 +231,7 @@ export default function MaSoiPage() {
                         )}
                         <div style={{ fontSize: 12.5, color: "var(--text-faint)", margin: "4px 0 8px" }}>Chọn một lựa chọn, bạn vẫn đổi ý được cho đến khi bấm Xác nhận. Bình cứu và bình độc không thể hoàn tác sau khi xác nhận.</div>
                         <button type="button" style={btn} disabled={busy || !sel}
-                          onClick={() => { if (sel === "heal") act("witch", null, { heal: true }); else if (sel.startsWith("poison:")) act("witch", sel.slice(7), { poison: true }); else act("witch", null, {}); }}>Xác nhận</button>
+                          onClick={() => { if (sel === "heal") act("witch", null, { heal: true }); else if (sel.startsWith("poison:")) act("witch", sel.slice(7), { poison: true }); else act("witch", null, {}); }}>{busy ? "Đang gửi…" : "Xác nhận"}</button>
                       </>
                     )}
                   </div>
@@ -236,9 +240,14 @@ export default function MaSoiPage() {
                 {pr.type === "vote" && (
                   <div>
                     <div style={{ fontWeight: 800 }}>{pr.runoff ? "⚖️ Bỏ phiếu lại — chỉ giữa những người hoà phiếu" : "☀️ Làng nên trục xuất ai?"}</div>
-                    <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Bạn có thể đổi phiếu cho đến khi lượt kết thúc.</div>
-                    <Picker options={pr.options} value={pr.my_vote} disabled={busy} onPick={(id) => act("vote", id)}
-                      extra={<button type="button" disabled={busy} onClick={() => act("vote", null)} style={{ ...btnGhost, ...(pr.voted && !pr.my_vote ? { background: "#555", color: "#fff" } : {}) }}>Bỏ phiếu trắng</button>} />
+                    <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Chọn một người rồi bấm Xác nhận. Bạn vẫn đổi phiếu được cho đến khi lượt kết thúc.</div>
+                    <Picker options={pr.options} value={sel === "__blank" ? "" : (sel || pr.my_vote || "")} disabled={busy} onPick={setSel}
+                      extra={<button type="button" disabled={busy} onClick={() => setSel("__blank")} style={{ ...btnGhost, ...((sel === "__blank" || (!sel && pr.voted && !pr.my_vote)) ? { background: "#555", color: "#fff" } : {}) }}>Bỏ phiếu trắng</button>} />
+                    <div style={{ fontSize: 13, margin: "6px 0" }}>
+                      {pr.voted ? `Phiếu hiện tại của bạn: ${pr.my_vote ? (pr.options.find((o) => o.id === pr.my_vote)?.name || "đã chọn") : "phiếu trắng"}.` : "Bạn chưa bỏ phiếu."}
+                    </div>
+                    <button type="button" style={btn} disabled={busy || !sel || (sel === "__blank" ? (pr.voted && !pr.my_vote) : sel === pr.my_vote)}
+                      onClick={() => act("vote", sel === "__blank" ? null : sel)}>{busy ? "Đang gửi…" : pr.voted ? "Đổi phiếu" : "Xác nhận phiếu"}</button>
                   </div>
                 )}
 
@@ -249,7 +258,7 @@ export default function MaSoiPage() {
                       : <>
                           <Picker options={pr.options} value={sel} disabled={busy} onPick={setSel} />
                           <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Chọn một người, bạn vẫn đổi ý được cho đến khi bấm Xác nhận.</div>
-                          <button type="button" style={btn} disabled={busy || !sel} onClick={() => act("hunter", sel)}>Xác nhận bắn</button>
+                          <button type="button" style={btn} disabled={busy || !sel} onClick={() => act("hunter", sel)}>{busy ? "Đang gửi…" : "Xác nhận bắn"}</button>
                         </>}
                   </div>
                 )}

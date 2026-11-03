@@ -43,5 +43,11 @@ export async function POST(request) {
     return NextResponse.json({ error: missing ? "Game tables are missing — run add-round576-ma-soi.sql." : "Lỗi hệ thống, thử lại sau." }, { status: 500, headers: noStore });
   }
   if (data && data.error) return NextResponse.json({ error: data.error }, { status: 400, headers: noStore });
+  // Round 584 — after a change, send the fresh game state back in the same reply so the page does not need a second round trip
+  // (one fewer login check + database call per click = noticeably snappier).
+  if (body.action !== "state") {
+    const st = await supabaseAdmin.rpc("ms_state", { p_profile: p });
+    if (!st.error && st.data && !st.data.error) return NextResponse.json({ ...(data && typeof data === "object" ? data : { ok: true }), state: st.data }, { headers: noStore });
+  }
   return NextResponse.json(data || { ok: true }, { headers: noStore });
 }
