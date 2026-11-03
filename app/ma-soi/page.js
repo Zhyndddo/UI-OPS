@@ -49,6 +49,7 @@ export default function MaSoiPage() {
   const [skew, setSkew] = useState(0);
   const [showRole, setShowRole] = useState(true);
   const [auto, setAuto] = useState("6");
+  const [sel, setSel] = useState("");   // Round 583 — pending choice (seer / guard / witch / hunter) until "Xác nhận" is pressed
   const timer = useRef(null);
 
   const call = useCallback(async (body) => {
@@ -88,6 +89,7 @@ export default function MaSoiPage() {
   const pr = st?.prompt;
   const roleCard = st?.cards?.find((c) => c.kind === "role");
   const others = (st?.cards || []).filter((c) => c.kind !== "role");
+  useEffect(() => { setSel(""); }, [g?.phase_no, g?.stage, st?.prompt?.type]);
   const isWolfCard = !!roleCard && /SÓI/.test(roleCard.title || "");
   // Round 582 — the howl plays once per game, the first time this person sees their role card (= game start / role reveal)
   useEffect(() => { if (g?.id && roleCard) howlOnce(`ms_howl_${g.id}`); }, [g?.id, !!roleCard]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -187,7 +189,11 @@ export default function MaSoiPage() {
                   <div>
                     <div style={{ fontWeight: 800 }}>🔮 Bạn muốn soi ai đêm nay?</div>
                     {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã soi rồi — kết quả nằm trong thẻ bên dưới.</div>
-                      : <Picker options={pr.options} disabled={busy} onPick={(id) => { if (confirm("Soi người này?")) act("seer", id); }} />}
+                      : <>
+                          <Picker options={pr.options} value={sel} disabled={busy} onPick={setSel} />
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Chọn một người, bạn vẫn đổi ý được cho đến khi bấm Xác nhận.</div>
+                          <button type="button" style={btn} disabled={busy || !sel} onClick={() => act("seer", sel)}>Xác nhận soi</button>
+                        </>}
                   </div>
                 )}
 
@@ -195,7 +201,11 @@ export default function MaSoiPage() {
                   <div>
                     <div style={{ fontWeight: 800 }}>🛡️ Bạn bảo vệ ai đêm nay?</div>
                     {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã chọn rồi.</div>
-                      : <Picker options={pr.options} disabled={busy} onPick={(id) => { if (confirm("Bảo vệ người này?")) act("guard", id); }} />}
+                      : <>
+                          <Picker options={pr.options} value={sel} disabled={busy} onPick={setSel} />
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Chọn một người, bạn vẫn đổi ý được cho đến khi bấm Xác nhận.</div>
+                          <button type="button" style={btn} disabled={busy || !sel} onClick={() => act("guard", sel)}>Xác nhận bảo vệ</button>
+                        </>}
                   </div>
                 )}
 
@@ -206,15 +216,18 @@ export default function MaSoiPage() {
                     {pr.done ? <div style={{ fontSize: 13 }}>Bạn đã quyết định xong.</div> : (
                       <>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                          {pr.can_heal && <button type="button" style={btn} disabled={busy} onClick={() => { if (confirm(`Dùng bình cứu cho ${pr.victim}?`)) act("witch", null, { heal: true }); }}>Cứu {pr.victim}</button>}
-                          <button type="button" style={btnGhost} disabled={busy} onClick={() => act("witch", null, {})}>Không làm gì</button>
+                          {pr.can_heal && <button type="button" disabled={busy} onClick={() => setSel("heal")} style={{ ...btnGhost, ...(sel === "heal" ? { background: "#ff7a1a", color: "#fff", borderColor: "#ff7a1a" } : {}) }}>Cứu {pr.victim}</button>}
+                          <button type="button" disabled={busy} onClick={() => setSel("none")} style={{ ...btnGhost, ...(sel === "none" ? { background: "#ff7a1a", color: "#fff", borderColor: "#ff7a1a" } : {}) }}>Không làm gì</button>
                         </div>
                         {pr.can_poison && (
                           <>
                             <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Hoặc dùng bình độc cho:</div>
-                            <Picker options={pr.options} disabled={busy} onPick={(id) => { if (confirm("Đầu độc người này? Không thể hoàn tác.")) act("witch", id, { poison: true }); }} />
+                            <Picker options={pr.options} value={sel.startsWith("poison:") ? sel.slice(7) : ""} disabled={busy} onPick={(id) => setSel("poison:" + id)} />
                           </>
                         )}
+                        <div style={{ fontSize: 12.5, color: "var(--text-faint)", margin: "4px 0 8px" }}>Chọn một lựa chọn, bạn vẫn đổi ý được cho đến khi bấm Xác nhận. Bình cứu và bình độc không thể hoàn tác sau khi xác nhận.</div>
+                        <button type="button" style={btn} disabled={busy || !sel}
+                          onClick={() => { if (sel === "heal") act("witch", null, { heal: true }); else if (sel.startsWith("poison:")) act("witch", sel.slice(7), { poison: true }); else act("witch", null, {}); }}>Xác nhận</button>
                       </>
                     )}
                   </div>
@@ -233,7 +246,11 @@ export default function MaSoiPage() {
                   <div>
                     <div style={{ fontWeight: 800 }}>🏹 Bạn bắn ai?</div>
                     {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã bắn xong.</div>
-                      : <Picker options={pr.options} disabled={busy} onPick={(id) => { if (confirm("Bắn người này?")) act("hunter", id); }} />}
+                      : <>
+                          <Picker options={pr.options} value={sel} disabled={busy} onPick={setSel} />
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Chọn một người, bạn vẫn đổi ý được cho đến khi bấm Xác nhận.</div>
+                          <button type="button" style={btn} disabled={busy || !sel} onClick={() => act("hunter", sel)}>Xác nhận bắn</button>
+                        </>}
                   </div>
                 )}
               </div>
