@@ -20,7 +20,7 @@ export async function POST(request) {
   const folder = decodeURIComponent(request.headers.get("x-folder") || "");
   if (!PICTURE_TEMPLATES.some((t) => t.driveFolder === folder)) return NextResponse.json({ error: "Unknown template." }, { status: 400, headers: noStore });
   const mime = (request.headers.get("content-type") || "").split(";")[0].trim();
-  if (mime !== "image/png" && mime !== "image/jpeg") return NextResponse.json({ error: "PNG or JPEG only." }, { status: 400, headers: noStore });
+  if (mime !== "image/png" && mime !== "image/jpeg" && mime !== "application/pdf") return NextResponse.json({ error: "PNG, JPEG or PDF only." }, { status: 400, headers: noStore });
   let filename = decodeURIComponent(request.headers.get("x-filename") || "picture.png");
   filename = filename.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/gi, "d").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 100) || "picture.png";
 

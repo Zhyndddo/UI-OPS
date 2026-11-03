@@ -55,7 +55,7 @@ export async function POST(request) {
   const folder = decodeURIComponent(request.headers.get("x-folder") || "");
   if (!PICTURE_TEMPLATES.some((t) => t.driveFolder === folder)) return NextResponse.json({ error: "Unknown template." }, { status: 400, headers: noStore });
   const mime = (request.headers.get("content-type") || "").split(";")[0].trim();
-  if (mime !== "image/png" && mime !== "image/jpeg") return NextResponse.json({ error: "PNG or JPEG only." }, { status: 400, headers: noStore });
+  if (mime !== "image/png" && mime !== "image/jpeg" && mime !== "application/pdf") return NextResponse.json({ error: "PNG, JPEG or PDF only." }, { status: 400, headers: noStore });
   let filename = decodeURIComponent(request.headers.get("x-filename") || "picture.png");
   filename = filename.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/gi, "d").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 100) || "picture.png";
 
@@ -64,7 +64,8 @@ export async function POST(request) {
   // real image check (PNG / JPEG magic bytes) so the code can't be used to park other files in Drive
   const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
   const isJpg = buf[0] === 0xff && buf[1] === 0xd8;
-  if ((mime === "image/png" && !isPng) || (mime === "image/jpeg" && !isJpg)) return NextResponse.json({ error: "Not a valid image." }, { status: 400, headers: noStore });
+  const isPdf = buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46;
+  if ((mime === "image/png" && !isPng) || (mime === "image/jpeg" && !isJpg) || (mime === "application/pdf" && !isPdf)) return NextResponse.json({ error: "Not a valid image." }, { status: 400, headers: noStore });
 
   const logName = (() => { try { return decodeURIComponent(request.headers.get("x-name") || "").replace(/\s+/g, " ").trim().slice(0, 120); } catch (e) { return ""; } })();
   const url = clean(process.env.DRIVE_WEBHOOK_URL || process.env.HALLOWEEN_DRIVE_WEBHOOK_URL);
