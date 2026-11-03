@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
+import { howlOnce } from "../../lib/maSoiHowl";
 
 // Round 576 — Ma Sói (Werewolf) office game, slice 1. All rules run in the database (sql/pending/add-round576-ma-soi.sql);
 // this page only shows what the server says this player may see, and sends the player's answers.
@@ -87,6 +88,9 @@ export default function MaSoiPage() {
   const pr = st?.prompt;
   const roleCard = st?.cards?.find((c) => c.kind === "role");
   const others = (st?.cards || []).filter((c) => c.kind !== "role");
+  const isWolfCard = !!roleCard && /SÓI/.test(roleCard.title || "");
+  // Round 582 — the howl plays once per game, the first time this person sees their role card (= game start / role reveal)
+  useEffect(() => { if (g?.id && roleCard) howlOnce(`ms_howl_${g.id}`); }, [g?.id, !!roleCard]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <AppShell>
@@ -111,7 +115,8 @@ export default function MaSoiPage() {
         )}
 
         {g?.status === "lobby" && (
-          <div style={card}>
+          <div style={{ ...card, position: "relative", overflow: "hidden", paddingRight: 120, minHeight: 130 }}>
+            <img src="/ma-soi/wolf.png" alt="" width={96} style={{ position: "absolute", right: 12, bottom: 10, opacity: 0.95 }} />
             <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 6 }}>🌕 Làng đang chờ người</div>
             <div style={{ fontSize: 13, marginBottom: 8 }}>
               {st.players.length} người đã tham gia{g.auto_start ? ` — ván tự bắt đầu khi đủ ${g.auto_start} người` : ""}.
@@ -150,7 +155,10 @@ export default function MaSoiPage() {
             {roleCard && (
               <div style={{ ...card, background: "rgba(255,122,26,0.10)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                  <div style={{ fontWeight: 800 }}>{showRole ? roleCard.title : "🎭 Thẻ vai trò (đang ẩn)"}</div>
+                  <div style={{ fontWeight: 800, display: "flex", alignItems: "center", gap: 10 }}>
+                    {showRole && isWolfCard && <img src="/ma-soi/wolf.png" alt="" width={54} style={{ display: "block" }} />}
+                    <span>{showRole ? roleCard.title : "🎭 Thẻ vai trò (đang ẩn)"}</span>
+                  </div>
                   <button type="button" style={btnGhost} onClick={() => setShowRole((x) => !x)}>{showRole ? "Ẩn" : "Hiện"}</button>
                 </div>
                 {showRole && <div style={{ fontSize: 13.5, marginTop: 6, lineHeight: 1.55 }}>{roleCard.body}</div>}
