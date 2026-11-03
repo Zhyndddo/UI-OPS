@@ -162,6 +162,13 @@ const COST_FIELDS = [
   { key: "artist_tra", label: "Artist Trả", type: "number" },
   { key: "sup_cashback", label: "Sup Cashback", type: "number" },
 ];
+// Round 581 — Booking Không Package (artist trả) side only: two manual columns at the far right of the table.
+// Stored flat on the cost entry (workstation_cost_mkt_entries.payment_status / payment_method), not per month.
+const PAYMENT_STATUS_OPTIONS = ["Đã thanh toán", "Chưa thanh toán"];
+const PAYMENT_FIELDS = [
+  { key: "payment_status", label: "Status Thanh Toán", type: "select" },
+  { key: "payment_method", label: "Hình Thức Thanh Toán", type: "text", placeholder: "vd: chuyển khoản" },
+];
 // TikTok Channel tables only — per the reference sheet, Ads tables don't
 // get these (a metric count isn't a "post").
 const POST_FIELDS = [
@@ -308,10 +315,13 @@ export default function WorkstationCostMkt() {
   // ("Report Link", stored per release+brand on the cost entry), no longer
   // the release-wide URL Ads Perform. Ads tabs keep URL Ads Perform.
   const costFields = useMemo(
-    () => COST_FIELDS
-      .filter((f) => f.key !== "sup_cashback" || showSupCashback)
-      .map((f) => (f.key === "report_link" && channelKind === "tiktok" ? { ...f, label: "Report Link" } : f)),
-    [showSupCashback, channelKind]
+    () => [
+      ...COST_FIELDS
+        .filter((f) => f.key !== "sup_cashback" || showSupCashback)
+        .map((f) => (f.key === "report_link" && channelKind === "tiktok" ? { ...f, label: "Report Link" } : f)),
+      ...(fundedBy === "artist" ? PAYMENT_FIELDS : []),
+    ],
+    [showSupCashback, channelKind, fundedBy]
   );
   const installmentFields = useMemo(
     () => INSTALLMENT_FIELDS.filter((f) => f.key !== "sup_cashback" || showSupCashback),
@@ -839,6 +849,7 @@ export default function WorkstationCostMkt() {
     COST_FIELDS.filter((f) => f.key !== "sup_cashback" || sup).forEach((f) => {
       out.push({ key: f.key, label: f.key === "report_link" && kind === "tiktok" ? "Report Link" : f.label, kind: f.type === "number" ? "number" : "text" });
     });
+    if (fundedBy === "artist") PAYMENT_FIELDS.forEach((f) => out.push({ key: f.key, label: f.label, kind: "text" }));
     return out;
   }
   function exportRowsFor(tabRows, tabCols, kind) {
@@ -1538,6 +1549,12 @@ export default function WorkstationCostMkt() {
                                   onSave={(v) => saveInstallmentField(release, activeInstallment, f.key, v)} onSaveBase={(v) => saveField(release, f.key, v)} />
                               : <EditableCell key={f.key} field={f} value={entry?.[f.key]} onSave={(v) => saveField(release, f.key, v)} />;
                           }
+                          if (f.key === "payment_status") {
+                            return <PaymentStatusCell key={f.key} value={entry?.payment_status} onSave={(v) => saveField(release, "payment_status", v)} />;
+                          }
+                          if (f.key === "payment_method") {
+                            return <EditableCell key={f.key} field={f} value={entry?.payment_method} onSave={(v) => saveField(release, "payment_method", v)} />;
+                          }
                           if (f.key === "report_link" && channelKind === "tiktok") {
                             // Round 475 — own per-row Report Link on TikTok Channel.
                             return <EditableCell key={f.key} field={f} value={entry?.report_link} onSave={(v) => saveField(release, "report_link", v)} />;
@@ -1769,6 +1786,24 @@ function InstallmentEditableCell({ field, installment, activeIdx, onSave }) {
         onChange={(e) => setLocal(e.target.value)}
         onBlur={() => onSave(local === "" ? null : field.type === "number" ? Number(local) : local)}
       />
+    </td>
+  );
+}
+
+// Round 581 — Status Thanh Toán: pick Đã thanh toán / Chưa thanh toán (or clear it).
+function PaymentStatusCell({ value, onSave }) {
+  const paid = value === "Đã thanh toán";
+  return (
+    <td>
+      <select
+        className={styles.input}
+        style={{ fontSize: 12, minWidth: 130, color: value ? (paid ? "var(--success-fg)" : "#e5484d") : undefined, fontWeight: value ? 700 : 400 }}
+        value={value || ""}
+        onChange={(e) => onSave(e.target.value || null)}
+      >
+        <option value="">—</option>
+        {PAYMENT_STATUS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
     </td>
   );
 }
