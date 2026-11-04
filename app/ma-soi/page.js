@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
-import { howlOnce } from "../../lib/maSoiHowl";
+import { howlOnce, playHowl, getSound, setSound } from "../../lib/maSoiHowl";
 
 // Round 576 — Ma Sói (Werewolf) office game, slice 1. All rules run in the database (sql/pending/add-round576-ma-soi.sql);
 // this page only shows what the server says this player may see, and sends the player's answers.
@@ -38,6 +38,34 @@ function Picker({ options, value, onPick, disabled, extra }) {
           style={{ ...btnGhost, ...(value === o.id ? { background: "#ff7a1a", color: "#fff", borderColor: "#ff7a1a" } : {}), opacity: disabled ? 0.6 : 1 }}>{o.name}</button>
       ))}
       {extra}
+    </div>
+  );
+}
+
+// Round 585 — tiny sound control: only a speaker icon until opened (switch, volume, test).
+function SoundControl() {
+  const [open, setOpen] = useState(false);
+  const [snd, setSnd] = useState({ on: true, vol: 0.7 });
+  useEffect(() => { setSnd(getSound()); }, []);
+  const change = (patch) => setSnd(setSound(patch));
+  return (
+    <div style={{ position: "relative" }}>
+      <button type="button" aria-label="Âm thanh" title="Âm thanh" onClick={() => setOpen((x) => !x)}
+        style={{ ...btnGhost, padding: "4px 9px", fontSize: 15, lineHeight: 1 }}>{snd.on && snd.vol > 0 ? "🔊" : "🔇"}</button>
+      {open && (
+        <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 20, width: 220, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, padding: 12, boxShadow: "0 6px 20px rgba(0,0,0,.4)", fontSize: 13 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>
+            <input type="checkbox" checked={snd.on} onChange={(e) => change({ on: e.target.checked })} /> Bật tiếng tru
+          </label>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0" }}>
+            <span>🔉</span>
+            <input type="range" min={0} max={100} value={Math.round(snd.vol * 100)} onChange={(e) => change({ vol: Number(e.target.value) / 100 })} style={{ flex: 1 }} />
+            <span style={{ width: 30, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{Math.round(snd.vol * 100)}</span>
+          </div>
+          <button type="button" style={{ ...btnGhost, width: "100%" }} onClick={() => playHowl({ force: true })}>▶ Thử âm thanh</button>
+          <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 8 }}>Tiếng tru chỉ vang một lần khi có ván mới và khi ván bắt đầu.</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -94,6 +122,8 @@ export default function MaSoiPage() {
   const roleCard = st?.cards?.find((c) => c.kind === "role");
   const others = (st?.cards || []).filter((c) => c.kind !== "role");
   useEffect(() => { setSel(""); }, [g?.phase_no, g?.stage, st?.prompt?.type]);
+  // new game opened (lobby) = "come and join" howl, once per game per browser
+  useEffect(() => { if (g?.id && g.status === "lobby") howlOnce(`ms_howl_lobby_${g.id}`); }, [g?.id, g?.status]); // eslint-disable-line react-hooks/exhaustive-deps
   const isWolfCard = !!roleCard && /SÓI/.test(roleCard.title || "");
   // Round 582 — the howl plays once per game, the first time this person sees their role card (= game start / role reveal)
   useEffect(() => { if (g?.id && roleCard) howlOnce(`ms_howl_${g.id}`); }, [g?.id, !!roleCard]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -101,7 +131,10 @@ export default function MaSoiPage() {
   return (
     <AppShell>
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "16px 14px 60px" }}>
-        <h1 style={{ fontSize: 22, margin: "0 0 4px" }}>🐺 Ma Sói</h1>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, margin: "0 0 4px" }}>
+          <h1 style={{ fontSize: 22, margin: 0 }}>🐺 Ma Sói</h1>
+          <SoundControl />
+        </div>
         <p style={{ fontSize: 12.5, color: "var(--text-faint)", margin: "0 0 14px" }}>
           Mỗi ngày một lượt: đêm chốt lúc 00:00, buổi bỏ phiếu chốt lúc 19:00 (sớm hơn nếu mọi người đã trả lời xong).
         </p>
@@ -291,13 +324,13 @@ export default function MaSoiPage() {
           <div>
             <div style={{ fontWeight: 800, margin: "16px 0 8px" }}>📜 Thẻ & bản tin</div>
             {others.map((c) => (
-              <div key={c.id} style={{ ...card, ...(c.kind === "story" ? { borderLeft: "4px solid #ff7a1a" } : c.kind === "final" ? { borderColor: "#ff7a1a" } : {}) }}>
+              <div key={c.id} style={{ ...card, ...(c.kind === "story" ? { borderLeft: "4px solid #ff7a1a" } : c.kind === "final" ? { borderColor: "#ff7a1a" } : c.kind === "log" ? { borderColor: "#ff7a1a", background: "rgba(255,122,26,0.06)" } : {}) }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                   <div style={{ fontWeight: 800 }}>{c.title}</div>
                   <div style={{ fontSize: 11.5, color: "var(--text-faint)", whiteSpace: "nowrap" }}>{fmtAt(c.at)}</div>
                 </div>
                 <div style={{ fontSize: 13.5, lineHeight: 1.6, marginTop: 6, whiteSpace: "pre-wrap" }}>{c.body}</div>
-                {c.kind !== "story" && c.kind !== "info" && c.kind !== "final" && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>Chỉ mình bạn thấy thẻ này.</div>}
+                {c.kind !== "story" && c.kind !== "info" && c.kind !== "final" && c.kind !== "log" && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>Chỉ mình bạn thấy thẻ này.</div>}
               </div>
             ))}
           </div>
