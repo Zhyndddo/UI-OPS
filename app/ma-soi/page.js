@@ -42,6 +42,16 @@ function Picker({ options, value, onPick, disabled, extra }) {
   );
 }
 
+// Round 586 — "start automatically when N people joined" field, used by both "open a new game" boxes (first game and after a game ended)
+function AutoField({ value, onChange }) {
+  return (
+    <div style={{ fontSize: 13, marginBottom: 8 }}>
+      Tự bắt đầu khi đủ <input value={value} onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric"
+        style={{ width: 44, padding: 4, borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "inherit", textAlign: "center" }} /> người (tối thiểu 4, tối đa 16; 0 = chỉ dev bấm bắt đầu).
+    </div>
+  );
+}
+
 // Round 585 — tiny sound control: only a speaker icon until opened (switch, volume, test).
 function SoundControl() {
   const [open, setOpen] = useState(false);
@@ -76,7 +86,9 @@ export default function MaSoiPage() {
   const [busy, setBusy] = useState(false);
   const [skew, setSkew] = useState(0);
   const [showRole, setShowRole] = useState(true);
-  const [auto, setAuto] = useState("6");
+  const [auto, setAutoRaw] = useState("6");
+  const setAuto = (v) => { setAutoRaw(v); try { localStorage.setItem("ms_auto", v); } catch (e) { /* ignore */ } };
+  useEffect(() => { try { const v = localStorage.getItem("ms_auto"); if (v !== null && /^\d{1,2}$/.test(v)) setAutoRaw(v); } catch (e) { /* ignore */ } }, []);
   const [sel, setSel] = useState("");   // Round 583 — pending choice (seer / guard / witch / hunter) until "Xác nhận" is pressed
   const timer = useRef(null);
 
@@ -146,7 +158,7 @@ export default function MaSoiPage() {
             <div style={{ fontWeight: 800, marginBottom: 6 }}>Chưa có ván chơi nào</div>
             {st.dev ? (
               <div>
-                <div style={{ fontSize: 13, marginBottom: 8 }}>Tự bắt đầu khi đủ <input value={auto} onChange={(e) => setAuto(e.target.value.replace(/\D/g, ""))} style={{ width: 44, padding: 4, borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "inherit", textAlign: "center" }} /> người (0 = chỉ dev bấm bắt đầu).</div>
+                <AutoField value={auto} onChange={setAuto} />
                 <button type="button" style={btn} disabled={busy} onClick={() => run({ action: "create", auto: parseInt(auto, 10) || 0 })}>Mở ván mới</button>
               </div>
             ) : <div style={{ fontSize: 13, color: "var(--text-faint)" }}>Khi có ván mới, bạn sẽ thấy ở đây.</div>}
@@ -303,7 +315,7 @@ export default function MaSoiPage() {
         {g?.status === "finished" && (
           <div style={{ ...card, background: "rgba(255,122,26,0.10)" }}>
             <div style={{ fontWeight: 800, fontSize: 16 }}>{g.winner === "wolves" ? "🐺 Bầy sói chiến thắng" : g.winner === "village" ? "🏡 Dân làng chiến thắng" : "Ván chơi đã kết thúc"}</div>
-            {st.dev && <div style={{ marginTop: 10 }}><button type="button" style={btn} disabled={busy} onClick={() => run({ action: "create", auto: parseInt(auto, 10) || 0 })}>Mở ván mới</button></div>}
+            {st.dev && <div style={{ marginTop: 10 }}><AutoField value={auto} onChange={setAuto} /><button type="button" style={btn} disabled={busy} onClick={() => run({ action: "create", auto: parseInt(auto, 10) || 0 })}>Mở ván mới</button></div>}
           </div>
         )}
 
