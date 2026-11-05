@@ -28,7 +28,10 @@ export default function LoginPage() {
       setError(err.message === "Invalid login credentials" ? "Wrong email or password." : err.message);
       return;
     }
-    router.push("/releases");
+    // Round 587 — someone who opened the survey link while signed out goes back to it after login
+    let to = "/releases";
+    try { const p = sessionStorage.getItem("post_login"); if (p && /^\/training-survey(\/|$)/.test(p)) { to = p; sessionStorage.removeItem("post_login"); } } catch (e) { /* ignore */ }
+    router.push(to);
   }
 
   async function handleResetRequest(e) {
