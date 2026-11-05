@@ -52,6 +52,25 @@ function AutoField({ value, onChange }) {
   );
 }
 
+// Round 586 — who has NOT acted yet (never how anybody acted). The server decides what each person may see:
+// day = names of players who have not voted; night = wolves see their pack, everybody else only the roles still to act.
+function Waiting({ w }) {
+  const list = w.list || [];
+  if (w.type === "pack") {
+    return (
+      <div style={{ fontSize: 12.5, marginTop: 6 }}>
+        🐺 Bầy sói: {list.map((x, i) => <span key={i} style={{ marginRight: 8, fontWeight: x.me ? 800 : 400 }}>{x.name}{x.me ? " (bạn)" : ""} {x.done ? "✅" : "⏳"}</span>)}
+      </div>
+    );
+  }
+  if (!list.length) return null;
+  return (
+    <div style={{ fontSize: 12.5, marginTop: 6 }}>
+      {w.type === "names" ? "⏳ Chưa bỏ phiếu: " : "⏳ Đang chờ: "}<b>{list.join(", ")}</b>
+    </div>
+  );
+}
+
 // Round 585 — tiny sound control: only a speaker icon until opened (switch, volume, test).
 function SoundControl() {
   const [open, setOpen] = useState(false);
@@ -191,6 +210,7 @@ export default function MaSoiPage() {
               <div>
                 <div style={{ fontWeight: 800, fontSize: 16 }}>{PHASE_LABEL[g.phase] || ""} · Ngày {g.day_no}</div>
                 {g.status === "running" && <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Còn lại <Countdown endsAt={g.ends_at} skew={skew} /> · {st.progress.answered}/{st.progress.expected} đã xong</div>}
+                {g.status === "running" && st.waiting && <Waiting w={st.waiting} />}
               </div>
               {st.dev && <button type="button" style={btnGhost} disabled={busy} onClick={() => { if (confirm("Huỷ ván đang chơi?")) run({ action: "cancel" }); }}>Huỷ ván</button>}
             </div>
