@@ -6,7 +6,7 @@ import { getCallerProfile, supabaseAdmin } from "../../../lib/supabaseAdmin";
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 const noStore = { "Cache-Control": "no-store" };
-const ACT_KINDS = new Set(["wolf_vote", "wolf_confirm", "seer", "guard", "witch", "vote", "hunter"]);
+const ACT_KINDS = new Set(["wolf_vote", "wolf_confirm", "seer", "guard", "witch", "vote", "hunter", "cupid"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(request) {
@@ -32,6 +32,11 @@ export async function POST(request) {
       const data = {};
       if (body.data?.heal === true) data.heal = true;
       if (body.data?.poison === true) data.poison = true;
+      if (body.kind === "cupid") {   // Round 589 — second lover
+        const second = body.data?.second ? String(body.data.second) : "";
+        if (!UUID.test(second)) return NextResponse.json({ error: "Hãy chọn đủ hai người." }, { status: 400, headers: noStore });
+        data.second = second;
+      }
       fn = "ms_act"; args = { p_profile: p, p_kind: body.kind, p_target: target, p_data: data };
       break;
     }

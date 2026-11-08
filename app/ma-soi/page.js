@@ -11,6 +11,7 @@ const POLL_MS = 20000;
 const card = { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 14, marginBottom: 12 };
 const btn = { padding: "9px 16px", fontWeight: 800, borderRadius: 8, border: "none", background: "#ff7a1a", color: "#fff", cursor: "pointer" };
 const btnGhost = { padding: "8px 14px", fontWeight: 700, borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "inherit", cursor: "pointer" };
+const ROLE_VI = { wolf: "Sói", villager: "Dân làng", seer: "Tiên tri", witch: "Phù thủy", hunter: "Thợ săn", guard: "Bảo vệ", cupid: "Thần Tình Yêu", idiot: "Kẻ ngốc", elder: "Già làng" };
 const PHASE_LABEL = { night: "🌙 Đêm", day: "☀️ Ngày — bỏ phiếu", runoff: "⚖️ Bỏ phiếu lại", hunter: "🏹 Phát súng cuối" };
 
 function fmtLeft(ms) {
@@ -108,6 +109,7 @@ export default function MaSoiPage() {
   const [auto, setAutoRaw] = useState("6");
   const setAuto = (v) => { setAutoRaw(v); try { localStorage.setItem("ms_auto", v); } catch (e) { /* ignore */ } };
   useEffect(() => { try { const v = localStorage.getItem("ms_auto"); if (v !== null && /^\d{1,2}$/.test(v)) setAutoRaw(v); } catch (e) { /* ignore */ } }, []);
+  const [sel2, setSel2] = useState("");   // Round 589 — Cupid's second lover
   const [sel, setSel] = useState("");   // Round 583 — pending choice (seer / guard / witch / hunter) until "Xác nhận" is pressed
   const timer = useRef(null);
 
@@ -152,7 +154,7 @@ export default function MaSoiPage() {
   const pr = st?.prompt;
   const roleCard = st?.cards?.find((c) => c.kind === "role");
   const others = (st?.cards || []).filter((c) => c.kind !== "role");
-  useEffect(() => { setSel(""); }, [g?.phase_no, g?.stage, st?.prompt?.type]);
+  useEffect(() => { setSel(""); setSel2(""); }, [g?.phase_no, g?.stage, st?.prompt?.type]);
   // new game opened (lobby) = "come and join" howl, once per game per browser
   useEffect(() => { if (g?.id && g.status === "lobby") howlOnce(`ms_howl_lobby_${g.id}`); }, [g?.id, g?.status]); // eslint-disable-line react-hooks/exhaustive-deps
   const isWolfCard = !!roleCard && /SÓI/.test(roleCard.title || "");
@@ -254,6 +256,23 @@ export default function MaSoiPage() {
                   </div>
                 )}
 
+                {pr.type === "mute" && <div style={{ fontSize: 14 }}>🤡 Bạn đã lộ vai Kẻ ngốc nên không còn quyền bỏ phiếu. Hãy tranh luận và chờ kết quả — bạn vẫn có thể bị bỏ phiếu và bị trục xuất lần nữa.</div>}
+
+                {pr.type === "cupid" && (
+                  <div>
+                    <div style={{ fontWeight: 800 }}>💘 Bạn kết đôi ai?</div>
+                    {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã kết đôi xong — chi tiết nằm trong thẻ bên dưới.</div>
+                      : <>
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginTop: 4 }}>Người thứ nhất:</div>
+                          <Picker options={pr.options} value={sel} disabled={busy} onPick={setSel} />
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Người thứ hai (có thể chọn cả chính bạn):</div>
+                          <Picker options={pr.options} value={sel2} disabled={busy} onPick={setSel2} />
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Chọn hai người khác nhau, bạn vẫn đổi ý được cho đến khi bấm Xác nhận. Cả hai sẽ biết nhau; một người chết thì người kia chết theo.</div>
+                          <button type="button" style={btn} disabled={busy || !sel || !sel2 || sel === sel2} onClick={() => act("cupid", sel, { second: sel2 })}>{busy ? "Đang gửi…" : "Xác nhận kết đôi"}</button>
+                        </>}
+                  </div>
+                )}
+
                 {pr.type === "seer" && (
                   <div>
                     <div style={{ fontWeight: 800 }}>🔮 Bạn muốn soi ai đêm nay?</div>
@@ -345,7 +364,7 @@ export default function MaSoiPage() {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {st.players.map((p) => (
                 <span key={p.id} style={{ border: "1px solid var(--border)", borderRadius: 999, padding: "3px 10px", fontSize: 13, opacity: p.alive ? 1 : 0.5, textDecoration: p.alive ? "none" : "line-through" }}>
-                  {p.alive ? "" : "💀 "}{p.name}{p.role ? ` — ${p.role === "wolf" ? "Sói" : p.role === "villager" ? "Dân làng" : p.role === "seer" ? "Tiên tri" : p.role === "witch" ? "Phù thủy" : p.role === "hunter" ? "Thợ săn" : "Bảo vệ"}` : ""}
+                  {p.alive ? "" : "💀 "}{p.name}{p.role ? ` — ${ROLE_VI[p.role] || p.role}` : p.revealed ? " — 🤡 Kẻ ngốc" : ""}
                 </span>
               ))}
             </div>
