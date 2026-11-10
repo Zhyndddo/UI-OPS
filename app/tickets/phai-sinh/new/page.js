@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import AppShell from "../../../../lib/AppShell";
 import { supabase } from "../../../../lib/supabaseClient";
+import { fetchAllRows } from "../../../../lib/helpers";
 import { useAuth } from "../../../../lib/AuthContext";
 import { LabelInput, ArtistInput } from "../../../../lib/ReferenceInputs";
 import RelatedDidField from "../../../../lib/RelatedDidField";
@@ -96,7 +97,7 @@ export default function PhaiSinhNewTicket() {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from("artists").select("stage_name, labels(label_name)").order("stage_name").then(({ data }) => setArtists(data || []));
+    fetchAllRows(() => supabase.from("artists").select("stage_name, labels(label_name)").order("stage_name").order("id")).then(({ data }) => setArtists(data || []));
     supabase.from("labels").select("label_name").order("label_name").then(({ data }) => setLabels(data || []));
   }, []);
 

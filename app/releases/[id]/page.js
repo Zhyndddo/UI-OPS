@@ -2706,7 +2706,7 @@ function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requir
         setTopics((data || []).filter((r) => r.category === "topic"));
         setChannels((data || []).filter((r) => r.category === "channel"));
       });
-    supabase.from("artists").select("id, stage_name, labels(label_name)").order("stage_name").then(({ data }) => setArtistsList(data || []));
+    fetchAllRows(() => supabase.from("artists").select("id, stage_name, labels(label_name)").order("stage_name").order("id")).then(({ data }) => setArtistsList(data || []));
     supabase.from("labels").select("label_name").order("label_name").then(({ data }) => setLabelsList(data || []));
     fetchAllRows(() => supabase.from("releases").select("split_share_entries").not("split_share_entries", "is", null)).then(({ data }) => {
       const set = new Set();
@@ -3336,7 +3336,7 @@ function TracklistSection({ releaseId, showCopyright = false, onCopyrightChange 
   useEffect(() => {
     if (!supabase || !releaseId) return;
     load();
-    supabase.from("artists").select("id, stage_name, labels(label_name)").order("stage_name").then(({ data }) => setArtistsList(data || []));
+    fetchAllRows(() => supabase.from("artists").select("id, stage_name, labels(label_name)").order("stage_name").order("id")).then(({ data }) => setArtistsList(data || []));
   }, [releaseId]);
 
   async function load() {

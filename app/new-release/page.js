@@ -4,6 +4,7 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
+import { fetchAllRows } from "../../lib/helpers";
 // Round 281 — audit log / requester attribution
 import { useAuth } from "../../lib/AuthContext";
 import { logAudit, logTicketCreate } from "../../lib/auditLog";
@@ -273,10 +274,11 @@ export default function NewReleasePage() {
         setChannels((data || []).filter((r) => r.category === "channel"));
       });
 
-    supabase
+    fetchAllRows(() => supabase
       .from("artists")
       .select("id, stage_name, labels(label_name)")
       .order("stage_name")
+      .order("id"))
       .then(({ data }) => setArtists(data || []));
 
     supabase
