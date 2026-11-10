@@ -24,6 +24,8 @@ import { logPicReassign } from "../../lib/auditLog";
 // lib/BulkReleaseImport.js's header for how it differs from the existing
 // single-release "Fast Input" template on the New Release create form.
 import ExportButton from "../../lib/spreadsheetExport";
+import { AdvFilterButton, AdvFilterPanel } from "../../lib/ReleaseAdvancedFilter";
+import { applyAdvFilters, EXPORT_DETAIL_COLUMNS, EXPORT_SELECT_COLUMNS, FILTER_FIELDS } from "../../lib/releaseFilterCatalog";
 import BulkReleaseImportPopup from "../../lib/BulkReleaseImport";
 import styles from "../shared.module.css";
 
@@ -42,7 +44,7 @@ function releaseStageLabel(r) {
   if (d >= dateStr(b.sevenDaysAgo)) return "Release";
   return "Post-release";
 }
-const EXPORT_COLUMNS = [
+const BASE_EXPORT_COLUMNS = [
   { key: "did", label: "DID" },
   { key: "title", label: "Title" },
   { key: "main_artist", label: "Main Artist" },
@@ -56,6 +58,12 @@ const EXPORT_COLUMNS = [
   { key: "upload", label: "Upload %", format: (_, r) => `${uploadPercent(r)}%` },
   { key: "tags", label: "Tags" },
   { key: "created_at", label: "Created At", format: (v) => fmtDate(v) },
+];
+// Round 590 — every detail field of the release (general / data & legal / marketing / process / notes) after the curated columns above.
+// Columns already covered above (label, type, channel, category, main artist…) are not repeated.
+const EXPORT_COLUMNS = [
+  ...BASE_EXPORT_COLUMNS,
+  ...EXPORT_DETAIL_COLUMNS.filter((c) => !BASE_EXPORT_COLUMNS.some((b) => b.key === c.col)),
 ];
 
 const CHANNELS = ["VIEENT", "ENVI"];
@@ -180,6 +188,8 @@ const RELEASE_COLUMNS = [
   // below.
   "split_share_entries",
 ].join(", ");
+// Round 590 — the select list the widened export needs: the dashboard's own columns + every detail column (deduplicated)
+const EXPORT_SELECT = [...new Set([...RELEASE_COLUMNS.split(", "), ...EXPORT_SELECT_COLUMNS])].join(", ");
 
 // Mirrors app/workstation/pitching/page.js's DONE_VALUE/CANCEL_VALUES so the
 // dashboard's "Status Pitching" column agrees with the Pitching workstation
@@ -351,8 +361,8 @@ function escapeOrFilterValue(v) {
 
 // Builds the filtered/sorted/paginated releases query. Shared by the real
 // fetch and by the regex-invalid-pattern fallback below.
-function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery }) {
-  let q = supabase.from("releases").select(RELEASE_COLUMNS, { count: "exact" });
+function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery, columns }) {
+  let q = supabase.from("releases").select(columns || RELEASE_COLUMNS, { count: "exact" });
 
   const b = calendarBounds();
   if (filters.createdFilter === "today") q = q.gte("release_date", dateStr(b.startOfToday)).lt("release_date", dateStr(b.startOfTomorrow));
@@ -373,6 +383,7 @@ function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery
   if (filters.tagFilter) q = q.contains("tags", [filters.tagFilter]);
   if (filters.dateRangeStart) q = q.gte("release_date", filters.dateRangeStart);
   if (filters.dateRangeEnd) q = q.lte("release_date", filters.dateRangeEnd);
+  q = applyAdvFilters(q, filters.adv);   // Round 590 — advanced filter panel
 
   if (searchQuery) {
     const op = searchMode === "regex" ? "imatch" : "ilike";
@@ -394,8 +405,8 @@ function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery
 // component) still needs a plain object shape to read/write — unchanged
 // from before other than dropping the fields that no longer exist
 // (nothing removed here, sort/page/filters are all still real state).
-function currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort }) {
-  return { search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort };
+function currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, adv, page, pageSize, sort }) {
+  return { search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, adv, page, pageSize, sort };
 }
 
 export default function ReleasesDashboard() {
@@ -419,6 +430,8 @@ export default function ReleasesDashboard() {
   const [channelFilter, setChannelFilter] = useState(null); // "VIEENT" | "ENVI" (from stat click or dropdown, same state)
   const [typeFilter, setTypeFilter] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
+  const [adv, setAdv] = useState({});        // Round 590 — advanced filter panel values { fieldKey: value }
+  const [advOpen, setAdvOpen] = useState(false);
   const [tagFilter, setTagFilter] = useState(""); // a tag code/value, e.g. "PUB_VCPMC" or a freeform tag string
   const [tagOptions, setTagOptions] = useState([]); // [{value, label}] — autocomplete source, see loadTagOptions()
   const [search, setSearch] = useState(""); // regex tested server-side against main_artist, title, label
@@ -540,25 +553,25 @@ export default function ReleasesDashboard() {
   }, [search]);
 
   const filters = useMemo(
-    () => ({ statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd }),
-    [statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd]
+    () => ({ statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, adv }),
+    [statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, adv]
   );
 
   // Fires the actual list query, with the invalid-regex fallback baked in.
   // Returns { rows, total } so the caller (both the main effect and the
   // sessionStorage-restore path) can share one implementation.
-  async function fetchListPage({ page, pageSize, sort, filters, searchTerm }) {
+  async function fetchListPage({ page, pageSize, sort, filters, searchTerm, columns }) {
     if (searchTerm) {
-      const attempt = await buildListQuery({ page, pageSize, sort, filters, searchMode: "regex", searchQuery: searchTerm });
+      const attempt = await buildListQuery({ page, pageSize, sort, filters, searchMode: "regex", searchQuery: searchTerm, columns });
       if (!attempt.error) return { rows: attempt.data || [], total: attempt.count || 0 };
       // Invalid regex (Postgres rejects it as a bad `~*` pattern) — same
       // "fall back to a plain substring match" the old client try/catch
       // around `new RegExp` did.
-      const fallback = await buildListQuery({ page, pageSize, sort, filters, searchMode: "substring", searchQuery: searchTerm });
+      const fallback = await buildListQuery({ page, pageSize, sort, filters, searchMode: "substring", searchQuery: searchTerm, columns });
       if (fallback.error) throw fallback.error;
       return { rows: fallback.data || [], total: fallback.count || 0 };
     }
-    const result = await buildListQuery({ page, pageSize, sort, filters, searchMode: "substring", searchQuery: "" });
+    const result = await buildListQuery({ page, pageSize, sort, filters, searchMode: "substring", searchQuery: "", columns });
     if (result.error) throw result.error;
     return { rows: result.data || [], total: result.count || 0 };
   }
@@ -578,7 +591,7 @@ export default function ReleasesDashboard() {
     let p = 1;
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const { rows } = await fetchListPage({ page: p, pageSize: EXPORT_PAGE_SIZE, sort, filters, searchTerm: debouncedSearch });
+      const { rows } = await fetchListPage({ page: p, pageSize: EXPORT_PAGE_SIZE, sort, filters, searchTerm: debouncedSearch, columns: EXPORT_SELECT });
       all = all.concat(rows);
       if (rows.length < EXPORT_PAGE_SIZE) break;
       p++;
@@ -705,6 +718,7 @@ export default function ReleasesDashboard() {
       if (saved.tagFilter) setTagFilter(saved.tagFilter);
       if (saved.dateRangeStart) setDateRangeStart(saved.dateRangeStart);
       if (saved.dateRangeEnd) setDateRangeEnd(saved.dateRangeEnd);
+      if (saved.adv && typeof saved.adv === "object") { setAdv(saved.adv); if (Object.keys(saved.adv).length) setAdvOpen(true); }
       if (saved.page) setPage(saved.page);
       if (saved.pageSize) setPageSize(saved.pageSize);
       if (saved.sort) setSort(saved.sort);
@@ -735,6 +749,7 @@ export default function ReleasesDashboard() {
         tagFilter: restored?.tagFilter || "",
         dateRangeStart: restored?.dateRangeStart || "",
         dateRangeEnd: restored?.dateRangeEnd || "",
+        adv: restored?.adv && typeof restored.adv === "object" ? restored.adv : {},
       },
       searchTerm: restored?.search || "",
     });
@@ -783,7 +798,7 @@ export default function ReleasesDashboard() {
   // empty dep array) always sees the CURRENT values instead of whatever
   // they were at mount.
   const latestDashboardStateRef = useRef(null);
-  latestDashboardStateRef.current = currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, page, pageSize, sort });
+  latestDashboardStateRef.current = currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, adv, page, pageSize, sort });
   useEffect(() => {
     return () => {
       writeDashboardState({ ...latestDashboardStateRef.current, scrollY: window.scrollY });
@@ -793,6 +808,25 @@ export default function ReleasesDashboard() {
 
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const anyStatClickFilter = statusFilter || channelFilter || createdFilter;
+  // Round 590 — the advanced panel shows ONE set of values: its own fields + the filters that already live in separate state
+  // (type / channel / stage / created / tag, which the stat cards and the old dropdowns set). onAdvChange routes each key home.
+  const advValues = { ...adv, project_type: typeFilter, requester_segment: channelFilter || "", stage: statusFilter || "", created: createdFilter || "", tag: tagFilter };
+  function onAdvChange(key, value) {
+    if (key === "project_type") setTypeFilter(value);
+    else if (key === "requester_segment") setChannelFilter(value || null);
+    else if (key === "stage") setStatusFilter(value || null);
+    else if (key === "created") setCreatedFilter(value || null);
+    else if (key === "tag") setTagFilter(value);
+    else setAdv((cur) => { const n = { ...cur }; if (value === "" || value == null) delete n[key]; else n[key] = value; return n; });
+  }
+  function clearAdv() { setAdv({}); setTypeFilter(""); setChannelFilter(null); setStatusFilter(null); setCreatedFilter(null); setTagFilter(""); }
+  const advCount = FILTER_FIELDS.filter((x) => advValues[x.key] !== undefined && advValues[x.key] !== null && advValues[x.key] !== "").length;
+  const advCoreOptions = {
+    project_type: typeOptions.map((x) => [x, x]),
+    requester_segment: CHANNELS.map((x) => [x, x]),
+    stage: [["preRelease", "Pre-release"], ["released", "Release"], ["postRelease", "Post-release"]],
+    created: [["today", "Today"], ["week", "This week"], ["month", "This month"]],
+  };
 
   // Round 79's updateTrackDid (inline-editable EP/Album DID straight from
   // this dashboard row) was removed in round 86 item 2 — the column it fed
@@ -1173,31 +1207,14 @@ export default function ReleasesDashboard() {
             onChange={(e) => setSearch(e.target.value)}
           />
           <DateRangeFilter start={dateRangeStart} end={dateRangeEnd} onStartChange={setDateRangeStart} onEndChange={setDateRangeEnd} />
-          <select className={styles.select} style={{ maxWidth: 200 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-            <option value="">Type — all</option>
-            {typeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <select className={styles.select} style={{ maxWidth: 200 }} value={channelFilter || ""} onChange={(e) => setChannelFilter(e.target.value || null)}>
-            <option value="">Channel — all</option>
-            {CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
           <select className={styles.select} style={{ maxWidth: 200 }} value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)}>
             <option value="">Label — all</option>
             {labels.map((l) => <option key={l.label_name} value={l.label_name}>{l.label_name}</option>)}
           </select>
-          {/* Round 323 — tag filter, per explicit request ("add a tag
-              list, auto complete kind of things"). Gated the same as the
-              Tags column itself (canViewReleaseTags) — no point offering
-              a filter over values this viewer can't otherwise see, and
-              Marketing's subteam tags are never in tagOptions to begin
-              with (loadTagOptions only ever surfaces PRJ/PUB/LBL codes +
-              real freeform tags — see that function's own comment). */}
-          {showReleaseTagsColumn && (
-            <TagFilterAutocomplete options={tagOptions} value={tagFilter} onChange={setTagFilter} />
-          )}
-          {(typeFilter || labelFilter || tagFilter || search || dateRangeStart || dateRangeEnd || anyStatClickFilter) && (
+          <AdvFilterButton styles={styles} open={advOpen} onToggle={() => setAdvOpen((x) => !x)} count={advCount} />
+          {(typeFilter || labelFilter || tagFilter || search || dateRangeStart || dateRangeEnd || anyStatClickFilter || advCount > 0) && (
             <button
-              onClick={() => { setStatusFilter(null); setChannelFilter(null); setCreatedFilter(null); setTypeFilter(""); setLabelFilter(""); setTagFilter(""); setSearch(""); setDateRangeStart(""); setDateRangeEnd(""); }}
+              onClick={() => { clearAdv(); setLabelFilter(""); setSearch(""); setDateRangeStart(""); setDateRangeEnd(""); }}
               style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "6px 12px", fontSize: 11, color: "var(--text-faint)", cursor: "pointer" }}
             >
               ✕ Clear all filters
@@ -1223,6 +1240,15 @@ export default function ReleasesDashboard() {
               match (see exportMatchingReleases above), not just this
               page's on-screen 25/50/100 rows. */}
           <ExportButton columns={EXPORT_COLUMNS} filename={`releases-export-${dateStr(new Date())}`} fetchRows={exportMatchingReleases} />
+          <AdvFilterPanel
+            styles={styles}
+            open={advOpen}
+            values={advValues}
+            onChange={onAdvChange}
+            onClear={clearAdv}
+            options={advCoreOptions}
+            tagSlot={showReleaseTagsColumn ? <TagFilterAutocomplete options={tagOptions} value={tagFilter} onChange={setTagFilter} /> : <span style={{ fontSize: 11.5, color: "var(--text-faint)" }}>Tags are not visible for your account.</span>}
+          />
         </div>
 
         {error && <div className={styles.errorBox}>{error}</div>}
