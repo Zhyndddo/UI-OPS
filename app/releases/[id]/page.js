@@ -10,6 +10,7 @@ import { fmtDate, formatDetailText, fetchAllRows } from "../../../lib/helpers";
 import { ensurePhuLucTicket } from "../../../lib/ensurePhuLucTicket";
 import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, GATE_TICKET_TYPES, CO_TRONG_NET_DRAFT_DEFAULTS, GatePopupShell, GatePanelTrigger } from "../../../lib/GateFields";
 import { META_ITEMS, REQUIRED_META_KEYS } from "../../../lib/metadataChecklist";
+import { ChoiceToggle, GEN_AI_OPTIONS } from "../../../lib/SwitchControls";
 import QuickCreate from "../../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../../lib/ReferenceInputs";
 import ArtistTagInput from "../../../lib/ArtistTagInput";
@@ -3184,6 +3185,11 @@ function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requir
           </div>
           );
         })}
+        {/* Round 591 — Gen AI: one choice (No AI / Partly AI / Fully AI). Also edited from the New Release Setup (upload) workstation. */}
+        <div className={styles.field} style={{ marginBottom: 0 }}>
+          <label className={styles.fieldLabel}>Gen AI</label>
+          <ChoiceToggle value={form.gen_ai || ""} onChange={(v) => update("gen_ai", v)} options={GEN_AI_OPTIONS} compact />
+        </div>
       </div>
       {showMvTypePopup && (
         <GatePopupShell title="MV Type" onClose={() => setShowMvTypePopup(false)} width={340}>
@@ -4277,6 +4283,7 @@ function TasklistTab({ form, bookingEntries }) {
     ["Metadata: Lyric", form.meta_lyric, true, "OPS"],
     ["Metadata: MV", form.meta_mv, true, "OPS"],
     ["Metadata: Doc", form.meta_doc, true, "OPS"],
+    ["Gen AI", form.gen_ai, false, "OPS"],
     ["Smartlink", form.smartlink, false, "OPS"],
     ["UPC", form.upc, false, "OPS"],
     ["Link LBM", form.link_lbm, false, "OPS"],

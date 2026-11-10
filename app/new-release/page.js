@@ -12,6 +12,7 @@ import { GateFields, GateToggle, GateGrid, MARKETING_CHECKLIST_FIELDS, CO_TRONG_
 import { MV_TYPE_OPTIONS } from "../../lib/pickerOptions";
 import { publishingHdDone } from "../../lib/labelHopTacStatus";
 import PickSelect from "../../lib/PickSelect";
+import { ChoiceToggle, GEN_AI_OPTIONS } from "../../lib/SwitchControls";
 import QuickCreate from "../../lib/QuickCreate";
 import { LabelInput, ArtistInput } from "../../lib/ReferenceInputs";
 import ArtistTagInput from "../../lib/ArtistTagInput";
@@ -78,6 +79,7 @@ const EMPTY_FORM = {
   meta_mv: "false",
   canva_status: "", // MV type (Full/Lyric/Visualization) — same field the Pre-release Workstation edits, revealed under Metadata Checklist's MV toggle
   meta_doc: "false",
+  gen_ai: "", // Round 591 — "No AI" | "Partly AI" | "Fully AI"
   gate_pitching: "false",
   // TBU by default — every release starts in BRIEF & DATA, which is
   // exactly the state that maps to "update" now that this is a read-only,
@@ -1299,6 +1301,11 @@ export default function NewReleasePage() {
                 )}
               </div>
             ))}
+            {/* Round 591 — Gen AI */}
+            <div className={styles.field} style={{ marginBottom: 0 }}>
+              <label className={styles.fieldLabel}>Gen AI</label>
+              <ChoiceToggle value={form.gen_ai || ""} onChange={(v) => update("gen_ai", v)} options={GEN_AI_OPTIONS} compact />
+            </div>
           </div>
           {/* Marketing Checklist — rendered directly under Metadata
               Checklist (not inside GateFields) per follow-up feedback: the

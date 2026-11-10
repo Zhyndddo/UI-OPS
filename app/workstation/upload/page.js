@@ -26,6 +26,7 @@ import CopyrightPreviewPopup from "../../../lib/CopyrightPreviewPopup";
 import { copyrightChecklistIsEmpty } from "../../../lib/copyrightChecklist";
 import { PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import PicTagInput from "../../../lib/PicTagInput";
+import { ChoiceToggle, GEN_AI_OPTIONS } from "../../../lib/SwitchControls";
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
@@ -358,7 +359,7 @@ export default function UploadWorkstation() {
       .from("releases")
       .select(
         "id, did, title, main_artist, label, feature_artist_tags, feature_artist, release_date, release_time, upc, apple_id, drive_link, link_lbm, link_lbm_source, link_share, smartlink, link_preorder, upload_status, " +
-        "link_ugc, link_media_report, requester_segment, linkshare_tiktok_timing, linkshare_facebook_timing, needs_update, " +
+        "link_ugc, link_media_report, requester_segment, linkshare_tiktok_timing, linkshare_facebook_timing, needs_update, gen_ai, " +
         // Round 88 2nd follow-up — Copyright popup column
         "single_album_ep, copyright_checklist"
       )
@@ -437,6 +438,7 @@ export default function UploadWorkstation() {
                   {/* Round 88 2nd follow-up — read-only Copyright preview,
                       same data the release's own Copyrights tab edits. */}
                   <th>Copyright</th>
+                  <th>Gen AI</th>
                   <SortableTh label="Upload Status" sortKey="upload_status" sort={sort} onToggle={toggleSort} />
                   <th title={defaultPics.length > 0 ? `Default: ${defaultPics.map((id) => profiles.find((p) => p.id === id)?.name).filter(Boolean).join(", ")}` : "No default set"}>PIC</th>
                 </tr>
@@ -444,7 +446,7 @@ export default function UploadWorkstation() {
               <tbody>
                 {releases.map((r) =>
                   sonyPublishDids.has(r.did) ? (
-                    <SonyPublishLockRow key={r.id} colSpan={8} />
+                    <SonyPublishLockRow key={r.id} colSpan={9} />
                   ) : (
                     <UploadRow
                       key={r.id}
@@ -655,6 +657,10 @@ function UploadRow({ release, picIds, isOverride, profiles, highlight, dateHighl
         >
           ©
         </button>
+      </td>
+      {/* Round 591 — Gen AI (same releases.gen_ai column as the Metadata Checklist on the release page) */}
+      <td style={{ minWidth: 210 }}>
+        <ChoiceToggle value={release.gen_ai || ""} onChange={(v) => onUpdateField(release, "gen_ai", v)} options={GEN_AI_OPTIONS} compact />
       </td>
       <td>
         <select className={styles.select} style={{ minWidth: 110 }} value={release.upload_status || "Running"} onChange={(e) => onUpdateField(release, "upload_status", e.target.value)}>
