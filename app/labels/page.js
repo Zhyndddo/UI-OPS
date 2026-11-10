@@ -4,6 +4,7 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { withLabelPrefix, stripLabelPrefix, hasLabelPrefix, LABEL_PREFIX } from "../../lib/labelHelpers";
+import { findExistingLabel, isUniqueViolation } from "../../lib/nameDedupe";
 import { LABEL_HOP_TAC_OPTIONS, LABEL_PHAN_LOAI_OPTIONS } from "../../lib/pickerOptions";
 import { HOP_TAC_TICKET_TYPE, hopTacTagEntry, hopTacTagStatus, hopTacStatusColor, anyHopTacDone } from "../../lib/labelHopTacStatus";
 import { useAuth } from "../../lib/AuthContext";
@@ -331,9 +332,15 @@ export default function LabelsPage() {
       ...form,
       label_name: form.contract_signed ? stripLabelPrefix(form.label_name) : withLabelPrefix(form.label_name),
     };
+    // Round 592 — block a second copy of the same label (ignores case / accents / the "HĐ - " prefix)
+    const dup = await findExistingLabel(supabase, form.label_name);
+    if (dup) {
+      setError(`"${dup.label_name}" already exists in the list — search for it instead of adding it again.`);
+      return;
+    }
     const { data: inserted, error: err } = await supabase.from("labels").insert(payload).select().single();
     if (err) {
-      setError(err.message);
+      setError(isUniqueViolation(err) ? `"${stripLabelPrefix(form.label_name)}" already exists in the list.` : err.message);
       return;
     }
 

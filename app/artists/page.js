@@ -4,6 +4,7 @@ import AppShell from "../../lib/AppShell";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import QuickCreate from "../../lib/QuickCreate";
+import { findExistingArtist, isUniqueViolation } from "../../lib/nameDedupe";
 import UrlField from "../../lib/UrlField";
 import Pagination from "../../lib/Pagination";
 import SearchBox from "../../lib/SearchBox";
@@ -133,8 +134,14 @@ export default function ArtistsPage() {
       return;
     }
     const payload = { ...form, label_id: form.label_id || null };
+    // Round 592 — block a second copy of the same name (ignores case / accents / extra spaces)
+    const dup = await findExistingArtist(supabase, form.stage_name);
+    if (dup) {
+      setError(`"${dup.stage_name}" already exists in the list — search for it instead of adding it again.`);
+      return;
+    }
     const { error: err } = await supabase.from("artists").insert(payload);
-    if (err) setError(err.message);
+    if (err) setError(isUniqueViolation(err) ? `"${form.stage_name.trim()}" already exists in the list.` : err.message);
     else {
       setForm(EMPTY);
       // Jump to page 1 (alphabetical order, so a fresh artist could land

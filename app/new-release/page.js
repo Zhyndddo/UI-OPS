@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
 import { fetchAllRows } from "../../lib/helpers";
+import { foldName, findExistingArtist } from "../../lib/nameDedupe";
 // Round 281 — audit log / requester attribution
 import { useAuth } from "../../lib/AuthContext";
 import { logAudit, logTicketCreate } from "../../lib/auditLog";
@@ -855,8 +856,14 @@ export default function NewReleasePage() {
   // main_artist already having a name.
   async function resolveQuickArtistTag(name) {
     const trimmed = name.trim();
-    const match = artists.find((a) => a.stage_name.toLowerCase() === trimmed.toLowerCase());
+    const match = artists.find((a) => foldName(a.stage_name) === foldName(trimmed));
     if (match) return match.stage_name;
+    // Round 592 — the loaded list can be stale; ask the database before creating a second copy
+    const already = await findExistingArtist(supabase, trimmed);
+    if (already) {
+      setArtists((prev) => (prev.some((a) => a.id === already.id) ? prev : [...prev, already]));
+      return already.stage_name;
+    }
     const { data: created, error: createErr } = await supabase.from("artists").insert({ stage_name: trimmed }).select().single();
     if (!createErr && created) {
       setArtists((prev) => [...prev, created]);
