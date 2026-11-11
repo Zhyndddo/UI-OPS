@@ -1652,6 +1652,19 @@ function NotificationsSection() {
     setTesting(false);
   }
 
+  // Round 601 — Telegram test: posts a hello line, or the real digest, into the internal group (server reads the bot token from Vercel env).
+  const [tgBusy, setTgBusy] = useState(false);
+  const [tgResult, setTgResult] = useState(null);
+  async function sendTelegramTest(digest) {
+    setTgBusy(true); setTgResult(null);
+    try {
+      const { data: sd } = await supabase.auth.getSession();
+      const res = await fetch("/api/telegram-test", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sd?.session?.access_token || ""}` }, body: JSON.stringify({ digest }) });
+      setTgResult(await res.json().catch(() => ({ error: `HTTP ${res.status}` })));
+    } catch (e) { setTgResult({ error: e.message }); }
+    setTgBusy(false);
+  }
+
   if (loading || !settings) return <div style={{ color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
 
   return (
@@ -1762,6 +1775,20 @@ function NotificationsSection() {
             {JSON.stringify(testResult, null, 2)}
           </pre>
         )}
+
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Telegram (internal group)</div>
+          <p style={{ fontSize: 10, color: "var(--text-dim)", marginBottom: 8 }}>
+            Uses TELEGRAM_BOT_TOKEN and TELEGRAM_INTERNAL_CHAT_ID from the deployment's environment. Scheduled sends: 08:30, 13:30 and 18:00 (Mon–Fri) via Supabase pg_cron.
+          </p>
+          <button className={styles.btnSecondary} onClick={() => sendTelegramTest(false)} disabled={tgBusy}>{tgBusy ? "Sending…" : "Send hello to Telegram"}</button>{" "}
+          <button className={styles.btnSecondary} onClick={() => sendTelegramTest(true)} disabled={tgBusy}>Send digest to Telegram</button>
+          {tgResult && (
+            <pre style={{ marginTop: 10, fontSize: 10, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, padding: 10, overflowX: "auto", maxHeight: 200 }}>
+              {JSON.stringify(tgResult, null, 2)}
+            </pre>
+          )}
+        </div>
       </div>
     </div>
   );
