@@ -129,6 +129,7 @@ export default function MaSoiPage() {
   const setAuto = (v) => { setAutoRaw(v); try { localStorage.setItem("ms_auto", v); } catch (e) { /* ignore */ } };
   useEffect(() => { try { const v = localStorage.getItem("ms_auto"); if (v !== null && /^\d{1,2}$/.test(v)) setAutoRaw(v); } catch (e) { /* ignore */ } }, []);
   const [sel2, setSel2] = useState("");   // Round 589 — Cupid's second lover
+  const [selW, setSelW] = useState([]);   // Round 598 — the flute-player picks two names from ONE list
   const [sel, setSel] = useState("");   // Round 583 — pending choice (seer / guard / witch / hunter) until "Xác nhận" is pressed
   const timer = useRef(null);
 
@@ -173,7 +174,7 @@ export default function MaSoiPage() {
   const pr = st?.prompt;
   const roleCard = st?.cards?.find((c) => c.kind === "role");
   const others = (st?.cards || []).filter((c) => c.kind !== "role");
-  useEffect(() => { setSel(""); setSel2(""); }, [g?.phase_no, g?.stage, st?.prompt?.type]);
+  useEffect(() => { setSel(""); setSel2(""); setSelW([]); }, [g?.phase_no, g?.stage, st?.prompt?.type]);
   // new game opened (lobby) = "come and join" howl, once per game per browser
   useEffect(() => { if (g?.id && g.status === "lobby") howlOnce(`ms_howl_lobby_${g.id}`); }, [g?.id, g?.status]); // eslint-disable-line react-hooks/exhaustive-deps
   const isWolfCard = !!roleCard && /SÓI/.test(roleCard.title || "") && !/NỬA/.test(roleCard.title || "");
@@ -298,13 +299,27 @@ export default function MaSoiPage() {
                   <div>
                     <div style={{ fontWeight: 800 }}>🎶 Bạn thổi sáo mê hoặc ai?</div>
                     {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã thổi sáo xong — chi tiết nằm trong thẻ bên dưới.</div>
-                      : <>
-                          <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Còn {pr.left} người chưa bị mê hoặc. Chọn {pr.left >= 2 ? "hai người" : "người cuối cùng"}:</div>
-                          <Picker options={pr.options} value={sel} disabled={busy} onPick={setSel} />
-                          {pr.left >= 2 && <Picker options={pr.options.filter((o) => o.id !== sel)} value={sel2} disabled={busy} onPick={setSel2} />}
-                          <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Khi mọi người còn sống (trừ bạn) đều bị mê hoặc, dân làng thắng. Bạn đổi ý được cho đến khi bấm Xác nhận.</div>
-                          <button type="button" style={btn} disabled={busy || !sel || (pr.left >= 2 && (!sel2 || sel === sel2))} onClick={() => act("whisper", sel, pr.left >= 2 ? { second: sel2 } : {})}>{busy ? "Đang gửi…" : "Xác nhận thổi sáo"}</button>
-                        </>}
+                      : (() => {
+                          const need = pr.left >= 2 ? 2 : 1;
+                          const toggle = (id) => setSelW((cur) => cur.includes(id) ? cur.filter((x) => x !== id) : cur.length >= need ? [...cur.slice(1), id] : [...cur, id]);
+                          return (
+                            <>
+                              <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Còn {pr.left} người chưa bị mê hoặc. Bấm tên để chọn {need === 2 ? "ĐÚNG 2 người" : "người cuối cùng"} (đã chọn {selW.length}/{need}); bấm lại để bỏ chọn.</div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, margin: "8px 0" }}>
+                                {pr.options.map((o) => {
+                                  const on = selW.includes(o.id);
+                                  return <button key={o.id} type="button" disabled={busy} onClick={() => toggle(o.id)}
+                                    style={{ ...btnGhost, ...(on ? { background: "#ff7a1a", color: "#fff", borderColor: "#ff7a1a" } : {}), opacity: busy ? 0.6 : 1 }}>{on ? "✓ " : ""}{o.name}</button>;
+                                })}
+                              </div>
+                              <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Khi mọi người còn sống (trừ bạn) đều bị mê hoặc, dân làng thắng. Bạn đổi ý được cho đến khi bấm Xác nhận.</div>
+                              <button type="button" style={{ ...btn, opacity: selW.length === need ? 1 : 0.6 }} disabled={busy || selW.length !== need}
+                                onClick={() => act("whisper", selW[0], need === 2 ? { second: selW[1] } : {})}>
+                                {busy ? "Đang gửi…" : selW.length === need ? "Xác nhận thổi sáo" : `Chọn thêm ${need - selW.length} người nữa`}
+                              </button>
+                            </>
+                          );
+                        })()}
                   </div>
                 )}
 

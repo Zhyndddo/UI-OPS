@@ -51,6 +51,7 @@ export async function POST(request) {
     case "chat_send": fn = "ms_chat_send"; args = { p_profile: p, p_room: body.room === "wolf" ? "wolf" : "day", p_body: String(body.body || "").slice(0, 600) }; break;
     case "chat_toggle": fn = "ms_chat_toggle"; args = { p_profile: p, p_on: body.on === true }; break;
     case "bots_add": fn = "ms_add_bots"; args = { p_profile: p, p_n: Math.max(1, Math.min(29, parseInt(body.n, 10) || 1)) }; break;
+    case "dev_skip": fn = "ms_dev_skip"; args = { p_profile: p }; break;   // Round 598 — dev: close the current phase now
     case "bots_turn": fn = "ms_bot_turn"; args = { p_profile: p }; break;
     case "bots_chat": fn = "ms_bot_chat"; args = { p_profile: p, p_count: Math.max(1, Math.min(300, parseInt(body.count, 10) || 1)) }; break;
     default: return NextResponse.json({ error: "Unknown action." }, { status: 400, headers: noStore });

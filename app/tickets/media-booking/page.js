@@ -1138,11 +1138,12 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
     // that tab, even though Config genuinely had a real number by then.
     await refreshPriceDefaults();
     if (isTikTokChannel) {
-      // Đợt 1 only — Số Kênh × Số Bài per row. Đợt 2's own pair is tracked
-      // separately (see saveDot2Targets) and never feeds this total.
+      // Round 599 — Đợt 1 + Đợt 2: (Số Kênh × Số Bài) of each wave, added
+      // together per row, so Đợt 2 counts INTO the same package line.
+      // (The Creation / Link-paid targets in saveDot2Targets are separate.)
       const rows = entries.map((e) => ({
         ...e,
-        totalPosts: (e.channel_count || 0) * (e.count_posts || 0),
+        totalPosts: (e.channel_count || 0) * (e.count_posts || 0) + (e.channel_count_dot2 || 0) * (e.count_posts_dot2 || 0),
       }));
       setSummary(rows);
       const brandTotal = rows.reduce((sum, r) => sum + r.totalPosts, 0);
@@ -1624,8 +1625,9 @@ function PackageBuilderPopup({ ticket, onClose, onStatusChange, initialPackageId
       return `${e.platform}: ${e.count_posts || 0} × ${fmtVnd(e.unit_price || 0)} = ${fmtVnd(amt)}`;
     }
     if (isTikTok) {
-      const total = (e.channel_count || 0) * (e.count_posts || 0);
-      return `${e.platform}: ${e.channel_count || 0} kênh × ${e.count_posts || 0} bài = ${total}`;
+      const d2 = (e.channel_count_dot2 || 0) * (e.count_posts_dot2 || 0);
+      const total = (e.channel_count || 0) * (e.count_posts || 0) + d2;
+      return `${e.platform}: ${e.channel_count || 0} kênh × ${e.count_posts || 0} bài${d2 ? ` + Đợt 2 ${e.channel_count_dot2 || 0} × ${e.count_posts_dot2 || 0}` : ""} = ${total}`;
     }
     const phaseSum = PHASES.reduce((s, [key]) => s + (e[key] || 0), 0);
     const channels = e.channel_count || 1;
