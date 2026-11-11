@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { howlOnce, playHowl, getSound, setSound } from "../../lib/maSoiHowl";
+import MaSoiChat, { MaSoiDevTools } from "../../lib/MaSoiChat";   // Round 596
 
 // Round 576 — Ma Sói (Werewolf) office game, slice 1. All rules run in the database (sql/pending/add-round576-ma-soi.sql);
 // this page only shows what the server says this player may see, and sends the player's answers.
@@ -11,7 +12,7 @@ const POLL_MS = 20000;
 const card = { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 14, marginBottom: 12 };
 const btn = { padding: "9px 16px", fontWeight: 800, borderRadius: 8, border: "none", background: "#ff7a1a", color: "#fff", cursor: "pointer" };
 const btnGhost = { padding: "8px 14px", fontWeight: 700, borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "inherit", cursor: "pointer" };
-const ROLE_VI = { wolf: "Sói", villager: "Dân làng", seer: "Tiên tri", witch: "Phù thủy", hunter: "Thợ săn", guard: "Bảo vệ", cupid: "Thần Tình Yêu", idiot: "Kẻ ngốc", elder: "Già làng" };
+const ROLE_VI = { wolf: "Sói", villager: "Dân làng", seer: "Tiên tri", witch: "Phù thủy", hunter: "Thợ săn", guard: "Bảo vệ", cupid: "Thần Tình Yêu", idiot: "Kẻ ngốc", elder: "Già làng", whitewolf: "Sói trắng", halfwolf: "Sói nửa người", silencer: "Người bịt miệng", whisperer: "Người thổi sáo" };
 const PHASE_LABEL = { night: "🌙 Đêm", day: "☀️ Ngày — bỏ phiếu", runoff: "⚖️ Bỏ phiếu lại", hunter: "🏹 Phát súng cuối" };
 
 function fmtLeft(ms) {
@@ -43,12 +44,30 @@ function Picker({ options, value, onPick, disabled, extra }) {
   );
 }
 
+// Round 595 — the Sói trắng's extra kill (even nights): pick anybody (wolf or villager) or skip. Used inside the wolf card and on its own.
+function WhiteWolfBox({ o, busy, onSend }) {
+  const [pick, setPick] = useState("");
+  return (
+    <div>
+      <div style={{ fontWeight: 800 }}>🐺⚪ Sói trắng — nhát giết thêm (đêm chẵn)</div>
+      {o.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã quyết định xong.</div> : (
+        <>
+          <Picker options={o.options} value={pick === "__skip" ? "" : pick} disabled={busy} onPick={setPick}
+            extra={<button type="button" disabled={busy} onClick={() => setPick("__skip")} style={{ ...btnGhost, ...(pick === "__skip" ? { background: "#555", color: "#fff" } : {}) }}>Bỏ qua đêm nay</button>} />
+          <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Giết một người bất kỳ — sói hay dân. Bảo vệ và Phù thủy không cứu được nhát này. Bạn đổi ý được cho đến khi bấm Xác nhận.</div>
+          <button type="button" style={btn} disabled={busy || !pick} onClick={() => onSend(pick === "__skip" ? null : pick)}>{busy ? "Đang gửi…" : "Xác nhận"}</button>
+        </>
+      )}
+    </div>
+  );
+}
+
 // Round 586 — "start automatically when N people joined" field, used by both "open a new game" boxes (first game and after a game ended)
 function AutoField({ value, onChange }) {
   return (
     <div style={{ fontSize: 13, marginBottom: 8 }}>
       Tự bắt đầu khi đủ <input value={value} onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric"
-        style={{ width: 44, padding: 4, borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "inherit", textAlign: "center" }} /> người (tối thiểu 4, tối đa 16; 0 = chỉ dev bấm bắt đầu).
+        style={{ width: 44, padding: 4, borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg)", color: "inherit", textAlign: "center" }} /> người (tối thiểu 4, tối đa 30; 0 = chỉ dev bấm bắt đầu).
     </div>
   );
 }
@@ -157,7 +176,7 @@ export default function MaSoiPage() {
   useEffect(() => { setSel(""); setSel2(""); }, [g?.phase_no, g?.stage, st?.prompt?.type]);
   // new game opened (lobby) = "come and join" howl, once per game per browser
   useEffect(() => { if (g?.id && g.status === "lobby") howlOnce(`ms_howl_lobby_${g.id}`); }, [g?.id, g?.status]); // eslint-disable-line react-hooks/exhaustive-deps
-  const isWolfCard = !!roleCard && /SÓI/.test(roleCard.title || "");
+  const isWolfCard = !!roleCard && /SÓI/.test(roleCard.title || "") && !/NỬA/.test(roleCard.title || "");
   // Round 582 — the howl plays once per game, the first time this person sees their role card (= game start / role reveal)
   useEffect(() => { if (g?.id && roleCard) howlOnce(`ms_howl_${g.id}`); }, [g?.id, !!roleCard]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -253,6 +272,39 @@ export default function MaSoiPage() {
                       {pr.wolves.map((w, i) => <div key={i}>{w.me ? "👉 " : ""}{w.name}: {w.vote ? `chọn ${w.vote}` : "chưa chọn"}{w.confirmed ? " ✅ đã xác nhận" : ""}</div>)}
                     </div>
                     <button type="button" style={btn} disabled={busy || !pr.my_vote || pr.my_confirmed} onClick={() => act("wolf_confirm")}>{pr.my_confirmed ? "Đã xác nhận" : "Xác nhận"}</button>
+                  </div>
+                )}
+
+                {pr.type === "wolf" && pr.ww && (
+                  <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--border)" }}>
+                    <WhiteWolfBox key={`${g.phase_no}-ww`} o={pr.ww} busy={busy} onSend={(id) => act("wwolf", id)} />
+                  </div>
+                )}
+                {pr.type === "whitewolf" && <WhiteWolfBox key={`${g.phase_no}-w2`} o={pr} busy={busy} onSend={(id) => act("wwolf", id)} />}
+
+                {pr.type === "silencer" && (
+                  <div>
+                    <div style={{ fontWeight: 800 }}>🤐 Bạn bịt miệng ai?</div>
+                    {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã chọn rồi.</div>
+                      : <>
+                          <Picker options={pr.options} value={sel} disabled={busy} onPick={setSel} />
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Người bị chọn không thể nhắn trong phòng chat cả ngày hôm sau (vẫn được bỏ phiếu). Bạn đổi ý được cho đến khi bấm Xác nhận.</div>
+                          <button type="button" style={btn} disabled={busy || !sel} onClick={() => act("silence", sel)}>{busy ? "Đang gửi…" : "Xác nhận bịt miệng"}</button>
+                        </>}
+                  </div>
+                )}
+
+                {pr.type === "whisperer" && (
+                  <div>
+                    <div style={{ fontWeight: 800 }}>🎶 Bạn thổi sáo mê hoặc ai?</div>
+                    {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã thổi sáo xong — chi tiết nằm trong thẻ bên dưới.</div>
+                      : <>
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Còn {pr.left} người chưa bị mê hoặc. Chọn {pr.left >= 2 ? "hai người" : "người cuối cùng"}:</div>
+                          <Picker options={pr.options} value={sel} disabled={busy} onPick={setSel} />
+                          {pr.left >= 2 && <Picker options={pr.options.filter((o) => o.id !== sel)} value={sel2} disabled={busy} onPick={setSel2} />}
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Khi mọi người còn sống (trừ bạn) đều bị mê hoặc, dân làng thắng. Bạn đổi ý được cho đến khi bấm Xác nhận.</div>
+                          <button type="button" style={btn} disabled={busy || !sel || (pr.left >= 2 && (!sel2 || sel === sel2))} onClick={() => act("whisper", sel, pr.left >= 2 ? { second: sel2 } : {})}>{busy ? "Đang gửi…" : "Xác nhận thổi sáo"}</button>
+                        </>}
                   </div>
                 )}
 
@@ -357,6 +409,10 @@ export default function MaSoiPage() {
             {st.dev && <div style={{ marginTop: 10 }}><AutoField value={auto} onChange={setAuto} /><button type="button" style={btn} disabled={busy} onClick={() => run({ action: "create", auto: parseInt(auto, 10) || 0 })}>Mở ván mới</button></div>}
           </div>
         )}
+
+        {g?.status === "lobby" && st.dev && <MaSoiDevTools status="lobby" call={call} onChanged={load} />}
+
+        {g && g.status !== "lobby" && st.joined && <MaSoiChat gid={g.id} status={g.status} dayNo={g.day_no} phaseKey={`${g.phase}-${g.stage}-${g.day_no}`} cards={st.cards} call={call} dev={st.dev} onChanged={load} />}
 
         {g && g.status !== "lobby" && (
           <div style={card}>
