@@ -397,3 +397,16 @@ a {
 
 /* Round 559 — chat bubble picks up the Halloween accent (tester only; attribute set by HalloweenDecor). */
 [data-decor="halloween"] button[aria-label^="Open chat"] { box-shadow: 0 0 0 3px rgba(255,122,26,0.35), 0 0 18px rgba(255,122,26,0.55) !important; }
+
+
+/* Round 594 — Teachers' Day (20/11): lib/TeachersDayDecor.js sets data-decor="teachers-day" on <html> while it is active.
+   Chalk-yellow accent on every theme; the bottom bar becomes a chalkboard (lib/ChalkBar.js sets data-chalk="on" on it). Removed automatically. */
+[data-theme="zhyn"][data-decor="teachers-day"],
+[data-theme="dark"][data-decor="teachers-day"] { --accent: #ffc83d; --accent-soft: #ffe9a6; --border-strong: #8fb59f; }
+[data-theme="light"][data-decor="teachers-day"] { --accent: #c98a00; --accent-soft: #a06a00; --accent-on: #ffffff; --border-strong: #2f5a45; }
+[data-chalk="on"] {
+  background: #20372c !important; border-top: 4px solid #8a6a43 !important; overflow: hidden;
+  --text: #f4efdf; --text-muted: #d8dccb; --text-faint: #b9c4b3; --border: rgba(244,239,223,0.35); --border-strong: rgba(244,239,223,0.6);
+  --bg-input: rgba(255,255,255,0.08); --bg-card: #20372c; --bg-hover: rgba(255,255,255,0.12);
+  color: #f4efdf;
+}

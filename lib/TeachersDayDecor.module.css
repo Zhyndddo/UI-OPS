@@ -1,0 +1,86 @@
+/* Round 594 — Teachers' Day (20/11). See TeachersDayDecor.js / teachersDay.js. z-index 250 = above page content, under the top/bottom bars (300) and modals. */
+.layer { position: fixed; inset: 0; z-index: 250; pointer-events: none; overflow: hidden; }
+
+.daisy { position: absolute; top: -8vh; opacity: 0.85; animation: tdFall linear infinite; will-change: transform; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.25)); }
+@keyframes tdFall {
+  0%   { transform: translate3d(0, -8vh, 0) rotate(var(--rot)); opacity: 0; }
+  8%   { opacity: 0.85; }
+  50%  { transform: translate3d(4vw, 55vh, 0) rotate(calc(var(--rot) + 140deg)); }
+  92%  { opacity: 0.8; }
+  100% { transform: translate3d(-3vw, 108vh, 0) rotate(calc(var(--rot) + 300deg)); opacity: 0; }
+}
+
+.doodleApple { position: absolute; width: 74px; left: calc(250px + 16px); bottom: calc(var(--bottombar-height) + 56px); opacity: 0.55; transform: rotate(-8deg); }
+.doodleStaff { position: absolute; width: 150px; right: 18px; top: calc(var(--topbar-height) + 52px); opacity: 0.5; transform: rotate(4deg); }
+.doodleGrade { position: absolute; right: 120px; bottom: calc(var(--bottombar-height) + 64px); font: 700 40px "Segoe Print","Bradley Hand","Chalkboard SE","Comic Sans MS",cursive; color: #f4efdf; opacity: 0.4; transform: rotate(-10deg); }
+
+.topLine { position: fixed; left: 0; right: 0; top: var(--topbar-height); height: 3px; z-index: 251; pointer-events: none; background: linear-gradient(90deg, #f4efdf, #ffd86b, #f4efdf, #cfe8d5, #f4efdf); opacity: 0.85; }
+
+.pill {
+  position: fixed; top: calc(var(--topbar-height) + 10px); left: 50%; transform: translateX(-50%);
+  z-index: 250; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 24px);
+  padding: 6px 8px 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #f4efdf;
+  background: #20372c; border: 2px solid #8a6a43; box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+  animation: tdPillIn 0.6s ease-out both;
+}
+@keyframes tdPillIn { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.pillClose { background: none; border: none; color: #f4efdf; font-size: 16px; line-height: 1; cursor: pointer; padding: 0 6px; opacity: 0.8; }
+
+.dock { position: fixed; z-index: 260; left: calc(250px + 12px); bottom: calc(var(--bottombar-height) + 10px); display: flex; gap: 8px; flex-wrap: wrap; }
+.dockBtn { position: relative; background: #20372c; color: #f4efdf; border: 2px solid #8a6a43; border-radius: 10px; padding: 7px 12px; font: 600 13px "Segoe Print","Bradley Hand","Chalkboard SE","Comic Sans MS",cursive; cursor: pointer; box-shadow: 0 3px 12px rgba(0,0,0,0.35); }
+.dockBtn:hover { background: #2a4a3b; }
+.dockBadge { position: absolute; top: -8px; right: -8px; min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box; border-radius: 10px; background: #ffc83d; color: #20372c; font: 800 12px/20px sans-serif; text-align: center; }
+
+/* chalkboard popups */
+.panelBackdrop { position: fixed; inset: 0; z-index: 9500; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(8,20,14,0.62); animation: tdFade 0.35s ease-out both; }
+@keyframes tdFade { from { opacity: 0; } to { opacity: 1; } }
+.board { position: relative; width: min(480px, 100%); max-height: calc(100vh - 40px); overflow: auto; box-sizing: border-box; padding: 22px 24px 20px; border: 10px solid #8a6a43; border-radius: 10px; background: radial-gradient(ellipse at 30% 20%, #2c4a3b, #1d3328 70%); color: #f4efdf; box-shadow: 0 18px 50px rgba(0,0,0,0.5), inset 0 0 40px rgba(0,0,0,0.35); font-family: "Segoe Print","Bradley Hand","Chalkboard SE","Comic Sans MS",cursive; }
+.boardWide { width: min(980px, 100%); }
+.boardClose { position: absolute; top: 4px; right: 8px; background: none; border: none; color: #f4efdf; font-size: 24px; cursor: pointer; opacity: 0.8; }
+.boardTitle { font-size: 24px; text-align: center; margin-bottom: 14px; text-shadow: 0 0 1px rgba(255,255,255,0.7); }
+.boardHint { display: block; font-size: 13px; opacity: 0.75; margin: 6px 0; }
+.boardLabel { font-size: 13px; margin: 12px 0 5px; opacity: 0.9; }
+.count { float: right; opacity: 0.6; }
+.chalkInput { width: 100%; box-sizing: border-box; background: rgba(255,255,255,0.07); border: 1px dashed rgba(244,239,223,0.55); border-radius: 6px; color: #f4efdf; padding: 8px 10px; font: inherit; font-size: 14px; resize: vertical; }
+.chalkInput::placeholder { color: rgba(244,239,223,0.45); }
+.pick { font-size: 16px; padding: 6px 0; }
+.pickList { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.pickItem { background: transparent; color: #f4efdf; border: 1px solid rgba(244,239,223,0.5); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.pickItem:hover { background: rgba(255,255,255,0.12); }
+.pickSeg { opacity: 0.6; }
+.linkBtn { background: none; border: none; color: #ffe9a6; text-decoration: underline; cursor: pointer; font: inherit; font-size: 13px; }
+.anonRow { display: block; margin-top: 10px; font-size: 13px; }
+.boardErr { color: #ffb3a6; font-size: 13px; margin-top: 8px; }
+.boardOk { color: #cfe8d5; font-size: 14px; margin-top: 8px; }
+.boardActions { display: flex; gap: 14px; align-items: center; margin-top: 14px; }
+.chalkBtn { background: #f4efdf; color: #20372c; border: none; border-radius: 8px; padding: 8px 16px; font: 700 14px "Segoe Print","Bradley Hand","Chalkboard SE","Comic Sans MS",cursive; cursor: pointer; }
+.chalkBtn:disabled { opacity: 0.45; cursor: default; }
+.sentList { margin-top: 10px; max-height: 180px; overflow: auto; border-top: 1px dashed rgba(244,239,223,0.4); padding-top: 8px; }
+.sentRow { font-size: 12.5px; margin-bottom: 8px; opacity: 0.92; }
+
+.noteCard { border: 1px dashed rgba(244,239,223,0.55); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: rgba(255,255,255,0.05); }
+.noteNew { border-style: solid; border-color: #ffc83d; }
+.noteBody { font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.noteFrom { font-size: 12px; opacity: 0.7; margin-top: 6px; text-align: right; }
+
+.bloomCols { columns: 3 220px; column-gap: 14px; }
+.bloomCard { position: relative; break-inside: avoid; margin-bottom: 14px; padding: 14px 12px 12px; border: 1px dashed rgba(244,239,223,0.55); border-radius: 8px; background: rgba(255,255,255,0.05); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; transform: rotate(var(--tilt, 0deg)); animation: tdBloom 0.7s cubic-bezier(.2,1.4,.4,1) both; }
+.bloomFlower { position: absolute; top: -12px; left: 8px; font-size: 20px; }
+@keyframes tdBloom { from { opacity: 0; transform: scale(0.2) rotate(-12deg); } to { opacity: 1; transform: scale(1) rotate(var(--tilt, 0deg)); } }
+
+.cheerDaisy { position: absolute; top: -30px; opacity: 0.85; animation: tdFall linear infinite; animation-duration: 12s; }
+.cheerWrite { font-size: 36px; text-align: center; margin: 22px 0 6px; clip-path: inset(0 100% 0 0); animation: tdWrite 2.2s steps(14) 0.4s forwards; white-space: nowrap; }
+@keyframes tdWrite { to { clip-path: inset(0 0 0 0); } }
+.cheerSub { text-align: center; font-size: 15px; color: #ffe9a6; margin-bottom: 8px; }
+.cheerText { text-align: center; font-size: 14px; opacity: 0.9; }
+
+@media (max-width: 768px) {
+  .dock { left: 10px; }
+  .doodleApple, .doodleStaff, .doodleGrade { display: none; }
+  .cheerWrite { font-size: 28px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .daisy, .cheerDaisy, .bloomCard, .pill { animation: none !important; }
+  .daisy { opacity: 0.5; top: 20vh; }
+  .cheerWrite { animation: none; clip-path: none; }
+}
