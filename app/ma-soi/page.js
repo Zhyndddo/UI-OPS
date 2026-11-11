@@ -248,17 +248,7 @@ export default function MaSoiPage() {
 
             {roleCard && (
               <div style={{ ...card, background: "rgba(255,122,26,0.10)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                  <div style={{ fontWeight: 800, display: "flex", alignItems: "center", gap: 10 }}>
-                    {showRole && isWolfCard && <img src="/ma-soi/wolf.png" alt="" width={54} style={{ display: "block" }} />}
-                    <span>{showRole ? roleCard.title : "🎭 Thẻ vai trò (đang ẩn)"}</span>
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <RoleQR call={call} btnStyle={btnGhost} />
-                    <button type="button" style={btnGhost} onClick={() => setShowRole((x) => !x)}>{showRole ? "Ẩn" : "Hiện"}</button>
-                  </div>
-                </div>
-                {showRole && <div style={{ fontSize: 13.5, marginTop: 6, lineHeight: 1.55 }}>{roleCard.body}</div>}
+                <RoleQR key={g.id} call={call} btnStyle={btnGhost} inline />
               </div>
             )}
 
