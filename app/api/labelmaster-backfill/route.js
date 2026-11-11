@@ -1,7 +1,7 @@
 // Round 593 — Labelmaster daily report backfill (dev only). The browser reads the report and works out the plan; this route only
 //   releases -> pages of the app's releases (id cursor) for matching
-//   apply    -> writes ONE chunk of planned fills. Every value is re-checked against the row as it is NOW (only still-empty fields are filled)
-//               and each change is logged (lm_backfill_log) so a whole run can be undone
+//   apply    -> writes ONE chunk of planned changes. The report is the source of truth: a field is set to the report's value when it differs from
+//               the row as it is NOW (a blank report value never blanks anything); each change is logged with its old value (lm_backfill_log) so a whole run can be undone
 //   undo     -> puts a run's old values back (only where the field still holds what the run wrote)
 //   runs     -> recent runs for the page
 import { NextResponse } from "next/server";
@@ -61,17 +61,22 @@ export async function POST(request) {
         const r = byId.get(it.id);
         if (!r || !it.fill) { skipped++; return; }
         const f = it.fill, u = {}, note = (field, oldV, newV) => log.push({ run_id: runId, release_id: r.id, did: r.did, field, old_value: oldV == null ? null : String(oldV), new_value: newV == null ? null : String(newV), by_name: who });
+        const digits = (s) => String(s ?? "").replace(/\D/g, "").replace(/^0+/, "");
         for (const col of ["upc", "isrc", "genre", "feature_artist"]) {
-          if (f[col] != null && !empty(f[col]) && empty(r[col])) { u[col] = String(f[col]).trim(); note(col, r[col], u[col]); }
+          if (f[col] == null || empty(f[col])) continue;
+          const nv = String(f[col]).trim();
+          const same = col === "upc" ? digits(r.upc) === digits(nv) : String(r[col] ?? "").trim().toLowerCase() === nv.toLowerCase();
+          if (!same) { u[col] = nv; note(col, r[col], nv); }
         }
+        if (f.release_date && /^\d{4}-\d{2}-\d{2}$/.test(String(f.release_date)) && String(r.release_date || "").slice(0, 10) !== f.release_date) { u.release_date = f.release_date; note("release_date", String(r.release_date || "").slice(0, 10), f.release_date); }
         if (u.isrc && !r.has_isrc) { u.has_isrc = true; note("has_isrc", r.has_isrc, true); }
-        if (u.upc && empty(r.published_at) && f.published_at && !isNaN(Date.parse(f.published_at))) { u.published_at = new Date(f.published_at).toISOString(); note("published_at", null, u.published_at); }
+        if ((u.upc || !empty(r.upc)) && empty(r.published_at) && f.published_at && !isNaN(Date.parse(f.published_at))) { u.published_at = new Date(f.published_at).toISOString(); note("published_at", null, u.published_at); }
         if (f.owners && typeof f.owners === "object") {
           const cc = { ...(r.copyright_checklist || {}) };
           let touched = false;
           for (const k of OWNER_KEYS) {
             const v = f.owners[k];
-            if (!empty(v) && empty(cc[k]?.owner)) { cc[k] = { ...(cc[k] || {}), owner: String(v).trim() }; touched = true; note(`rights.${k}.owner`, "", cc[k].owner); }
+            if (!empty(v) && String(cc[k]?.owner || "").trim() !== String(v).trim()) { const was = cc[k]?.owner || ""; cc[k] = { ...(cc[k] || {}), owner: String(v).trim() }; touched = true; note(`rights.${k}.owner`, was, cc[k].owner); }
           }
           if (touched) u.copyright_checklist = cc;
         }
@@ -113,14 +118,14 @@ export async function POST(request) {
       for (const r of cur || []) {
         const u = {}; let cc = null; let cf = null;
         for (const l of byRel.get(r.id)) {
-          if (["upc", "isrc", "genre", "feature_artist"].includes(l.field)) {
+          if (["upc", "isrc", "genre", "feature_artist", "release_date"].includes(l.field)) {
             if (String(r[l.field] ?? "") === String(l.new_value ?? "")) { u[l.field] = l.old_value; doneIds.push(l.id); }
           } else if (l.field === "has_isrc") { if (r.has_isrc === true) { u.has_isrc = false; doneIds.push(l.id); } }
           else if (l.field === "published_at") { if (r.published_at && new Date(r.published_at).toISOString() === l.new_value) { u.published_at = null; doneIds.push(l.id); } }
           else if (l.field.startsWith("rights.")) {
             const k = l.field.split(".")[1];
             cc = cc || { ...(r.copyright_checklist || {}) };
-            if (cc[k]?.owner === l.new_value) { cc[k] = { ...cc[k], owner: "" }; doneIds.push(l.id); }
+            if (cc[k]?.owner === l.new_value) { cc[k] = { ...cc[k], owner: l.old_value || "" }; doneIds.push(l.id); }
           } else if (l.field === "labelmaster snapshot") {
             cf = cf || { ...(r.custom_fields || {}) };
             let oldSnap = {}; try { oldSnap = JSON.parse(l.old_value || "{}"); } catch { oldSnap = {}; }
