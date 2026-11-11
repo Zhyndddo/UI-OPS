@@ -14,7 +14,7 @@
 .doodleStaff { position: absolute; width: 150px; right: 18px; top: calc(var(--topbar-height) + 52px); opacity: 0.5; transform: rotate(4deg); }
 .doodleGrade { position: absolute; right: 120px; bottom: calc(var(--bottombar-height) + 64px); font: 700 40px "Segoe Print","Bradley Hand","Chalkboard SE","Comic Sans MS",cursive; color: #f4efdf; opacity: 0.4; transform: rotate(-10deg); }
 
-.topLine { position: fixed; left: 0; right: 0; top: var(--topbar-height); height: 3px; z-index: 251; pointer-events: none; background: linear-gradient(90deg, #f4efdf, #ffd86b, #f4efdf, #cfe8d5, #f4efdf); opacity: 0.85; }
+.topLine { position: fixed; left: 250px; right: 0; top: var(--topbar-height); height: 3px; z-index: 251; pointer-events: none; background: linear-gradient(90deg, #f4efdf, #ffd86b, #f4efdf, #cfe8d5, #f4efdf); opacity: 0.85; }
 
 .pill {
   position: fixed; top: calc(var(--topbar-height) + 10px); left: 50%; transform: translateX(-50%);
@@ -75,6 +75,7 @@
 .cheerText { text-align: center; font-size: 14px; opacity: 0.9; }
 
 @media (max-width: 768px) {
+  .topLine { left: 0; }
   .dock { left: 10px; }
   .doodleApple, .doodleStaff, .doodleGrade { display: none; }
   .cheerWrite { font-size: 28px; }

@@ -410,3 +410,6 @@ a {
   --bg-input: rgba(255,255,255,0.08); --bg-card: #20372c; --bg-hover: rgba(255,255,255,0.12);
   color: #f4efdf;
 }
+
+/* Round 594b — Teachers' Day: top bar in chalkboard green (was the yellow accent); text stays cream. */
+[data-decor="teachers-day"] [data-topbar="on"] { background: #2a4d3b !important; color: #f4efdf !important; --accent-on: #f4efdf; --text: #f4efdf; --text-muted: #d8dccb; }
