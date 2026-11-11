@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, getCallerProfile } from "../../../lib/supabaseAdmin";
 import { buildDigest } from "../../../lib/digestData";
-import { sendTelegram, renderDigestTelegram, telegramConfigured } from "../../../lib/telegram";
+import { sendTelegram, renderDigestTelegram, describeChat, telegramConfigured } from "../../../lib/telegram";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ export async function POST(request) {
   try {
     const text = body.digest ? renderDigestTelegram(await buildDigest(supabaseAdmin), "noon") : "✅ VIEENT OPS bot đã kết nối — tin nhắn thử.";
     const res = await sendTelegram(text);
-    return NextResponse.json(res, { status: res.ok ? 200 : 502 });
+    return NextResponse.json({ ...res, chat: await describeChat() }, { status: res.ok ? 200 : 502 });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
