@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { howlOnce, playHowl, getSound, setSound } from "../../lib/maSoiHowl";
-import MaSoiChat, { MaSoiDevTools } from "../../lib/MaSoiChat";   // Round 596
+import MaSoiChat, { MaSoiDevTools } from "../../lib/MaSoiChat";
+import RoleQR from "../../lib/RoleQR";   // Round 600   // Round 596
 
 // Round 576 — Ma Sói (Werewolf) office game, slice 1. All rules run in the database (sql/pending/add-round576-ma-soi.sql);
 // this page only shows what the server says this player may see, and sends the player's answers.
@@ -252,7 +253,10 @@ export default function MaSoiPage() {
                     {showRole && isWolfCard && <img src="/ma-soi/wolf.png" alt="" width={54} style={{ display: "block" }} />}
                     <span>{showRole ? roleCard.title : "🎭 Thẻ vai trò (đang ẩn)"}</span>
                   </div>
-                  <button type="button" style={btnGhost} onClick={() => setShowRole((x) => !x)}>{showRole ? "Ẩn" : "Hiện"}</button>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <RoleQR call={call} btnStyle={btnGhost} />
+                    <button type="button" style={btnGhost} onClick={() => setShowRole((x) => !x)}>{showRole ? "Ẩn" : "Hiện"}</button>
+                  </div>
                 </div>
                 {showRole && <div style={{ fontSize: 13.5, marginTop: 6, lineHeight: 1.55 }}>{roleCard.body}</div>}
               </div>

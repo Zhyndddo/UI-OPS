@@ -50,6 +50,7 @@ export async function POST(request) {
     case "chat_list": fn = "ms_chat_list"; args = { p_profile: p, p_room: body.room === "wolf" ? "wolf" : "day", p_day: Number.isInteger(body.day) && body.day > 0 ? body.day : null, p_after: Math.max(0, parseInt(body.after, 10) || 0) }; break;
     case "chat_send": fn = "ms_chat_send"; args = { p_profile: p, p_room: body.room === "wolf" ? "wolf" : "day", p_body: String(body.body || "").slice(0, 600) }; break;
     case "chat_toggle": fn = "ms_chat_toggle"; args = { p_profile: p, p_on: body.on === true }; break;
+    case "role_token": fn = "ms_role_token"; args = { p_profile: p }; break;   // Round 600 — private link for the scan-to-see-role QR
     case "bots_add": fn = "ms_add_bots"; args = { p_profile: p, p_n: Math.max(1, Math.min(29, parseInt(body.n, 10) || 1)) }; break;
     case "dev_skip": fn = "ms_dev_skip"; args = { p_profile: p }; break;   // Round 598 — dev: close the current phase now
     case "bots_turn": fn = "ms_bot_turn"; args = { p_profile: p }; break;
@@ -64,7 +65,7 @@ export async function POST(request) {
   if (data && data.error) return NextResponse.json({ error: data.error }, { status: 400, headers: noStore });
   // Round 584 — after a change, send the fresh game state back in the same reply so the page does not need a second round trip
   // (one fewer login check + database call per click = noticeably snappier).
-  if (body.action !== "state" && !String(body.action).startsWith("chat_") && body.action !== "bots_chat") {   // chat calls skip the state refetch: they must stay cheap
+  if (body.action !== "state" && !String(body.action).startsWith("chat_") && body.action !== "bots_chat" && body.action !== "role_token") {   // chat calls skip the state refetch: they must stay cheap
     const st = await supabaseAdmin.rpc("ms_state", { p_profile: p });
     if (!st.error && st.data && !st.data.error) return NextResponse.json({ ...(data && typeof data === "object" ? data : { ok: true }), state: st.data }, { headers: noStore });
   }
