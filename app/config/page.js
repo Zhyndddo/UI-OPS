@@ -578,6 +578,13 @@ function TeamSection({ profile }) {
                       {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                   )}
+                  {profile?.role === "dev" && p.role !== "dev" && (
+                    <select className={styles.select} title="Second team (dev only)" style={{ padding: "4px 8px", fontSize: 12, marginTop: 4 }} value={p.segment2 || ""}
+                      onChange={async (e) => { await supabase.from("profiles").update({ segment2: e.target.value || null }).eq("id", p.id); setProfiles((arr) => arr.map((x) => x.id === p.id ? { ...x, segment2: e.target.value || null } : x)); }}>
+                      <option value="">+ 2nd team: none</option>
+                      {TEAMS.filter((t) => t !== p.segment).map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  )}
                 </td>
                 {/* Round 264 — every team's Subteam options are hardcoded
                     (SUBTEAM_OPTIONS above — Marketing's own list from
