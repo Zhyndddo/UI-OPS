@@ -255,7 +255,7 @@ export default function MaSoiPage() {
             {g.status === "running" && pr && (
               <div style={{ ...card, borderColor: "#ff7a1a" }}>
                 {pr.type === "dead" && <div style={{ fontSize: 14 }}>💀 Bạn đã rời cuộc chơi. Hãy xem các thẻ bên dưới và giữ bí mật vai trò của người khác.</div>}
-                {pr.type === "sleep" && <div style={{ fontSize: 14 }}>😴 Đêm nay bạn ngủ yên. Chờ đến sáng nhé.</div>}
+                {pr.type === "sleep" && <div style={{ fontSize: 14 }}>{pr.blocked ? "🤐 Bạn bị bịt miệng — đêm nay bạn không thể dùng khả năng. Chờ đến sáng nhé." : "😴 Đêm nay bạn ngủ yên. Chờ đến sáng nhé."}</div>}
                 {pr.type === "wait" && <div style={{ fontSize: 14 }}>Chờ người khác hoàn thành lượt…</div>}
 
                 {pr.type === "wolf" && (
@@ -414,7 +414,7 @@ export default function MaSoiPage() {
 
         {g?.status === "finished" && (
           <div style={{ ...card, background: "rgba(255,122,26,0.10)" }}>
-            <div style={{ fontWeight: 800, fontSize: 16 }}>{g.winner === "wolves" ? "🐺 Bầy sói chiến thắng" : g.winner === "village" ? "🏡 Dân làng chiến thắng" : "Ván chơi đã kết thúc"}</div>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>{g.winner === "wolves" ? "🐺 Bầy sói chiến thắng" : g.winner === "village" ? "🏡 Dân làng chiến thắng" : g.winner === "couple" ? "💘 Cặp đôi chiến thắng" : "Ván chơi đã kết thúc"}</div>
             {st.dev && <div style={{ marginTop: 10 }}><AutoField value={auto} onChange={setAuto} /><button type="button" style={btn} disabled={busy} onClick={() => run({ action: "create", auto: parseInt(auto, 10) || 0 })}>Mở ván mới</button></div>}
           </div>
         )}

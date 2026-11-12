@@ -411,5 +411,13 @@ a {
   color: #f4efdf;
 }
 
+/* Round 604 — Teachers' Day on the LIGHT theme: the cream chalk doodles (apple, music staff, A+) were too pale on a white page.
+   Drawn in dark chalkboard green and made clearly stronger. Dark / zhyn themes are untouched. */
+[data-theme="light"][data-decor="teachers-day"] svg[class*="doodle"] { color: #1f4a36; opacity: 0.8 !important; }
+[data-theme="light"][data-decor="teachers-day"] svg[class*="doodle"] path,
+[data-theme="light"][data-decor="teachers-day"] svg[class*="doodle"] ellipse { stroke: #1f4a36 !important; stroke-width: 2.6; }
+[data-theme="light"][data-decor="teachers-day"] svg[class*="daisy"] ellipse { stroke: #8f8450; stroke-width: 1; }
+[data-theme="light"][data-decor="teachers-day"] div[class*="doodleGrade"] { color: #1f4a36 !important; opacity: 0.75 !important; }
+
 /* Round 594b — Teachers' Day: top bar in chalkboard green (was the yellow accent); text stays cream. */
 [data-decor="teachers-day"] [data-topbar="on"] { background: #2a4d3b !important; color: #f4efdf !important; --accent-on: #f4efdf; --text: #f4efdf; --text-muted: #d8dccb; }
