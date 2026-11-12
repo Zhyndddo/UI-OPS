@@ -6,6 +6,7 @@ import { timingSafeEqual } from "crypto";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { buildDigest } from "../../../lib/digestData";
 import { renderStatusTelegram, renderMissingTelegram } from "../../../lib/telegram";
+import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram } from "../../../lib/tgRecap";
 
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
@@ -63,6 +64,19 @@ export async function POST(request) {
   // Round 610 — commands, internal group only (they show internal numbers)
   if (isCommand && isInternal && supabaseAdmin) {
     const cmd = cmdMatch[1].toLowerCase();
+    if (["status", "missing", "recap"].includes(cmd)) {   // instant 👍 so people know the command arrived (the answer can take a few seconds)
+      try { await fetch(`https://api.telegram.org/bot${token}/setMessageReaction`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: m.chat.id, message_id: m.message_id, reaction: [{ type: "emoji", emoji: "👍" }] }) }); } catch (e) { /* ignore */ }
+    }
+    if (cmd === "recap") {
+      try {
+        const yesterday = /hôm qua|hom qua|yesterday|qua/i.test(text.slice(cmdMatch[0].length));
+        const now = new Date(), from = vnDayStart(yesterday ? 1 : 0, now), to = yesterday ? vnDayStart(0, now) : now;
+        const msgs = await loadMessages(supabaseAdmin, from, to, m.chat.id);
+        const ai = await aiSummary(msgs);
+        await reply(token, m, renderRecapTelegram(analyse(msgs), vnDateLabel(from) + (yesterday ? "" : " (đến giờ)"), ai), true);
+      } catch (e) { await reply(token, m, "Lỗi khi tóm tắt: " + e.message, false); }
+      return NextResponse.json({ ok: true });
+    }
     if (cmd === "status" || cmd === "missing") {
       try {
         const digest = await buildDigest(supabaseAdmin);
