@@ -17,6 +17,10 @@ const THEME = {
   idiot:      { c1: "#a88a1c", c2: "#2e2606", art: "🤡", team: "PHE DÂN LÀNG" },
   silencer:   { c1: "#4a5560", c2: "#14181c", art: "🤐", team: "PHE DÂN LÀNG" },
   whisperer:  { c1: "#6a4bc4", c2: "#1a1236", art: "🎶", team: "PHE THỔI SÁO" },
+  seerapprentice: { c1: "#4a52b8", c2: "#14183f", art: "🔭", team: "PHE DÂN LÀNG" },
+  wolfcub:    { c1: "#8a3a1a", c2: "#220a05", art: "🐺", team: "PHE SÓI" },
+  detective:  { c1: "#3a6a7a", c2: "#0c1d24", art: "🕵️", team: "PHE DÂN LÀNG" },
+  scapegoat:  { c1: "#7a6a3a", c2: "#221d0c", art: "🐐", team: "PHE DÂN LÀNG" },
   elder:      { c1: "#6b5a3a", c2: "#1e180d", art: "👴", team: "PHE DÂN LÀNG" },
 };
 

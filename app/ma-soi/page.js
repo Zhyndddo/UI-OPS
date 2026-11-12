@@ -13,7 +13,7 @@ const POLL_MS = 20000;
 const card = { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 14, marginBottom: 12 };
 const btn = { padding: "9px 16px", fontWeight: 800, borderRadius: 8, border: "none", background: "#ff7a1a", color: "#fff", cursor: "pointer" };
 const btnGhost = { padding: "8px 14px", fontWeight: 700, borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "inherit", cursor: "pointer" };
-const ROLE_VI = { wolf: "Sói", villager: "Dân làng", seer: "Tiên tri", witch: "Phù thủy", hunter: "Thợ săn", guard: "Bảo vệ", cupid: "Thần Tình Yêu", idiot: "Kẻ ngốc", elder: "Già làng", whitewolf: "Sói trắng", halfwolf: "Sói nửa người", silencer: "Người bịt miệng", whisperer: "Người thổi sáo" };
+const ROLE_VI = { wolf: "Sói", villager: "Dân làng", seer: "Tiên tri", witch: "Phù thủy", hunter: "Thợ săn", guard: "Bảo vệ", cupid: "Thần Tình Yêu", idiot: "Kẻ ngốc", elder: "Già làng", whitewolf: "Sói trắng", halfwolf: "Sói nửa người", silencer: "Người bịt miệng", whisperer: "Người thổi sáo", seerapprentice: "Tiên tri tập sự", wolfcub: "Sói con", detective: "Thám tử", scapegoat: "Kẻ thế thân" };
 const PHASE_LABEL = { night: "🌙 Đêm", day: "☀️ Ngày — bỏ phiếu", runoff: "⚖️ Bỏ phiếu lại", hunter: "🏹 Phát súng cuối" };
 
 function fmtLeft(ms) {
@@ -334,6 +334,21 @@ export default function MaSoiPage() {
                   </div>
                 )}
 
+                {pr.type === "detective" && (
+                  <div>
+                    <div style={{ fontWeight: 800 }}>🕵️ Bạn muốn so sánh hai người nào đêm nay?</div>
+                    {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã điều tra xong — kết quả nằm trong thẻ bên dưới.</div>
+                      : <>
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginTop: 4 }}>Người thứ nhất:</div>
+                          <Picker options={pr.options} value={sel} disabled={busy} onPick={setSel} />
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Người thứ hai:</div>
+                          <Picker options={pr.options} value={sel2} disabled={busy} onPick={setSel2} />
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Bạn sẽ biết hai người CÙNG PHE hay KHÁC PHE (phe sói / không phải sói). Bạn vẫn đổi ý được cho đến khi bấm Xác nhận.</div>
+                          <button type="button" style={btn} disabled={busy || !sel || !sel2 || sel === sel2} onClick={() => act("detect", sel, { second: sel2 })}>{busy ? "Đang gửi…" : "Xác nhận điều tra"}</button>
+                        </>}
+                  </div>
+                )}
+
                 {pr.type === "seer" && (
                   <div>
                     <div style={{ fontWeight: 800 }}>🔮 Bạn muốn soi ai đêm nay?</div>
@@ -361,11 +376,12 @@ export default function MaSoiPage() {
                 {pr.type === "witch" && (
                   <div>
                     <div style={{ fontWeight: 800 }}>🧪 Lượt của Phù thủy</div>
-                    <div style={{ fontSize: 13.5, margin: "6px 0" }}>{pr.victim ? `Bầy sói đã nhắm vào ${pr.victim}.` : "Bầy sói chưa chọn được ai."}</div>
+                    <div style={{ fontSize: 13.5, margin: "6px 0" }}>{pr.victim ? `Bầy sói đã nhắm vào ${pr.victim}${pr.victim2 ? ` và ${pr.victim2} (Sói con báo thù — bạn chỉ cứu được một người)` : ""}.` : pr.victim2 ? `Bầy sói nhắm vào ${pr.victim2} (Sói con báo thù).` : "Bầy sói chưa chọn được ai."}</div>
                     {pr.done ? <div style={{ fontSize: 13 }}>Bạn đã quyết định xong.</div> : (
                       <>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                          {pr.can_heal && <button type="button" disabled={busy} onClick={() => setSel("heal")} style={{ ...btnGhost, ...(sel === "heal" ? { background: "#ff7a1a", color: "#fff", borderColor: "#ff7a1a" } : {}) }}>Cứu {pr.victim}</button>}
+                          {pr.can_heal && pr.victim && <button type="button" disabled={busy} onClick={() => setSel("heal")} style={{ ...btnGhost, ...(sel === "heal" ? { background: "#ff7a1a", color: "#fff", borderColor: "#ff7a1a" } : {}) }}>Cứu {pr.victim}</button>}
+                          {pr.can_heal && pr.victim2 && <button type="button" disabled={busy} onClick={() => setSel("heal2")} style={{ ...btnGhost, ...(sel === "heal2" ? { background: "#ff7a1a", color: "#fff", borderColor: "#ff7a1a" } : {}) }}>Cứu {pr.victim2} (nhát cắn thứ hai)</button>}
                           <button type="button" disabled={busy} onClick={() => setSel("none")} style={{ ...btnGhost, ...(sel === "none" ? { background: "#ff7a1a", color: "#fff", borderColor: "#ff7a1a" } : {}) }}>Không làm gì</button>
                         </div>
                         {pr.can_poison && (
@@ -376,7 +392,7 @@ export default function MaSoiPage() {
                         )}
                         <div style={{ fontSize: 12.5, color: "var(--text-faint)", margin: "4px 0 8px" }}>Chọn một lựa chọn, bạn vẫn đổi ý được cho đến khi bấm Xác nhận. Bình cứu và bình độc không thể hoàn tác sau khi xác nhận.</div>
                         <button type="button" style={btn} disabled={busy || !sel}
-                          onClick={() => { if (sel === "heal") act("witch", null, { heal: true }); else if (sel.startsWith("poison:")) act("witch", sel.slice(7), { poison: true }); else act("witch", null, {}); }}>{busy ? "Đang gửi…" : "Xác nhận"}</button>
+                          onClick={() => { if (sel === "heal") act("witch", null, { heal: true }); else if (sel === "heal2") act("witch", null, { heal: true, second: true }); else if (sel.startsWith("poison:")) act("witch", sel.slice(7), { poison: true }); else act("witch", null, {}); }}>{busy ? "Đang gửi…" : "Xác nhận"}</button>
                       </>
                     )}
                   </div>
