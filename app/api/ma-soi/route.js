@@ -6,7 +6,7 @@ import { getCallerProfile, supabaseAdmin } from "../../../lib/supabaseAdmin";
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 const noStore = { "Cache-Control": "no-store" };
-const ACT_KINDS = new Set(["wolf_vote", "wolf_confirm", "seer", "guard", "witch", "vote", "hunter", "cupid", "wwolf", "silence", "whisper", "detect"]);
+const ACT_KINDS = new Set(["wolf_vote", "wolf_confirm", "seer", "guard", "witch", "vote", "hunter", "cupid", "wwolf", "silence", "whisper", "detect", "scry", "medium", "model", "ghost", "rob"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(request) {
@@ -37,6 +37,14 @@ export async function POST(request) {
         const second = body.data?.second ? String(body.data.second) : "";
         if (!UUID.test(second)) return NextResponse.json({ error: "Hãy chọn đủ hai người." }, { status: 400, headers: noStore });
         data.second = second;
+      }
+      if (body.kind === "medium") {   // Round 608 — Thầy đồng picks a dead player
+        const dead = body.data?.dead ? String(body.data.dead) : "";
+        if (body.data?.revive === true) data.revive = true;
+        if (dead) {
+          if (!UUID.test(dead)) return NextResponse.json({ error: "Hãy chọn một người đã chết." }, { status: 400, headers: noStore });
+          data.dead = dead;
+        }
       }
       if (body.kind === "whisper" && body.data?.second) {   // Round 595 — the flute-player may enchant a second person
         const second = String(body.data.second);

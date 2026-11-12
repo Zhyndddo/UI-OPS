@@ -25,15 +25,11 @@ export async function POST(request) {
   const token = process.env.TELEGRAM_BOT_TOKEN, secret = process.env.TELEGRAM_WEBHOOK_SECRET;
   if (!token || !secret) return NextResponse.json({ ok: false }, { status: 503 });
   const given = Buffer.from(request.headers.get("x-telegram-bot-api-secret-token") || ""), want = Buffer.from(secret);
-  if (given.length !== want.length || !timingSafeEqual(given, want)) {
-    console.log("telegram-webhook 401: header length", given.length, "env length", want.length);
-    return NextResponse.json({ ok: false }, { status: 401 });
-  }
+  if (given.length !== want.length || !timingSafeEqual(given, want)) return NextResponse.json({ ok: false }, { status: 401 });
 
   let update = {};
   try { update = await request.json(); } catch (e) { return NextResponse.json({ ok: true }); }
   const m = update.message;
-  console.log("telegram-webhook update:", Object.keys(update).join(","), "chat", m?.chat?.type, "topic", !!m?.is_topic_message, "len", String(m?.text || "").length);
   if (!m || !m.chat || m.from?.is_bot) return NextResponse.json({ ok: true });
   const text = String(m.text || m.caption || "");
   const name = await getBotName(token);
@@ -50,10 +46,4 @@ export async function POST(request) {
   if (m.is_topic_message && m.message_thread_id) body.message_thread_id = m.message_thread_id;
   try { await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); } catch (e) { /* ignore */ }
   return NextResponse.json({ ok: true });
-}
-
-// TEMPORARY diagnostic (round 607b): open this URL in a browser to see whether the deployed build has the env vars. Shows lengths only, never values. Remove once the bot works.
-export async function GET() {
-  const t = process.env.TELEGRAM_BOT_TOKEN, sc = process.env.TELEGRAM_WEBHOOK_SECRET;
-  return NextResponse.json({ hasToken: !!t, secretLength: sc ? sc.length : 0, secretHasWhitespace: sc ? /\s/.test(sc) : false });
 }

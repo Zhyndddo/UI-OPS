@@ -1,5 +1,6 @@
 "use client";
 
+import { resolveProfilesByEmail } from "../../../../lib/pingNotification";
 import AppShell from "../../../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -75,10 +76,13 @@ export default function NewPublishingTicket() {
       setError("A Publishing ticket for this release already exists — only one is allowed per release.");
       return;
     }
+    // Round 609 — Legal is one person by default: Ti Đà (Dang.nguyen) is the PIC; the list page lets Legal change it.
+    const legalPic = ((await resolveProfilesByEmail("Dang.nguyen@vieent.com"))[0]) || null;
     const { data: newTicket, error: insertErr } = await supabase.from("tickets").insert({
       tab_id: tab.id,
       data: { releaseId, giaTri, maPL, vcpmcDocQuyen: vcpmc, composer: composer.trim() || null },
       deadline: deadline || null,
+      ...(legalPic ? { pic_profile_id: legalPic, pic_profile_ids: [legalPic] } : {}),
       // Round 282 — audit log / requester attribution. No requester_segment/
       // requester_name were ever set on this bespoke form — only adding the
       // new additive column here, leaving that gap as-is.

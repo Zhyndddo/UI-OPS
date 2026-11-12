@@ -13,7 +13,7 @@ const POLL_MS = 20000;
 const card = { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 14, marginBottom: 12 };
 const btn = { padding: "9px 16px", fontWeight: 800, borderRadius: 8, border: "none", background: "#ff7a1a", color: "#fff", cursor: "pointer" };
 const btnGhost = { padding: "8px 14px", fontWeight: 700, borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "inherit", cursor: "pointer" };
-const ROLE_VI = { wolf: "Sói", villager: "Dân làng", seer: "Tiên tri", witch: "Phù thủy", hunter: "Thợ săn", guard: "Bảo vệ", cupid: "Thần Tình Yêu", idiot: "Kẻ ngốc", elder: "Già làng", whitewolf: "Sói trắng", halfwolf: "Sói nửa người", silencer: "Người bịt miệng", whisperer: "Người thổi sáo", seerapprentice: "Tiên tri tập sự", wolfcub: "Sói con", detective: "Thám tử", scapegoat: "Kẻ thế thân" };
+const ROLE_VI = { wolf: "Sói", villager: "Dân làng", seer: "Tiên tri", witch: "Phù thủy", hunter: "Thợ săn", guard: "Bảo vệ", cupid: "Thần Tình Yêu", idiot: "Kẻ ngốc", elder: "Già làng", whitewolf: "Sói trắng", halfwolf: "Sói nửa người", silencer: "Người bịt miệng", whisperer: "Người thổi sáo", seerapprentice: "Tiên tri tập sự", wolfcub: "Sói con", detective: "Thám tử", scapegoat: "Kẻ thế thân", fool: "Thằng ngu", prince: "Vương công", diseased: "Kẻ bệnh tật", medium: "Thầy đồng", scryer: "Nhà chiêm tinh", ghost: "Kẻ yểu mệnh", rogue: "Kẻ trộm", wildchild: "Đứa trẻ hoang dã" };
 const PHASE_LABEL = { night: "🌙 Đêm", day: "☀️ Ngày — bỏ phiếu", runoff: "⚖️ Bỏ phiếu lại", hunter: "🏹 Phát súng cuối" };
 
 function fmtLeft(ms) {
@@ -46,6 +46,21 @@ function Picker({ options, value, onPick, disabled, extra }) {
 }
 
 // Round 595 — the Sói trắng's extra kill (even nights): pick anybody (wolf or villager) or skip. Used inside the wolf card and on its own.
+function ScryBox({ o, busy, onSend }) {   // Round 608 — the wolf-side Nhà chiêm tinh
+  const [pick, setPick] = useState("");
+  return (
+    <div>
+      <div style={{ fontWeight: 800 }}>🔭 Nhà chiêm tinh — dò xem ai là Tiên tri</div>
+      {o.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã dò xong — kết quả nằm trong thẻ bên dưới.</div> : (
+        <>
+          <Picker options={o.options} value={pick} disabled={busy} onPick={setPick} />
+          <button type="button" style={btn} disabled={busy || !pick} onClick={() => onSend(pick)}>{busy ? "Đang gửi…" : "Dò người này"}</button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function WhiteWolfBox({ o, busy, onSend }) {
   const [pick, setPick] = useState("");
   return (
@@ -275,6 +290,34 @@ export default function MaSoiPage() {
                     <WhiteWolfBox key={`${g.phase_no}-ww`} o={pr.ww} busy={busy} onSend={(id) => act("wwolf", id)} />
                   </div>
                 )}
+                {pr.type === "wolf" && pr.scry && (
+                  <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--border)" }}>
+                    <ScryBox key={`${g.phase_no}-sc`} o={pr.scry} busy={busy} onSend={(id) => act("scry", id)} />
+                  </div>
+                )}
+                {pr.type === "rogue" && (
+                  <div>
+                    <div style={{ fontWeight: 800 }}>🦝 Bạn muốn rình ai đêm nay?</div>
+                    {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã chọn xong — kết quả đến lúc bình minh, nằm trong thẻ bên dưới.</div>
+                      : <>
+                          <Picker options={pr.options} value={sel} disabled={busy} onPick={setSel} />
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Bạn biết người đó nhắm vào ai đêm nay. Người không có khả năng ban đêm sẽ cho bạn tên một con sói. Cẩn thận: rình trúng sói thì bạn biết mục tiêu của bầy — nhưng bạn sẽ chết vào sáng hôm sau.</div>
+                          <button type="button" style={btn} disabled={busy || !sel} onClick={() => act("rob", sel)}>{busy ? "Đang gửi…" : "Xác nhận"}</button>
+                        </>}
+                  </div>
+                )}
+
+                {pr.type === "ghost" && (
+                  <div>
+                    <div style={{ fontWeight: 800 }}>👻 Kẻ yểu mệnh</div>
+                    {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã chọn ra đi — bạn sẽ chết lúc bình minh.</div> : (
+                      <>
+                        <div style={{ fontSize: 12.5, color: "var(--text-faint)", margin: "6px 0 8px" }}>Bạn có thể tự ra đi đêm nay: cả làng chỉ biết bạn chết vì bệnh tật, và bạn biết tên MỘT người đã ra tay giết người đêm đó. Không chọn gì cũng được.</div>
+                        <button type="button" style={btn} disabled={busy} onClick={() => act("ghost", null)}>{busy ? "Đang gửi…" : "Tự ra đi đêm nay"}</button>
+                      </>
+                    )}
+                  </div>
+                )}
                 {pr.type === "whitewolf" && <WhiteWolfBox key={`${g.phase_no}-w2`} o={pr} busy={busy} onSend={(id) => act("wwolf", id)} />}
 
                 {pr.type === "silencer" && (
@@ -345,6 +388,32 @@ export default function MaSoiPage() {
                           <Picker options={pr.options} value={sel2} disabled={busy} onPick={setSel2} />
                           <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Bạn sẽ biết hai người CÙNG PHE hay KHÁC PHE (phe sói / không phải sói). Bạn vẫn đổi ý được cho đến khi bấm Xác nhận.</div>
                           <button type="button" style={btn} disabled={busy || !sel || !sel2 || sel === sel2} onClick={() => act("detect", sel, { second: sel2 })}>{busy ? "Đang gửi…" : "Xác nhận điều tra"}</button>
+                        </>}
+                  </div>
+                )}
+
+                {(pr.type === "scryer" || pr.type === "wildchild") && (
+                  <div>
+                    <div style={{ fontWeight: 800 }}>{pr.type === "scryer" ? "🔭 Bạn muốn dò ai xem có phải Tiên tri?" : "🌿 Chọn người làm hình mẫu của bạn"}</div>
+                    {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã chọn xong — kết quả nằm trong thẻ bên dưới.</div>
+                      : <>
+                          <Picker options={pr.options} value={sel} disabled={busy} onPick={setSel} />
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>{pr.type === "scryer" ? "Bạn sẽ biết người đó có phải Tiên tri hay không." : "Nếu hình mẫu chết, bạn hoá thành sói."} Bạn vẫn đổi ý được cho đến khi bấm Xác nhận.</div>
+                          <button type="button" style={btn} disabled={busy || !sel} onClick={() => act(pr.type === "scryer" ? "scry" : "model", sel)}>{busy ? "Đang gửi…" : "Xác nhận"}</button>
+                        </>}
+                  </div>
+                )}
+
+                {pr.type === "medium" && (
+                  <div>
+                    <div style={{ fontWeight: 800 }}>🕯️ Thầy đồng — gọi hồn hoặc hồi sinh (mỗi quyền một lần)</div>
+                    {pr.done ? <div style={{ fontSize: 13, marginTop: 6 }}>Bạn đã gọi hồn xong — kết quả nằm trong thẻ bên dưới.</div>
+                      : <>
+                          <Picker options={pr.options} value={sel} disabled={busy} onPick={setSel} />
+                          <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 8 }}>Gọi hồn: biết người đã khuất từng mang vai trò gì. Hồi sinh: người đó sống lại lúc bình minh. Nếu chưa muốn dùng, cứ để đó — bạn dùng được ở bất kỳ đêm nào.</div>
+                          {pr.can_learn && <button type="button" style={btn} disabled={busy || !sel} onClick={() => act("medium", null, { dead: sel })}>{busy ? "Đang gửi…" : "Gọi hồn (biết vai trò)"}</button>}
+                          {pr.can_revive && <button type="button" style={{ ...btn, marginLeft: pr.can_learn ? 8 : 0 }} disabled={busy || !sel} onClick={() => act("medium", null, { dead: sel, revive: true })}>{busy ? "Đang gửi…" : "Hồi sinh người này"}</button>}
+                          <button type="button" style={{ ...btnGhost, marginLeft: 8 }} disabled={busy} onClick={() => act("medium", null, {})}>Không dùng đêm nay</button>
                         </>}
                   </div>
                 )}
@@ -430,7 +499,7 @@ export default function MaSoiPage() {
 
         {g?.status === "finished" && (
           <div style={{ ...card, background: "rgba(255,122,26,0.10)" }}>
-            <div style={{ fontWeight: 800, fontSize: 16 }}>{g.winner === "wolves" ? "🐺 Bầy sói chiến thắng" : g.winner === "village" ? "🏡 Dân làng chiến thắng" : g.winner === "couple" ? "💘 Cặp đôi chiến thắng" : "Ván chơi đã kết thúc"}</div>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>{g.winner === "wolves" ? "🐺 Bầy sói chiến thắng" : g.winner === "village" ? "🏡 Dân làng chiến thắng" : g.winner === "couple" ? "💘 Cặp đôi chiến thắng" : g.winner === "fool" ? "🤡 Thằng ngu chiến thắng" : "Ván chơi đã kết thúc"}</div>
             {st.dev && <div style={{ marginTop: 10 }}><AutoField value={auto} onChange={setAuto} /><button type="button" style={btn} disabled={busy} onClick={() => run({ action: "create", auto: parseInt(auto, 10) || 0 })}>Mở ván mới</button></div>}
           </div>
         )}
@@ -445,7 +514,7 @@ export default function MaSoiPage() {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {st.players.map((p) => (
                 <span key={p.id} style={{ border: "1px solid var(--border)", borderRadius: 999, padding: "3px 10px", fontSize: 13, opacity: p.alive ? 1 : 0.5, textDecoration: p.alive ? "none" : "line-through" }}>
-                  {p.alive ? "" : "💀 "}{p.name}{p.role ? ` — ${ROLE_VI[p.role] || p.role}` : p.revealed ? " — 🤡 Kẻ ngốc" : ""}
+                  {p.alive ? "" : "💀 "}{p.name}{p.role ? ` — ${ROLE_VI[p.role] || p.role}` : p.revealed ? " — 🤡 Kẻ ngốc" : p.shown === "prince" ? " — 👑 Vương công" : ""}
                 </span>
               ))}
             </div>

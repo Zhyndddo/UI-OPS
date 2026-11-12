@@ -21,6 +21,14 @@ const THEME = {
   wolfcub:    { c1: "#8a3a1a", c2: "#220a05", art: "🐺", team: "PHE SÓI" },
   detective:  { c1: "#3a6a7a", c2: "#0c1d24", art: "🕵️", team: "PHE DÂN LÀNG" },
   scapegoat:  { c1: "#7a6a3a", c2: "#221d0c", art: "🐐", team: "PHE DÂN LÀNG" },
+  fool:       { c1: "#b8721c", c2: "#2e1a05", art: "🤡", team: "PHE RIÊNG — THẰNG NGU" },
+  prince:     { c1: "#b08a1c", c2: "#2e2406", art: "👑", team: "PHE DÂN LÀNG" },
+  diseased:   { c1: "#5f7a2a", c2: "#161f08", art: "🤢", team: "PHE DÂN LÀNG" },
+  medium:     { c1: "#4b3a8a", c2: "#150f2e", art: "🕯️", team: "PHE DÂN LÀNG" },
+  scryer:     { c1: "#8a1f3a", c2: "#220509", art: "🔭", team: "PHE SÓI" },
+  rogue:      { c1: "#6a5a3a", c2: "#1b160a", art: "🦝", team: "PHE DÂN LÀNG" },
+  ghost:      { c1: "#5a6a8a", c2: "#12161f", art: "👻", team: "PHE DÂN LÀNG" },
+  wildchild:  { c1: "#2f7a4a", c2: "#0b2514", art: "🌿", team: "PHE DÂN LÀNG" },
   elder:      { c1: "#6b5a3a", c2: "#1e180d", art: "👴", team: "PHE DÂN LÀNG" },
 };
 

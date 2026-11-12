@@ -1,5 +1,6 @@
 "use client";
 
+import { resolveProfilesByEmail } from "../../../../lib/pingNotification";
 import AppShell from "../../../../lib/AppShell";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -108,11 +109,14 @@ export default function NewPhuLucTicket() {
     // Round 282 — requester_profile_id auto-populated from the creating
     // profile, same pattern as every other ticket-creation call site wired
     // this round/last round.
+    // Round 609 — Legal is one person by default: Ti Đà (Dang.nguyen) is the PIC; the list page lets Legal change it.
+    const legalPic = ((await resolveProfilesByEmail("Dang.nguyen@vieent.com"))[0]) || null;
     const { data: inserted, error: insertErr } = await supabase.from("tickets").insert({
       tab_id: tab.id,
       data: { releaseId, maPL, vcpmcDocQuyen: vcpmc },
       deadline: deadline || null,
       requester_profile_id: profile?.id || null,
+      ...(legalPic ? { pic_profile_id: legalPic, pic_profile_ids: [legalPic] } : {}),
     }).select().single();
     if (!insertErr) await supabase.from("releases").update({ phu_luc_gia_tri: giaTri }).eq("id", releaseId);
     setSubmitting(false);
