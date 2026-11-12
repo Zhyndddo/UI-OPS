@@ -33,6 +33,7 @@ export async function POST(request) {
   let update = {};
   try { update = await request.json(); } catch (e) { return NextResponse.json({ ok: true }); }
   const m = update.message;
+  console.log("telegram-webhook update:", Object.keys(update).join(","), "chat", m?.chat?.type, "topic", !!m?.is_topic_message, "len", String(m?.text || "").length);
   if (!m || !m.chat || m.from?.is_bot) return NextResponse.json({ ok: true });
   const text = String(m.text || m.caption || "");
   const name = await getBotName(token);
