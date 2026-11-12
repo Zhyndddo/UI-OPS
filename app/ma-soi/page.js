@@ -448,20 +448,25 @@ export default function MaSoiPage() {
                     <div style={{ fontSize: 13.5, margin: "6px 0" }}>{pr.victim ? `Bầy sói đã nhắm vào ${pr.victim}${pr.victim2 ? ` và ${pr.victim2} (Sói con báo thù — bạn chỉ cứu được một người)` : ""}.` : pr.victim2 ? `Bầy sói nhắm vào ${pr.victim2} (Sói con báo thù).` : "Bầy sói chưa chọn được ai."}</div>
                     {pr.done ? <div style={{ fontSize: 13 }}>Bạn đã quyết định xong.</div> : (
                       <>
+                        <div style={{ fontSize: 12.5, color: "var(--text-faint)", marginBottom: 6 }}>Bạn có thể dùng bình cứu, bình độc, cả hai trong cùng một đêm — hoặc không làm gì.</div>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                          {pr.can_heal && pr.victim && <button type="button" disabled={busy} onClick={() => setSel("heal")} style={{ ...btnGhost, ...(sel === "heal" ? { background: "#ff7a1a", color: "#fff", borderColor: "#ff7a1a" } : {}) }}>Cứu {pr.victim}</button>}
-                          {pr.can_heal && pr.victim2 && <button type="button" disabled={busy} onClick={() => setSel("heal2")} style={{ ...btnGhost, ...(sel === "heal2" ? { background: "#ff7a1a", color: "#fff", borderColor: "#ff7a1a" } : {}) }}>Cứu {pr.victim2} (nhát cắn thứ hai)</button>}
-                          <button type="button" disabled={busy} onClick={() => setSel("none")} style={{ ...btnGhost, ...(sel === "none" ? { background: "#ff7a1a", color: "#fff", borderColor: "#ff7a1a" } : {}) }}>Không làm gì</button>
+                          {pr.can_heal && pr.victim && <button type="button" disabled={busy} onClick={() => setSel(sel === "heal" ? "" : "heal")} style={{ ...btnGhost, ...(sel === "heal" ? { background: "#ff7a1a", color: "#fff", borderColor: "#ff7a1a" } : {}) }}>Cứu {pr.victim}</button>}
+                          {pr.can_heal && pr.victim2 && <button type="button" disabled={busy} onClick={() => setSel(sel === "heal2" ? "" : "heal2")} style={{ ...btnGhost, ...(sel === "heal2" ? { background: "#ff7a1a", color: "#fff", borderColor: "#ff7a1a" } : {}) }}>Cứu {pr.victim2} (nhát cắn thứ hai)</button>}
+                          <button type="button" disabled={busy} onClick={() => { setSel("none"); setSel2(""); }} style={{ ...btnGhost, ...(sel === "none" ? { background: "#555", color: "#fff", borderColor: "#555" } : {}) }}>Không làm gì</button>
                         </div>
                         {pr.can_poison && (
                           <>
-                            <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Hoặc dùng bình độc cho:</div>
-                            <Picker options={pr.options} value={sel.startsWith("poison:") ? sel.slice(7) : ""} disabled={busy} onPick={(id) => setSel("poison:" + id)} />
+                            <div style={{ fontSize: 12.5, color: "var(--text-faint)" }}>Bình độc — chọn một người (bấm lại để bỏ chọn):</div>
+                            <Picker options={pr.options} value={sel2} disabled={busy} onPick={(id) => { setSel2(sel2 === id ? "" : id); if (sel === "none") setSel(""); }} />
                           </>
                         )}
-                        <div style={{ fontSize: 12.5, color: "var(--text-faint)", margin: "4px 0 8px" }}>Chọn một lựa chọn, bạn vẫn đổi ý được cho đến khi bấm Xác nhận. Bình cứu và bình độc không thể hoàn tác sau khi xác nhận.</div>
-                        <button type="button" style={btn} disabled={busy || !sel}
-                          onClick={() => { if (sel === "heal") act("witch", null, { heal: true }); else if (sel === "heal2") act("witch", null, { heal: true, second: true }); else if (sel.startsWith("poison:")) act("witch", sel.slice(7), { poison: true }); else act("witch", null, {}); }}>{busy ? "Đang gửi…" : "Xác nhận"}</button>
+                        <div style={{ fontSize: 12.5, color: "var(--text-faint)", margin: "4px 0 8px" }}>Bạn vẫn đổi ý được cho đến khi bấm Xác nhận. Bình cứu và bình độc không thể hoàn tác sau khi xác nhận.</div>
+                        <button type="button" style={btn} disabled={busy || !(sel || sel2)}
+                          onClick={() => {
+                            const heal = sel === "heal" || sel === "heal2";
+                            if (!heal && !sel2) return act("witch", null, {});
+                            act("witch", sel2 || null, { ...(heal ? { heal: true } : {}), ...(sel === "heal2" ? { second: true } : {}), ...(sel2 ? { poison: true } : {}) });
+                          }}>{busy ? "Đang gửi…" : "Xác nhận"}</button>
                       </>
                     )}
                   </div>

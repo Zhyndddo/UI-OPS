@@ -299,7 +299,8 @@ begin
   end loop;
   for a in select x.player_id, x.target, x.data from public.ms_actions x where x.game_id = g and x.phase_no = gm.phase_no and x.kind = 'witch' loop
     perform public.ms_log_add(g, gm.day_no, 'night', '🧪 Phù thủy ' || public.ms_pn(a.player_id) || ' ' ||
-      case when (a.data->>'heal') = 'true' then 'dùng bình cứu cho ' || coalesce(public.ms_pn(a.target), '?')
+      case when (a.data->>'heal') = 'true' and (a.data->>'poison') = 'true' then 'dùng CẢ HAI bình: cứu người bị cắn và đầu độc ' || coalesce(public.ms_pn(a.target), '?')
+           when (a.data->>'heal') = 'true' then 'dùng bình cứu cho ' || coalesce(public.ms_pn(a.target), '?')
            when (a.data->>'poison') = 'true' then 'dùng bình độc cho ' || coalesce(public.ms_pn(a.target), '?')
            else 'không dùng bình nào' end || '.');
   end loop;
@@ -551,7 +552,7 @@ end $$;
 
 create or replace function public.ms_act(p_profile uuid, p_kind text, p_target uuid default null, p_data jsonb default '{}'::jsonb) returns jsonb
 language plpgsql as $$
-declare gid uuid; gm public.ms_games; me public.ms_players; tp public.ms_players; wolf_target uuid; res text; sec uuid; sp public.ms_players; cands int; dd uuid;
+declare gid uuid; gm public.ms_games; me public.ms_players; tp public.ms_players; wolf_target uuid; res text; sec uuid; sp public.ms_players; cands int; dd uuid; do_heal boolean; do_poison boolean; hsec boolean;
 begin
   gid := public.ms_active();
   if gid is null then return jsonb_build_object('error','Chưa có ván chơi.'); end if;
@@ -607,28 +608,31 @@ begin
     if not (gm.phase = 'night' and gm.stage = 2 and me.role = 'witch' and coalesce((gm.ctx->>'witch_in')::boolean,false)) then return jsonb_build_object('error','Chưa đến lượt bạn.'); end if;
     if exists (select 1 from public.ms_actions where game_id = gid and phase_no = gm.phase_no and player_id = me.id and kind = 'witch') then return jsonb_build_object('error','Đêm nay bạn đã quyết định rồi.'); end if;
     wolf_target := nullif(gm.ctx->>'wolf_target','')::uuid;
-    if coalesce((p_data->>'heal')::boolean,false) then
+    do_heal := coalesce((p_data->>'heal')::boolean,false);
+    do_poison := coalesce((p_data->>'poison')::boolean,false);
+    hsec := do_heal and coalesce((p_data->>'second')::boolean,false);
+    -- validate everything first, so a refused request changes nothing
+    if do_heal then
       if coalesce((me.state->>'heal_used')::boolean,false) then return jsonb_build_object('error','Bạn đã dùng bình cứu rồi.'); end if;
-      if coalesce((p_data->>'second')::boolean,false) then   -- Round 606 — heal the Sói con's second victim instead
-        if nullif(gm.ctx->>'wolf_target2','') is null then return jsonb_build_object('error','Không có ai để cứu.'); end if;
-        update public.ms_players set state = state || '{"heal_used":true}' where id = me.id;
-        update public.ms_games set ctx = ctx || '{"heal2":true}' where id = gid;
-        insert into public.ms_actions (game_id, phase_no, player_id, kind, target, data) values (gid, gm.phase_no, me.id, 'witch', nullif(gm.ctx->>'wolf_target2','')::uuid, '{"heal":true,"second":true}');
-      else
-        if wolf_target is null then return jsonb_build_object('error','Không có ai để cứu.'); end if;
-        update public.ms_players set state = state || '{"heal_used":true}' where id = me.id;
-        update public.ms_games set ctx = ctx || '{"heal":true}' where id = gid;
-        insert into public.ms_actions (game_id, phase_no, player_id, kind, target, data) values (gid, gm.phase_no, me.id, 'witch', wolf_target, '{"heal":true}');
-      end if;
-    elsif coalesce((p_data->>'poison')::boolean,false) then
+      if hsec and nullif(gm.ctx->>'wolf_target2','') is null then return jsonb_build_object('error','Không có ai để cứu.'); end if;
+      if not hsec and wolf_target is null then return jsonb_build_object('error','Không có ai để cứu.'); end if;
+    end if;
+    if do_poison then
       if coalesce((me.state->>'poison_used')::boolean,false) then return jsonb_build_object('error','Bạn đã dùng bình độc rồi.'); end if;
       if p_target is null or p_target = me.id then return jsonb_build_object('error','Hãy chọn một người khác để đầu độc.'); end if;
+    end if;
+    if do_heal then
+      update public.ms_players set state = state || '{"heal_used":true}' where id = me.id;
+      update public.ms_games set ctx = ctx || case when hsec then '{"heal2":true}'::jsonb else '{"heal":true}'::jsonb end where id = gid;
+    end if;
+    if do_poison then
       update public.ms_players set state = state || '{"poison_used":true}' where id = me.id;
       update public.ms_games set ctx = ctx || jsonb_build_object('poison', p_target) where id = gid;
-      insert into public.ms_actions (game_id, phase_no, player_id, kind, target, data) values (gid, gm.phase_no, me.id, 'witch', p_target, '{"poison":true}');
-    else
-      insert into public.ms_actions (game_id, phase_no, player_id, kind, target, data) values (gid, gm.phase_no, me.id, 'witch', null, '{"skip":true}');
     end if;
+    insert into public.ms_actions (game_id, phase_no, player_id, kind, target, data) values (gid, gm.phase_no, me.id, 'witch',
+      case when do_poison then p_target when do_heal then (case when hsec then nullif(gm.ctx->>'wolf_target2','')::uuid else wolf_target end) else null end,
+      case when not do_heal and not do_poison then '{"skip":true}'::jsonb
+           else jsonb_build_object('heal', do_heal, 'poison', do_poison, 'second', hsec) end);
   elsif p_kind = 'cupid' then
     if not (gm.phase = 'night' and gm.stage = 1 and gm.day_no = 1 and me.role = 'cupid') then return jsonb_build_object('error','Lúc này bạn không thể kết đôi.'); end if;
     if exists (select 1 from public.ms_actions where game_id = gid and phase_no = gm.phase_no and player_id = me.id and kind = 'cupid') then return jsonb_build_object('error','Bạn đã kết đôi rồi.'); end if;
@@ -972,7 +976,9 @@ begin
       elsif pr->>'type' = 'ghost' and not (pr->>'done')::boolean then
         if random() < 0.12 then perform public.ms_act(b.profile_id, 'ghost', null); end if;
       elsif pr->>'type' = 'witch' and not (pr->>'done')::boolean then
-        if (pr->>'can_heal')::boolean and random() < 0.5 then perform public.ms_act(b.profile_id, 'witch', null, '{"heal":true}');
+        if (pr->>'can_heal')::boolean and (pr->>'can_poison')::boolean and len > 0 and random() < 0.2 then
+          pick := pr->'options'->(floor(random() * len)::int); perform public.ms_act(b.profile_id, 'witch', (pick->>'id')::uuid, '{"heal":true,"poison":true}');
+        elsif (pr->>'can_heal')::boolean and random() < 0.5 then perform public.ms_act(b.profile_id, 'witch', null, '{"heal":true}');
         elsif (pr->>'can_poison')::boolean and random() < 0.25 and len > 0 then pick := pr->'options'->(floor(random() * len)::int); perform public.ms_act(b.profile_id, 'witch', (pick->>'id')::uuid, '{"poison":true}');
         else perform public.ms_act(b.profile_id, 'witch', null, '{}'::jsonb); end if;
       elsif pr->>'type' = 'vote' and not (pr->>'voted')::boolean and len > 0 then
