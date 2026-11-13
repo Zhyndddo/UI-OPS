@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { buildDigest } from "../../../../lib/digestData";
 import { sendTelegram, renderDigestTelegram, slotOf, telegramConfigured } from "../../../../lib/telegram";
+import { loadStuck, renderActions } from "../../../../lib/friday";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -18,7 +19,9 @@ export async function GET(request) {
   if (!slot) return NextResponse.json({ error: "slot must be morning, noon or evening." }, { status: 400 });
   try {
     const digest = await buildDigest(supabaseAdmin);
-    const res = await sendTelegram(renderDigestTelegram(digest, slot));
+    let text = renderDigestTelegram(digest, slot);
+    try { text += "\n\n" + renderActions(digest, await loadStuck(supabaseAdmin), slot !== "morning"); } catch (e) { /* digest still goes out without the action block */ }
+    const res = await sendTelegram(text);
     return NextResponse.json({ slot, ...res }, { status: res.ok ? 200 : 502 });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });

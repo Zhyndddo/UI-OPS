@@ -5,12 +5,15 @@ import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { buildDigest } from "../../../lib/digestData";
-import { renderStatusTelegram, renderMissingTelegram } from "../../../lib/telegram";
+import { sendTelegramTo, splitText, renderStatusTelegram, renderMissingTelegram } from "../../../lib/telegram";
+import { loadStuck, renderActions } from "../../../lib/friday";
+import { linkedProfile, startLink, confirmLink, unlink, myTasksHtml } from "../../../lib/tgLink";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram } from "../../../lib/tgRecap";
 
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
 
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const REPLY = "Mình vui lòng giúp bạn nhưng mình chưa hiểu tiếng Việt, mời bạn nói tiếng Nga. 🇷🇺\nГоворите по-русски, пожалуйста.";
 const COOLDOWN_MS = 20 * 1000;   // at most one joke per chat per 20 s, so a pile-on can't make the bot spam the group
 const last = new Map();
@@ -27,10 +30,14 @@ async function getBotName(token) {
 }
 
 async function reply(token, m, text, html) {
-  const body = { chat_id: m.chat.id, text, reply_to_message_id: m.message_id, allow_sending_without_reply: true, disable_web_page_preview: true };
-  if (html) body.parse_mode = "HTML";
-  if (m.is_topic_message && m.message_thread_id) body.message_thread_id = m.message_thread_id;
-  try { await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); } catch (e) { /* ignore */ }
+  let first = true;
+  for (const part of splitText(text)) {   // Telegram's limit is 4096 characters → long answers become 2-3 messages
+    const body = { chat_id: m.chat.id, text: part, disable_web_page_preview: true };
+    if (first) { body.reply_to_message_id = m.message_id; body.allow_sending_without_reply = true; first = false; }
+    if (html) body.parse_mode = "HTML";
+    if (m.is_topic_message && m.message_thread_id) body.message_thread_id = m.message_thread_id;
+    try { await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); } catch (e) { /* ignore */ }
+  }
 }
 
 export async function POST(request) {
@@ -61,11 +68,36 @@ export async function POST(request) {
     } catch (e) { /* never break the bot over logging */ }
   }
 
+  // Round 611 — private chat: /link, /code, /unlink, /mytasks (the account link needs a code emailed to the app address)
+  if (isPrivate && isCommand && supabaseAdmin && m.from?.id) {
+    const cmd = cmdMatch[1].toLowerCase(), arg = text.slice(cmdMatch[0].length).trim();
+    let out = null;
+    try {
+      if (cmd === "start" || cmd === "help") out = "Xin chào! Để nhận việc của bạn ở đây:\n1) /link email-đăng-nhập-app\n2) Mở email lấy mã 6 số, rồi gõ /code 123456\nSau đó gõ /mytasks bất cứ lúc nào. /unlink để huỷ liên kết.";
+      else if (cmd === "link") out = await startLink(m.from.id, m.chat.id, arg);
+      else if (cmd === "code") out = await confirmLink(m.from.id, arg);
+      else if (cmd === "unlink") out = await unlink(m.from.id);
+      else if (cmd === "mytasks") { const lk = await linkedProfile(m.from.id); out = lk ? await myTasksHtml(lk.profile_id) : "Bạn chưa liên kết. Gõ /link email-đăng-nhập-app"; }
+    } catch (e) { out = "Lỗi: " + e.message; }
+    if (out) { await sendTelegramTo(m.chat.id, cmd === "mytasks" ? out : esc(out)); return NextResponse.json({ ok: true }); }
+  }
+
   // Round 610 — commands, internal group only (they show internal numbers)
   if (isCommand && isInternal && supabaseAdmin) {
     const cmd = cmdMatch[1].toLowerCase();
-    if (["status", "missing", "recap"].includes(cmd)) {   // instant 👍 so people know the command arrived (the answer can take a few seconds)
+    if (["status", "missing", "recap", "mytasks"].includes(cmd)) {   // instant 👍 so people know the command arrived (the answer can take a few seconds)
       try { await fetch(`https://api.telegram.org/bot${token}/setMessageReaction`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: m.chat.id, message_id: m.message_id, reaction: [{ type: "emoji", emoji: "👍" }] }) }); } catch (e) { /* ignore */ }
+    }
+    if (cmd === "mytasks") {   // list goes to the person's private chat, never into the group
+      try {
+        const lk = m.from?.id ? await linkedProfile(m.from.id) : null;
+        if (!lk) await reply(token, m, `Mình chưa biết bạn là ai. Nhắn riêng cho mình (@${name}) gõ /link email-đăng-nhập-app để liên kết một lần.`, false);
+        else {
+          const res = await sendTelegramTo(lk.dm_chat_id, await myTasksHtml(lk.profile_id));
+          await reply(token, m, res.ok ? "📬 Đã gửi danh sách việc vào tin nhắn riêng của bạn." : res.blocked ? `Mình chưa nhắn riêng được — bạn mở chat với @${name} và bấm Start trước nhé.` : "Không gửi được: " + res.error, false);
+        }
+      } catch (e) { await reply(token, m, "Lỗi: " + e.message, false); }
+      return NextResponse.json({ ok: true });
     }
     if (cmd === "recap") {
       try {
@@ -80,7 +112,10 @@ export async function POST(request) {
     if (cmd === "status" || cmd === "missing") {
       try {
         const digest = await buildDigest(supabaseAdmin);
-        await reply(token, m, cmd === "status" ? renderStatusTelegram(digest) : renderMissingTelegram(digest), true);
+        if (cmd === "status") {
+          const stuck = await loadStuck(supabaseAdmin).catch(() => []);
+          await reply(token, m, renderStatusTelegram(digest) + "\n\n" + renderActions(digest, stuck, true), true);
+        } else await reply(token, m, renderMissingTelegram(digest), true);
       } catch (e) { await reply(token, m, "Lỗi khi lấy số liệu: " + e.message, false); }
       return NextResponse.json({ ok: true });
     }

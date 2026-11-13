@@ -32,6 +32,14 @@ import PictureRender from "../../lib/PictureRender";
 const EQUIPMENT_TAB = "__equipment";
 // Round 569 — "Picture render" tab (admin / dev): names onto a designated picture, see lib/pictureRenderConfig.js.
 const PICTURE_TAB = "__picture_render";
+// Round 613 — "HTML" tab: the stand-alone pages that live outside the sidebar (door check-in, surveys, invitation card). Links only.
+const HTML_TAB = "__html";
+const HTML_TOOLS = [
+  { label: "Check-in sự kiện", note: "Quét QR khách mời tại cửa (cần mã cửa)", href: "/checkin" },
+  { label: "Khảo sát đào tạo", note: "Form khảo sát trước buổi đào tạo", href: "/training-survey" },
+  { label: "Khảo sát team building", note: "Form khảo sát team building", href: "/team-building-survey" },
+  { label: "Thiệp mời (Picture render)", note: "Ghi tên lên thiệp mời, công khai bằng mã truy cập", href: "/picture" },
+];
 const EQUIPMENT_GUIDES = [
   { key: "sound", title: "Bật / tắt hệ thống âm thanh (Sound system on/off)", src: "/equipment/vieent-sound-system-guide.pdf" },
 ];
@@ -187,7 +195,8 @@ export default function ToolDirectoryPage() {
   const onEquipment = activeTeam === EQUIPMENT_TAB;
   const canPicture = isAdminOrAbove(profile);
   const onPicture = activeTeam === PICTURE_TAB && canPicture;
-  const bucketsForTeam = onEquipment || onPicture ? [] : Object.entries(directory).filter(([, b]) => b.team === activeTeam);
+  const onHtml = activeTeam === HTML_TAB;
+  const bucketsForTeam = onEquipment || onPicture || onHtml ? [] : Object.entries(directory).filter(([, b]) => b.team === activeTeam);
 
   return (
     <AppShell>
@@ -233,6 +242,12 @@ export default function ToolDirectoryPage() {
                 >
                   Equipment
                 </button>
+                <button
+                  className={`${styles.tabBtn} ${onHtml ? styles.tabBtnActive : ""}`}
+                  onClick={() => { setActiveTeam(HTML_TAB); setEditing(false); }}
+                >
+                  HTML
+                </button>
                 {canPicture && (
                   <button
                     className={`${styles.tabBtn} ${onPicture ? styles.tabBtnActive : ""}`}
@@ -244,6 +259,17 @@ export default function ToolDirectoryPage() {
               </div>
 
               {onPicture && <PictureRender />}
+
+              {onHtml && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 24 }}>
+                  {HTML_TOOLS.map((t) => (
+                    <a key={t.href} href={t.href} target="_blank" rel="noreferrer" style={{ display: "block", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", minWidth: 220, maxWidth: 300, textDecoration: "none", background: "var(--bg-card)" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--accent)" }}>{t.label} ↗</div>
+                      <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 4 }}>{t.note}</div>
+                    </a>
+                  ))}
+                </div>
+              )}
 
               {onEquipment && EQUIPMENT_GUIDES.map((g) => (
                 <div key={g.key} style={{ marginBottom: 24 }}>
@@ -261,7 +287,7 @@ export default function ToolDirectoryPage() {
                 </div>
               ))}
 
-              {!onEquipment && !onPicture && bucketsForTeam.length === 0 && (
+              {!onEquipment && !onPicture && !onHtml && bucketsForTeam.length === 0 && (
                 <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 20 }}>No page groups yet for this team.</div>
               )}
 
