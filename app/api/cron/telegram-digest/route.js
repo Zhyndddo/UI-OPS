@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { buildDigest } from "../../../../lib/digestData";
 import { sendTelegram, renderDigestTelegram, slotOf, telegramConfigured } from "../../../../lib/telegram";
-import { loadStuck, loadChatSignals, renderActions } from "../../../../lib/friday";
+import { loadStuck, loadChatSignals, loadOwners, renderActions } from "../../../../lib/friday";
 import { loadIntakeGaps } from "../../../../lib/tgIntake";
 
 export const maxDuration = 60;
@@ -20,6 +20,7 @@ export async function GET(request) {
   if (!slot) return NextResponse.json({ error: "slot must be morning, noon or evening." }, { status: 400 });
   try {
     const digest = await buildDigest(supabaseAdmin);
+    await loadOwners(supabaseAdmin, digest.missingDataRows);
     let text = renderDigestTelegram(digest, slot);
     try { text += "\n\n" + renderActions(digest, await loadStuck(supabaseAdmin), slot !== "morning", await loadChatSignals(supabaseAdmin, digest.missingDataRows).catch(() => ({})), await loadIntakeGaps(supabaseAdmin).catch(() => [])); } catch (e) { /* digest still goes out without the action block */ }
     const res = await sendTelegram(text);

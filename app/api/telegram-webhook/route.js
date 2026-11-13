@@ -6,7 +6,7 @@ import { timingSafeEqual } from "crypto";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { buildDigest } from "../../../lib/digestData";
 import { sendTelegramTo, splitText, renderStatusTelegram, renderMissingTelegram } from "../../../lib/telegram";
-import { loadStuck, loadChatSignals, renderActions } from "../../../lib/friday";
+import { loadStuck, loadChatSignals, loadOwners, renderActions } from "../../../lib/friday";
 import { loadIntakeGaps } from "../../../lib/tgIntake";
 import { linkedProfile, startLink, confirmLink, unlink, myTasksHtml } from "../../../lib/tgLink";
 import { captureIntake, handleDecision, loadIntakes, renderIntakeBlock, cardButtons, renderCard } from "../../../lib/tgIntake";
@@ -133,6 +133,7 @@ export async function POST(request) {
     if (cmd === "status" || cmd === "missing") {
       try {
         const digest = await buildDigest(supabaseAdmin);
+        await loadOwners(supabaseAdmin, digest.missingDataRows);
         if (cmd === "status") {
           const stuck = await loadStuck(supabaseAdmin).catch(() => []);
           const sig = await loadChatSignals(supabaseAdmin, digest.missingDataRows).catch(() => ({}));
