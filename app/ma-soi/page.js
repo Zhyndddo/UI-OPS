@@ -295,6 +295,14 @@ export default function MaSoiPage() {
                     <ScryBox key={`${g.phase_no}-sc`} o={pr.scry} busy={busy} onSend={(id) => act("scry", id)} />
                   </div>
                 )}
+                {pr.type === "wolf" && pr.scry_none && (
+                  <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--border)", fontSize: 13.5 }}>
+                    🔭 Bạn không cảm nhận được sức mạnh phép thuật từ những kẻ soi mói, có lẽ Tiên Tri đã không còn nữa.
+                  </div>
+                )}
+                {pr.type === "scryer_none" && (
+                  <div style={{ fontSize: 13.5 }}>🔭 Bạn không cảm nhận được sức mạnh phép thuật từ những kẻ soi mói, có lẽ Tiên Tri đã không còn nữa.</div>
+                )}
                 {pr.type === "rogue" && (
                   <div>
                     <div style={{ fontWeight: 800 }}>🦝 Bạn muốn rình ai đêm nay?</div>
