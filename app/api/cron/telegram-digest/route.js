@@ -5,7 +5,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { buildDigest } from "../../../../lib/digestData";
 import { sendTelegram, renderDigestTelegram, slotOf, telegramConfigured } from "../../../../lib/telegram";
-import { loadStuck, renderActions } from "../../../../lib/friday";
+import { loadStuck, loadChatSignals, renderActions } from "../../../../lib/friday";
+import { loadIntakeGaps } from "../../../../lib/tgIntake";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export async function GET(request) {
   try {
     const digest = await buildDigest(supabaseAdmin);
     let text = renderDigestTelegram(digest, slot);
-    try { text += "\n\n" + renderActions(digest, await loadStuck(supabaseAdmin), slot !== "morning"); } catch (e) { /* digest still goes out without the action block */ }
+    try { text += "\n\n" + renderActions(digest, await loadStuck(supabaseAdmin), slot !== "morning", await loadChatSignals(supabaseAdmin, digest.missingDataRows).catch(() => ({})), await loadIntakeGaps(supabaseAdmin).catch(() => [])); } catch (e) { /* digest still goes out without the action block */ }
     const res = await sendTelegram(text);
     return NextResponse.json({ slot, ...res }, { status: res.ok ? 200 : 502 });
   } catch (err) {

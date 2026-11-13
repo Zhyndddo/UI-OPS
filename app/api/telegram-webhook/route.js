@@ -6,8 +6,10 @@ import { timingSafeEqual } from "crypto";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { buildDigest } from "../../../lib/digestData";
 import { sendTelegramTo, splitText, renderStatusTelegram, renderMissingTelegram } from "../../../lib/telegram";
-import { loadStuck, renderActions } from "../../../lib/friday";
+import { loadStuck, loadChatSignals, renderActions } from "../../../lib/friday";
+import { loadIntakeGaps } from "../../../lib/tgIntake";
 import { linkedProfile, startLink, confirmLink, unlink, myTasksHtml } from "../../../lib/tgLink";
+import { captureIntake, handleDecision, loadIntakes, renderIntakeBlock, cardButtons, renderCard } from "../../../lib/tgIntake";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram } from "../../../lib/tgRecap";
 
 export const maxDuration = 30;
@@ -29,12 +31,13 @@ async function getBotName(token) {
   return botName;
 }
 
-async function reply(token, m, text, html) {
+async function reply(token, m, text, html, markup) {
   let first = true;
   for (const part of splitText(text)) {   // Telegram's limit is 4096 characters → long answers become 2-3 messages
     const body = { chat_id: m.chat.id, text: part, disable_web_page_preview: true };
     if (first) { body.reply_to_message_id = m.message_id; body.allow_sending_without_reply = true; first = false; }
     if (html) body.parse_mode = "HTML";
+    if (markup) body.reply_markup = markup;
     if (m.is_topic_message && m.message_thread_id) body.message_thread_id = m.message_thread_id;
     try { await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); } catch (e) { /* ignore */ }
   }
@@ -48,6 +51,15 @@ export async function POST(request) {
 
   let update = {};
   try { update = await request.json(); } catch (e) { return NextResponse.json({ ok: true }); }
+  if (update.callback_query) {   // Round 616 — ✅ Đúng / 🗑 Bỏ on an intake card
+    const cb = update.callback_query, tg = (method, body) => fetch(`https://api.telegram.org/bot${token}/${method}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+    try {
+      const res = supabaseAdmin ? await handleDecision(supabaseAdmin, cb, linkedProfile) : { answer: "Chưa cấu hình." };
+      await tg("answerCallbackQuery", { callback_query_id: cb.id, text: res.answer });
+      if (res.edit && cb.message) await tg("editMessageText", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, text: res.edit, parse_mode: "HTML", disable_web_page_preview: true });
+    } catch (e) { await tg("answerCallbackQuery", { callback_query_id: cb.id, text: "Lỗi, thử lại." }); }
+    return NextResponse.json({ ok: true });
+  }
   const m = update.message;
   if (!m || !m.chat || m.from?.is_bot) return NextResponse.json({ ok: true });
   const text = String(m.text || m.caption || "");
@@ -66,6 +78,14 @@ export async function POST(request) {
         sender, text: text.slice(0, 1000), sent_at: new Date((m.date || Date.now() / 1000) * 1000).toISOString(),
       }, { onConflict: "chat_id,msg_id", ignoreDuplicates: true });
     } catch (e) { /* never break the bot over logging */ }
+  }
+
+  // Round 616 — a request message in the group ("Hiếu ơi gửi upload nha …") becomes a card the poster / PIC can confirm
+  if (isInternal && supabaseAdmin && text.trim() && !isCommand) {
+    try {
+      const it = await captureIntake(supabaseAdmin, m, text);
+      if (it) await reply(token, m, renderCard(it), true, cardButtons(it.id));
+    } catch (e) { /* never break the bot over parsing */ }
   }
 
   // Round 611 — private chat: /link, /code, /unlink, /mytasks (the account link needs a code emailed to the app address)
@@ -105,7 +125,8 @@ export async function POST(request) {
         const now = new Date(), from = vnDayStart(yesterday ? 1 : 0, now), to = yesterday ? vnDayStart(0, now) : now;
         const msgs = await loadMessages(supabaseAdmin, from, to, m.chat.id);
         const ai = await aiSummary(msgs);
-        await reply(token, m, renderRecapTelegram(analyse(msgs), vnDateLabel(from) + (yesterday ? "" : " (đến giờ)"), ai), true);
+        const intakeBlock = renderIntakeBlock(await loadIntakes(supabaseAdmin, from.toISOString(), to.toISOString()).catch(() => []));
+        await reply(token, m, renderRecapTelegram(analyse(msgs), vnDateLabel(from) + (yesterday ? "" : " (đến giờ)"), ai) + (intakeBlock ? "\n\n" + intakeBlock : ""), true);
       } catch (e) { await reply(token, m, "Lỗi khi tóm tắt: " + e.message, false); }
       return NextResponse.json({ ok: true });
     }
@@ -114,8 +135,10 @@ export async function POST(request) {
         const digest = await buildDigest(supabaseAdmin);
         if (cmd === "status") {
           const stuck = await loadStuck(supabaseAdmin).catch(() => []);
-          await reply(token, m, renderStatusTelegram(digest) + "\n\n" + renderActions(digest, stuck, true), true);
-        } else await reply(token, m, renderMissingTelegram(digest), true);
+          const sig = await loadChatSignals(supabaseAdmin, digest.missingDataRows).catch(() => ({}));
+          const gaps = await loadIntakeGaps(supabaseAdmin).catch(() => []);
+          await reply(token, m, renderStatusTelegram(digest) + "\n\n" + renderActions(digest, stuck, true, sig, gaps), true);
+        } else await reply(token, m, renderMissingTelegram(digest, await loadChatSignals(supabaseAdmin, digest.missingDataRows).catch(() => ({}))), true);
       } catch (e) { await reply(token, m, "Lỗi khi lấy số liệu: " + e.message, false); }
       return NextResponse.json({ ok: true });
     }
