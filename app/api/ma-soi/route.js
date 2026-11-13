@@ -69,7 +69,9 @@ export async function POST(request) {
   const { data, error } = await supabaseAdmin.rpc(fn, args);
   if (error) {
     const missing = /Could not find the function|does not exist/i.test(error.message || "");
-    return NextResponse.json({ error: missing ? "Thiếu hàm trên database — hãy chạy các file SQL Ma Sói mới nhất (round 595 / 596)." : "Lỗi hệ thống, thử lại sau." }, { status: 500, headers: noStore });
+    console.error("ma-soi rpc failed:", fn, error.code, error.message);   // Round 617 — the real reason now shows in the Vercel logs
+    const detail = caller?.role === "dev" ? ` [${fn}: ${String(error.message || "").slice(0, 160)}]` : "";   // dev accounts also see it in the game
+    return NextResponse.json({ error: (missing ? "Thiếu hàm trên database — hãy chạy các file SQL Ma Sói mới nhất (round 595 / 596)." : "Lỗi hệ thống, thử lại sau.") + detail }, { status: 500, headers: noStore });
   }
   if (data && data.error) return NextResponse.json({ error: data.error }, { status: 400, headers: noStore });
   // Round 584 — after a change, send the fresh game state back in the same reply so the page does not need a second round trip
