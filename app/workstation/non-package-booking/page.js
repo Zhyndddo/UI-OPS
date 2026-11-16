@@ -12,6 +12,8 @@ import { logAudit } from "../../../lib/auditLog";
 import { TIKTOK_CHANNEL_GROUPS, TIKTOK_SUBCHANNELS, ADS_METRICS, brandsLikelyMatch } from "../../booking/page";
 import { isUiTester } from "../../../lib/uiTesters";
 import NpbFilterBar from "../../../lib/NpbFilterBar";
+import { useSortableRows } from "../../../lib/useSortableRows";
+import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
@@ -176,12 +178,14 @@ export default function NonPackageBooking() {
         const first = g.tickets[0]?.data || {};
         const isNonDid = !release && (key.startsWith("ND-") || key.startsWith("ND:"));
         const label = release?.title || first.productName || first.tenBai || g.entries[0]?.row_label || key;
-        return { key, release, tickets: g.tickets, entries: g.entries, label, isNonDid };
+        return { key, release, tickets: g.tickets, entries: g.entries, label, isNonDid, release_date: release?.release_date || null };
       })
       .filter(({ key, release, label }) => !q || key.toLowerCase().includes(q) || label.toLowerCase().includes(q) || (release?.main_artist || "").toLowerCase().includes(q))
-      .sort((a, b) => a.label.localeCompare(b.label));
+      ;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveTickets, brandEntries, releasesByDid, codeByName, search]);
+  // Round 631 — sortable by release date (default: furthest in the future first; rows without a date last).
+  const { sorted: sortedRows, sort, toggleSort, resetSort, isDefault } = useSortableRows(rows);
 
   async function addEntry(row, col, payload) {
     const { data, error } = await supabase
@@ -343,15 +347,16 @@ export default function NonPackageBooking() {
             </div>
           ) : (
             <div className={styles.scrollBox} style={{ overflowX: "auto" }}>
+              <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
               <table className={styles.table}>
                 <thead>
                   <tr>
-                    <th>Release</th>
+                    <SortableTh label="Release" sortKey="release_date" sort={sort} onToggle={toggleSort} />
                     {columns.map((c) => <th key={c}>{c}</th>)}
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
+                  {sortedRows.map((row) => (
                     <tr key={row.key}>
                       <td style={{ minWidth: 160 }}>
                         {row.release ? (

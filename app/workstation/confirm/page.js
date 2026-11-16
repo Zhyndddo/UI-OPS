@@ -56,7 +56,7 @@ function ArtistPickSelect({ value, onChange }) {
   );
 }
 
-const SELECT_FIELDS = "id, did, title, main_artist, release_date, release_time, link_lbm, link_lbm_source, release_category, project_type, smartlink, upc, confirm_insta_sound, confirm_tiktok_sound_updated, confirm_smartlink_updated, confirm_tag, artist_pick_status, needs_update, confirm_note, " + DSP_CHECK_FIELDS.join(", ");
+const SELECT_FIELDS = "id, did, title, main_artist, release_date, release_time, link_lbm, link_lbm_source, release_category, project_type, smartlink, upc, confirm_insta_sound, confirm_tiktok_sound_updated, confirm_smartlink_updated, confirm_tag, artist_pick_status, needs_update, confirm_note, nct_lyric, " + DSP_CHECK_FIELDS.join(", ");
 
 // Round 135 — per explicit request: "filter out product that hasn't had
 // the UPC && smartlink filled yet" (item 1). A release only counts as
@@ -415,6 +415,8 @@ function ConfirmWorkstationInner() {
                   <th>URL LBM</th>
                   <th>Tag Confirm</th>
                   <SortableTh label="Product Type" sortKey="project_type" sort={sort} onToggle={toggleSort} />
+                  {/* Round 631 — NCT LYRIC: another way to fill releases.nct_lyric (same field as Pre-release). */}
+                  <th title="Same field as Pre-release's NCT LYRIC">NCT LYRIC</th>
                   <th>PIC</th>
                   <th>Note</th>
                 </tr>
@@ -442,6 +444,9 @@ function ConfirmWorkstationInner() {
                     </td>
                     <td style={{ minWidth: 90 }}><BoolToggle value={!!r.confirm_tag} onChange={(v) => updateField(r, "confirm_tag", v)} /></td>
                     <td><span className={styles.statusBadge} style={{ background: "rgba(255,107,26,0.12)", color: "#ff9d5c" }}>{r.project_type || "—"}</span></td>
+                    <td>
+                      <ArtistPickSelect value={r.nct_lyric} onChange={(v) => updateField(r, "nct_lyric", v)} />
+                    </td>
                     <td>
                       <PicTagInput styles={styles} value={assignments.confirm_phase1?.[r.id] ?? defaultPics.confirm_phase1 ?? []} onChange={(ids) => updatePics(r.id, ids)} profiles={profiles} />
                     </td>

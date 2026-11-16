@@ -17,6 +17,8 @@ import PicTagInput from "../../../lib/PicTagInput";
 import { fetchNonDidProducts } from "../../../lib/nonDidProducts";
 import { filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/workstationHelpers";
 import { logPicReassign } from "../../../lib/auditLog";
+import { useSortableRows } from "../../../lib/useSortableRows";
+import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
@@ -768,8 +770,11 @@ export default function WorkstationCostMkt() {
     // Round 496 — on Artist Trả a booked target (ticket number) keeps the row even before anything is added.
     return bookingZero || (row.totalPost === 0 && (fb === "vieent" || booked === 0));
   };
-  const visibleRows = hideZero ? rows.filter((row) => !isZeroRow(row)) : rows;
-  const hiddenZeroCount = rows.length - visibleRows.length;
+  // Round 631 — sortable by release date (default: furthest in the future first).
+  const rowsWithDate = useMemo(() => rows.map((r) => ({ ...r, release_date: r.release?.release_date || null })), [rows]);
+  const { sorted: sortedRows, sort, toggleSort, resetSort, isDefault } = useSortableRows(rowsWithDate);
+  const visibleRows = hideZero ? sortedRows.filter((row) => !isZeroRow(row)) : sortedRows;
+  const hiddenZeroCount = sortedRows.length - visibleRows.length;
   // Round 482 — export scope: everything on the tab, or only releases whose
   // Cost Thực Chạy is still empty ("chưa có số") — handy for handing out a
   // fill-in sheet. Both respect the 0-row filter above.
@@ -1477,13 +1482,14 @@ export default function WorkstationCostMkt() {
             </div>
           ) : (
             <div className={styles.scrollBox} style={{ overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+              <ResetSortButton isDefault={isDefault} onReset={resetSort} styles={styles} />
               <table className={styles.table}>
                 <thead>
                   <tr>
                     {/* Round 436 — "pops out" on the left when Is_installment
                         is toggled on, ahead of Release. */}
                     {showOverrideColumn && <th className={styles.stickyLead} title="Track Tháng Chi Trả as real per-month installment rows for this release">Is_installment?</th>}
-                    <th className={`${styles.stickyName} ${showOverrideColumn ? styles.stickyLeadOffset : ""}`}>Release</th>
+                    <SortableTh label="Release" sortKey="release_date" sort={sort} onToggle={toggleSort} className={`${styles.stickyName} ${showOverrideColumn ? styles.stickyLeadOffset : ""}`} />
                     <th>Label</th>
                     <th>PIC</th>
                     {columns.map((c) => <th key={c}>{c}</th>)}

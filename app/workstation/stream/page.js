@@ -12,6 +12,8 @@ import PicTagInput from "../../../lib/PicTagInput";
 import FloatingMenu from "../../../lib/FloatingMenu";
 import { filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/workstationHelpers";
 import { logPicReassign } from "../../../lib/auditLog";
+import { useSortableRows } from "../../../lib/useSortableRows";
+import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
@@ -543,7 +545,10 @@ function handleMetricBlur(row, key, e, onUpdate) {
   onUpdate(row, key, newValue);
 }
 
-function StreamTable({ rows, onUpdate, onRemove, onLink, manual, picAssignments, picDefaults, picProfiles, onUpdatePics }) {
+function StreamTable({ rows: rawRows, onUpdate, onRemove, onLink, manual, picAssignments, picDefaults, picProfiles, onUpdatePics }) {
+  // Round 631 — click the Release header to sort by release date (default: furthest in the future first).
+  const datedRows = useMemo(() => rawRows.map((r) => ({ ...r, release_date: r.release?.release_date || r.metrics?.manual_release_date || null })), [rawRows]);
+  const { sorted: rows, sort, toggleSort, resetSort, isDefault } = useSortableRows(datedRows);
   return (
     <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
       <table className={styles.table} style={{ minWidth: 1400 }}>
@@ -555,7 +560,7 @@ function StreamTable({ rows, onUpdate, onRemove, onLink, manual, picAssignments,
               a higher z-index than the rest since it's sticky on both axes
               at once and has to stay above them at the corner. */}
           <tr>
-            <th style={{ position: "sticky", top: 0, left: 0, zIndex: 4, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 300, minWidth: 300, maxWidth: 300 }}>Release</th>
+            <SortableTh sortKey="release_date" sort={sort} onToggle={toggleSort} style={{ position: "sticky", top: 0, left: 0, zIndex: 4, background: "var(--bg)", borderRight: "2px solid var(--accent)", width: 300, minWidth: 300, maxWidth: 300 }}>Release{!isDefault && <span role="button" onClick={(e) => { e.stopPropagation(); resetSort(); }} style={{ marginLeft: 8, fontSize: 10 }}>✕ reset</span>}</SortableTh>
             {/* Round 458 — §3b: per-release PIC, same pattern as Upload/
                 Confirm/Pre-release/Cost-MKT. A Bổ Sung row with no linked
                 release yet (row.release === null) has nothing to hang a

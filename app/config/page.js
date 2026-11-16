@@ -1603,10 +1603,12 @@ function NotificationsSection() {
 
   async function load() {
     setLoading(true);
-    const [{ data }, { data: tabRows }] = await Promise.all([
+    const [{ data }, { data: tabRows }, { data: profRows }] = await Promise.all([
       supabase.from("notification_settings").select("*").eq("id", 1).maybeSingle(),
       supabase.from("ticket_tabs").select("id, key, label, executor_team, notify_on_insert").order("sort_order"),
+      supabase.from("profiles").select("id, name, segment, role").order("name"),
     ]);
+    setDmProfiles(profRows || []);
     setSettings(data);
     setRecipientsDraft((data?.digest_recipients || []).join(", "));
     setNoteDraft(data?.digest_custom_note || "");
@@ -1661,12 +1663,13 @@ function NotificationsSection() {
 
   // Round 601 — Telegram test: posts a hello line, or the real digest, into the internal group (server reads the bot token from Vercel env).
   const [tgBusy, setTgBusy] = useState(false);
+  const [dmProfiles, setDmProfiles] = useState([]);   // Round 632 — candidates for "DM copy of every recap"
   const [tgResult, setTgResult] = useState(null);
-  async function sendTelegramTest(digest) {
+  async function sendTelegramTest(digest, copies) {
     setTgBusy(true); setTgResult(null);
     try {
       const { data: sd } = await supabase.auth.getSession();
-      const res = await fetch("/api/telegram-test", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sd?.session?.access_token || ""}` }, body: JSON.stringify({ digest }) });
+      const res = await fetch("/api/telegram-test", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sd?.session?.access_token || ""}` }, body: JSON.stringify({ digest, copies: !!copies }) });
       setTgResult(await res.json().catch(() => ({ error: `HTTP ${res.status}` })));
     } catch (e) { setTgResult({ error: e.message }); }
     setTgBusy(false);
@@ -1790,6 +1793,26 @@ function NotificationsSection() {
           </p>
           <button className={styles.btnSecondary} onClick={() => sendTelegramTest(false)} disabled={tgBusy}>{tgBusy ? "Sending…" : "Send hello to Telegram"}</button>{" "}
           <button className={styles.btnSecondary} onClick={() => sendTelegramTest(true)} disabled={tgBusy}>Send digest to Telegram</button>
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4 }}>Private copy of every recap / digest (Telegram DM)</div>
+            <p style={{ fontSize: 10, color: "var(--text-dim)", marginBottom: 8 }}>
+              Group digests (08:30 / 13:30 / 18:00), the 18:00 chat recap and the 08:00 recap are also sent privately to these people. Each person must first open a private chat with Friday and send /link — anyone who has not is skipped.
+            </p>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+              {(settings.recap_dm_profiles || []).map((id) => (
+                <span key={id} className={styles.statusBadge} style={{ cursor: "pointer" }} title="Click to remove"
+                  onClick={() => updateSetting({ recap_dm_profiles: (settings.recap_dm_profiles || []).filter((x) => x !== id) })}>
+                  {dmProfiles.find((p) => p.id === id)?.name || id} ✕
+                </span>
+              ))}
+              {(settings.recap_dm_profiles || []).length === 0 && <span style={{ fontSize: 11, color: "var(--text-faint)" }}>Nobody yet.</span>}
+            </div>
+            <select className={styles.select} value="" onChange={(e) => e.target.value && updateSetting({ recap_dm_profiles: [...new Set([...(settings.recap_dm_profiles || []), e.target.value])] })}>
+              <option value="">+ Add a person…</option>
+              {dmProfiles.filter((p) => !(settings.recap_dm_profiles || []).includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}{p.segment ? ` · ${p.segment}` : ""}</option>)}
+            </select>{" "}
+            <button className={styles.btnSecondary} onClick={() => sendTelegramTest(false, true)} disabled={tgBusy}>Send test DM copy</button>
+          </div>
           {tgResult && (
             <pre style={{ marginTop: 10, fontSize: 10, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, padding: 10, overflowX: "auto", maxHeight: 200 }}>
               {JSON.stringify(tgResult, null, 2)}

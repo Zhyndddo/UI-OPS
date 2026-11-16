@@ -7,6 +7,7 @@ import nodemailer from "nodemailer";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { sendTelegram, telegramConfigured } from "../../../../lib/telegram";
 import { internalChatIds } from "../../../../lib/tgChats";
+import { dmCopies, emailRecipients } from "../../../../lib/recapCopies";
 import { addOwners } from "../../../../lib/tgOwners";
 import { loadTags, renderTagBlock, renderTagHtml } from "../../../../lib/tgTags";
 import { loadIntakes, renderIntakeBlock, renderIntakeHtml } from "../../../../lib/tgIntake";
@@ -35,22 +36,21 @@ export async function GET(request) {
     const tags = await loadTags(supabaseAdmin, from.toISOString(), to.toISOString()).catch(() => []);
     if (slot === "group") {
       if (!telegramConfigured()) return NextResponse.json({ skipped: "Telegram not configured." });
-      const res = await sendTelegram(renderRecapTelegram(a, label, ai) + (intakes.length ? "\n\n" + renderIntakeBlock(intakes) : "") + (tags.length ? "\n\n" + renderTagBlock(tags) : ""));
-      return NextResponse.json({ slot, total: a.total, ...res }, { status: res.ok ? 200 : 502 });
+      const text = renderRecapTelegram(a, label, ai) + (intakes.length ? "\n\n" + renderIntakeBlock(intakes) : "") + (tags.length ? "\n\n" + renderTagBlock(tags) : "");
+      const res = await sendTelegram(text);
+      const copies = await dmCopies(supabaseAdmin, text);   // Round 632 — private copy for the people picked in Config
+      return NextResponse.json({ slot, total: a.total, ...res, copies }, { status: res.ok ? 200 : 502 });
     }
     if (!a.total) return NextResponse.json({ slot, skipped: "No messages yesterday." });
     const { SMTP_HOST, SMTP_USER, SMTP_PASS } = process.env;
     if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return NextResponse.json({ slot, sent: false, reason: "SMTP not configured." });
     const { data: settings } = await supabaseAdmin.from("notification_settings").select("digest_recipients").eq("id", 1).maybeSingle();
-    let to_ = settings?.digest_recipients || [];
-    if (!to_.length) {
-      const { data: admins } = await supabaseAdmin.from("profiles").select("email").in("role", ["admin", "dev"]);
-      to_ = (admins || []).map((p) => p.email).filter(Boolean);
-    }
+    const to_ = await emailRecipients(supabaseAdmin, settings?.digest_recipients);   // Round 632 — digest recipients + the OPS team
     if (!to_.length) return NextResponse.json({ slot, sent: false, reason: "No recipients." });
     const tr = nodemailer.createTransport({ host: SMTP_HOST, port: parseInt(process.env.SMTP_PORT || "587", 10), secure: process.env.SMTP_SECURE === "true", auth: { user: SMTP_USER, pass: SMTP_PASS } });
     await tr.sendMail({ from: process.env.DIGEST_FROM_EMAIL || SMTP_USER, to: to_, subject: `VIEENT OPS — Tóm tắt chat nhóm ${label}`, html: renderRecapHtml(a, label, ai).replace(/<\/div>\s*$/, renderIntakeHtml(intakes) + renderTagHtml(tags) + "</div>") });
-    return NextResponse.json({ slot, total: a.total, sent: true, recipients: to_.length });
+    const copies = await dmCopies(supabaseAdmin, renderRecapTelegram(a, label, ai));   // Round 632 — the 08:00 recap also goes to the DM-copy people
+    return NextResponse.json({ slot, total: a.total, sent: true, recipients: to_.length, copies });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { todayUTC, buildDigest } from "../../../../lib/digestData";   // Round 601 — moved to lib so Telegram can reuse it
+import { emailRecipients } from "../../../../lib/recapCopies";
 
 // Daily digest — Config item 5b. Compiles today's ticket activity (sent /
 // completed, per ticket type) + every workstation's current not-done row
@@ -176,11 +177,8 @@ export async function GET(request) {
   const digest = await buildDigest(supabaseAdmin);
   const html = renderDigestHtml(digest, settings.digest_custom_note);
 
-  let recipients = settings.digest_recipients || [];
-  if (recipients.length === 0) {
-    const { data: admins } = await supabaseAdmin.from("profiles").select("email").in("role", ["admin", "dev"]);
-    recipients = (admins || []).map((p) => p.email).filter(Boolean);
-  }
+  // Round 632 — digest recipients (or admin/dev when empty) plus the whole OPS team
+  const recipients = await emailRecipients(supabaseAdmin, settings.digest_recipients);
 
   const result = recipients.length > 0 ? await sendEmail(recipients, html) : { sent: false, reason: "No recipients configured." };
 

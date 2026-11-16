@@ -819,6 +819,7 @@ function PerformanceTab({ profile }) {
     }
     setLinkForQuery(row);
     setShareLinks((prev) => [row, ...prev]);
+    return row;
   }
 
   // Renew — same token, same row, just a fresh 72h window. Recommended
@@ -841,6 +842,27 @@ function PerformanceTab({ profile }) {
     }
     setLinkForQuery(row);
     setShareLinks((prev) => prev.map((l) => (l.id === row.id ? row : l)));
+    return row;
+  }
+
+  // Round 632 — email the share link to the subscribed recipients (Config digest recipients). Makes / renews the link first if needed.
+  const [emailing, setEmailing] = useState(false);
+  async function emailReport() {
+    if (!supabase || !queryValue) return;
+    setEmailing(true);
+    try {
+      let row = linkIsActive ? linkForQuery : null;
+      if (!row) row = linkIsExpired ? await renewLink() : await generateLink();
+      if (!row) return;
+      const { data: sd } = await supabase.auth.getSession();
+      const res = await fetch("/api/email-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sd?.session?.access_token || ""}` },
+        body: JSON.stringify({ url: `${window.location.origin}/performance-report/${row.token}`, title: queryLabel || data?.label || "Performance report" }),
+      });
+      const j = await res.json().catch(() => ({}));
+      alert(res.ok ? `Emailed to ${j.recipients} subscribed recipient(s).` : `Couldn't email: ${j.error || res.status}`);
+    } finally { setEmailing(false); }
   }
 
   function copyLink(token) {
@@ -1008,6 +1030,9 @@ function PerformanceTab({ profile }) {
                     {generating ? "Generating…" : "Generate Share Link (72h)"}
                   </button>
                 )}
+                <button onClick={emailReport} disabled={emailing || generating} className={styles.tabBtn} style={{ border: "1px solid var(--border-strong)", borderRadius: 6, background: "transparent" }} title="Email the share link to the subscribed recipients (Config → Recipients)">
+                  {emailing ? "Sending…" : "✉ Email to subscribers"}
+                </button>
               </div>
               <PerformanceRollupView data={data} styles={styles} linkToReleases mode={mode} />
             </>
