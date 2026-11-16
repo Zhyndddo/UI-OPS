@@ -7,6 +7,7 @@ import nodemailer from "nodemailer";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { sendTelegram, telegramConfigured } from "../../../../lib/telegram";
 import { internalChatIds } from "../../../../lib/tgChats";
+import { addOwners } from "../../../../lib/tgOwners";
 import { loadTags, renderTagBlock, renderTagHtml } from "../../../../lib/tgTags";
 import { loadIntakes, renderIntakeBlock, renderIntakeHtml } from "../../../../lib/tgIntake";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram, renderRecapHtml } from "../../../../lib/tgRecap";
@@ -28,6 +29,7 @@ export async function GET(request) {
     const label = vnDateLabel(from);
     const msgs = await loadMessages(supabaseAdmin, from, to, internalChatIds());
     const a = analyse(msgs);
+    await addOwners(supabaseAdmin, a.open.slice(-6)).catch(() => {});   // Round 630: who should answer each open question
     const ai = await aiSummary(msgs);
     const intakes = await loadIntakes(supabaseAdmin, from.toISOString(), to.toISOString()).catch(() => []);
     const tags = await loadTags(supabaseAdmin, from.toISOString(), to.toISOString()).catch(() => []);

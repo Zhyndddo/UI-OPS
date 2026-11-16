@@ -11,6 +11,10 @@ import { loadIntakeGaps } from "../../../lib/tgIntake";
 import { internalChatIds, isInternalChat } from "../../../lib/tgChats";
 import { setAlerts } from "../../../lib/tgAlerts";
 import { captureTags, handleTagPick, loadTags, renderTagBlock } from "../../../lib/tgTags";
+import { askFriday } from "../../../lib/tgAsk";
+import { teamHtml, matchSegment, listSegments, segmentOfProfile } from "../../../lib/tgTeams";
+import { handleReminder } from "../../../lib/tgRemind";
+import { addOwners } from "../../../lib/tgOwners";
 import { linkedProfile, startLink, confirmLink, unlink, myTasksHtml } from "../../../lib/tgLink";
 import { captureIntake, handleDecision, loadIntakes, renderIntakeBlock, cardButtons, renderCard, intakeCardsOn } from "../../../lib/tgIntake";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram } from "../../../lib/tgRecap";
@@ -23,6 +27,17 @@ const REPLY = "Mình vui lòng giúp bạn nhưng mình chưa hiểu tiếng Vi�
 const COOLDOWN_MS = 20 * 1000;   // at most one joke per chat per 20 s, so a pile-on can't make the bot spam the group
 const last = new Map();
 let botName = null;
+
+// Round 630 — /ask and /team (group or private chat of a linked person)
+async function runAskTeam(cmd, arg, tgUserId) {
+  if (cmd === "ask") return await askFriday(supabaseAdmin, arg);
+  const info = arg ? await matchSegment(supabaseAdmin, arg) : { segs: await listSegments(supabaseAdmin), seg: null };
+  if (arg) return info.seg ? await teamHtml(supabaseAdmin, info.seg) : `Không thấy team "${esc(arg)}". Các team: ${info.segs.map(esc).join(", ") || "—"}`;
+  const lk = tgUserId ? await linkedProfile(tgUserId).catch(() => null) : null;
+  const seg = lk ? await segmentOfProfile(supabaseAdmin, lk.profile_id) : null;
+  if (!seg) return `Mình chưa biết team của bạn. Gõ /team <tên team> (${info.segs.map(esc).join(", ") || "—"}) hoặc nhắn riêng cho mình /link để mình nhớ bạn.`;
+  return await teamHtml(supabaseAdmin, seg);
+}
 
 async function getBotName(token) {
   if (botName) return botName;
@@ -57,8 +72,8 @@ export async function POST(request) {
   if (update.callback_query) {   // Round 616 — ✅ Đúng / 🗑 Bỏ on an intake card
     const cb = update.callback_query, tg = (method, body) => fetch(`https://api.telegram.org/bot${token}/${method}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
     try {
-      const isTag = /^t[px]:/.test(String(cb.data || ""));   // Round 625 — # song tag buttons
-      const res = !supabaseAdmin ? { answer: "Chưa cấu hình." } : isTag ? await handleTagPick(supabaseAdmin, cb, linkedProfile) : await handleDecision(supabaseAdmin, cb, linkedProfile);
+      const data = String(cb.data || "");   // Round 625 # song tag buttons (tp:/tx:), Round 630 reminder buttons (rm:)
+      const res = !supabaseAdmin ? { answer: "Chưa cấu hình." } : /^t[px]:/.test(data) ? await handleTagPick(supabaseAdmin, cb, linkedProfile) : data.startsWith("rm:") ? await handleReminder(supabaseAdmin, cb, linkedProfile) : await handleDecision(supabaseAdmin, cb, linkedProfile);
       await tg("answerCallbackQuery", { callback_query_id: cb.id, text: res.answer });
       if (res.edit && cb.message) await tg("editMessageText", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, text: res.edit, parse_mode: "HTML", disable_web_page_preview: true });
     } catch (e) { await tg("answerCallbackQuery", { callback_query_id: cb.id, text: "Lỗi, thử lại." }); }
@@ -99,12 +114,20 @@ export async function POST(request) {
     } catch (e) { /* never break the bot over parsing */ }
   }
 
+  // Round 630 — private chat: /ask and /team need a linked account (they show internal numbers)
+  if (isPrivate && isCommand && supabaseAdmin && m.from?.id && ["ask", "team"].includes(cmdMatch[1].toLowerCase())) {
+    const lk = await linkedProfile(m.from.id).catch(() => null);
+    if (!lk) { await sendTelegramTo(m.chat.id, "Bạn cần liên kết trước: /link email-đăng-nhập-app"); return NextResponse.json({ ok: true }); }
+    try { await sendTelegramTo(m.chat.id, await runAskTeam(cmdMatch[1].toLowerCase(), text.slice(cmdMatch[0].length).trim(), m.from.id)); } catch (e) { await sendTelegramTo(m.chat.id, esc("Lỗi: " + e.message)); }
+    return NextResponse.json({ ok: true });
+  }
+
   // Round 611 — private chat: /link, /code, /unlink, /mytasks (the account link needs a code emailed to the app address)
   if (isPrivate && isCommand && supabaseAdmin && m.from?.id) {
     const cmd = cmdMatch[1].toLowerCase(), arg = text.slice(cmdMatch[0].length).trim();
     let out = null;
     try {
-      if (cmd === "start" || cmd === "help") out = "Xin chào! Để nhận việc của bạn ở đây:\n1) /link email-đăng-nhập-app\n2) Mở email lấy mã 6 số, rồi gõ /code 123456\nSau đó gõ /mytasks bất cứ lúc nào. Gõ /alert để mỗi sáng mình nhắn riêng việc của bạn (/alert off để tắt). /unlink để huỷ liên kết.";
+      if (cmd === "start" || cmd === "help") out = "Xin chào! Để nhận việc của bạn ở đây:\n1) /link email-đăng-nhập-app\n2) Mở email lấy mã 6 số, rồi gõ /code 123456\nSau đó gõ /mytasks bất cứ lúc nào. Gõ /ask <câu hỏi> hoặc /team để hỏi nhanh. Gõ /alert để mỗi sáng mình nhắn riêng việc của bạn (/alert off để tắt). /unlink để huỷ liên kết.";
       else if (cmd === "link") out = await startLink(m.from.id, m.chat.id, arg);
       else if (cmd === "code") out = await confirmLink(m.from.id, arg);
       else if (cmd === "unlink") out = await unlink(m.from.id);
@@ -117,7 +140,7 @@ export async function POST(request) {
   // Round 610 — commands, internal group only (they show internal numbers)
   if (isCommand && isInternal && supabaseAdmin) {
     const cmd = cmdMatch[1].toLowerCase();
-    if (["status", "missing", "recap", "mytasks"].includes(cmd)) {   // instant 👍 so people know the command arrived (the answer can take a few seconds)
+    if (["status", "missing", "recap", "mytasks", "ask", "team"].includes(cmd)) {   // instant 👍 so people know the command arrived (the answer can take a few seconds)
       try { await fetch(`https://api.telegram.org/bot${token}/setMessageReaction`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: m.chat.id, message_id: m.message_id, reaction: [{ type: "emoji", emoji: "👍" }] }) }); } catch (e) { /* ignore */ }
     }
     if (cmd === "mytasks") {   // list goes to the person's private chat, never into the group
@@ -131,15 +154,21 @@ export async function POST(request) {
       } catch (e) { await reply(token, m, "Lỗi: " + e.message, false); }
       return NextResponse.json({ ok: true });
     }
+    if (cmd === "ask" || cmd === "team") {   // Round 630
+      try { await reply(token, m, await runAskTeam(cmd, text.slice(cmdMatch[0].length).trim(), m.from?.id), true); } catch (e) { await reply(token, m, "Lỗi: " + e.message, false); }
+      return NextResponse.json({ ok: true });
+    }
     if (cmd === "recap") {
       try {
         const yesterday = /hôm qua|hom qua|yesterday|qua/i.test(text.slice(cmdMatch[0].length));
         const now = new Date(), from = vnDayStart(yesterday ? 1 : 0, now), to = yesterday ? vnDayStart(0, now) : now;
         const msgs = await loadMessages(supabaseAdmin, from, to, internalChatIds());
         const ai = await aiSummary(msgs);
+        const an = analyse(msgs);
+        await addOwners(supabaseAdmin, an.open.slice(-6)).catch(() => {});
         const intakeBlock = renderIntakeBlock(await loadIntakes(supabaseAdmin, from.toISOString(), to.toISOString()).catch(() => []));
         const tagBlock = renderTagBlock(await loadTags(supabaseAdmin, from.toISOString(), to.toISOString()).catch(() => []));
-        await reply(token, m, renderRecapTelegram(analyse(msgs), vnDateLabel(from) + (yesterday ? "" : " (đến giờ)"), ai) + (intakeBlock ? "\n\n" + intakeBlock : "") + (tagBlock ? "\n\n" + tagBlock : ""), true);
+        await reply(token, m, renderRecapTelegram(an, vnDateLabel(from) + (yesterday ? "" : " (đến giờ)"), ai) + (intakeBlock ? "\n\n" + intakeBlock : "") + (tagBlock ? "\n\n" + tagBlock : ""), true);
       } catch (e) { await reply(token, m, "Lỗi khi tóm tắt: " + e.message, false); }
       return NextResponse.json({ ok: true });
     }
