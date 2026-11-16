@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { sendTelegram, telegramConfigured } from "../../../../lib/telegram";
+import { internalChatIds } from "../../../../lib/tgChats";
 import { loadIntakes, renderIntakeBlock, renderIntakeHtml } from "../../../../lib/tgIntake";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram, renderRecapHtml } from "../../../../lib/tgRecap";
 
@@ -24,7 +25,7 @@ export async function GET(request) {
     const from = slot === "group" ? vnDayStart(0, now) : vnDayStart(1, now);
     const to = slot === "group" ? now : vnDayStart(0, now);
     const label = vnDateLabel(from);
-    const msgs = await loadMessages(supabaseAdmin, from, to, chatId);
+    const msgs = await loadMessages(supabaseAdmin, from, to, internalChatIds());
     const a = analyse(msgs);
     const ai = await aiSummary(msgs);
     const intakes = await loadIntakes(supabaseAdmin, from.toISOString(), to.toISOString()).catch(() => []);

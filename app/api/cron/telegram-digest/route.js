@@ -7,6 +7,7 @@ import { buildDigest } from "../../../../lib/digestData";
 import { sendTelegram, renderDigestTelegram, slotOf, telegramConfigured } from "../../../../lib/telegram";
 import { loadStuck, loadChatSignals, loadOwners, renderActions } from "../../../../lib/friday";
 import { loadIntakeGaps } from "../../../../lib/tgIntake";
+import { sendPicAlerts } from "../../../../lib/tgAlerts";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -24,7 +25,9 @@ export async function GET(request) {
     let text = renderDigestTelegram(digest, slot);
     try { text += "\n\n" + renderActions(digest, await loadStuck(supabaseAdmin), slot !== "morning", await loadChatSignals(supabaseAdmin, digest.missingDataRows).catch(() => ({})), await loadIntakeGaps(supabaseAdmin).catch(() => [])); } catch (e) { /* digest still goes out without the action block */ }
     const res = await sendTelegram(text);
-    return NextResponse.json({ slot, ...res }, { status: res.ok ? 200 : 502 });
+    let alerts = null;   // Round 624 — morning only: each linked person gets their own overdue / stuck items privately
+    if (slot === "morning") alerts = await sendPicAlerts(supabaseAdmin, digest).catch((e) => ({ error: e.message }));
+    return NextResponse.json({ slot, ...res, alerts }, { status: res.ok ? 200 : 502 });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

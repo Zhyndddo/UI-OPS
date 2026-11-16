@@ -8,6 +8,8 @@ import { buildDigest } from "../../../lib/digestData";
 import { sendTelegramTo, splitText, renderStatusTelegram, renderMissingTelegram } from "../../../lib/telegram";
 import { loadStuck, loadChatSignals, loadOwners, renderActions } from "../../../lib/friday";
 import { loadIntakeGaps } from "../../../lib/tgIntake";
+import { internalChatIds, isInternalChat } from "../../../lib/tgChats";
+import { setAlerts } from "../../../lib/tgAlerts";
 import { linkedProfile, startLink, confirmLink, unlink, myTasksHtml } from "../../../lib/tgLink";
 import { captureIntake, handleDecision, loadIntakes, renderIntakeBlock, cardButtons, renderCard } from "../../../lib/tgIntake";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram } from "../../../lib/tgRecap";
@@ -65,7 +67,7 @@ export async function POST(request) {
   const text = String(m.text || m.caption || "");
   const name = await getBotName(token);
   const isPrivate = m.chat.type === "private";
-  const isInternal = !!process.env.TELEGRAM_INTERNAL_CHAT_ID && String(m.chat.id) === String(process.env.TELEGRAM_INTERNAL_CHAT_ID);
+  const isInternal = isInternalChat(m.chat.id);   // Round 624: any group in TELEGRAM_CHAT_IDS (+ the main one) is read into the same basket
 
   // Round 610 — remember the internal group's chat for the daily recap (text only, capped; commands to the bot are not stored)
   const cmdMatch = /^\/(\w+)(?:@(\w+))?(?:\s|$)/.exec(text);
@@ -93,10 +95,11 @@ export async function POST(request) {
     const cmd = cmdMatch[1].toLowerCase(), arg = text.slice(cmdMatch[0].length).trim();
     let out = null;
     try {
-      if (cmd === "start" || cmd === "help") out = "Xin chào! Để nhận việc của bạn ở đây:\n1) /link email-đăng-nhập-app\n2) Mở email lấy mã 6 số, rồi gõ /code 123456\nSau đó gõ /mytasks bất cứ lúc nào. /unlink để huỷ liên kết.";
+      if (cmd === "start" || cmd === "help") out = "Xin chào! Để nhận việc của bạn ở đây:\n1) /link email-đăng-nhập-app\n2) Mở email lấy mã 6 số, rồi gõ /code 123456\nSau đó gõ /mytasks bất cứ lúc nào. Gõ /alert để mỗi sáng mình nhắn riêng việc của bạn (/alert off để tắt). /unlink để huỷ liên kết.";
       else if (cmd === "link") out = await startLink(m.from.id, m.chat.id, arg);
       else if (cmd === "code") out = await confirmLink(m.from.id, arg);
       else if (cmd === "unlink") out = await unlink(m.from.id);
+      else if (cmd === "alert" || cmd === "alerts") out = await setAlerts(m.from.id, arg);
       else if (cmd === "mytasks") { const lk = await linkedProfile(m.from.id); out = lk ? await myTasksHtml(lk.profile_id) : "Bạn chưa liên kết. Gõ /link email-đăng-nhập-app"; }
     } catch (e) { out = "Lỗi: " + e.message; }
     if (out) { await sendTelegramTo(m.chat.id, cmd === "mytasks" ? out : esc(out)); return NextResponse.json({ ok: true }); }
@@ -123,7 +126,7 @@ export async function POST(request) {
       try {
         const yesterday = /hôm qua|hom qua|yesterday|qua/i.test(text.slice(cmdMatch[0].length));
         const now = new Date(), from = vnDayStart(yesterday ? 1 : 0, now), to = yesterday ? vnDayStart(0, now) : now;
-        const msgs = await loadMessages(supabaseAdmin, from, to, m.chat.id);
+        const msgs = await loadMessages(supabaseAdmin, from, to, internalChatIds());
         const ai = await aiSummary(msgs);
         const intakeBlock = renderIntakeBlock(await loadIntakes(supabaseAdmin, from.toISOString(), to.toISOString()).catch(() => []));
         await reply(token, m, renderRecapTelegram(analyse(msgs), vnDateLabel(from) + (yesterday ? "" : " (đến giờ)"), ai) + (intakeBlock ? "\n\n" + intakeBlock : ""), true);
