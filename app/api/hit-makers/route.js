@@ -30,6 +30,8 @@ export async function POST(request) {
   switch (body.action) {
     case "state": fn = "hm_state"; args = { p_profile: p, p_guest: guest }; break;
     case "leave": fn = "hm_leave"; args = { p_profile: p, p_guest: guest }; break;
+    case "avatar": fn = "hm_set_avatar"; args = { p_profile: p, p_guest: guest, p_avatar: String(body.data || "").slice(0, 24100) }; break;   // Round 622 — doodle picture (tiny PNG data URL)
+    case "avatars": fn = "hm_avatars"; args = { p_profile: p, p_guest: guest }; break;   // Round 622 — pictures of everyone at the table (fetched only when a picture hash changes)
     case "create": fn = "hm_create"; args = { p_profile: p, p_alias: String(body.alias || "").slice(0, 20), p_target: yr(body.target) }; break;
     case "join": fn = "hm_join"; args = { p_profile: p, p_alias: String(body.alias || "").slice(0, 20) }; break;
     case "edit":
@@ -51,6 +53,7 @@ export async function POST(request) {
     return NextResponse.json({ error: (missing ? "Thiếu hàm trên database — hãy chạy file SQL round 620 (Hit Makers)." : "Lỗi hệ thống, thử lại sau.") + detail }, { status: 500, headers: noStore });
   }
   if (data && data.error) return NextResponse.json({ error: data.error }, { status: 400, headers: noStore });
+  if (body.action === "avatars") return NextResponse.json({ map: data || {} }, { headers: noStore });
   if (body.action !== "state") {
     const st = await supabaseAdmin.rpc("hm_state", { p_profile: p, p_guest: guest });
     if (!st.error && st.data) return NextResponse.json({ ...(data && typeof data === "object" ? data : { ok: true }), state: st.data }, { headers: noStore });
