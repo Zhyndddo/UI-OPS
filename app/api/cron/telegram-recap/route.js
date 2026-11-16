@@ -7,6 +7,7 @@ import nodemailer from "nodemailer";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { sendTelegram, telegramConfigured } from "../../../../lib/telegram";
 import { internalChatIds } from "../../../../lib/tgChats";
+import { loadTags, renderTagBlock, renderTagHtml } from "../../../../lib/tgTags";
 import { loadIntakes, renderIntakeBlock, renderIntakeHtml } from "../../../../lib/tgIntake";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram, renderRecapHtml } from "../../../../lib/tgRecap";
 
@@ -29,9 +30,10 @@ export async function GET(request) {
     const a = analyse(msgs);
     const ai = await aiSummary(msgs);
     const intakes = await loadIntakes(supabaseAdmin, from.toISOString(), to.toISOString()).catch(() => []);
+    const tags = await loadTags(supabaseAdmin, from.toISOString(), to.toISOString()).catch(() => []);
     if (slot === "group") {
       if (!telegramConfigured()) return NextResponse.json({ skipped: "Telegram not configured." });
-      const res = await sendTelegram(renderRecapTelegram(a, label, ai) + (intakes.length ? "\n\n" + renderIntakeBlock(intakes) : ""));
+      const res = await sendTelegram(renderRecapTelegram(a, label, ai) + (intakes.length ? "\n\n" + renderIntakeBlock(intakes) : "") + (tags.length ? "\n\n" + renderTagBlock(tags) : ""));
       return NextResponse.json({ slot, total: a.total, ...res }, { status: res.ok ? 200 : 502 });
     }
     if (!a.total) return NextResponse.json({ slot, skipped: "No messages yesterday." });
@@ -45,7 +47,7 @@ export async function GET(request) {
     }
     if (!to_.length) return NextResponse.json({ slot, sent: false, reason: "No recipients." });
     const tr = nodemailer.createTransport({ host: SMTP_HOST, port: parseInt(process.env.SMTP_PORT || "587", 10), secure: process.env.SMTP_SECURE === "true", auth: { user: SMTP_USER, pass: SMTP_PASS } });
-    await tr.sendMail({ from: process.env.DIGEST_FROM_EMAIL || SMTP_USER, to: to_, subject: `VIEENT OPS — Tóm tắt chat nhóm ${label}`, html: renderRecapHtml(a, label, ai).replace(/<\/div>\s*$/, renderIntakeHtml(intakes) + "</div>") });
+    await tr.sendMail({ from: process.env.DIGEST_FROM_EMAIL || SMTP_USER, to: to_, subject: `VIEENT OPS — Tóm tắt chat nhóm ${label}`, html: renderRecapHtml(a, label, ai).replace(/<\/div>\s*$/, renderIntakeHtml(intakes) + renderTagHtml(tags) + "</div>") });
     return NextResponse.json({ slot, total: a.total, sent: true, recipients: to_.length });
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 });

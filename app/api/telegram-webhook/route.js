@@ -10,6 +10,7 @@ import { loadStuck, loadChatSignals, loadOwners, renderActions } from "../../../
 import { loadIntakeGaps } from "../../../lib/tgIntake";
 import { internalChatIds, isInternalChat } from "../../../lib/tgChats";
 import { setAlerts } from "../../../lib/tgAlerts";
+import { captureTags, handleTagPick, loadTags, renderTagBlock } from "../../../lib/tgTags";
 import { linkedProfile, startLink, confirmLink, unlink, myTasksHtml } from "../../../lib/tgLink";
 import { captureIntake, handleDecision, loadIntakes, renderIntakeBlock, cardButtons, renderCard } from "../../../lib/tgIntake";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram } from "../../../lib/tgRecap";
@@ -56,7 +57,8 @@ export async function POST(request) {
   if (update.callback_query) {   // Round 616 — ✅ Đúng / 🗑 Bỏ on an intake card
     const cb = update.callback_query, tg = (method, body) => fetch(`https://api.telegram.org/bot${token}/${method}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
     try {
-      const res = supabaseAdmin ? await handleDecision(supabaseAdmin, cb, linkedProfile) : { answer: "Chưa cấu hình." };
+      const isTag = /^t[px]:/.test(String(cb.data || ""));   // Round 625 — # song tag buttons
+      const res = !supabaseAdmin ? { answer: "Chưa cấu hình." } : isTag ? await handleTagPick(supabaseAdmin, cb, linkedProfile) : await handleDecision(supabaseAdmin, cb, linkedProfile);
       await tg("answerCallbackQuery", { callback_query_id: cb.id, text: res.answer });
       if (res.edit && cb.message) await tg("editMessageText", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, text: res.edit, parse_mode: "HTML", disable_web_page_preview: true });
     } catch (e) { await tg("answerCallbackQuery", { callback_query_id: cb.id, text: "Lỗi, thử lại." }); }
@@ -80,6 +82,11 @@ export async function POST(request) {
         sender, text: text.slice(0, 1000), sent_at: new Date((m.date || Date.now() / 1000) * 1000).toISOString(),
       }, { onConflict: "chat_id,msg_id", ignoreDuplicates: true });
     } catch (e) { /* never break the bot over logging */ }
+  }
+
+  // Round 625 — "#bài hát": search the app, offer buttons, link the chosen song
+  if (isInternal && supabaseAdmin && text.includes("#") && !isCommand) {
+    try { for (const r of await captureTags(supabaseAdmin, m, text)) await reply(token, m, r.text, true, r.markup); } catch (e) { /* never break the bot over tags */ }
   }
 
   // Round 616 — a request message in the group ("Hiếu ơi gửi upload nha …") becomes a card the poster / PIC can confirm
@@ -129,7 +136,8 @@ export async function POST(request) {
         const msgs = await loadMessages(supabaseAdmin, from, to, internalChatIds());
         const ai = await aiSummary(msgs);
         const intakeBlock = renderIntakeBlock(await loadIntakes(supabaseAdmin, from.toISOString(), to.toISOString()).catch(() => []));
-        await reply(token, m, renderRecapTelegram(analyse(msgs), vnDateLabel(from) + (yesterday ? "" : " (đến giờ)"), ai) + (intakeBlock ? "\n\n" + intakeBlock : ""), true);
+        const tagBlock = renderTagBlock(await loadTags(supabaseAdmin, from.toISOString(), to.toISOString()).catch(() => []));
+        await reply(token, m, renderRecapTelegram(analyse(msgs), vnDateLabel(from) + (yesterday ? "" : " (đến giờ)"), ai) + (intakeBlock ? "\n\n" + intakeBlock : "") + (tagBlock ? "\n\n" + tagBlock : ""), true);
       } catch (e) { await reply(token, m, "Lỗi khi tóm tắt: " + e.message, false); }
       return NextResponse.json({ ok: true });
     }
