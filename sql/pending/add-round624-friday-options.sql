@@ -28,3 +28,7 @@ create index if not exists tg_tags_created on public.tg_tags (created_at);
 alter table public.tg_tags enable row level security;
 revoke all on public.tg_tags from anon, authenticated;
 -- UNDO: drop table public.tg_tags;
+
+-- Round 626 — several PICs per intake ("Hiếu Tâm ơi" = two people).
+alter table public.tg_intakes add column if not exists pic_profile_ids uuid[] not null default '{}';
+-- UNDO: alter table public.tg_intakes drop column pic_profile_ids;

@@ -12,7 +12,7 @@ import { internalChatIds, isInternalChat } from "../../../lib/tgChats";
 import { setAlerts } from "../../../lib/tgAlerts";
 import { captureTags, handleTagPick, loadTags, renderTagBlock } from "../../../lib/tgTags";
 import { linkedProfile, startLink, confirmLink, unlink, myTasksHtml } from "../../../lib/tgLink";
-import { captureIntake, handleDecision, loadIntakes, renderIntakeBlock, cardButtons, renderCard } from "../../../lib/tgIntake";
+import { captureIntake, handleDecision, loadIntakes, renderIntakeBlock, cardButtons, renderCard, intakeCardsOn } from "../../../lib/tgIntake";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram } from "../../../lib/tgRecap";
 
 export const maxDuration = 30;
@@ -92,8 +92,10 @@ export async function POST(request) {
   // Round 616 — a request message in the group ("Hiếu ơi gửi upload nha …") becomes a card the poster / PIC can confirm
   if (isInternal && supabaseAdmin && text.trim() && !isCommand) {
     try {
-      const it = await captureIntake(supabaseAdmin, m, text);
-      if (it) await reply(token, m, renderCard(it), true, cardButtons(it.id));
+      // links hidden behind link text (Telegram "text_link") are added as extra lines so the parser sees them
+      const hidden = (m.entities || m.caption_entities || []).filter((e) => e.type === "text_link" && e.url && !text.includes(e.url)).map((e) => e.url);
+      const it = await captureIntake(supabaseAdmin, m, hidden.length ? text + "\n" + hidden.join("\n") : text);
+      if (it && intakeCardsOn()) await reply(token, m, renderCard(it), true, cardButtons(it.id));
     } catch (e) { /* never break the bot over parsing */ }
   }
 
