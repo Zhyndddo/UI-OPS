@@ -3,6 +3,7 @@
 //   POST { token, form, pdfBase64 }    -> saves the declaration (database row, status "pending") and the signed PDF (Google Drive, link only in the row)
 // Protected by: HMAC token per release, per-visitor + global rate limits, strict field cleaning, PDF magic-byte + size check.
 import { NextResponse } from "next/server";
+import nodemailer from "nodemailer";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { readRightsToken, makeRightsToken } from "../../../lib/rightsToken";
 import { cleanDeclaration } from "../../../lib/rightsForm";
@@ -100,9 +101,25 @@ export async function POST(request) {
   // 2) the answers -> a small database row
   const { error } = await supabaseAdmin.from("rights_declarations").insert({
     release_id: rel?.id || null, song_title: d.song_title, composer: d.composer, performer: d.performer, producer: d.producer, mixer: d.mixer,
-    owned: d.owned, licensed: d.licensed, proof: d.proof || null, platforms: d.platforms || null, platforms_note: d.platforms_note || null,
+    owned: d.owned, licensed: d.licensed, licensed_until: d.licensed_until, contact_email: d.contact_email || null, proof: d.proof || null, platforms: d.platforms || null, platforms_note: d.platforms_note || null,
     term: d.term, term_note: d.term_note || null, signer_name: d.signer_name, pdf_url: pdfUrl,
   });
   if (error) return NextResponse.json({ error: "Không lưu được. Vui lòng thử lại." }, { status: 500, headers: noStore });
-  return NextResponse.json({ ok: true, pdfSaved: !!pdfUrl }, { headers: noStore });
+  // optional: email the SAME pdf to the address the submitter typed (one recipient, fixed template). No email / failure -> the page downloads it.
+  let emailed = false;
+  const { SMTP_HOST, SMTP_USER, SMTP_PASS } = process.env;
+  if (d.contact_email && b64 && SMTP_HOST && SMTP_USER && SMTP_PASS) {
+    try {
+      const tr = nodemailer.createTransport({ host: SMTP_HOST, port: parseInt(process.env.SMTP_PORT || "587", 10), secure: process.env.SMTP_SECURE === "true", auth: { user: SMTP_USER, pass: SMTP_PASS } });
+      const esc = (s) => String(s || "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+      await tr.sendMail({
+        from: process.env.DIGEST_FROM_EMAIL || SMTP_USER, to: d.contact_email,
+        subject: `VIEENT — Bản khai báo bản quyền: ${d.song_title}`.slice(0, 150),
+        html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>VIEENT đã nhận khai báo bản quyền cho ca khúc <b>${esc(d.song_title)}</b>. Bản PDF đính kèm email này.</p><p>Bộ phận AR sẽ kiểm tra và xác nhận. Lưu ý: thiếu xác nhận nào, bài hát sẽ chưa được phát hành.</p></div>`,
+        attachments: [{ filename: "Khai-bao-ban-quyen.pdf", content: Buffer.from(b64, "base64"), contentType: "application/pdf" }],
+      });
+      emailed = true;
+    } catch (e) { /* page falls back to downloading */ }
+  }
+  return NextResponse.json({ ok: true, pdfSaved: !!pdfUrl, emailed }, { headers: noStore });
 }

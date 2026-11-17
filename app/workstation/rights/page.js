@@ -57,12 +57,12 @@ function Row({ row, onChanged }) {
           </div>
         </div>
         <div style={{ fontSize: 11, color: "var(--text-faint)", textAlign: "right" }}>
-          {fmt(row.created_at)}<br />Người ký: {row.signer_name}
+          {fmt(row.created_at)}<br />Người ký: {row.signer_name}{row.contact_email ? <><br />{row.contact_email}</> : null}
         </div>
       </div>
       <div style={{ marginTop: 8, fontSize: 12 }}>
         <div><b>Sở hữu:</b> {RIGHTS.map((r) => pill(!!row.owned?.[r.key], r.vi))}</div>
-        <div style={{ marginTop: 4 }}><b>Được cấp phép:</b> {RIGHTS.map((r) => pill(!!row.licensed?.[r.key], r.vi))}</div>
+        <div style={{ marginTop: 4 }}><b>Được cấp phép:</b> {RIGHTS.map((r) => pill(!!row.licensed?.[r.key], row.licensed?.[r.key] && row.licensed_until?.[r.key] ? `${r.vi} · đến ${row.licensed_until[r.key].split("-").reverse().join("/")}` : r.vi))}</div>
         <div style={{ marginTop: 4 }}>
           <b>Nền tảng:</b> {row.platforms === "all" ? "Tất cả" : row.platforms === "some" ? `Một số: ${row.platforms_note || "?"}` : "—"} · <b>Thời hạn:</b> {row.term === "perpetual" ? "Vĩnh viễn" : `Có thời hạn ${row.term_note || ""}`}
         </div>

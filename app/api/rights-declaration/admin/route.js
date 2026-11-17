@@ -73,7 +73,7 @@ export async function POST(request) {
   const decl = {
     declaration_id: row.id, confirmed_at: now, confirmed_by_name: me.name || null,
     song_title: row.song_title, composer: row.composer, performer: row.performer, producer: row.producer, mixer: row.mixer,
-    owned: row.owned, licensed: row.licensed, proof: row.proof, platforms: row.platforms, platforms_note: row.platforms_note,
+    owned: row.owned, licensed: row.licensed, licensed_until: row.licensed_until || {}, proof: row.proof, platforms: row.platforms, platforms_note: row.platforms_note,
     term: row.term, term_note: row.term_note, signer_name: row.signer_name, submitted_at: row.created_at, pdf_url: row.pdf_url,
   };
   // Copyright checklist (Q1 master / Q2 vocal / Q3 author): fill EMPTY fields only — never overwrite what AR already entered.
@@ -82,6 +82,8 @@ export async function POST(request) {
     const e = { ...emptyEntry(), ...(cl[r.checklist] || {}) };
     if (row.owned?.[r.key] && !e.fullyHeld) e.fullyHeld = "yes";
     if (row.licensed?.[r.key]) {
+      const until = row.licensed_until?.[r.key];
+      if (until && !e.validTo && !e.noTimeLimit) e.validTo = until;   // Thời hạn from the form -> checklist "valid to" (empty only)
       if (!e.note) e.note = `Được cấp phép bởi chủ sở hữu (khai báo form ${day})`;
       if (!e.contract && /^https?:\/\//i.test(row.proof || "")) e.contract = row.proof;
     }
