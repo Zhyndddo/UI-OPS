@@ -53,6 +53,7 @@ import { RELEASE_CRITICAL_FIELDS, notifyReleaseCriticalChange } from "../../../l
 // "Remarketing" here, same hook point as notifyReleaseCriticalChange just
 // above. See its own header comment for the full behavior.
 import { ensureRemarketingIntPackage } from "../../../lib/remarketingIntPackage";
+import RightsDeclarationBlock from "../../../lib/RightsDeclarationBlock";
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
@@ -3477,6 +3478,7 @@ function CopyrightsTab({ form, update, onSave, saving, onCopyrightChange, saveCo
   const isSingle = form.single_album_ep === "Single";
   return (
     <div>
+      <RightsDeclarationBlock styles={styles} releaseId={form.id} declaration={form.rights_declaration} />
       {/* Round 92 — AR's own general note for the product, per explicit
           request ("count as the AR team note for the product note") —
           not itself part of the copyright data, just living on this tab
