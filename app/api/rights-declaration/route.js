@@ -47,6 +47,7 @@ export async function GET(request) {
   if (q != null) {
     if (countHits("rd-search:" + ip) >= 60) return NextResponse.json({ error: "Quá nhiều lượt tìm. Thử lại sau ít phút." }, { status: 429, headers: noStore });
     addHit("rd-search:" + ip);
+    if (q === "_warm") { await titleCache(); return NextResponse.json({ results: [] }, { headers: noStore }); }   // page-load warm-up: first real search is instant
     const needle = norm(q.trim().slice(0, 60));
     if (needle.length < 3) return NextResponse.json({ results: [] }, { headers: noStore });
     const hits = (await titleCache()).filter((r) => r.n.includes(needle)).slice(0, 6);
@@ -159,6 +160,7 @@ export async function POST(request) {
   }
 
   // 1) the filled PDF -> Google Drive (never the database)
+  const uploadDrive = async () => {
   let pdfUrl = null;
   if (b64) {
     const buf = Buffer.from(b64, "base64");
@@ -177,13 +179,15 @@ export async function POST(request) {
       } catch (e) { /* the declaration is still saved; AR sees "no PDF" */ } finally { clearTimeout(timer); }
     }
   }
+  return pdfUrl;
+  };
 
   // 2) the answers -> a small database row
   const row = {
     id, holder_name: d.holder_name || null, holder_email: d.holder_email || null, sign_request_id: sign.id, sign_status: sign.status, sign_test: sign.test,
     release_id: rel?.id || null, song_title: d.song_title, composer: d.composer, performer: d.performer, producer: d.producer, mixer: d.mixer,
     owned: d.owned, licensed: d.licensed, licensed_until: d.licensed_until, contact_email: d.contact_email || null, proof: d.proof || null, platforms: d.platforms || null, platforms_note: d.platforms_note || null,
-    term: d.term, term_note: d.term_note || null, signer_name: d.signer_name, pdf_url: pdfUrl,
+    term: d.term, term_note: d.term_note || null, signer_name: d.signer_name, pdf_url: null,
     verify_audit: (({ x, ...rest }) => ({ ...rest, submit_ip: ip, submit_at: new Date().toISOString() }))(au),
     pdf_sha256: b64 ? sha256Hex(Buffer.from(b64, "base64")) : null, consent_at: au.consent_at,
   };
@@ -200,6 +204,8 @@ export async function POST(request) {
     return NextResponse.json({ error: missing ? "Hệ thống chưa sẵn sàng (thiếu bảng dữ liệu). Vui lòng báo VIEENT." : "Không lưu được. Vui lòng thử lại." }, { status: 500, headers: noStore });
   }
   // optional: email the SAME pdf to the address the submitter typed (one recipient, fixed template). No email / failure -> the page downloads it.
+  // Round 640: Drive upload and email now run AT THE SAME TIME (was one after the other) -> the submit waits for the slower one only.
+  const sendMail = async () => {
   let emailed = false;
   const mail = d.contact_email && b64 ? rightsMailer() : null;
   if (mail) {
@@ -213,5 +219,9 @@ export async function POST(request) {
       emailed = true;
     } catch (e) { /* page falls back to downloading */ }
   }
+  return emailed;
+  };
+  const [pdfUrl, emailed] = await Promise.all([uploadDrive(), sendMail()]);
+  if (pdfUrl) await supabaseAdmin.from("rights_declarations").update({ pdf_url: pdfUrl }).eq("id", id);
   return NextResponse.json({ ok: true, pdfSaved: !!pdfUrl, emailed, signRequested: sign.status === "sent", signTest: sign.test }, { headers: noStore });
 }
