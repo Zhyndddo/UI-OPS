@@ -91,6 +91,10 @@ export async function POST(request) {
   // Round 610 — remember the internal group's chat for the daily recap (text only, capped; commands to the bot are not stored)
   const cmdMatch = /^\/(\w+)(?:@(\w+))?(?:\s|$)/.exec(text);
   const isCommand = !!cmdMatch && (!cmdMatch[2] || cmdMatch[2].toLowerCase() === name);
+  if (isCommand && cmdMatch[1].toLowerCase() === "chatid") {   // Round 643b — works in ANY chat the bot is in: tells you the id to put in TELEGRAM_EXTRA_CHAT_IDS
+    await reply(token, m, `Chat ID: ${m.chat.id}\nLoại: ${m.chat.type}${m.chat.title ? "\nTên: " + m.chat.title : ""}`, false);
+    return NextResponse.json({ ok: true });
+  }
   if ((isInternal || isExtra) && supabaseAdmin && text.trim() && !isCommand) {
     const sender = [m.from?.first_name, m.from?.last_name].filter(Boolean).join(" ") || m.from?.username || "?";
     try {
