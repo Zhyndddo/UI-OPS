@@ -8,6 +8,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin, getCallerProfile } from "../../../../lib/supabaseAdmin";
 import { makeRightsToken } from "../../../../lib/rightsToken";
 import { RIGHTS } from "../../../../lib/rightsForm";
+import { rightsMailer } from "../../../../lib/mailer";
+import { makeHolderLink, sendHolderMail, siteOrigin } from "../../../../lib/rightsHolder";
 
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
@@ -61,10 +63,17 @@ export async function POST(request) {
     const { error } = await supabaseAdmin.from("rights_declarations").update(body.action === "reject" ? { status: "rejected", confirmed_by: me.id, confirmed_at: new Date().toISOString() } : { status: "pending", confirmed_by: null, confirmed_at: null }).eq("id", row.id);
     return error ? NextResponse.json({ error: error.message }, { status: 500, headers: noStore }) : NextResponse.json({ ok: true }, { headers: noStore });
   }
+  if (body.action === "resend_holder") {   // AR re-sends the right holder's confirmation link
+    if (row.sign_status !== "sent" || !row.holder_email || row.sign_provider === "dropbox") return NextResponse.json({ error: "Không có yêu cầu xác nhận đang chờ." }, { status: 400, headers: noStore });
+    const m = rightsMailer();
+    if (!m) return NextResponse.json({ error: "Email chưa được cấu hình." }, { status: 503, headers: noStore });
+    try { await sendHolderMail(m, row, makeHolderLink(siteOrigin(request), row.id)); } catch (e) { return NextResponse.json({ error: "Không gửi được email: " + e.message }, { status: 502, headers: noStore }); }
+    return NextResponse.json({ ok: true }, { headers: noStore });
+  }
   if (body.action !== "confirm") return NextResponse.json({ error: "Unknown action." }, { status: 400, headers: noStore });
 
   // the right holder's e-signature is compulsory for licensed rights once a request was sent
-  if (["sent", "declined"].includes(row.sign_status)) return NextResponse.json({ error: row.sign_status === "declined" ? "Chủ sở hữu quyền đã từ chối ký — không thể xác nhận." : "Chủ sở hữu quyền chưa ký (Dropbox Sign). Chờ họ ký rồi xác nhận." }, { status: 400, headers: noStore });
+  if (["sent", "declined"].includes(row.sign_status)) return NextResponse.json({ error: row.sign_status === "declined" ? "Chủ sở hữu quyền đã từ chối — không thể xác nhận." : "Chủ sở hữu quyền chưa xác nhận. Chờ họ xác nhận (hoặc bấm Gửi lại link) rồi xác nhận." }, { status: 400, headers: noStore });
   const releaseId = body.release_id || row.release_id;
   if (!releaseId) return NextResponse.json({ error: "Pick the product first." }, { status: 400, headers: noStore });
   const { data: rel } = await supabaseAdmin.from("releases").select("id, copyright_checklist").eq("id", releaseId).maybeSingle();
@@ -76,7 +85,7 @@ export async function POST(request) {
     declaration_id: row.id, confirmed_at: now, confirmed_by_name: me.name || null,
     song_title: row.song_title, composer: row.composer, performer: row.performer, producer: row.producer, mixer: row.mixer,
     owned: row.owned, licensed: row.licensed, licensed_until: row.licensed_until || {}, proof: row.proof, platforms: row.platforms, platforms_note: row.platforms_note,
-    term: row.term, term_note: row.term_note, signer_name: row.signer_name, holder_name: row.holder_name || null, signed_pdf_url: row.signed_pdf_url || null, signed_at: row.signed_at || null, submitted_at: row.created_at, pdf_url: row.pdf_url,
+    term: row.term, term_note: row.term_note, signer_name: row.signer_name, holder_name: row.holder_name || null, signed_pdf_url: row.signed_pdf_url || null, signed_at: row.signed_at || null, holder_confirmed: row.sign_status === "signed" && row.holder_audit ? { name: row.holder_audit.typed_name || row.holder_name, at: row.signed_at, ip: row.holder_audit.ip || null } : null, submitted_at: row.created_at, pdf_url: row.pdf_url,
   };
   // Copyright checklist (Q1 master / Q2 vocal / Q3 author): fill EMPTY fields only — never overwrite what AR already entered.
   const cl = rel.copyright_checklist && typeof rel.copyright_checklist === "object" ? { ...rel.copyright_checklist } : {};

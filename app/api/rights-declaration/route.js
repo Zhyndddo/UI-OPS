@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { newChallenge, readChallenge, codeMatches, sign, unsign, formHash, sha256Hex, describeUa } from "../../../lib/rightsOtp";
 import { rightsMailer } from "../../../lib/mailer";
+import { makeHolderLink, sendHolderMail, siteOrigin } from "../../../lib/rightsHolder";
 import { dropboxConfigured, sendForSignature } from "../../../lib/dropboxSign";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { readRightsToken, makeRightsToken } from "../../../lib/rightsToken";
@@ -137,9 +138,12 @@ export async function POST(request) {
 
   // 0) right holder must sign (licensed rights): Dropbox Sign request FIRST, so if it fails nothing is stored and the form keeps its data
   const needsHolder = !!(d.holder_name && d.holder_email);
-  let sign = { status: "none", id: null, test: false };
+  let sign = { status: "none", id: null, test: false, provider: null };
+  // Round 641: default = in-house confirmation (email link + email code). RIGHTS_SIGN_PROVIDER=dropbox switches back to Dropbox Sign.
+  const provider = process.env.RIGHTS_SIGN_PROVIDER === "dropbox" ? "dropbox" : "inhouse";
   if (needsHolder) {
-    if (!dropboxConfigured()) sign = { status: "not_configured", id: null, test: false };
+    if (provider === "inhouse") sign = { status: "sent", id: null, test: false, provider: "inhouse" };
+    else if (!dropboxConfigured()) sign = { status: "not_configured", id: null, test: false, provider: "dropbox" };
     else {
       const pdf = Buffer.from(b64, "base64");
       if (!(pdf.length > 100 && pdf.length <= MAX_PDF && pdf[0] === 0x25 && pdf[1] === 0x50)) return NextResponse.json({ error: "Không tạo được file PDF để gửi ký. Vui lòng thử lại." }, { status: 400, headers: noStore });
@@ -151,7 +155,7 @@ export async function POST(request) {
           message: `${d.signer_name || "Người khai báo"} đã khai báo bản quyền ca khúc "${d.song_title}" với VIEENT và ghi nhận bạn là chủ sở hữu quyền được cấp phép. Vui lòng mở văn bản và ký xác nhận.`,
           field: { x: Math.round(HOLDER_BOX.x * k), y: Math.round(HOLDER_BOX.y * k), width: Math.round(HOLDER_BOX.w * k), height: Math.round(HOLDER_BOX.h * k) },
         });
-        sign = { status: "sent", id: r.id, test: r.test };
+        sign = { status: "sent", id: r.id, test: r.test, provider: "dropbox" };
       } catch (e) {
         console.error("[rights-declaration] Dropbox Sign failed:", e.message);
         return NextResponse.json({ error: "Không gửi được yêu cầu ký tới chủ sở hữu quyền. Vui lòng kiểm tra email của họ và thử lại." }, { status: 502, headers: noStore });
@@ -184,7 +188,7 @@ export async function POST(request) {
 
   // 2) the answers -> a small database row
   const row = {
-    id, holder_name: d.holder_name || null, holder_email: d.holder_email || null, sign_request_id: sign.id, sign_status: sign.status, sign_test: sign.test,
+    id, holder_name: d.holder_name || null, holder_email: d.holder_email || null, sign_request_id: sign.id, sign_status: sign.status, sign_test: sign.test, sign_provider: sign.provider,
     release_id: rel?.id || null, song_title: d.song_title, composer: d.composer, performer: d.performer, producer: d.producer, mixer: d.mixer,
     owned: d.owned, licensed: d.licensed, licensed_until: d.licensed_until, contact_email: d.contact_email || null, proof: d.proof || null, platforms: d.platforms || null, platforms_note: d.platforms_note || null,
     term: d.term, term_note: d.term_note || null, signer_name: d.signer_name, pdf_url: null,
@@ -195,7 +199,7 @@ export async function POST(request) {
   // Round 637 hotfix: if the Round 637 SQL has not been run yet (unknown column), save without the two new fields instead of failing.
   if (error && /licensed_until|contact_email|schema cache|column/i.test(error.message || "")) {
     const old = { ...row };
-    for (const k of ["licensed_until", "contact_email", "holder_name", "holder_email", "sign_request_id", "sign_status", "sign_test", "verify_audit", "pdf_sha256", "consent_at"]) delete old[k];
+    for (const k of ["licensed_until", "contact_email", "holder_name", "holder_email", "sign_request_id", "sign_status", "sign_test", "sign_provider", "verify_audit", "pdf_sha256", "consent_at"]) delete old[k];
     ({ error } = await supabaseAdmin.from("rights_declarations").insert(old));
   }
   if (error) {
@@ -221,7 +225,13 @@ export async function POST(request) {
   }
   return emailed;
   };
-  const [pdfUrl, emailed] = await Promise.all([uploadDrive(), sendMail()]);
+  const sendHolder = async () => {   // the right holder gets their private confirmation link
+    if (!(needsHolder && sign.provider === "inhouse")) return null;
+    const m = rightsMailer();
+    if (!m) return false;
+    try { await sendHolderMail(m, { ...row, id }, makeHolderLink(siteOrigin(request), id)); return true; } catch (e) { console.error("[rights-declaration] holder mail failed:", e.message); return false; }
+  };
+  const [pdfUrl, emailed, holderMailed] = await Promise.all([uploadDrive(), sendMail(), sendHolder()]);
   if (pdfUrl) await supabaseAdmin.from("rights_declarations").update({ pdf_url: pdfUrl }).eq("id", id);
-  return NextResponse.json({ ok: true, pdfSaved: !!pdfUrl, emailed, signRequested: sign.status === "sent", signTest: sign.test }, { headers: noStore });
+  return NextResponse.json({ ok: true, pdfSaved: !!pdfUrl, emailed, signRequested: sign.status === "sent", signTest: sign.test, holderMailed }, { headers: noStore });
 }

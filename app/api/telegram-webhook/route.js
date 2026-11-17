@@ -8,7 +8,8 @@ import { buildDigest } from "../../../lib/digestData";
 import { sendTelegramTo, splitText, renderStatusTelegram, renderMissingTelegram } from "../../../lib/telegram";
 import { loadStuck, loadChatSignals, loadOwners, renderActions } from "../../../lib/friday";
 import { loadIntakeGaps } from "../../../lib/tgIntake";
-import { internalChatIds, isInternalChat } from "../../../lib/tgChats";
+import { internalChatIds, isInternalChat, isExtraChat } from "../../../lib/tgChats";
+import { releaseList, releaseWhich, HELP_RELEASE } from "../../../lib/tgRelease";
 import { setAlerts } from "../../../lib/tgAlerts";
 import { captureTags, handleTagPick, loadTags, renderTagBlock } from "../../../lib/tgTags";
 import { askFriday } from "../../../lib/tgAsk";
@@ -84,12 +85,13 @@ export async function POST(request) {
   const text = String(m.text || m.caption || "");
   const name = await getBotName(token);
   const isPrivate = m.chat.type === "private";
+  const isExtra = isExtraChat(m.chat.id);   // Round 631b: another chat — answers /release /status /ask, messages logged apart from the basket
   const isInternal = isInternalChat(m.chat.id);   // Round 624: any group in TELEGRAM_CHAT_IDS (+ the main one) is read into the same basket
 
   // Round 610 — remember the internal group's chat for the daily recap (text only, capped; commands to the bot are not stored)
   const cmdMatch = /^\/(\w+)(?:@(\w+))?(?:\s|$)/.exec(text);
   const isCommand = !!cmdMatch && (!cmdMatch[2] || cmdMatch[2].toLowerCase() === name);
-  if (isInternal && supabaseAdmin && text.trim() && !isCommand) {
+  if ((isInternal || isExtra) && supabaseAdmin && text.trim() && !isCommand) {
     const sender = [m.from?.first_name, m.from?.last_name].filter(Boolean).join(" ") || m.from?.username || "?";
     try {
       await supabaseAdmin.from("tg_chat_log").upsert({
@@ -138,9 +140,13 @@ export async function POST(request) {
   }
 
   // Round 610 — commands, internal group only (they show internal numbers)
-  if (isCommand && isInternal && supabaseAdmin) {
+  if (isCommand && (isInternal || isExtra) && supabaseAdmin) {
     const cmd = cmdMatch[1].toLowerCase();
-    if (["status", "missing", "recap", "mytasks", "ask", "team"].includes(cmd)) {   // instant 👍 so people know the command arrived (the answer can take a few seconds)
+    if (isExtra && !["release", "status", "ask"].includes(cmd)) {   // Round 631b: only these three answer in an extra chat
+      if (["missing", "recap", "mytasks", "team"].includes(cmd)) await reply(token, m, "Ở nhóm này mình chỉ trả lời /release, /status và /ask thôi nhé.", false);
+      return NextResponse.json({ ok: true });
+    }
+    if (["status", "missing", "recap", "mytasks", "ask", "team", "release"].includes(cmd)) {   // instant 👍 so people know the command arrived (the answer can take a few seconds)
       try { await fetch(`https://api.telegram.org/bot${token}/setMessageReaction`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: m.chat.id, message_id: m.message_id, reaction: [{ type: "emoji", emoji: "👍" }] }) }); } catch (e) { /* ignore */ }
     }
     if (cmd === "mytasks") {   // list goes to the person's private chat, never into the group
@@ -152,6 +158,11 @@ export async function POST(request) {
           await reply(token, m, res.ok ? "📬 Đã gửi danh sách việc vào tin nhắn riêng của bạn." : res.blocked ? `Mình chưa nhắn riêng được — bạn mở chat với @${name} và bấm Start trước nhé.` : "Không gửi được: " + res.error, false);
         }
       } catch (e) { await reply(token, m, "Lỗi: " + e.message, false); }
+      return NextResponse.json({ ok: true });
+    }
+    if (cmd === "release") {   // Round 631b — releases not out yet: this week / upcoming
+      const which = releaseWhich(text.slice(cmdMatch[0].length));
+      try { await reply(token, m, which ? await releaseList(supabaseAdmin, which) : HELP_RELEASE, true); } catch (e) { await reply(token, m, "Lỗi: " + e.message, false); }
       return NextResponse.json({ ok: true });
     }
     if (cmd === "ask" || cmd === "team") {   // Round 630

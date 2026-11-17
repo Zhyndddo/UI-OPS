@@ -41,7 +41,7 @@ function Row({ row, onChanged }) {
     if (busy) return;
     if (action === "confirm" && !relId) { setMsg("Pick the product first."); return; }
     setBusy(true); setMsg("");
-    try { await api("/api/rights-declaration/admin", { method: "POST", body: JSON.stringify({ action, id: row.id, release_id: relId || null }) }); onChanged(); }
+    try { await api("/api/rights-declaration/admin", { method: "POST", body: JSON.stringify({ action, id: row.id, release_id: relId || null }) }); onChanged(); if (action === "resend_holder") window.alert("Đã gửi lại link xác nhận tới chủ sở hữu quyền."); }
     catch (e) { setMsg(e.message); }
     setBusy(false);
   }
@@ -75,11 +75,13 @@ function Row({ row, onChanged }) {
         )}
         {row.holder_name && (
           <div style={{ marginTop: 4 }}>
-            <b>Chủ sở hữu ký (Dropbox Sign):</b> {row.holder_name} ({row.holder_email}){" "}
+            <b>Chủ sở hữu xác nhận:</b> {row.holder_name} ({row.holder_email}){" "}
             <span className={styles.statusBadge} style={{ background: row.sign_status === "signed" ? "rgba(46,125,50,0.15)" : row.sign_status === "declined" ? "rgba(209,59,59,0.15)" : "rgba(255,167,38,0.15)" }}>
-              {{ signed: "✓ Đã ký", sent: "⏳ Chờ ký", declined: "✕ Từ chối", not_configured: "Chưa bật e-sign", none: "—" }[row.sign_status] || row.sign_status}{row.sign_test ? " · TEST" : ""}
+              {{ signed: "✓ Đã xác nhận", sent: "⏳ Chờ chủ sở hữu xác nhận", declined: "✕ Từ chối", not_configured: "Chưa bật e-sign", none: "—" }[row.sign_status] || row.sign_status}{row.sign_test ? " · TEST" : ""}
             </span>
             {row.signed_pdf_url && <> · <a href={row.signed_pdf_url} target="_blank" rel="noreferrer">📄 Bản đã ký (Drive)</a></>}
+            {row.sign_status === "sent" && row.sign_provider !== "dropbox" && <button className={styles.btnSecondary} style={{ marginLeft: 8, padding: "2px 8px", fontSize: 12 }} onClick={() => act("resend_holder")} disabled={busy}>✉ Gửi lại link</button>}
+            {row.holder_audit && !row.holder_audit.declined && <div style={{ fontSize: 12, marginTop: 2 }}>Gõ tên: <b>{row.holder_audit.typed_name}</b> · {fmt(row.signed_at)} · IP {row.holder_audit.ip} · {[row.holder_audit.city, row.holder_audit.country].filter(Boolean).join(", ") || "?"} · {row.holder_audit.device} / {row.holder_audit.os} / {row.holder_audit.browser}{row.holder_audit.confirm_hash && <> · hash <code title={row.holder_audit.confirm_hash}>{row.holder_audit.confirm_hash.slice(0, 12)}…</code></>}</div>}
           </div>
         )}
         <div style={{ marginTop: 4 }}>{row.pdf_url ? <a href={row.pdf_url} target="_blank" rel="noreferrer">📄 Open signed PDF (Drive)</a> : <span style={{ color: "#ff9d5c" }}>No PDF stored — ask the sender for their downloaded copy</span>}</div>
