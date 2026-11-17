@@ -12,7 +12,7 @@ import { internalChatIds, isInternalChat, isExtraChat } from "../../../lib/tgCha
 import { releaseList, releaseWhich, HELP_RELEASE } from "../../../lib/tgRelease";
 import { setAlerts } from "../../../lib/tgAlerts";
 import { captureTags, handleTagPick, loadTags, renderTagBlock } from "../../../lib/tgTags";
-import { askFriday } from "../../../lib/tgAsk";
+import { askFriday, helpHtml } from "../../../lib/tgAsk";
 import { teamHtml, matchSegment, listSegments, segmentOfProfile } from "../../../lib/tgTeams";
 import { handleReminder } from "../../../lib/tgRemind";
 import { addOwners } from "../../../lib/tgOwners";
@@ -30,8 +30,8 @@ const last = new Map();
 let botName = null;
 
 // Round 630 — /ask and /team (group or private chat of a linked person)
-async function runAskTeam(cmd, arg, tgUserId) {
-  if (cmd === "ask") return await askFriday(supabaseAdmin, arg);
+async function runAskTeam(cmd, arg, tgUserId, extra = false) {
+  if (cmd === "ask") return await askFriday(supabaseAdmin, arg, extra);
   const info = arg ? await matchSegment(supabaseAdmin, arg) : { segs: await listSegments(supabaseAdmin), seg: null };
   if (arg) return info.seg ? await teamHtml(supabaseAdmin, info.seg) : `Không thấy team "${esc(arg)}". Các team: ${info.segs.map(esc).join(", ") || "—"}`;
   const lk = tgUserId ? await linkedProfile(tgUserId).catch(() => null) : null;
@@ -146,6 +146,7 @@ export async function POST(request) {
   // Round 610 — commands, internal group only (they show internal numbers)
   if (isCommand && (isInternal || isExtra) && supabaseAdmin) {
     const cmd = cmdMatch[1].toLowerCase();
+    if (cmd === "help") { await reply(token, m, helpHtml(isExtra), true); return NextResponse.json({ ok: true }); }   // Round 643c — /help in a group
     if (isExtra && !["release", "status", "ask"].includes(cmd)) {   // Round 631b: only these three answer in an extra chat
       if (["missing", "recap", "mytasks", "team"].includes(cmd)) await reply(token, m, "Ở nhóm này mình chỉ trả lời /release, /status và /ask thôi nhé.", false);
       return NextResponse.json({ ok: true });
@@ -166,11 +167,11 @@ export async function POST(request) {
     }
     if (cmd === "release") {   // Round 631b — releases not out yet: this week / upcoming
       const which = releaseWhich(text.slice(cmdMatch[0].length));
-      try { await reply(token, m, which ? await releaseList(supabaseAdmin, which) : HELP_RELEASE, true); } catch (e) { await reply(token, m, "Lỗi: " + e.message, false); }
+      try { await reply(token, m, which ? await releaseList(supabaseAdmin, which) : HELP_RELEASE, true); } catch (e) { console.error("[friday /release]", e.message); await reply(token, m, "Mình gặp lỗi khi lấy danh sách, bạn thử lại sau ít phút nhé.", false); }
       return NextResponse.json({ ok: true });
     }
     if (cmd === "ask" || cmd === "team") {   // Round 630
-      try { await reply(token, m, await runAskTeam(cmd, text.slice(cmdMatch[0].length).trim(), m.from?.id), true); } catch (e) { await reply(token, m, "Lỗi: " + e.message, false); }
+      try { await reply(token, m, await runAskTeam(cmd, text.slice(cmdMatch[0].length).trim(), m.from?.id, isExtra), true); } catch (e) { console.error("[friday /" + cmd + "]", e.message); await reply(token, m, "Mình gặp lỗi khi lấy dữ liệu, bạn thử lại sau ít phút nhé.", false); }
       return NextResponse.json({ ok: true });
     }
     if (cmd === "recap") {
@@ -184,7 +185,7 @@ export async function POST(request) {
         const intakeBlock = renderIntakeBlock(await loadIntakes(supabaseAdmin, from.toISOString(), to.toISOString()).catch(() => []));
         const tagBlock = renderTagBlock(await loadTags(supabaseAdmin, from.toISOString(), to.toISOString()).catch(() => []));
         await reply(token, m, renderRecapTelegram(an, vnDateLabel(from) + (yesterday ? "" : " (đến giờ)"), ai) + (intakeBlock ? "\n\n" + intakeBlock : "") + (tagBlock ? "\n\n" + tagBlock : ""), true);
-      } catch (e) { await reply(token, m, "Lỗi khi tóm tắt: " + e.message, false); }
+      } catch (e) { console.error("[friday /recap]", e.message); await reply(token, m, "Mình gặp lỗi khi tóm tắt chat, bạn thử lại sau ít phút nhé.", false); }
       return NextResponse.json({ ok: true });
     }
     if (cmd === "status" || cmd === "missing") {
@@ -197,7 +198,7 @@ export async function POST(request) {
           const gaps = await loadIntakeGaps(supabaseAdmin).catch(() => []);
           await reply(token, m, renderStatusTelegram(digest) + "\n\n" + renderActions(digest, stuck, true, sig, gaps), true);
         } else await reply(token, m, renderMissingTelegram(digest, await loadChatSignals(supabaseAdmin, digest.missingDataRows).catch(() => ({}))), true);
-      } catch (e) { await reply(token, m, "Lỗi khi lấy số liệu: " + e.message, false); }
+      } catch (e) { console.error("[friday /" + cmd + "]", e.message); await reply(token, m, "Mình gặp lỗi khi lấy số liệu, bạn thử lại sau ít phút nhé.", false); }
       return NextResponse.json({ ok: true });
     }
   }
