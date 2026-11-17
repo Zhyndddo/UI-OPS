@@ -4,7 +4,7 @@
 // Protected by: HMAC token per release, per-visitor + global rate limits, strict field cleaning, PDF magic-byte + size check.
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
-import { readRightsToken } from "../../../lib/rightsToken";
+import { readRightsToken, makeRightsToken } from "../../../lib/rightsToken";
 import { cleanDeclaration } from "../../../lib/rightsForm";
 import { countHits, addHit, clientIp } from "../../../lib/eventRateLimit";
 
@@ -19,9 +19,36 @@ async function loadRelease(id) {
   return data || null;
 }
 
+// Song-title suggestions: the (id, title, artist, composer) list is kept in server memory for 5 minutes and filtered there,
+// so typing in the form costs the database about ONE read per 5 minutes per server instance (nothing is written).
+let CACHE = { at: 0, rows: [] };
+const norm = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/gi, "d").toLowerCase();
+async function titleCache() {
+  if (Date.now() - CACHE.at < 5 * 60 * 1000 && CACHE.rows.length) return CACHE.rows;
+  const rows = [];
+  for (let from = 0; from < 20000; from += 1000) {
+    const { data, error } = await supabaseAdmin.from("releases").select("id, title, main_artist, publishing_composer").order("id").range(from, from + 999);
+    if (error || !data) break;
+    rows.push(...data.filter((r) => r.title).map((r) => ({ id: r.id, title: r.title, artist: r.main_artist || "", composer: r.publishing_composer || "", n: norm(`${r.title} ${r.main_artist || ""}`) })));
+    if (data.length < 1000) break;
+  }
+  CACHE = { at: Date.now(), rows };
+  return rows;
+}
+
 export async function GET(request) {
   if (!supabaseAdmin) return NextResponse.json({ error: "Server not configured." }, { status: 500, headers: noStore });
   const ip = clientIp(request);
+  const q = new URL(request.url).searchParams.get("q");
+  if (q != null) {
+    if (countHits("rd-search:" + ip) >= 60) return NextResponse.json({ error: "Quá nhiều lượt tìm. Thử lại sau ít phút." }, { status: 429, headers: noStore });
+    addHit("rd-search:" + ip);
+    const needle = norm(q.trim().slice(0, 60));
+    if (needle.length < 3) return NextResponse.json({ results: [] }, { headers: noStore });
+    const hits = (await titleCache()).filter((r) => r.n.includes(needle)).slice(0, 6);
+    // only title / artist / composer are returned; the token links the submit to that product (AR still confirms)
+    return NextResponse.json({ results: hits.map((r) => ({ title: r.title, performer: r.artist, composer: r.composer, token: makeRightsToken(r.id) })) }, { headers: noStore });
+  }
   if (countHits("rd-get:" + ip) >= 60) return NextResponse.json({ error: "Quá nhiều lượt truy cập. Thử lại sau ít phút." }, { status: 429, headers: noStore });
   addHit("rd-get:" + ip);
   const id = readRightsToken(new URL(request.url).searchParams.get("token"));
