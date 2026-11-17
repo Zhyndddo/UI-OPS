@@ -124,8 +124,12 @@ export default function RightsWorkstation() {
           <div className={styles.eyebrow}>// Workstation</div>
           <h1 className={styles.title}>Rights declarations</h1>
           <p style={{ color: "var(--text-faint)", fontSize: 12, marginBottom: 14 }}>
-            Sent by artists through the public form (link is on each release's detail page → Copyrights). Check the answers and the signed PDF, make sure the product is right, then Confirm — it is written onto the release (Rights declaration block, plus empty Copyright-checklist fields).
+            Sent by artists through the public form (/khai-bao). Per-release links (Copyrights tab) pre-fill the product. Check the answers and the signed PDF, make sure the product is right, then Confirm — it is written onto the release (Rights declaration block, plus empty Copyright-checklist fields).
           </p>
+          <div style={{ marginBottom: 12 }}>
+            <button className={styles.btnSecondary} onClick={() => { const u = `${window.location.origin}/khai-bao`; navigator.clipboard?.writeText(u).then(() => alert(`Public form link copied:\n${u}`)).catch(() => window.prompt("Copy this link", u)); }}>🔗 Copy public form link</button>
+            <span style={{ fontSize: 11, color: "var(--text-faint)", marginLeft: 8 }}>One link for everyone — blank form each time. Pick the product when you confirm.</span>
+          </div>
           <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
             {TABS.map(([k, label]) => <button key={k} className={styles.tabBtn} onClick={() => setTab(k)} style={{ fontWeight: tab === k ? 800 : 500, borderBottom: tab === k ? "2px solid var(--accent)" : "2px solid transparent" }}>{label}</button>)}
           </div>

@@ -36,9 +36,14 @@ export async function POST(request) {
   if (countHits("rd-post:" + ip) >= 8 || countHits("rd-post:all") >= 300) return NextResponse.json({ error: "Quá nhiều lượt gửi. Vui lòng thử lại sau 10 phút." }, { status: 429, headers: noStore });
   let body = {};
   try { body = await request.json(); } catch (e) { return NextResponse.json({ error: "Dữ liệu không hợp lệ." }, { status: 400, headers: noStore }); }
-  const id = readRightsToken(body.token);
-  const rel = id ? await loadRelease(id) : null;
-  if (!rel) return NextResponse.json({ error: "Link không hợp lệ." }, { status: 404, headers: noStore });
+  if (body.website) return NextResponse.json({ ok: true, fake: true }, { headers: noStore });   // honeypot
+  // No token = the one public link: the declaration is saved unlinked and AR picks the product when confirming.
+  let rel = null;
+  if (body.token) {
+    const id = readRightsToken(body.token);
+    rel = id ? await loadRelease(id) : null;
+    if (!rel) return NextResponse.json({ error: "Link không hợp lệ." }, { status: 404, headers: noStore });
+  }
   const v = cleanDeclaration(body.form);
   if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400, headers: noStore });
   addHit("rd-post:" + ip); addHit("rd-post:all");
@@ -54,7 +59,7 @@ export async function POST(request) {
     const secret = clean(process.env.DRIVE_SECRET || process.env.HALLOWEEN_DRIVE_SECRET);
     if (isPdf && url && secret) {
       const ascii = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/gi, "d").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
-      const filename = `KhaiBao_${ascii(rel.did) || "release"}_${ascii(d.song_title) || "song"}_${Date.now()}.pdf`;
+      const filename = `KhaiBao_${ascii(rel?.did) || "public"}_${ascii(d.song_title) || "song"}_${Date.now()}.pdf`;
       const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 22000);
       try {
         const res = await fetch(url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, redirect: "follow", signal: ctrl.signal,
@@ -67,7 +72,7 @@ export async function POST(request) {
 
   // 2) the answers -> a small database row
   const { error } = await supabaseAdmin.from("rights_declarations").insert({
-    release_id: rel.id, song_title: d.song_title, composer: d.composer, performer: d.performer, producer: d.producer, mixer: d.mixer,
+    release_id: rel?.id || null, song_title: d.song_title, composer: d.composer, performer: d.performer, producer: d.producer, mixer: d.mixer,
     owned: d.owned, licensed: d.licensed, proof: d.proof || null, platforms: d.platforms || null, platforms_note: d.platforms_note || null,
     term: d.term, term_note: d.term_note || null, signer_name: d.signer_name, pdf_url: pdfUrl,
   });
