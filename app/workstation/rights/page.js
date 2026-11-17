@@ -67,6 +67,21 @@ function Row({ row, onChanged }) {
           <b>Nền tảng:</b> {row.platforms === "all" ? "Tất cả" : row.platforms === "some" ? `Một số: ${row.platforms_note || "?"}` : "—"} · <b>Thời hạn:</b> {row.term === "perpetual" ? "Vĩnh viễn" : `Có thời hạn ${row.term_note || ""}`}
         </div>
         {row.proof && <div style={{ marginTop: 4 }}><b>Minh chứng:</b> {/^https?:\/\//i.test(row.proof) ? <a href={row.proof} target="_blank" rel="noreferrer">{row.proof}</a> : row.proof}</div>}
+        {row.verify_audit && (
+          <div style={{ marginTop: 4, fontSize: 12 }}>
+            <b>Xác minh email:</b> ✓ {row.verify_audit.email} · {fmt(row.verify_audit.verified_at)} · IP {row.verify_audit.ip} · {[row.verify_audit.city, row.verify_audit.country].filter(Boolean).join(", ") || "?"} · {row.verify_audit.device} / {row.verify_audit.os} / {row.verify_audit.browser}
+            {row.pdf_sha256 && <> · SHA-256 PDF: <code title={row.pdf_sha256}>{row.pdf_sha256.slice(0, 12)}…</code></>}
+          </div>
+        )}
+        {row.holder_name && (
+          <div style={{ marginTop: 4 }}>
+            <b>Chủ sở hữu ký (Dropbox Sign):</b> {row.holder_name} ({row.holder_email}){" "}
+            <span className={styles.statusBadge} style={{ background: row.sign_status === "signed" ? "rgba(46,125,50,0.15)" : row.sign_status === "declined" ? "rgba(209,59,59,0.15)" : "rgba(255,167,38,0.15)" }}>
+              {{ signed: "✓ Đã ký", sent: "⏳ Chờ ký", declined: "✕ Từ chối", not_configured: "Chưa bật e-sign", none: "—" }[row.sign_status] || row.sign_status}{row.sign_test ? " · TEST" : ""}
+            </span>
+            {row.signed_pdf_url && <> · <a href={row.signed_pdf_url} target="_blank" rel="noreferrer">📄 Bản đã ký (Drive)</a></>}
+          </div>
+        )}
         <div style={{ marginTop: 4 }}>{row.pdf_url ? <a href={row.pdf_url} target="_blank" rel="noreferrer">📄 Open signed PDF (Drive)</a> : <span style={{ color: "#ff9d5c" }}>No PDF stored — ask the sender for their downloaded copy</span>}</div>
       </div>
       <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>

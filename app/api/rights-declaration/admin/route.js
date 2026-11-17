@@ -63,6 +63,8 @@ export async function POST(request) {
   }
   if (body.action !== "confirm") return NextResponse.json({ error: "Unknown action." }, { status: 400, headers: noStore });
 
+  // the right holder's e-signature is compulsory for licensed rights once a request was sent
+  if (["sent", "declined"].includes(row.sign_status)) return NextResponse.json({ error: row.sign_status === "declined" ? "Chủ sở hữu quyền đã từ chối ký — không thể xác nhận." : "Chủ sở hữu quyền chưa ký (Dropbox Sign). Chờ họ ký rồi xác nhận." }, { status: 400, headers: noStore });
   const releaseId = body.release_id || row.release_id;
   if (!releaseId) return NextResponse.json({ error: "Pick the product first." }, { status: 400, headers: noStore });
   const { data: rel } = await supabaseAdmin.from("releases").select("id, copyright_checklist").eq("id", releaseId).maybeSingle();
@@ -74,7 +76,7 @@ export async function POST(request) {
     declaration_id: row.id, confirmed_at: now, confirmed_by_name: me.name || null,
     song_title: row.song_title, composer: row.composer, performer: row.performer, producer: row.producer, mixer: row.mixer,
     owned: row.owned, licensed: row.licensed, licensed_until: row.licensed_until || {}, proof: row.proof, platforms: row.platforms, platforms_note: row.platforms_note,
-    term: row.term, term_note: row.term_note, signer_name: row.signer_name, submitted_at: row.created_at, pdf_url: row.pdf_url,
+    term: row.term, term_note: row.term_note, signer_name: row.signer_name, holder_name: row.holder_name || null, signed_pdf_url: row.signed_pdf_url || null, signed_at: row.signed_at || null, submitted_at: row.created_at, pdf_url: row.pdf_url,
   };
   // Copyright checklist (Q1 master / Q2 vocal / Q3 author): fill EMPTY fields only — never overwrite what AR already entered.
   const cl = rel.copyright_checklist && typeof rel.copyright_checklist === "object" ? { ...rel.copyright_checklist } : {};
