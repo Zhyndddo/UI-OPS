@@ -3133,6 +3133,16 @@ function OverviewTab({ form, release, update, metaDone, requiredMetaDone, requir
         <Field label="Release Time">
           <input type="time" className={styles.input} value={form.release_time || ""} onChange={(e) => update("release_time", e.target.value)} />
         </Field>
+        {/* Round 636 — credits. Composer is the same value as the Publishing gate's Composer (releases.publishing_composer). */}
+        <Field label="Composer (Sáng tác)">
+          <input className={styles.input} value={form.publishing_composer || ""} onChange={(e) => update("publishing_composer", e.target.value)} maxLength={200} placeholder="Nhạc sĩ / người sáng tác" />
+        </Field>
+        <Field label="Producer">
+          <input className={styles.input} value={form.credit_producer || ""} onChange={(e) => update("credit_producer", e.target.value)} maxLength={200} placeholder="Người sản xuất âm nhạc" />
+        </Field>
+        <Field label="Mixer">
+          <input className={styles.input} value={form.credit_mixer || ""} onChange={(e) => update("credit_mixer", e.target.value)} maxLength={200} placeholder="Người mix" />
+        </Field>
       </div>
 
       {form.needs_update && (
