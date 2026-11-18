@@ -580,7 +580,14 @@ function TeamSection({ profile }) {
                   )}
                   {profile?.role === "dev" && p.role !== "dev" && (
                     <select className={styles.select} title="Second team (dev only)" style={{ padding: "4px 8px", fontSize: 12, marginTop: 4 }} value={p.segment2 || ""}
-                      onChange={async (e) => { await supabase.from("profiles").update({ segment2: e.target.value || null }).eq("id", p.id); setProfiles((arr) => arr.map((x) => x.id === p.id ? { ...x, segment2: e.target.value || null } : x)); }}>
+                      onChange={async (e) => {
+                        const v = e.target.value || null;
+                        // Round 646 — only show the new value once the database really saved it (before: errors were swallowed, so a failed save looked fine until reload)
+                        const { data, error } = await supabase.from("profiles").update({ segment2: v }).eq("id", p.id).select("id, segment2");
+                        if (error) { window.alert(/segment2/.test(error.message) ? "Chưa lưu được: cột segment2 chưa có. Hãy chạy sql/pending/add-round607-second-team.sql trong Supabase." : `Chưa lưu được: ${error.message}`); return; }
+                        if (!data?.length) { window.alert("Chưa lưu được: không có quyền ghi (0 dòng được cập nhật). Cần chạy SQL round 607 và đăng nhập bằng tài khoản dev."); return; }
+                        setProfiles((arr) => arr.map((x) => x.id === p.id ? { ...x, segment2: data[0].segment2 } : x));
+                      }}>
                       <option value="">+ 2nd team: none</option>
                       {TEAMS.filter((t) => t !== p.segment).map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
