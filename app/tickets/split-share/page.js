@@ -70,7 +70,7 @@ export default function SplitShareTicketList() {
       // Round 397 — split_share_entries pulled alongside so the row-click
       // popup can show the same label/percentage/scope data the release
       // detail page's Split Share popup shows.
-      const { data: rels } = await supabase.from("releases").select("id, did, title, main_artist, split_share_entries").in("did", dids);
+      const { data: rels } = await supabase.from("releases").select("id, did, title, main_artist, isrc, split_share_entries").in("did", dids);
       const map = {};
       (rels || []).forEach((r) => (map[r.did] = r));
       setReleases(map);
@@ -187,6 +187,7 @@ export default function SplitShareTicketList() {
                         ) : (
                           <span>Release {t.data?.releaseId} (not found)</span>
                         )}
+                        {rel && <button type="button" title="Copy split-share block" onClick={async (ev) => { const b = ev.currentTarget; if (await copyText(splitShareBlock(rel))) { b.textContent = "✓"; setTimeout(() => { b.textContent = "📋"; }, 1200); } }} style={{ marginLeft: 8, background: "none", border: "1px solid var(--border)", borderRadius: 6, cursor: "pointer", fontSize: 12, padding: "1px 6px" }}>📋</button>}
                       </td>
                       <td>
                         {isExecutorView ? (
@@ -240,6 +241,20 @@ export default function SplitShareTicketList() {
   );
 }
 
+// Round 646 — the copy-ready block:  "Title - Artist" / "Label A/ Label B: 85/15" / "ISRC audio: XXX"
+function splitShareBlock(rel) {
+  if (!rel) return "";
+  const es = (rel.split_share_entries || []).filter((e) => e.shared_label || e.percentage);
+  const lines = [`${rel.title} - ${rel.main_artist || ""}`.trim()];
+  if (es.length) lines.push(`${es.map((e) => e.shared_label || "?").join("/ ")}: ${es.map((e) => String(e.percentage || "?").replace(/%/g, "").trim()).join("/")}`);
+  lines.push(`ISRC audio: ${rel.isrc || "—"}`);
+  return lines.join("\n");
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch (e) { window.prompt("Copy (Ctrl/Cmd+C):", text); return false; }
+}
+
 const SCOPE_LABELS = {
   only_new_release: "Only New Release",
   include_derivative: "Include Derivative",
@@ -268,6 +283,10 @@ function SplitShareDetailModal({ ticket, release, onClose }) {
             `Release ${ticket.data?.releaseId} (not found)`
           )}
         </div>
+
+        <div className={styles.subheading}>Copy block</div>
+        <pre style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, fontSize: 13, whiteSpace: "pre-wrap", margin: "0 0 8px", fontFamily: "inherit", userSelect: "all" }}>{splitShareBlock(release)}</pre>
+        <button type="button" onClick={async (ev) => { const b = ev.currentTarget; if (await copyText(splitShareBlock(release))) { b.textContent = "Copied ✓"; setTimeout(() => { b.textContent = "Copy"; }, 1500); } }} style={{ background: "none", border: "1px solid var(--border-strong)", color: "var(--text-muted)", borderRadius: 6, padding: "6px 12px", fontSize: 12, cursor: "pointer", marginBottom: 16 }}>Copy</button>
 
         <div className={styles.subheading}>Split Share Entries</div>
         {entries.length === 0 ? (
