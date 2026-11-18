@@ -101,6 +101,22 @@ export async function POST(request) {
     const { error } = await supabaseAdmin.from("rights_declarations").update(body.action === "reject" ? { status: "rejected", confirmed_by: me.id, confirmed_at: new Date().toISOString() } : { status: "pending", confirmed_by: null, confirmed_at: null }).eq("id", row.id);
     return error ? NextResponse.json({ error: error.message }, { status: 500, headers: noStore }) : NextResponse.json({ ok: true }, { headers: noStore });
   }
+  if (body.action === "fix_holder_email") {   // Round 648 — the right holder's email was typed wrong: AR corrects it and re-sends the confirmation link
+    const to = String(body.to || "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return NextResponse.json({ error: "Email không hợp lệ." }, { status: 400, headers: noStore });
+    if (row.sign_status === "signed") return NextResponse.json({ error: "Chủ sở hữu đã xác nhận rồi — không thể đổi email." }, { status: 400, headers: noStore });
+    if (!row.holder_name && !row.holder_email) return NextResponse.json({ error: "Khai báo này không có chủ sở hữu quyền để xác nhận." }, { status: 400, headers: noStore });
+    if (row.sign_provider === "dropbox") return NextResponse.json({ error: "Yêu cầu đang ở Dropbox Sign — cần huỷ và tạo lại bên đó, không sửa email tại đây." }, { status: 400, headers: noStore });
+    const m = rightsMailer();
+    if (!m) return NextResponse.json({ error: "Email chưa được cấu hình." }, { status: 503, headers: noStore });
+    const upd = { holder_email: to, sign_status: "sent" };
+    if (body.name && String(body.name).trim()) upd.holder_name = String(body.name).trim().slice(0, 120);
+    const { error: ue } = await supabaseAdmin.from("rights_declarations").update(upd).eq("id", row.id);
+    if (ue) return NextResponse.json({ error: ue.message }, { status: 500, headers: noStore });
+    await lg("holder_email_changed", { detail: { from: row.holder_email ? maskEmail(row.holder_email) : null, to: maskEmail(to) } });
+    try { await sendHolderMail(m, { ...row, ...upd }, makeHolderLink(siteOrigin(request), row.id)); } catch (e) { return NextResponse.json({ error: "Đã đổi email nhưng không gửi được: " + e.message }, { status: 502, headers: noStore }); }
+    return NextResponse.json({ ok: true }, { headers: noStore });
+  }
   if (body.action === "resend_holder") {   // AR re-sends the right holder's confirmation link
     if (row.sign_status !== "sent" || !row.holder_email || row.sign_provider === "dropbox") return NextResponse.json({ error: "Không có yêu cầu xác nhận đang chờ." }, { status: 400, headers: noStore });
     const m = rightsMailer();

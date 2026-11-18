@@ -65,6 +65,7 @@ async function checkDup(request, ip, sp) {
 export async function GET(request) {
   if (!supabaseAdmin) return NextResponse.json({ error: "Server not configured." }, { status: 500, headers: noStore });
   const ip = clientIp(request);
+  if (new URL(request.url).searchParams.get("view") != null) return NextResponse.json({ vt: sign({ t: new Date().toISOString(), ip, x: Date.now() + 3 * 3600 * 1000 }, "view") }, { headers: noStore });   // Round 649: "form opened" evidence, signed by the server
   if (new URL(request.url).searchParams.get("check") != null) return checkDup(request, ip, new URL(request.url).searchParams);   // Round 645
   const q = new URL(request.url).searchParams.get("q");
   if (q != null) {
@@ -160,7 +161,7 @@ async function otpStep(request, body, ip) {
         html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>Mã xác nhận của bạn để gửi khai báo bản quyền ca khúc <b>${esc(d.song_title)}</b>:</p><p style="font-size:30px;font-weight:800;letter-spacing:6px">${code}</p><p>Mã có hiệu lực trong 10 phút. Nếu bạn không thực hiện khai báo này, hãy bỏ qua email.</p></div>`,
       });
     } catch (e) { console.error("[rights-declaration] code mail failed:", e.message); return fail("Không gửi được email mã xác nhận. Vui lòng kiểm tra địa chỉ email và thử lại.", 502); }
-    return NextResponse.json({ ok: true, challenge }, { headers: noStore });
+    return NextResponse.json({ ok: true, challenge, sentToken: sign({ t: new Date().toISOString(), ip, x: Date.now() + 30 * 60 * 1000 }, "sent") }, { headers: noStore });
   }
   const c = readChallenge(body.challenge);
   if (!c) return fail("Mã đã hết hạn. Vui lòng bấm gửi lại mã.", 400);
@@ -175,7 +176,9 @@ async function otpStep(request, body, ip) {
   const t = (x, n) => String(x == null ? "" : x).slice(0, n);
   const ua = h("user-agent").slice(0, 300);
   const now = new Date().toISOString();
+  const vw = unsign(body.viewToken, "view"), st = unsign(body.sentToken, "sent");   // Round 649: when the form was opened / the code was sent (server-signed, so they cannot be faked)
   const audit = {
+    ...(vw ? { viewed_at: vw.t, viewed_ip: vw.ip } : {}), ...(st ? { sent_at: st.t, sent_ip: st.ip } : {}),
     email, verified_at: now, consent_at: now, form_hash: formHash(d), ip, ua, ...describeUa(ua),
     country: t(h("x-vercel-ip-country"), 8), region: t(h("x-vercel-ip-country-region"), 20), city: t(dec(h("x-vercel-ip-city")), 60),
     lat: t(h("x-vercel-ip-latitude"), 12), lon: t(h("x-vercel-ip-longitude"), 12),
