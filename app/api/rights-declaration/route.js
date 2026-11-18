@@ -323,6 +323,22 @@ export async function POST(request) {
   }
   return emailed;
   };
+  // Round 647 — internal tracking copy: every declaration is also emailed (with the PDF) to VIEENT's tracking inbox(es).
+  // Default suong.tuyet@vieent.com; override / add more with env RIGHTS_NOTIFY_EMAILS (comma separated). Never blocks the artist's submit.
+  const sendNotify = async () => {
+    const to = (process.env.RIGHTS_NOTIFY_EMAILS || "suong.tuyet@vieent.com").split(",").map((x) => x.trim()).filter(Boolean);
+    const m = to.length ? rightsMailer() : null;
+    if (!m) return null;
+    try {
+      await m.transport.sendMail({
+        from: m.from, replyTo: d.contact_email || m.replyTo, to,
+        subject: `[Khai báo bản quyền] ${replaced ? "THAY THẾ — " : ""}${d.song_title} — ${d.performer || ""}`.slice(0, 170),
+        html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>Có khai báo bản quyền ${replaced ? "<b>thay thế khai báo cũ</b> " : "mới "}cho ca khúc <b>${esc(d.song_title)}</b>${d.performer ? ` — ${esc(d.performer)}` : ""}.</p>${rightsText({ ...row, id, created_at: new Date().toISOString() })}<p>Người ký: <b>${esc(d.signer_name)}</b> · Email: ${esc(d.contact_email || "—")}${replaced ? `<br>Lý do thay đổi: ${esc(reason)}` : ""}</p><p><a href="${esc(siteOrigin(request))}/tickets/khai-bao-ban-quyen">Mở ticket Khai báo bản quyền</a></p><p style="font-size:12px;color:#666">Email xác minh bằng mã lúc ${esc(au.verified_at)} · IP ${esc(au.ip)}</p></div>`,
+        attachments: b64 ? [{ filename: "Khai-bao-ban-quyen.pdf", content: Buffer.from(b64, "base64"), contentType: "application/pdf" }] : [],
+      });
+      return true;
+    } catch (e) { console.error("[rights-declaration] notify mail failed:", e.message); return false; }
+  };
   const sendHolder = async () => {   // the right holder gets their private confirmation link
     if (!(needsHolder && sign.provider === "inhouse")) return null;
     const m = rightsMailer();
@@ -339,7 +355,7 @@ export async function POST(request) {
       return true;
     } catch (e) { console.error("[rights-declaration] old-email notice failed:", e.message); return false; }
   };
-  const [pdfUrl, emailed, holderMailed] = await Promise.all([uploadDrive(), sendMail(), sendHolder(), sendOld()]);
+  const [pdfUrl, emailed, holderMailed] = await Promise.all([uploadDrive(), sendMail(), sendHolder(), sendOld(), sendNotify()]);
   const upd = { ...(pdfUrl ? { pdf_url: pdfUrl } : {}), ...(tkt?.id ? { ticket_id: tkt.id } : {}) };
   if (Object.keys(upd).length) await supabaseAdmin.from("rights_declarations").update(upd).eq("id", id);
   return NextResponse.json({ ok: true, pdfSaved: !!pdfUrl, emailed, signRequested: sign.status === "sent", signTest: sign.test, holderMailed, replaced: !!replaced }, { headers: noStore });
