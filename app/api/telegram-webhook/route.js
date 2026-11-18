@@ -17,7 +17,7 @@ import { askFriday, helpHtml } from "../../../lib/tgAsk";
 import { teamHtml, matchSegment, listSegments, segmentOfProfile } from "../../../lib/tgTeams";
 import { handleReminder } from "../../../lib/tgRemind";
 import { addOwners } from "../../../lib/tgOwners";
-import { linkedProfile, startLink, confirmLink, unlink, myTasksHtml } from "../../../lib/tgLink";
+import { linkedProfile, startLink, confirmLink, unlink, myTasksHtml, wantsMyTasks, rememberUsername, pushTagDms, setTagAlerts } from "../../../lib/tgLink";
 import { captureIntake, handleDecision, loadIntakes, renderIntakeBlock, cardButtons, renderCard, intakeCardsOn } from "../../../lib/tgIntake";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram } from "../../../lib/tgRecap";
 
@@ -28,6 +28,10 @@ const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").
 const REPLY = "Mình vui lòng giúp bạn nhưng mình chưa hiểu tiếng Việt, mời bạn nói tiếng Nga. 🇷🇺\nГоворите по-русски, пожалуйста.";
 const COOLDOWN_MS = 20 * 1000;   // at most one joke per chat per 20 s, so a pile-on can't make the bot spam the group
 const last = new Map();
+// Round 651 — ONE flow for everything personal (/mytasks, "tóm tắt việc", /ask, /team, tag DMs): link first, then it all arrives in the private chat
+const LINK_ASK = "Mình chưa biết bạn là ai 🙂 Để nhận việc và tin tag của bạn ở đây, hãy liên kết tài khoản một lần:\n1) /link email-đăng-nhập-app\n2) Mở email lấy mã 6 số, rồi gõ /code 123456";
+const LINK_ASK_GROUP = "Mình chưa biết bạn là ai 🙂 Bấm nút dưới để mở chat riêng với mình, bấm Start, rồi gõ /link email-đăng-nhập-app (mã 6 số sẽ gửi về email). Sau đó việc của bạn và tin ai tag bạn sẽ về hộp thư riêng này.";
+const linkButton = (n) => ({ inline_keyboard: [[{ text: "🔗 Mở chat riêng để liên kết", url: `https://t.me/${n}?start=link` }]] });
 let botName = null;
 
 // Round 630 — /ask and /team (group or private chat of a linked person)
@@ -91,6 +95,7 @@ export async function POST(request) {
 
   // Round 610 — remember the internal group's chat for the daily recap (text only, capped; commands to the bot are not stored)
   const cmdMatch = /^\/(\w+)(?:@(\w+))?(?:\s|$)/.exec(text);
+  if (cmdMatch && cmdMatch[1].toLowerCase() === "mytask") cmdMatch[1] = "mytasks";   // Round 651: /mytask = /mytasks
   const isCommand = !!cmdMatch && (!cmdMatch[2] || cmdMatch[2].toLowerCase() === name);
   if (isCommand && cmdMatch[1].toLowerCase() === "chatid") {   // Round 643b — works in ANY chat the bot is in: tells you the id to put in TELEGRAM_EXTRA_CHAT_IDS
     await reply(token, m, `Chat ID: ${m.chat.id}\nLoại: ${m.chat.type}${m.chat.title ? "\nTên: " + m.chat.title : ""}`, false);
@@ -105,6 +110,9 @@ export async function POST(request) {
       }, { onConflict: "chat_id,msg_id", ignoreDuplicates: true });
     } catch (e) { /* never break the bot over logging */ }
   }
+
+  if (isInternal && supabaseAdmin && m.from?.id && m.from.username) rememberUsername(m.from.id, m.from.username).catch(() => {});
+  if (isInternal && supabaseAdmin && !isCommand && text.includes("@")) { try { await pushTagDms(m, text, name); } catch (e) { /* never break the bot over tag DMs */ } }   // Round 651: tagged people get it in their private chat   // Round 650: so "who tagged me" works
 
   // Round 625 — "#bài hát": search the app, offer buttons, link the chosen song
   if (isInternal && supabaseAdmin && text.includes("#") && !isCommand) {
@@ -124,7 +132,7 @@ export async function POST(request) {
   // Round 630 — private chat: /ask and /team need a linked account (they show internal numbers)
   if (isPrivate && isCommand && supabaseAdmin && m.from?.id && ["ask", "team"].includes(cmdMatch[1].toLowerCase())) {
     const lk = await linkedProfile(m.from.id).catch(() => null);
-    if (!lk) { await sendTelegramTo(m.chat.id, "Bạn cần liên kết trước: /link email-đăng-nhập-app"); return NextResponse.json({ ok: true }); }
+    if (!lk) { await sendTelegramTo(m.chat.id, LINK_ASK); return NextResponse.json({ ok: true }); }
     try { await sendTelegramTo(m.chat.id, await runAskTeam(cmdMatch[1].toLowerCase(), text.slice(cmdMatch[0].length).trim(), m.from.id)); } catch (e) { await sendTelegramTo(m.chat.id, esc("Lỗi: " + e.message)); }
     return NextResponse.json({ ok: true });
   }
@@ -134,12 +142,13 @@ export async function POST(request) {
     const cmd = cmdMatch[1].toLowerCase(), arg = text.slice(cmdMatch[0].length).trim();
     let out = null;
     try {
-      if (cmd === "start" || cmd === "help") out = "Xin chào! Để nhận việc của bạn ở đây:\n1) /link email-đăng-nhập-app\n2) Mở email lấy mã 6 số, rồi gõ /code 123456\nSau đó gõ /mytasks bất cứ lúc nào. Gõ /ask <câu hỏi> hoặc /team để hỏi nhanh. Gõ /alert để mỗi sáng mình nhắn riêng việc của bạn (/alert off để tắt). /unlink để huỷ liên kết.";
+      if (cmd === "start" || cmd === "help") out = "Xin chào! Để nhận việc của bạn ở đây:\n1) /link email-đăng-nhập-app\n2) Mở email lấy mã 6 số, rồi gõ /code 123456\nSau đó gõ /mytasks bất cứ lúc nào. Gõ /ask <câu hỏi> hoặc /team để hỏi nhanh. Ai tag bạn trong nhóm, mình nhắn riêng cho bạn (/tagalert off để tắt). Gõ /alert để mỗi sáng mình nhắn riêng việc của bạn (/alert off để tắt). /unlink để huỷ liên kết.";
       else if (cmd === "link") out = await startLink(m.from.id, m.chat.id, arg);
       else if (cmd === "code") out = await confirmLink(m.from.id, arg);
       else if (cmd === "unlink") out = await unlink(m.from.id);
       else if (cmd === "alert" || cmd === "alerts") out = await setAlerts(m.from.id, arg);
-      else if (cmd === "mytasks") { const lk = await linkedProfile(m.from.id); out = lk ? await myTasksHtml(lk.profile_id) : "Bạn chưa liên kết. Gõ /link email-đăng-nhập-app"; }
+      else if (cmd === "tagalert") out = await setTagAlerts(m.from.id, arg);
+      else if (cmd === "mytasks") { const lk = await linkedProfile(m.from.id); out = lk ? await myTasksHtml(lk.profile_id) : esc(LINK_ASK); }
     } catch (e) { out = "Lỗi: " + e.message; }
     if (out) { await sendTelegramTo(m.chat.id, cmd === "mytasks" ? out : esc(out)); return NextResponse.json({ ok: true }); }
   }
@@ -158,7 +167,7 @@ export async function POST(request) {
     if (cmd === "mytasks") {   // list goes to the person's private chat, never into the group
       try {
         const lk = m.from?.id ? await linkedProfile(m.from.id) : null;
-        if (!lk) await reply(token, m, `Mình chưa biết bạn là ai. Nhắn riêng cho mình (@${name}) gõ /link email-đăng-nhập-app để liên kết một lần.`, false);
+        if (!lk) await reply(token, m, LINK_ASK_GROUP, false, linkButton(name));
         else {
           const res = await sendTelegramTo(lk.dm_chat_id, await myTasksHtml(lk.profile_id));
           await reply(token, m, res.ok ? "📬 Đã gửi danh sách việc vào tin nhắn riêng của bạn." : res.blocked ? `Mình chưa nhắn riêng được — bạn mở chat với @${name} và bấm Start trước nhé.` : "Không gửi được: " + res.error, false);
@@ -211,6 +220,21 @@ export async function POST(request) {
   const mentioned = !!name && text.toLowerCase().includes("@" + name);
   const replyToBot = !!name && String(m.reply_to_message?.from?.username || "").toLowerCase() === name;
   if (!(isPrivate || mentioned || replyToBot)) return NextResponse.json({ ok: true });
+
+  // Round 650 — "tóm tắt việc của tôi" / "ai tag mình" in plain words (private chat, or @Friday / reply in the internal group) = /mytasks
+  if (supabaseAdmin && m.from?.id && (isPrivate || isInternal) && wantsMyTasks(text)) {
+    try {
+      const lk = await linkedProfile(m.from.id);
+      if (!lk) { await reply(token, m, LINK_ASK_GROUP, false, linkButton(name)); return NextResponse.json({ ok: true }); }
+      const out = await myTasksHtml(lk.profile_id);
+      if (isPrivate) await reply(token, m, out, true);
+      else {
+        const res = await sendTelegramTo(lk.dm_chat_id, out);
+        await reply(token, m, res.ok ? "📬 Đã gửi tóm tắt việc vào tin nhắn riêng của bạn." : res.blocked ? `Mình chưa nhắn riêng được — bạn mở chat với @${name} và bấm Start trước nhé.` : "Không gửi được: " + res.error, false);
+      }
+    } catch (e) { console.error("[friday my-tasks]", e.message); await reply(token, m, "Mình gặp lỗi khi lấy việc của bạn, thử lại sau ít phút nhé.", false); }
+    return NextResponse.json({ ok: true });
+  }
 
   const now = Date.now();
   if (now - (last.get(m.chat.id) || 0) < COOLDOWN_MS) return NextResponse.json({ ok: true });
