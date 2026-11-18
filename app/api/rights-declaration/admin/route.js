@@ -10,6 +10,8 @@ import { makeRightsToken } from "../../../../lib/rightsToken";
 import { RIGHTS } from "../../../../lib/rightsForm";
 import { rightsMailer } from "../../../../lib/mailer";
 import { makeHolderLink, sendHolderMail, siteOrigin } from "../../../../lib/rightsHolder";
+import { textKey, artistKeyOf, maskEmail } from "../../../../lib/rightsKey";
+import { logRights, setRightsTicketStatus } from "../../../../lib/rightsLog";
 
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
@@ -37,9 +39,22 @@ export async function GET(request) {
     const { data } = await supabaseAdmin.from("releases").select("id, did, title, main_artist").or(`title.ilike.%${s}%,did.ilike.%${s}%,main_artist.ilike.%${s}%`).limit(15);
     return NextResponse.json({ releases: data || [] }, { headers: noStore });
   }
+  if (q.get("history")) {   // Round 645 — everything that ever happened to one song (log + every declaration version)
+    const sk = q.get("history");
+    const [lg, ds] = await Promise.all([
+      supabaseAdmin.from("rights_declaration_log").select("*").eq("song_key", sk).order("created_at", { ascending: false }).limit(200),
+      supabaseAdmin.from("rights_declarations").select("id, status, created_at, signer_name, contact_email, change_reason, replace_reason, replaced_by, pdf_url").eq("title_key", sk.split("|")[0]).eq("artist_key", sk.split("|")[1] ?? "").order("created_at", { ascending: false }),
+    ]);
+    return NextResponse.json({ log: lg.data || [], versions: (ds.data || []).map((r) => ({ ...r, contact_email: r.contact_email ? maskEmail(r.contact_email) : null })) }, { headers: noStore });
+  }
   const list = q.get("list") || "pending";
+  const text = (q.get("q") || "").trim().replace(/[%,()]/g, " ").slice(0, 80);
   let query = supabaseAdmin.from("rights_declarations").select("*").order("created_at", { ascending: false }).limit(200);
   if (list !== "all") query = query.eq("status", list);
+  if (text) {
+    const tk = textKey(text);
+    query = query.or(`song_title.ilike.%${text}%,performer.ilike.%${text}%${tk ? `,title_key.ilike.%${tk}%,artist_key.ilike.%${tk}%` : ""}`);
+  }
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500, headers: noStore });
   const ids = [...new Set((data || []).map((r) => r.release_id).filter(Boolean))];
@@ -56,10 +71,33 @@ export async function POST(request) {
   if (!me) return NextResponse.json({ error: "Not authorized." }, { status: 403, headers: noStore });
   let body = {};
   try { body = await request.json(); } catch (e) { return NextResponse.json({ error: "Bad request." }, { status: 400, headers: noStore }); }
+  if (body.action === "backfill_keys") {   // Round 645 — give declarations made before this round their match keys
+    const { data: rs } = await supabaseAdmin.from("rights_declarations").select("id, song_title, performer").is("title_key", null).limit(1000);
+    let n = 0;
+    for (const r of rs || []) { await supabaseAdmin.from("rights_declarations").update({ title_key: textKey(r.song_title), artist_key: artistKeyOf(r.performer) }).eq("id", r.id); n++; }
+    return NextResponse.json({ ok: true, updated: n }, { headers: noStore });
+  }
   const { data: row } = await supabaseAdmin.from("rights_declarations").select("*").eq("id", body.id).maybeSingle();
   if (!row) return NextResponse.json({ error: "Declaration not found." }, { status: 404, headers: noStore });
 
+  const song_key = `${row.title_key ?? textKey(row.song_title)}|${row.artist_key ?? artistKeyOf(row.performer)}`;
+  const lg = (action, extra = {}) => logRights(supabaseAdmin, { song_key, declaration_id: row.id, ticket_id: row.ticket_id, action, actor: me.name || me.id, ...extra });
+  if (body.action === "resend_link") {   // AR re-sends the public khai-bao page (per-release link when a product is attached) to an email
+    const to = String(body.to || row.contact_email || "").trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return NextResponse.json({ error: "Email không hợp lệ." }, { status: 400, headers: noStore });
+    const m = rightsMailer();
+    if (!m) return NextResponse.json({ error: "Email chưa được cấu hình." }, { status: 503, headers: noStore });
+    const t = row.release_id ? makeRightsToken(row.release_id) : null;
+    const url = `${siteOrigin(request)}/khai-bao${t ? "/" + t : ""}`;
+    try { await m.transport.sendMail({ from: m.from, replyTo: m.replyTo, to, subject: `VIEENT — Vui lòng khai báo bản quyền: ${row.song_title}`.slice(0, 150), html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>VIEENT đề nghị bạn khai báo (hoặc cập nhật) thông tin bản quyền cho ca khúc <b>${String(row.song_title).replace(/</g, "&lt;")}</b>.</p><p><a href="${url}">Mở trang khai báo</a></p></div>` }); }
+    catch (e) { return NextResponse.json({ error: "Không gửi được email: " + e.message }, { status: 502, headers: noStore }); }
+    await lg("link_resent", { detail: { to: maskEmail(to) } });
+    return NextResponse.json({ ok: true }, { headers: noStore });
+  }
   if (body.action === "reject" || body.action === "reopen") {
+    if (row.status === "superseded") return NextResponse.json({ error: "Khai báo này đã bị thay thế bởi bản mới." }, { status: 400, headers: noStore });
+    if (row.ticket_id) await setRightsTicketStatus(supabaseAdmin, row.ticket_id, body.action === "reject" ? "CANCELED" : "PENDING");
+    await lg(body.action === "reject" ? "rejected" : "reopened");
     const { error } = await supabaseAdmin.from("rights_declarations").update(body.action === "reject" ? { status: "rejected", confirmed_by: me.id, confirmed_at: new Date().toISOString() } : { status: "pending", confirmed_by: null, confirmed_at: null }).eq("id", row.id);
     return error ? NextResponse.json({ error: error.message }, { status: 500, headers: noStore }) : NextResponse.json({ ok: true }, { headers: noStore });
   }
@@ -71,6 +109,7 @@ export async function POST(request) {
     return NextResponse.json({ ok: true }, { headers: noStore });
   }
   if (body.action !== "confirm") return NextResponse.json({ error: "Unknown action." }, { status: 400, headers: noStore });
+  if (row.status === "superseded") return NextResponse.json({ error: "Khai báo này đã bị thay thế bởi bản mới — hãy xác nhận bản mới." }, { status: 400, headers: noStore });
 
   // the right holder's e-signature is compulsory for licensed rights once a request was sent
   if (["sent", "declined"].includes(row.sign_status)) return NextResponse.json({ error: row.sign_status === "declined" ? "Chủ sở hữu quyền đã từ chối — không thể xác nhận." : "Chủ sở hữu quyền chưa xác nhận. Chờ họ xác nhận (hoặc bấm Gửi lại link) rồi xác nhận." }, { status: 400, headers: noStore });
@@ -104,5 +143,7 @@ export async function POST(request) {
   const { error } = await supabaseAdmin.from("releases").update({ rights_declaration: decl, copyright_checklist: cl }).eq("id", rel.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500, headers: noStore });
   await supabaseAdmin.from("rights_declarations").update({ status: "confirmed", release_id: rel.id, confirmed_by: me.id, confirmed_at: now }).eq("id", row.id);
+  if (row.ticket_id) await setRightsTicketStatus(supabaseAdmin, row.ticket_id, "COMPLETE");
+  await lg("confirmed", { detail: { release_id: rel.id } });
   return NextResponse.json({ ok: true }, { headers: noStore });
 }

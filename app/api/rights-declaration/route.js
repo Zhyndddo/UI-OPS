@@ -10,7 +10,9 @@ import { makeHolderLink, sendHolderMail, siteOrigin } from "../../../lib/rightsH
 import { dropboxConfigured, sendForSignature } from "../../../lib/dropboxSign";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { readRightsToken, makeRightsToken } from "../../../lib/rightsToken";
-import { cleanDeclaration, PDF_MW, PDF_MH_HOLDER, HOLDER_BOX } from "../../../lib/rightsForm";
+import { cleanDeclaration, RIGHTS, PDF_MW, PDF_MH_HOLDER, HOLDER_BOX } from "../../../lib/rightsForm";
+import { textKey, artistKeyOf, maskEmail } from "../../../lib/rightsKey";
+import { logRights, ensureRightsTicket } from "../../../lib/rightsLog";
 import { countHits, addHit, clientIp } from "../../../lib/eventRateLimit";
 
 export const maxDuration = 30;
@@ -34,16 +36,36 @@ async function titleCache() {
   for (let from = 0; from < 20000; from += 1000) {
     const { data, error } = await supabaseAdmin.from("releases").select("id, title, main_artist, publishing_composer").order("id").range(from, from + 999);
     if (error || !data) break;
-    rows.push(...data.filter((r) => r.title).map((r) => ({ id: r.id, title: r.title, artist: r.main_artist || "", composer: r.publishing_composer || "", n: norm(`${r.title} ${r.main_artist || ""}`) })));
+    rows.push(...data.filter((r) => r.title).map((r) => ({ id: r.id, title: r.title, artist: r.main_artist || "", composer: r.publishing_composer || "", n: norm(`${r.title} ${r.main_artist || ""}`), tk: textKey(r.title), ak: artistKeyOf(r.main_artist) })));
     if (data.length < 1000) break;
   }
   CACHE = { at: Date.now(), rows };
   return rows;
 }
 
+// Round 645 — as the declarer types title + performer: is that song already declared (same title + performer ignoring accents, case, symbols, look-alike letters)?
+// Returns only a MASKED email and a signed claim; the product match lets the declaration attach to the app's release automatically.
+async function checkDup(request, ip, sp) {
+  if (countHits("rd-chk:" + ip) >= 40) return NextResponse.json({ error: "Quá nhiều lượt kiểm tra. Thử lại sau ít phút." }, { status: 429, headers: noStore });
+  addHit("rd-chk:" + ip);
+  const tk = textKey(String(sp.get("title") || "").slice(0, 200)), ak = artistKeyOf(String(sp.get("artist") || "").slice(0, 200));
+  const out = { declared: false, masked: null, claim: null, release: null };
+  if (tk.length < 2) return NextResponse.json(out, { headers: noStore });
+  try {
+    const { data } = await supabaseAdmin.from("rights_declarations").select("id, contact_email").eq("title_key", tk).eq("artist_key", ak).in("status", ["pending", "confirmed"]).order("created_at", { ascending: false }).limit(1);
+    if (data?.[0]) { out.declared = true; out.masked = data[0].contact_email ? maskEmail(data[0].contact_email) : null; out.claim = sign({ id: data[0].id, x: Date.now() + 30 * 60 * 1000 }, "claim"); }
+  } catch (e) { /* SQL not run yet: no duplicate check */ }
+  if (ak) {
+    const hits = (await titleCache()).filter((r) => r.tk === tk && r.ak === ak);
+    if (hits.length === 1) out.release = { title: hits[0].title, token: makeRightsToken(hits[0].id) };
+  }
+  return NextResponse.json(out, { headers: noStore });
+}
+
 export async function GET(request) {
   if (!supabaseAdmin) return NextResponse.json({ error: "Server not configured." }, { status: 500, headers: noStore });
   const ip = clientIp(request);
+  if (new URL(request.url).searchParams.get("check") != null) return checkDup(request, ip, new URL(request.url).searchParams);   // Round 645
   const q = new URL(request.url).searchParams.get("q");
   if (q != null) {
     if (countHits("rd-search:" + ip) >= 60) return NextResponse.json({ error: "Quá nhiều lượt tìm. Thử lại sau ít phút." }, { status: 429, headers: noStore });
@@ -68,6 +90,58 @@ const fail = (error, status) => NextResponse.json({ error }, { status, headers: 
 const esc = (x) => String(x || "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
 
 // Round 639 — step A "send_code": email a 6-digit code. step B "verify": check code + consent, return the signed evidence record.
+// Round 645 — the song is already declared: send a copy to the old email, or (type old email + code sent to it) unlock a replacement.
+const ok = (o) => NextResponse.json({ ok: true, ...o }, { headers: noStore });
+const rightsText = (row) => {
+  const L = (o) => RIGHTS.filter((r) => o?.[r.key]).map((r) => r.vi).join(", ") || "—";
+  return `<table style="border-collapse:collapse;font-size:13px">${[["Bài hát", row.song_title], ["Sáng tác", row.composer], ["Trình bày", row.performer], ["Producer", row.producer], ["Mixer", row.mixer], ["Quyền sở hữu", L(row.owned)], ["Quyền được cấp phép", L(row.licensed)], ["Nền tảng", row.platforms === "all" ? "Tất cả" : row.platforms_note || "Một số"], ["Thời hạn đăng tải", row.term === "perpetual" ? "Vĩnh viễn" : `Có thời hạn ${row.term_note || ""}`], ["Người ký", row.signer_name], ["Ngày khai báo", new Date(row.created_at).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })]].map(([k, v]) => `<tr><td style="padding:3px 12px 3px 0;color:#666">${k}</td><td style="padding:3px 0"><b>${esc(v || "—")}</b></td></tr>`).join("")}</table>${row.pdf_url ? `<p><a href="${esc(row.pdf_url)}">Mở bản PDF đã khai báo</a></p>` : ""}`;
+};
+async function dupStep(request, body, ip) {
+  const c = unsign(body.claim, "claim");
+  if (!c || c.x < Date.now()) return fail("Phiên đã hết hạn. Vui lòng nhập lại tên bài hát để kiểm tra.", 400);
+  const { data: row } = await supabaseAdmin.from("rights_declarations").select("*").eq("id", c.id).maybeSingle();
+  if (!row || !["pending", "confirmed"].includes(row.status)) return fail("Khai báo cũ không còn hiệu lực. Vui lòng tải lại trang.", 404);
+  const song_key = `${row.title_key}|${row.artist_key}`;
+  const log = (action, extra = {}) => logRights(supabaseAdmin, { song_key, declaration_id: row.id, ticket_id: row.ticket_id, action, ip, ...extra });
+  if (!row.contact_email) { await log("old_no_email"); return fail("Khai báo cũ không có email để xác nhận. Vui lòng liên hệ VIEENT (AR) để được hỗ trợ.", 400); }
+  const to = row.contact_email, key = `${to.toLowerCase()}|old:${row.id}`, mail = rightsMailer();
+  if (!mail) return fail("Hệ thống email chưa được cấu hình. Vui lòng báo VIEENT.", 503);
+
+  if (body.action === "copy") {
+    if (countHits("rd-copy:" + row.id) >= 3 || countHits("rd-copy-ip:" + ip) >= 6) return fail("Đã gửi quá nhiều lần. Vui lòng thử lại sau 10 phút.", 429);
+    addHit("rd-copy:" + row.id); addHit("rd-copy-ip:" + ip);
+    try { await mail.transport.sendMail({ from: mail.from, replyTo: mail.replyTo, to, subject: `VIEENT — Bản sao khai báo bản quyền: ${row.song_title}`.slice(0, 150), html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>Có người vừa yêu cầu xem lại khai báo bản quyền đã gửi bằng email này:</p>${rightsText(row)}<p style="font-size:12px;color:#666">Nếu không phải bạn yêu cầu, bạn có thể bỏ qua email này.</p></div>` }); }
+    catch (e) { console.error("[rights-declaration] copy mail failed:", e.message); return fail("Không gửi được email. Vui lòng thử lại.", 502); }
+    await log("copy_sent", { detail: { to: maskEmail(to) } });
+    return ok({ masked: maskEmail(to) });
+  }
+  const reason = String(body.reason || "").trim().slice(0, 500);
+  if (reason.length < 5) return fail("Vui lòng nhập lý do xoá khai báo cũ (ít nhất 5 ký tự).", 400);
+
+  if (body.action === "old_code") {
+    if (countHits("rd-old:" + row.id + ip) >= 5) return fail("Nhập sai quá nhiều lần. Vui lòng thử lại sau 10 phút.", 429);
+    const typed = String(body.typed_email || "").trim().toLowerCase();
+    if (typed !== to.toLowerCase()) { addHit("rd-old:" + row.id + ip); await log("old_email_mismatch", { reason, detail: { typed: maskEmail(typed) } }); return fail("Email không khớp với email đã dùng để khai báo.", 400); }
+    if (countHits("rd-oldotp:" + row.id) >= 3) return fail("Đã gửi mã quá nhiều lần. Vui lòng thử lại sau 10 phút.", 429);
+    addHit("rd-oldotp:" + row.id);
+    const { challenge, code } = newChallenge(key);
+    try { await mail.transport.sendMail({ from: mail.from, replyTo: mail.replyTo, to, subject: `VIEENT — Mã xác nhận xoá khai báo bản quyền: ${code}`, html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>Có người yêu cầu xoá khai báo bản quyền ca khúc <b>${esc(row.song_title)}</b> để khai báo lại. Mã xác nhận:</p><p style="font-size:30px;font-weight:800;letter-spacing:6px">${code}</p><p>Lý do được ghi: ${esc(reason)}</p><p>Mã có hiệu lực 10 phút. Nếu không phải bạn, hãy bỏ qua email này — khai báo cũ vẫn được giữ.</p></div>` }); }
+    catch (e) { console.error("[rights-declaration] old code mail failed:", e.message); return fail("Không gửi được email mã xác nhận. Vui lòng thử lại.", 502); }
+    await log("delete_requested", { reason, detail: { to: maskEmail(to) } });
+    return ok({ challenge });
+  }
+  // old_verify
+  const cc = readChallenge(body.challenge);
+  if (!cc) return fail("Mã đã hết hạn. Vui lòng bấm gửi lại mã.", 400);
+  if (ATT.size > 500) ATT.clear();
+  const tries = (ATT.get(cc.n) || 0) + 1; ATT.set(cc.n, tries);
+  if (tries > 5) return fail("Nhập sai quá nhiều lần. Vui lòng gửi lại mã mới.", 429);
+  if (!codeMatches(cc, key, body.code)) return fail("Mã không đúng.", 400);
+  ATT.delete(cc.n);
+  await log("delete_verified", { reason });
+  return ok({ replaceToken: sign({ id: row.id, tk: row.title_key, ak: row.artist_key, reason, x: Date.now() + 60 * 60 * 1000 }, "replace") });
+}
+
 async function otpStep(request, body, ip) {
   const v = cleanDeclaration(body.form);
   if (!v.ok) return fail(v.error, 400);
@@ -118,6 +192,7 @@ export async function POST(request) {
   try { body = await request.json(); } catch (e) { return NextResponse.json({ error: "Dữ liệu không hợp lệ." }, { status: 400, headers: noStore }); }
   if (body.website) return NextResponse.json({ ok: true, fake: true }, { headers: noStore });   // honeypot
   if (body.action === "send_code" || body.action === "verify") return otpStep(request, body, ip);
+  if (["copy", "old_code", "old_verify"].includes(body.action)) return dupStep(request, body, ip);   // Round 645
   // No token = the one public link: the declaration is saved unlinked and AR picks the product when confirming.
   let rel = null;
   if (body.token) {
@@ -132,6 +207,24 @@ export async function POST(request) {
   const au = unsign(body.auditToken, "audit");
   if (!au || au.x < Date.now() || au.form_hash !== formHash(d) || au.email !== d.contact_email.toLowerCase()) return fail("Chưa xác minh email, hoặc nội dung đã thay đổi sau khi xác minh. Vui lòng bấm gửi lại để nhận mã mới.", 400);
   addHit("rd-post:" + ip); addHit("rd-post:all");
+
+  // Round 645 — same song (title + performer ignoring accents / case / symbols / look-alike letters)
+  const tk = textKey(d.song_title), ak = artistKeyOf(d.performer), song_key = `${tk}|${ak}`;
+  const reason = String(body.change_reason || "").trim().slice(0, 500);
+  let replaced = null;
+  if (body.replaceToken) {
+    const rt = unsign(body.replaceToken, "replace");
+    if (!rt || rt.x < Date.now()) return fail("Phiên xác nhận xoá khai báo cũ đã hết hạn. Vui lòng làm lại bước xác nhận.", 400);
+    if (rt.tk !== tk || rt.ak !== ak) return fail("Khai báo mới phải cùng tên bài hát và nghệ sĩ với khai báo cũ.", 400);
+    const { data: o } = await supabaseAdmin.from("rights_declarations").select("*").eq("id", rt.id).maybeSingle();
+    if (o && ["pending", "confirmed"].includes(o.status)) replaced = { ...o, replace_reason: rt.reason };
+    if (replaced && reason.length < 5) return fail("Vui lòng nhập lý do thay đổi (ít nhất 5 ký tự).", 400);
+  }
+  if (!replaced && tk.length >= 2) {   // the form hides the rest when a duplicate is found; this stops anyone skipping that
+    let dup = null;
+    try { const { data } = await supabaseAdmin.from("rights_declarations").select("id").eq("title_key", tk).eq("artist_key", ak).in("status", ["pending", "confirmed"]).limit(1); dup = data?.[0] || null; } catch (e) { /* SQL not run yet */ }
+    if (dup) return NextResponse.json({ error: "Bài hát này đã được khai báo. Vui lòng tải lại trang và chọn xoá khai báo cũ hoặc xem lại bản đã khai báo.", declared: true }, { status: 409, headers: noStore });
+  }
 
   const b64 = String(body.pdfBase64 || "");
   const id = randomUUID();
@@ -192,6 +285,7 @@ export async function POST(request) {
     release_id: rel?.id || null, song_title: d.song_title, composer: d.composer, performer: d.performer, producer: d.producer, mixer: d.mixer,
     owned: d.owned, licensed: d.licensed, licensed_until: d.licensed_until, contact_email: d.contact_email || null, proof: d.proof || null, platforms: d.platforms || null, platforms_note: d.platforms_note || null,
     term: d.term, term_note: d.term_note || null, signer_name: d.signer_name, pdf_url: null,
+    title_key: tk, artist_key: ak, change_reason: replaced ? reason : null,
     verify_audit: (({ x, ...rest }) => ({ ...rest, submit_ip: ip, submit_at: new Date().toISOString() }))(au),
     pdf_sha256: b64 ? sha256Hex(Buffer.from(b64, "base64")) : null, consent_at: au.consent_at,
   };
@@ -199,7 +293,7 @@ export async function POST(request) {
   // Round 637 hotfix: if the Round 637 SQL has not been run yet (unknown column), save without the two new fields instead of failing.
   if (error && /licensed_until|contact_email|schema cache|column/i.test(error.message || "")) {
     const old = { ...row };
-    for (const k of ["licensed_until", "contact_email", "holder_name", "holder_email", "sign_request_id", "sign_status", "sign_test", "sign_provider", "verify_audit", "pdf_sha256", "consent_at"]) delete old[k];
+    for (const k of ["licensed_until", "contact_email", "holder_name", "holder_email", "sign_request_id", "sign_status", "sign_test", "sign_provider", "verify_audit", "pdf_sha256", "consent_at", "title_key", "artist_key", "change_reason"]) delete old[k];
     ({ error } = await supabaseAdmin.from("rights_declarations").insert(old));
   }
   if (error) {
@@ -207,6 +301,10 @@ export async function POST(request) {
     const missing = /relation .* does not exist|schema cache/i.test(error.message || "");
     return NextResponse.json({ error: missing ? "Hệ thống chưa sẵn sàng (thiếu bảng dữ liệu). Vui lòng báo VIEENT." : "Không lưu được. Vui lòng thử lại." }, { status: 500, headers: noStore });
   }
+  // Round 645 — the old declaration is kept (status "superseded", never deleted); the song's ticket is created or REOPENED; everything is logged
+  if (replaced) await supabaseAdmin.from("rights_declarations").update({ status: "superseded", replaced_by: id, replace_reason: replaced.replace_reason || null }).eq("id", replaced.id);
+  const tkt = await ensureRightsTicket(supabaseAdmin, { id, song_key, song_title: d.song_title, performer: d.performer, signer_name: d.signer_name, release_id: rel?.id || null });
+  await logRights(supabaseAdmin, { song_key, declaration_id: id, ticket_id: tkt?.id, action: replaced ? "replaced" : "declared", reason: replaced ? reason : null, ip, detail: { old_id: replaced?.id || null, old_email: replaced?.contact_email ? maskEmail(replaced.contact_email) : null, new_email: maskEmail(d.contact_email), ticket_reopened: !!tkt?.reopened } });
   // optional: email the SAME pdf to the address the submitter typed (one recipient, fixed template). No email / failure -> the page downloads it.
   // Round 640: Drive upload and email now run AT THE SAME TIME (was one after the other) -> the submit waits for the slower one only.
   const sendMail = async () => {
@@ -217,7 +315,7 @@ export async function POST(request) {
       await mail.transport.sendMail({
         from: mail.from, replyTo: mail.replyTo, to: d.contact_email,
         subject: `VIEENT — Bản khai báo bản quyền: ${d.song_title}`.slice(0, 150),
-        html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>VIEENT đã nhận khai báo bản quyền cho ca khúc <b>${esc(d.song_title)}</b>. Bản PDF đính kèm email này.</p>${needsHolder ? `<p>Chủ sở hữu quyền (${esc(d.holder_name)}) sẽ nhận email yêu cầu ký xác nhận.</p>` : ""}<p style="font-size:12px;color:#666">Email đã xác minh bằng mã lúc ${esc(au.verified_at)} · IP ${esc(au.ip)} · SHA-256 nội dung: ${esc(au.form_hash)}</p><p>Bộ phận AR sẽ kiểm tra và xác nhận. Lưu ý: thiếu xác nhận nào, bài hát sẽ chưa được phát hành.</p></div>`,
+        html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>VIEENT đã nhận khai báo bản quyền cho ca khúc <b>${esc(d.song_title)}</b>. Bản PDF đính kèm email này.</p>${replaced ? `<p>Khai báo này <b>thay thế</b> khai báo trước đó của bài hát. Lý do: ${esc(reason)}</p>` : ""}${needsHolder ? `<p>Chủ sở hữu quyền (${esc(d.holder_name)}) sẽ nhận email yêu cầu ký xác nhận.</p>` : ""}<p style="font-size:12px;color:#666">Email đã xác minh bằng mã lúc ${esc(au.verified_at)} · IP ${esc(au.ip)} · SHA-256 nội dung: ${esc(au.form_hash)}</p><p>Bộ phận AR sẽ kiểm tra và xác nhận. Lưu ý: thiếu xác nhận nào, bài hát sẽ chưa được phát hành.</p></div>`,
         attachments: [{ filename: "Khai-bao-ban-quyen.pdf", content: Buffer.from(b64, "base64"), contentType: "application/pdf" }],
       });
       emailed = true;
@@ -231,7 +329,18 @@ export async function POST(request) {
     if (!m) return false;
     try { await sendHolderMail(m, { ...row, id }, makeHolderLink(siteOrigin(request), id)); return true; } catch (e) { console.error("[rights-declaration] holder mail failed:", e.message); return false; }
   };
-  const [pdfUrl, emailed, holderMailed] = await Promise.all([uploadDrive(), sendMail(), sendHolder()]);
-  if (pdfUrl) await supabaseAdmin.from("rights_declarations").update({ pdf_url: pdfUrl }).eq("id", id);
-  return NextResponse.json({ ok: true, pdfSaved: !!pdfUrl, emailed, signRequested: sign.status === "sent", signTest: sign.test, holderMailed }, { headers: noStore });
+  const sendOld = async () => {   // the OLD email is told when its declaration was replaced (same inbox: the mail above already says so)
+    if (!replaced?.contact_email || replaced.contact_email.toLowerCase() === d.contact_email.toLowerCase()) return null;
+    const m = rightsMailer();
+    if (!m) return false;
+    try {
+      await m.transport.sendMail({ from: m.from, replyTo: m.replyTo, to: replaced.contact_email, subject: `VIEENT — Khai báo bản quyền "${d.song_title}" đã được thay bằng khai báo mới`.slice(0, 150),
+        html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>Khai báo bản quyền của bạn cho ca khúc <b>${esc(d.song_title)}</b> đã được thay bằng một khai báo mới (gửi từ email ${esc(maskEmail(d.contact_email))}).</p><p>Lý do được ghi: ${esc(reason)}</p><p>Nếu không phải bạn thực hiện, vui lòng liên hệ VIEENT (AR) ngay.</p></div>` });
+      return true;
+    } catch (e) { console.error("[rights-declaration] old-email notice failed:", e.message); return false; }
+  };
+  const [pdfUrl, emailed, holderMailed] = await Promise.all([uploadDrive(), sendMail(), sendHolder(), sendOld()]);
+  const upd = { ...(pdfUrl ? { pdf_url: pdfUrl } : {}), ...(tkt?.id ? { ticket_id: tkt.id } : {}) };
+  if (Object.keys(upd).length) await supabaseAdmin.from("rights_declarations").update(upd).eq("id", id);
+  return NextResponse.json({ ok: true, pdfSaved: !!pdfUrl, emailed, signRequested: sign.status === "sent", signTest: sign.test, holderMailed, replaced: !!replaced }, { headers: noStore });
 }
