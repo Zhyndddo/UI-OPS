@@ -268,6 +268,12 @@ body {
   min-height: 100vh;
 }
 
+/* Round 654 — buttons, inputs, selects and textareas do NOT inherit the page font by default in browsers (they fall back to the system font),
+   so Be Vietnam Pro was missing from every form control. :where() keeps this at zero specificity: any inline/module font-family still wins. */
+:where(button, input, select, textarea, optgroup) {
+  font-family: inherit;
+}
+
 a {
   color: inherit;
 }

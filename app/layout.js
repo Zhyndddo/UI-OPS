@@ -22,7 +22,11 @@ import { AuthProvider } from "../lib/AuthContext";
 // touch them.
 const beVietnamPro = localFont({
   src: [
+    { path: "./fonts/BeVietnamPro-Light.ttf", weight: "300", style: "normal" },   // Round 654: used by a few light headings
     { path: "./fonts/BeVietnamPro-Regular.ttf", weight: "400", style: "normal" },
+    { path: "./fonts/BeVietnamPro-Italic.ttf", weight: "400", style: "italic" },   // real italics instead of a slanted copy
+    { path: "./fonts/BeVietnamPro-SemiBoldItalic.ttf", weight: "600", style: "italic" },
+    { path: "./fonts/BeVietnamPro-BoldItalic.ttf", weight: "700", style: "italic" },
     { path: "./fonts/BeVietnamPro-Medium.ttf", weight: "500", style: "normal" },
     { path: "./fonts/BeVietnamPro-SemiBold.ttf", weight: "600", style: "normal" },
     { path: "./fonts/BeVietnamPro-Bold.ttf", weight: "700", style: "normal" },

@@ -302,6 +302,7 @@ export default function WorkstationCostMkt() {
   const [channelKind, setChannelKind] = useState("tiktok"); // "tiktok" | "ads"
   const [partnerBrand, setPartnerBrand] = useState(TIKTOK_PARTNERS[0]);
   const [adsBrand, setAdsBrand] = useState(ADS_BRANDS[0]);
+  const [showAll, setShowAll] = useState(false);   // Round 654 — "All" tab: read-only overview over every partner / ads brand
   const brand = channelKind === "tiktok" ? partnerBrand : adsBrand;
 
   // Round 445 — Sup Cashback only applies to TikTok Channel partners and
@@ -799,6 +800,13 @@ export default function WorkstationCostMkt() {
   const tableRows = searchNeedle
     ? labelScoped.filter((row) => foldText(row.release.title).includes(searchNeedle) || foldText(row.release.did).includes(searchNeedle) || foldText(labelOf(row.release)).includes(searchNeedle))
     : labelScoped;
+
+  // Round 654 — "All" tab rows: every partner (TikTok) or brand (Ads), same 0-row / month / label / song-search filters as the single tabs.
+  const allOverviewRows = !showAll ? [] : (channelKind === "tiktok" ? TIKTOK_PARTNERS : adsBrandList)
+    .flatMap((b) => computeRows(channelKind, b).filter((row) => !hideZero || !isZeroRow(row)).filter((row) => !monthFilterActive || row.isThisMonth).map((row) => ({ ...row, brandName: b })))
+    .filter((row) => !labelFilter || (labelFilter === "__EXTERNAL__" ? isExternalLabel(labelOf(row.release)) : labelOf(row.release) === labelFilter))
+    .filter((row) => !searchNeedle || foldText(row.release.title).includes(searchNeedle) || foldText(row.release.did).includes(searchNeedle) || foldText(labelOf(row.release)).includes(searchNeedle))
+    .sort((a, b) => String(b.release.release_date || "").localeCompare(String(a.release.release_date || "")));
 
   // Round 445 — Import/Export, per explicit request ("make an
   // import/export so that the team can easily get a template, add data
@@ -1310,12 +1318,20 @@ export default function WorkstationCostMkt() {
           </div>
 
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 16 }}>
+            <button
+              onClick={() => setShowAll(true)}
+              className={`${styles.tabBtn} ${showAll ? styles.tabBtnActive : ""}`}
+              title="Read-only overview of every partner / brand in one table"
+              style={{ border: showAll ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: showAll ? "rgba(255,107,26,0.1)" : "transparent", fontSize: 12, fontWeight: 800 }}
+            >
+              ALL
+            </button>
             {(channelKind === "tiktok" ? TIKTOK_PARTNERS : adsBrandList).map((b) => (
               <button
                 key={b}
-                onClick={() => (channelKind === "tiktok" ? setPartnerBrand(b) : setAdsBrand(b))}
-                className={`${styles.tabBtn} ${brand === b ? styles.tabBtnActive : ""}`}
-                style={{ border: brand === b ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: brand === b ? "rgba(255,107,26,0.1)" : "transparent", fontSize: 12 }}
+                onClick={() => { setShowAll(false); if (channelKind === "tiktok") setPartnerBrand(b); else setAdsBrand(b); }}
+                className={`${styles.tabBtn} ${!showAll && brand === b ? styles.tabBtnActive : ""}`}
+                style={{ border: !showAll && brand === b ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: !showAll && brand === b ? "rgba(255,107,26,0.1)" : "transparent", fontSize: 12 }}
               >
                 {channelKind === "tiktok" ? shortPartnerLabel(b) : b}
               </button>
@@ -1471,7 +1487,9 @@ export default function WorkstationCostMkt() {
             />
           )}
 
-          {loading ? (
+          {showAll ? (
+            loading ? <LoadingSkeleton /> : <AllOverview rows={allOverviewRows} channelKind={channelKind} amountFor={amountFor} labelOf={labelOf} monthFilterActive={monthFilterActive} />
+          ) : loading ? (
             <LoadingSkeleton />
           ) : tableRows.length === 0 ? (
             <div className={styles.emptyState}>
@@ -1618,6 +1636,51 @@ export default function WorkstationCostMkt() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+// Round 654 — "ALL" tab: read-only overview of every partner / brand in one table (edit on the single tab).
+function AllOverview({ rows, channelKind, amountFor, labelOf, monthFilterActive }) {
+  const money = (e, inst, f) => (e ? amountFor(e, inst || [], f) : 0);
+  const sum = (f) => rows.reduce((s, r) => s + money(r.entry, r.installments, f), 0);
+  const posts = (r) => { const a = r.values.reduce((s, v) => s + (v.added || 0), 0), b = r.values.reduce((s, v) => s + (v.booked || 0), 0); return b ? `${a} / ${b}` : String(a || "—"); };
+  const MONEY = [["cost_du_kien", "Cost Dự Kiến"], ["cost_thuc_chay", "Cost Thực Chạy"], ["vieent_ho_tro", "Vieent Hỗ Trợ"], ["artist_tra", "Artist Trả"]];
+  if (!rows.length) return <div className={styles.emptyState}>{monthFilterActive ? "Nothing counted for this month on any " : "Nothing booked on any "}{channelKind === "tiktok" ? "partner" : "brand"} yet.</div>;
+  return (
+    <div className={styles.scrollBox} style={{ overflow: "auto", maxHeight: "calc(100vh - 240px)" }}>
+      <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 6 }}>Overview of every {channelKind === "tiktok" ? "TikTok partner" : "Ads brand"} — read-only ({rows.length} rows). Pick a single tab to edit.</div>
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            <th>Release</th><th>{channelKind === "tiktok" ? "Partner" : "Brand"}</th><th>Label</th><th>{channelKind === "tiktok" ? "Total Post" : "Posts (added / booked)"}</th>
+            {MONEY.map(([k, l]) => <th key={k}>{l}</th>)}<th>Tháng Chi Trả</th><th>Payment</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={`${r.release.id}:${r.brandName}`}>
+              <td style={{ minWidth: 160 }}>
+                {r.release.isNonDid ? <span className={styles.rowLink}>{r.release.title}</span> : <Link href={`/releases/${r.release.id}`} className={styles.rowLink}>{r.release.title}</Link>}
+                <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.release.isNonDid ? `Non-DID · ${r.release.did}` : r.release.main_artist}</div>
+              </td>
+              <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>{channelKind === "tiktok" ? shortPartnerLabel(r.brandName) : r.brandName}</td>
+              <td style={{ fontSize: 12 }}>{labelOf(r.release) || "—"}</td>
+              <td style={{ textAlign: "center", fontSize: 12 }}>{posts(r)}</td>
+              {MONEY.map(([k]) => <td key={k} style={{ fontSize: 12, textAlign: "right", whiteSpace: "nowrap" }}>{r.entry ? fmtVnd(money(r.entry, r.installments, k)) : "—"}</td>)}
+              <td style={{ fontSize: 12 }}>{r.entry?.thang_chi_tra || (r.installments?.length ? `${r.installments.length} tháng` : "—")}</td>
+              <td style={{ fontSize: 12 }}>{r.entry?.payment_status || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr style={{ fontWeight: 800 }}>
+            <td colSpan={4}>Total</td>
+            {MONEY.map(([k]) => <td key={k} style={{ textAlign: "right", whiteSpace: "nowrap" }}>{fmtVnd(sum(k))}</td>)}
+            <td colSpan={2} />
+          </tr>
+        </tfoot>
+      </table>
+    </div>
   );
 }
 

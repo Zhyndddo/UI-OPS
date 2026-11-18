@@ -88,6 +88,19 @@ function readDashboardState() {
   }
 }
 
+// Round 654 — links from the daily email: /releases?from=YYYY-MM-DD&to=YYYY-MM-DD (or ?range=today|week|month) open the list already filtered,
+// replacing whatever filters were remembered for this tab.
+function readStartState() {
+  const saved = readDashboardState();
+  if (typeof window === "undefined") return saved;
+  const p = new URLSearchParams(window.location.search);
+  const okD = (x) => /^\d{4}-\d{2}-\d{2}$/.test(x || "");
+  const from = p.get("from"), to = p.get("to"), range = p.get("range");
+  const rg = ["today", "week", "month"].includes(range) ? range : null;
+  if (!okD(from) && !okD(to) && !rg) return saved;
+  return { ...(saved || {}), search: "", statusFilter: null, createdFilter: rg, channelFilter: null, typeFilter: "", labelFilter: "", tagFilter: "", dateRangeStart: okD(from) ? from : "", dateRangeEnd: okD(to) ? to : "", adv: {}, page: 1 };
+}
+
 function writeDashboardState(state) {
   if (typeof window === "undefined") return;
   try {
@@ -707,7 +720,7 @@ export default function ReleasesDashboard() {
   const restoredRef = useRef(false);
   const pendingScrollRef = useRef(null);
   useEffect(() => {
-    const saved = readDashboardState();
+    const saved = readStartState();
     if (saved) {
       if (saved.search) { setSearch(saved.search); setDebouncedSearch(saved.search); }
       if (saved.statusFilter) setStatusFilter(saved.statusFilter);
@@ -735,7 +748,7 @@ export default function ReleasesDashboard() {
         setStats(statsResult);
       }
     );
-    const restored = readDashboardState();
+    const restored = readStartState();
     runLoad({
       page: restored?.page || 1,
       pageSize: restored?.pageSize || 50,

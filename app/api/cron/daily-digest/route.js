@@ -3,6 +3,7 @@ import nodemailer from "nodemailer";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { todayUTC, buildDigest } from "../../../../lib/digestData";   // Round 601 — moved to lib so Telegram can reuse it
 import { emailRecipients } from "../../../../lib/recapCopies";
+import { loadOwners, picText } from "../../../../lib/friday";
 
 // Daily digest — Config item 5b. Compiles today's ticket activity (sent /
 // completed, per ticket type) + every workstation's current not-done row
@@ -41,7 +42,41 @@ function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function renderDigestHtml({ date, activityDate, ticketRows, ticketNotDoneRows, workstationRows, missingDataRows }, customNote) {
+// Round 654 — "releasing today" table + a link to this week's releases (the releases page opens already filtered by date)
+const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://internal.vieent.com").replace(/\/$/, "");
+const META_LABELS = [["meta_audio", "Audio"], ["meta_artwork", "Artwork"], ["meta_working_files", "Working Files"], ["meta_lyric", "Lyric"], ["meta_mv", "MV"], ["meta_doc", "Metadata"]];
+const isoDay = (d) => d.toISOString().slice(0, 10);
+async function loadReleaseBlock(db, today) {
+  const t = new Date(`${today}T00:00:00Z`), dow = (t.getUTCDay() + 6) % 7;   // Monday = 0
+  const monday = new Date(t.getTime() - dow * 86400000), sunday = new Date(monday.getTime() + 6 * 86400000);
+  const week = { from: isoDay(monday), to: isoDay(sunday) };
+  try {
+    const { data } = await db.from("releases").select("id, title, main_artist, label, release_date, release_time, " + META_LABELS.map((m) => m[0]).join(", ")).eq("release_date", today).order("release_time", { nullsFirst: false });
+    const rows = (data || []).map((r) => ({ ...r, artist: r.main_artist }));
+    await loadOwners(db, rows);
+    const { count } = await db.from("releases").select("id", { count: "exact", head: true }).gte("release_date", week.from).lte("release_date", week.to).neq("release_date", "2026-12-31");
+    return { today: rows, week, weekCount: count ?? null };
+  } catch (e) { return { today: [], week, weekCount: null }; }
+}
+
+function releaseBlockHtml(b) {
+  if (!b) return "";
+  const dmy = (iso) => iso.split("-").reverse().join("/");
+  const table = b.today.length
+    ? `<table cellpadding="6" style="border-collapse:collapse;width:100%">
+        <tr style="text-align:left;border-bottom:1px solid #ccc"><th>Song</th><th>Time</th><th>Label</th><th>PIC</th><th>Missing</th></tr>
+        ${b.today.map((r) => {
+          const miss = META_LABELS.filter(([k]) => r[k] !== "true").map(([, l]) => l);
+          return `<tr style="border-bottom:1px solid #eee"><td><a href="${SITE}/releases/${r.id}" style="color:#1a56db;text-decoration:none"><b>${escapeHtml(r.title)}</b></a>${r.artist ? `<br><span style="color:#888;font-size:11px">${escapeHtml(r.artist)}</span>` : ""}</td><td style="white-space:nowrap">${escapeHtml(r.release_time || "—")}</td><td>${escapeHtml(r.label || "—")}</td><td>${escapeHtml(picText(r))}</td><td>${miss.length ? miss.map((m) => `<span style="display:inline-block;background:#fdecea;color:#c0392b;border-radius:4px;padding:1px 6px;margin:1px 3px 1px 0;font-size:11px;font-weight:700">${escapeHtml(m)}</span>`).join("") : `<span style="color:#2e7d32">✓ complete</span>`}</td></tr>`;
+        }).join("")}
+      </table>`
+    : `<p style="color:#888">No songs releasing today.</p>`;
+  const link = `${SITE}/releases?from=${b.week.from}&to=${b.week.to}`;
+  return `<h3>Releasing Today (${b.today.length})</h3>${table}
+      <p style="margin:14px 0 0"><a href="${link}" style="display:inline-block;background:#1a56db;color:#fff;text-decoration:none;border-radius:6px;padding:8px 14px;font-weight:700">This week's releases${b.weekCount != null ? ` (${b.weekCount})` : ""} — ${dmy(b.week.from)} to ${dmy(b.week.to)} →</a></p>`;
+}
+
+function renderDigestHtml({ date, activityDate, ticketRows, ticketNotDoneRows, workstationRows, missingDataRows, releaseBlock }, customNote) {
   // Round 401 — "Sent"/"Completed" now report on activityDate (yesterday,
   // full day) rather than "today," since this email goes out in the
   // morning before today has any activity of its own yet. Column headers
@@ -99,7 +134,8 @@ function renderDigestHtml({ date, activityDate, ticketRows, ticketNotDoneRows, w
     <div style="font-family:sans-serif;max-width:640px">
       <h2>VIEENT OPS — Daily Digest, ${date}</h2>
       ${customNote ? `<p style="background:#f5f5f5;border-radius:6px;padding:10px 14px;white-space:pre-wrap">${escapeHtml(customNote)}</p>` : ""}
-      <h3>Tickets</h3>
+      ${releaseBlockHtml(releaseBlock)}
+      <h3 style="margin-top:24px">Tickets</h3>
       ${ticketTable}
       <h3 style="margin-top:24px">Ticket Counter — Not Done</h3>
       ${ticketCounterTable}
@@ -175,6 +211,7 @@ export async function GET(request) {
   }
 
   const digest = await buildDigest(supabaseAdmin);
+  digest.releaseBlock = await loadReleaseBlock(supabaseAdmin, todayUTC());   // Round 654
   const html = renderDigestHtml(digest, settings.digest_custom_note);
 
   // Round 632 — digest recipients (or admin/dev when empty) plus the whole OPS team
