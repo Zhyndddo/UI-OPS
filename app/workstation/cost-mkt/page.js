@@ -15,7 +15,7 @@ import ExportButton from "../../../lib/spreadsheetExport";
 import CostMktImportPopup from "../../../lib/CostMktImport";
 import PicTagInput from "../../../lib/PicTagInput";
 import { fetchNonDidProducts } from "../../../lib/nonDidProducts";
-import { filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/workstationHelpers";
+import { filterProfilesByTeam, autoAssignBatch } from "../../../lib/workstationHelpers";
 import { logPicReassign } from "../../../lib/auditLog";
 import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
@@ -420,27 +420,17 @@ export default function WorkstationCostMkt() {
       }
     });
     if (picDef.length > 0 && picAutoAssignedIds.length > 0) {
-      await supabase.from("workstation_assignments").delete().eq("workstation", "cost_mkt").eq("auto_assigned", true).in("release_id", picAutoAssignedIds);
+      for (let i = 0; i < picAutoAssignedIds.length; i += 100) await supabase.from("workstation_assignments").delete().eq("workstation", "cost_mkt").eq("auto_assigned", true).in("release_id", picAutoAssignedIds.slice(i, i + 100));
       picAutoAssignedIds.forEach((rid) => { delete picMap[rid]; });
     }
     setPicDefaults(picDef);
     setPicAssignments(picMap);
-    Promise.all(
-      (picDef.length === 0 ? releaseList : [])
-        .filter((r) => picMap[r.id] == null)
-        .map((r) =>
-          autoAssignUnassigned({
-            profiles: scopedProfs,
-            segment: "Marketing",
-            entity: "workstation_assignment",
-            entityId: `cost_mkt:${r.id}`,
-            write: async (profileId) => {
-              await supabase.from("workstation_assignments").insert({ workstation: "cost_mkt", column_key: "all", release_id: r.id, pic_profile_id: profileId, pic_profile_ids: [profileId], auto_assigned: true });
-              setPicAssignments((prev) => (prev[r.id] != null ? prev : { ...prev, [r.id]: [profileId] }));
-            },
-          })
-        )
-    );
+    if (picDef.length === 0) {
+      autoAssignBatch({
+        profiles: scopedProfs, segment: "Marketing", workstation: "cost_mkt", releases: releaseList.filter((r) => !r.isNonDid), assigned: picMap,
+        onAssigned: (ids, pid) => setPicAssignments((prev) => { const n = { ...prev }; ids.forEach((id) => { if (n[id] == null) n[id] = [pid]; }); return n; }),
+      });
+    }
 
     // Round 316 fix — this used to only fetch media_booking_packages
     // (the PLANNED/booked target, only present once a package is locked

@@ -10,7 +10,7 @@ import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { buildStreamNote } from "../../../lib/releaseNotes";
 import PicTagInput from "../../../lib/PicTagInput";
 import FloatingMenu from "../../../lib/FloatingMenu";
-import { filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/workstationHelpers";
+import { filterProfilesByTeam, autoAssignBatch } from "../../../lib/workstationHelpers";
 import { logPicReassign } from "../../../lib/auditLog";
 import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
@@ -127,27 +127,17 @@ export default function StreamWorkstation() {
       }
     });
     if (picDef.length > 0 && picAutoAssignedIds.length > 0) {
-      await supabase.from("workstation_assignments").delete().eq("workstation", "stream").eq("auto_assigned", true).in("release_id", picAutoAssignedIds);
+      for (let i = 0; i < picAutoAssignedIds.length; i += 100) await supabase.from("workstation_assignments").delete().eq("workstation", "stream").eq("auto_assigned", true).in("release_id", picAutoAssignedIds.slice(i, i + 100));
       picAutoAssignedIds.forEach((rid) => { delete picMap[rid]; });
     }
     setPicDefaults(picDef);
     setPicAssignments(picMap);
-    Promise.all(
-      (picDef.length === 0 ? releaseList : [])
-        .filter((r) => picMap[r.id] == null)
-        .map((r) =>
-          autoAssignUnassigned({
-            profiles: scopedProfs,
-            segment: "OPS",
-            entity: "workstation_assignment",
-            entityId: `stream:${r.id}`,
-            write: async (profileId) => {
-              await supabase.from("workstation_assignments").insert({ workstation: "stream", column_key: "all", release_id: r.id, pic_profile_id: profileId, pic_profile_ids: [profileId], auto_assigned: true });
-              setPicAssignments((prev) => (prev[r.id] != null ? prev : { ...prev, [r.id]: [profileId] }));
-            },
-          })
-        )
-    );
+    if (picDef.length === 0) {
+      autoAssignBatch({
+        profiles: scopedProfs, segment: "OPS", workstation: "stream", releases: releaseList, assigned: picMap,
+        onAssigned: (ids, pid) => setPicAssignments((prev) => { const n = { ...prev }; ids.forEach((id) => { if (n[id] == null) n[id] = [pid]; }); return n; }),
+      });
+    }
 
     setLoading(false);
   }

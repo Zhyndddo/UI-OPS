@@ -9,7 +9,7 @@ import { fmtDate, fetchAllRows } from "../../../lib/helpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import StatusCounter from "../../../lib/StatusCounter";
-import { sortByReleaseDateDesc, filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/workstationHelpers";
+import { sortByReleaseDateDesc, filterProfilesByTeam, autoAssignBatch } from "../../../lib/workstationHelpers";
 import { logPicReassign } from "../../../lib/auditLog";
 import { useSortableRows } from "../../../lib/useSortableRows";
 import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
@@ -122,7 +122,7 @@ export default function PreReleaseWorkstation() {
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
 
-    const { data: assigns } = await supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "pre_release");
+    const { data: assigns } = await fetchAllRows(() => supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "pre_release").order("id"));
     const map = {};
     let def = [];
     const autoAssignedIds = [];
@@ -146,7 +146,7 @@ export default function PreReleaseWorkstation() {
     // so it can never remove a manual pick, matching what the comment
     // above already claimed it did.
     if (def.length > 0 && autoAssignedIds.length > 0) {
-      await supabase.from("workstation_assignments").delete().eq("workstation", "pre_release").eq("auto_assigned", true).in("release_id", autoAssignedIds);
+      for (let i = 0; i < autoAssignedIds.length; i += 100) await supabase.from("workstation_assignments").delete().eq("workstation", "pre_release").eq("auto_assigned", true).in("release_id", autoAssignedIds.slice(i, i + 100));
       autoAssignedIds.forEach((rid) => { delete map[rid]; });
     }
 
@@ -164,22 +164,12 @@ export default function PreReleaseWorkstation() {
     // MANUAL per-release row still wins over both — only auto_assigned
     // rows get reclaimed by the cleanup above.
     const scopedProfs = filterProfilesByTeam(profs || [], "OPS");
-    Promise.all(
-      (def.length === 0 ? (rels || []) : [])
-        .filter((r) => map[r.id] == null)
-        .map((r) =>
-          autoAssignUnassigned({
-            profiles: scopedProfs,
-            segment: "OPS",
-            entity: "workstation_assignment",
-            entityId: `pre_release:${r.id}`,
-            write: async (profileId) => {
-              await supabase.from("workstation_assignments").insert({ workstation: "pre_release", column_key: "all", release_id: r.id, pic_profile_id: profileId, pic_profile_ids: [profileId], auto_assigned: true });
-              setAssignments((prev) => (prev[r.id] != null ? prev : { ...prev, [r.id]: [profileId] }));
-            },
-          })
-        )
-    );
+    if (def.length === 0) {
+      autoAssignBatch({
+        profiles: scopedProfs, segment: "OPS", workstation: "pre_release", releases: rels || [], assigned: map,
+        onAssigned: (ids, pid) => setAssignments((prev) => { const n = { ...prev }; ids.forEach((id) => { if (n[id] == null) n[id] = [pid]; }); return n; }),
+      });
+    }
 
     setLoading(false);
   }

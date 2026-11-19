@@ -5,14 +5,14 @@ import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { useAuth } from "../../../lib/AuthContext";
-import { fmtDate, uploadPercent } from "../../../lib/helpers";
+import { fmtDate, uploadPercent, fetchAllRows } from "../../../lib/helpers";
 import SonyPublishLockRow from "../../../lib/SonyPublishLockRow";
 import { useSonyPublishDids } from "../../../lib/useSonyPublishDids";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
 import LinkLbmSourceBadge from "../../../lib/LinkLbmSourceBadge";
 import StatusCounter from "../../../lib/StatusCounter";
-import { sortByReleaseDateDesc, isThisWeekOrNext, filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/workstationHelpers";
+import { sortByReleaseDateDesc, isThisWeekOrNext, filterProfilesByTeam, autoAssignBatch } from "../../../lib/workstationHelpers";
 import { logPicReassign } from "../../../lib/auditLog";
 import { rowHighlightColor, DATE_HIGHLIGHT_LEGEND } from "../../../lib/releaseDateHighlight";
 import ColorLegend from "../../../lib/ColorLegend";
@@ -122,7 +122,7 @@ export default function UploadWorkstation() {
       // see loadPageReleases() below.
       supabase.from("releases").select(SKINNY_COLUMNS).eq("requested", true),
       supabase.from("profiles").select("id, name, segment, role").order("name"),
-      supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "upload"),
+      fetchAllRows(() => supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "upload").order("id")),
       // Round 274 — same tab lookup app/workstation/pitching/page.js does,
       // run alongside the 3 queries above instead of after them.
       supabase.from("ticket_tabs").select("id").eq("key", "pitching").single(),
@@ -166,7 +166,7 @@ export default function UploadWorkstation() {
     // makes it structurally impossible for this cleanup to ever remove a
     // manual assignment, matching what the comment already claimed.
     if (def.length > 0 && autoAssignedIds.length > 0) {
-      await supabase.from("workstation_assignments").delete().eq("workstation", "upload").eq("auto_assigned", true).in("release_id", autoAssignedIds);
+      for (let i = 0; i < autoAssignedIds.length; i += 100) await supabase.from("workstation_assignments").delete().eq("workstation", "upload").eq("auto_assigned", true).in("release_id", autoAssignedIds.slice(i, i + 100));
       autoAssignedIds.forEach((rid) => { delete map[rid]; });
     }
 
@@ -192,25 +192,12 @@ export default function UploadWorkstation() {
     // always wins over both, since `map` is checked first either way —
     // only auto_assigned rows get reclaimed by the cleanup above.
     const scopedProfs = filterProfilesByTeam(profs || [], "OPS");
-    Promise.all(
-      (def.length === 0 ? (rels || []) : [])
-        .filter((r) => map[r.id] == null)
-        .map((r) =>
-          autoAssignUnassigned({
-            profiles: scopedProfs,
-            segment: "OPS",
-            entity: "workstation_assignment",
-            entityId: `upload:${r.id}`,
-            write: async (profileId) => {
-              // Round 457 — write the resolved single auto-assignee as a
-              // 1-element array (the array is the real multi-PIC list from
-              // here on; a human can add more PICs on top of this later).
-              await supabase.from("workstation_assignments").insert({ workstation: "upload", column_key: "all", release_id: r.id, pic_profile_id: profileId, pic_profile_ids: [profileId], auto_assigned: true });
-              setAssignments((prev) => (prev[r.id] != null ? prev : { ...prev, [r.id]: [profileId] }));
-            },
-          })
-        )
-    );
+    if (def.length === 0) {
+      autoAssignBatch({
+        profiles: scopedProfs, segment: "OPS", workstation: "upload", releases: rels || [], assigned: map,
+        onAssigned: (ids, pid) => setAssignments((prev) => { const n = { ...prev }; ids.forEach((id) => { if (n[id] == null) n[id] = [pid]; }); return n; }),
+      });
+    }
 
     // Round 274 — Priority Pitching dids, for UploadRow's Apple ID field.
     // t.data.releaseId is (despite the name) the release's `did`, same

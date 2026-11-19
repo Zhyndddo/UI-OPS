@@ -13,7 +13,7 @@ import UrlField from "../../../lib/UrlField";
 import LinkLbmSourceBadge from "../../../lib/LinkLbmSourceBadge";
 import PhaiSinhSmartlinkPopup from "../../../lib/PhaiSinhSmartlinkPopup";
 import StatusCounter from "../../../lib/StatusCounter";
-import { sortByReleaseDateDesc, filterProfilesByTeam, autoAssignUnassigned } from "../../../lib/workstationHelpers";
+import { sortByReleaseDateDesc, filterProfilesByTeam, autoAssignBatch } from "../../../lib/workstationHelpers";
 import { logPicReassign } from "../../../lib/auditLog";
 import { rowHighlightColor, DATE_HIGHLIGHT_LEGEND } from "../../../lib/releaseDateHighlight";
 import ColorLegend from "../../../lib/ColorLegend";
@@ -138,7 +138,7 @@ function ConfirmWorkstationInner() {
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
 
-    const { data: assigns } = await supabase.from("workstation_assignments").select("workstation, release_id, pic_profile_id, pic_profile_ids, auto_assigned").in("workstation", ["confirm_phase1", "confirm_phase2"]);
+    const { data: assigns } = await fetchAllRows(() => supabase.from("workstation_assignments").select("workstation, release_id, pic_profile_id, pic_profile_ids, auto_assigned").in("workstation", ["confirm_phase1", "confirm_phase2"]).order("id"));
     const defs = { confirm_phase1: [], confirm_phase2: [] }, rows = { confirm_phase1: {}, confirm_phase2: {} };
     const autoAssignedIds = { confirm_phase1: [], confirm_phase2: [] };
     (assigns || []).forEach((a) => {
@@ -162,7 +162,7 @@ function ConfirmWorkstationInner() {
     // above already claimed it did.
     for (const ph of ["confirm_phase1", "confirm_phase2"]) {
       if (defs[ph].length > 0 && autoAssignedIds[ph].length > 0) {
-        await supabase.from("workstation_assignments").delete().eq("workstation", ph).eq("auto_assigned", true).in("release_id", autoAssignedIds[ph]);
+        for (let i = 0; i < autoAssignedIds[ph].length; i += 100) await supabase.from("workstation_assignments").delete().eq("workstation", ph).eq("auto_assigned", true).in("release_id", autoAssignedIds[ph].slice(i, i + 100));
         autoAssignedIds[ph].forEach((rid) => { delete rows[ph][rid]; });
       }
     }
@@ -184,22 +184,11 @@ function ConfirmWorkstationInner() {
     // auto_assigned rows get reclaimed by the cleanup above.
     const scopedProfs = filterProfilesByTeam(profs || [], "OPS");
     ["confirm_phase1", "confirm_phase2"].forEach((ph) => {
-      Promise.all(
-        (defs[ph].length === 0 ? (rels || []) : [])
-          .filter((r) => rows[ph][r.id] == null)
-          .map((r) =>
-            autoAssignUnassigned({
-              profiles: scopedProfs,
-              segment: "OPS",
-              entity: "workstation_assignment",
-              entityId: `${ph}:${r.id}`,
-              write: async (profileId) => {
-                await supabase.from("workstation_assignments").insert({ workstation: ph, column_key: "all", release_id: r.id, pic_profile_id: profileId, pic_profile_ids: [profileId], auto_assigned: true });
-                setAssignments((prev) => (prev[ph]?.[r.id] != null ? prev : { ...prev, [ph]: { ...prev[ph], [r.id]: [profileId] } }));
-              },
-            })
-          )
-      );
+      if (defs[ph].length > 0) return;
+      autoAssignBatch({
+        profiles: scopedProfs, segment: "OPS", workstation: ph, releases: rels || [], assigned: rows[ph],
+        onAssigned: (ids, pid) => setAssignments((prev) => { const cur = { ...(prev[ph] || {}) }; ids.forEach((id) => { if (cur[id] == null) cur[id] = [pid]; }); return { ...prev, [ph]: cur }; }),
+      });
     });
 
     const { data: psLinks } = await supabase.from("phai_sinh_smartlinks").select("*").order("created_at", { ascending: false });
