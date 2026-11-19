@@ -3,10 +3,8 @@
 //   GET /api/cron/telegram-digest?slot=morning|noon|evening   with   Authorization: Bearer <CRON_SECRET>
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
-import { buildDigest } from "../../../../lib/digestData";
-import { sendTelegram, renderDigestTelegram, slotOf, telegramConfigured } from "../../../../lib/telegram";
-import { loadStuck, loadChatSignals, loadOwners, renderActions } from "../../../../lib/friday";
-import { loadIntakeGaps } from "../../../../lib/tgIntake";
+import { sendTelegram, slotOf, telegramConfigured } from "../../../../lib/telegram";
+import { buildSlotText, claimSlot, releaseSlot } from "../../../../lib/fridayDigest";
 import { sendPicAlerts } from "../../../../lib/tgAlerts";
 import { sendReminders } from "../../../../lib/tgRemind";
 import { dmCopies } from "../../../../lib/recapCopies";
@@ -19,14 +17,16 @@ export async function GET(request) {
   if (!secret || (request.headers.get("authorization") || "") !== `Bearer ${secret}`) return NextResponse.json({ error: "Not authorized." }, { status: 401 });   // fails closed
   if (!supabaseAdmin) return NextResponse.json({ error: "Server not configured." }, { status: 500 });
   if (!telegramConfigured()) return NextResponse.json({ skipped: "Telegram not configured." });
-  const slot = slotOf(new URL(request.url).searchParams.get("slot"));
+  const sp = new URL(request.url).searchParams;
+  const slot = slotOf(sp.get("slot"));
   if (!slot) return NextResponse.json({ error: "slot must be morning, noon or evening." }, { status: 400 });
+  // Round 658 — ?fallback=1 (13:50 / 18:20 jobs): only send if Claude's relay has not already posted this slot today.
+  const fallback = sp.get("fallback") === "1" && slot !== "morning";
+  if (fallback && !(await claimSlot(supabaseAdmin, slot, "cron-fallback"))) return NextResponse.json({ slot, skipped: "already posted via relay" });
   try {
-    const digest = await buildDigest(supabaseAdmin);
-    await loadOwners(supabaseAdmin, digest.missingDataRows);
-    let text = renderDigestTelegram(digest, slot);
-    try { text += "\n\n" + renderActions(digest, await loadStuck(supabaseAdmin), slot !== "morning", await loadChatSignals(supabaseAdmin, digest.missingDataRows).catch(() => ({})), await loadIntakeGaps(supabaseAdmin).catch(() => [])); } catch (e) { /* digest still goes out without the action block */ }
+    const { digest, text } = await buildSlotText(supabaseAdmin, slot);
     const res = await sendTelegram(text);
+    if (fallback && !res.ok) await releaseSlot(supabaseAdmin, slot);
     const copies = await dmCopies(supabaseAdmin, text);   // Round 632 — private copy for the people picked in Config
     let alerts = null;   // Round 624 — morning only: each linked person gets their own overdue / stuck items privately
     if (slot === "morning") alerts = await sendPicAlerts(supabaseAdmin, digest).catch((e) => ({ error: e.message }));
