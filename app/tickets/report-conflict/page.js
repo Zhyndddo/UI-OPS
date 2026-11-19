@@ -52,7 +52,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
-import { isExecutorSegment } from "../../../lib/teamTypes";
+import { isExecutorSegment, anyTeam } from "../../../lib/teamTypes";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
 import Pagination from "../../../lib/Pagination";
@@ -246,7 +246,7 @@ export default function ReportConflictPage() {
     setLoading(false);
   }
 
-  const isExecutorView = !profile?.segment || isExecutorSegment(profile.segment, EXECUTOR_TEAM);
+  const isExecutorView = !profile?.segment || anyTeam(profile, (s) => isExecutorSegment(s, EXECUTOR_TEAM));
 
   async function updateField(t, key, value) {
     const newData = { ...t.data, [key]: value };

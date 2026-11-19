@@ -6,7 +6,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
-import { isExecutorSegment } from "../../../lib/teamTypes";
+import { isExecutorSegment, anyTeam } from "../../../lib/teamTypes";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { usePagination } from "../../../lib/usePagination";
@@ -43,7 +43,7 @@ export default function SplitShareTicketList() {
   // Report Conflict row-click popup.
   const [openTicket, setOpenTicket] = useState(null);
 
-  const isExecutorView = !profile?.segment || isExecutorSegment(profile.segment, "Legal");
+  const isExecutorView = !profile?.segment || anyTeam(profile, (s) => isExecutorSegment(s, "Legal"));
 
   useEffect(() => {
     if (!supabase) return;

@@ -6,10 +6,7 @@ import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { fetchAllRows } from "../../lib/helpers";
 import { useAuth } from "../../lib/AuthContext";
-import {
-  TICKET_TYPE_LABELS, TICKET_ROUTES, WORKSTATION_TYPE_LABELS, WORKSTATION_ROUTES,
-  TEAM_TICKET_TYPES, TEAM_WORKSTATION_TYPES, resolveTeamKey, isOpsTeam,
-} from "../../lib/teamTypes";
+import { TICKET_TYPE_LABELS, TICKET_ROUTES, WORKSTATION_TYPE_LABELS, WORKSTATION_ROUTES, TEAM_TICKET_TYPES, TEAM_WORKSTATION_TYPES, resolveTeamKey, isOpsTeam, anyTeam } from "../../lib/teamTypes";
 import { TASK_PHASES, phaseForColumn } from "../../lib/taskPhases";
 import { effectiveSubteamTags } from "../../lib/releaseTags";
 import { MARKETING_SUBTEAM_TAGS } from "../../lib/projectTags";
@@ -789,7 +786,7 @@ function TeamSection({ segment, members, memberItems, title, requesterItems, arP
 // values exist on OPS profiles right now.
 function scopeSegmentsForRole(profile, allProfiles) {
   if (!profile?.segment) return [];
-  if (profile.role === "admin" && isOpsTeam(profile.segment)) {
+  if (profile.role === "admin" && anyTeam(profile, isOpsTeam)) {
     return [...new Set((allProfiles || []).filter((p) => p.segment === "OPS" && p.subteam).map((p) => p.subteam))].sort();
   }
   return [profile.segment];
@@ -1203,7 +1200,7 @@ export default function TaskTablePage() {
   // True when myTeamSegments holds subteam NAMES (an OPS admin's
   // per-subteam breakdown) rather than real segment values — the members
   // filter and columnsForTeam call below need to know which.
-  const isOpsAdminSplit = profile?.role === "admin" && isOpsTeam(profile?.segment);
+  const isOpsAdminSplit = profile?.role === "admin" && anyTeam(profile, isOpsTeam);
 
   // Default the drill-down tab to the member's own first task type with
   // outstanding work once data has loaded, instead of leaving it blank —

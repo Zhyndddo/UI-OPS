@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
-import { TEAM_WORKSTATION_TYPES, WORKSTATION_TYPE_LABELS, WORKSTATION_ROUTES, typesForTeam } from "../../lib/teamTypes";
+import { TEAM_WORKSTATION_TYPES, WORKSTATION_TYPE_LABELS, WORKSTATION_ROUTES, typesForTeam, profileTeams } from "../../lib/teamTypes";
 import { getNotDoneCount } from "../../lib/notDoneCounts";
 import styles from "../shared.module.css";
 
@@ -31,7 +31,7 @@ export default function WorkstationIndex() {
   const [counts, setCounts] = useState({});
 
   const isDev = profile?.role === "dev";
-  const types = profile ? typesForTeam(TEAM_WORKSTATION_TYPES, profile.segment, isDev) : [];
+  const types = profile ? typesForTeam(TEAM_WORKSTATION_TYPES, profileTeams(profile), isDev) : [];
 
   // Same rule as Tickets: first visit shows the picker, after that it
   // skips straight to whichever workstation was last looked at.

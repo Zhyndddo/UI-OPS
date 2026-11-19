@@ -30,6 +30,7 @@ import { runOne } from "../../../lib/packageSimulator";
 import { ARTIST_PROFILE_LINKS_SETTING_KEY, DEFAULT_LINKFIRE_URL } from "../../../lib/externalTools";
 import UrlField from "../../../lib/UrlField";
 import { canEditMediaBookingTicket } from "../../../lib/permissions";
+import { hasTeam } from "../../../lib/teamTypes";
 
 function fmtVnd(n) {
   if (n === null || n === undefined || n === "") return "—";
@@ -131,7 +132,7 @@ function MediaBookingListInner() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
-  const isExecutorView = !profile?.segment || profile.segment === "Marketing";
+  const isExecutorView = !profile?.segment || hasTeam(profile, "Marketing");
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
 
   // Round 442 — shareable "Package Offer" link, teammate-facing version.

@@ -27,6 +27,7 @@ import { logAudit, logTicketStatusChange, logPicReassign, logDeadlineChange } fr
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
+import { hasTeam } from "../../../lib/teamTypes";
 const OVERLOAD_EMAIL = "anh.duong@vieent.vn";
 const OVERLOAD_THRESHOLD = 11;
 
@@ -66,7 +67,7 @@ export default function DesignList() {
   const [processModal, setProcessModal] = useState(null); // { ticket } | null
 
   const isDev = profile?.role === "dev";
-  const isExecutorView = !profile?.segment || profile.segment === "Design";
+  const isExecutorView = !profile?.segment || hasTeam(profile, "Design");
 
   useEffect(() => {
     if (!supabase) return;

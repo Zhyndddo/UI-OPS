@@ -6,7 +6,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, fmtDateTime, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
-import { isOpsTeam } from "../../../lib/teamTypes";
+import { isOpsTeam, anyTeam } from "../../../lib/teamTypes";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import { MoTaPopup } from "../../../lib/GateFields";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
@@ -36,7 +36,7 @@ export default function CoTrongNetYoutubeTicketList() {
   const [statusFilter, setStatusFilter] = useState(null);
   const [moTaOpenFor, setMoTaOpenFor] = useState(null);
 
-  const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
+  const isExecutorView = !profile?.segment || anyTeam(profile, isOpsTeam);
 
   useEffect(() => {
     if (!supabase) return;

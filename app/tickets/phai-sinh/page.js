@@ -6,7 +6,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
-import { isOpsTeam } from "../../../lib/teamTypes";
+import { isOpsTeam, anyTeam } from "../../../lib/teamTypes";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import LinkOrEditCell from "../../../lib/LinkOrEditCell";
@@ -87,7 +87,7 @@ export default function PhaiSinhList() {
 
   const canEditDeadline = canEditLockedDeadline(profile); // round 57 — teamlead+
 
-  const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
+  const isExecutorView = !profile?.segment || anyTeam(profile, isOpsTeam);
   const hasActiveSearch = debouncedQuery.length > 0;
 
   useEffect(() => {

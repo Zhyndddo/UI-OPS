@@ -10,7 +10,7 @@ import { useIsMobile } from "../../../lib/useIsMobile";
 import { useAuth } from "../../../lib/AuthContext";
 import { isDev, isTeamLeadOrAbove } from "../../../lib/permissions";
 import ReferenceCombo from "../../../lib/ReferenceCombo";
-import { isOpsTeam } from "../../../lib/teamTypes";
+import { isOpsTeam, anyTeam, hasTeam } from "../../../lib/teamTypes";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import DailyPicPanel from "../../../lib/DailyPicPanel";
 import { MILESTONE_HIGHLIGHT_SETTING_KEY, DEFAULT_MILESTONE_HIGHLIGHT_CONFIG, parseMilestoneHighlightConfig } from "../../../lib/milestoneHighlight";
@@ -185,10 +185,10 @@ const LOG_SECTION_DAYS = 30;
 
 export default function MilestoneWorkstation() {
   const { profile } = useAuth();
-  const hasFullAccess = isDev(profile) || isOpsTeam(profile?.segment);
+  const hasFullAccess = isDev(profile) || anyTeam(profile, isOpsTeam);
   // Round 437 — Marketing gets Viral Posts + Log; everyone else who isn't
   // full-access (AR) stays Log-only, unchanged.
-  const isMarketing = profile?.segment === "Marketing";
+  const isMarketing = hasTeam(profile, "Marketing");
   const tabsForRole = hasFullAccess ? FULL_ACCESS_TABS : isMarketing ? MARKETING_TABS : LOG_ONLY_TABS;
   const [tab, setTab] = useState("input");
   // Once the profile's loaded, a viewer can never land on/stay on a tab

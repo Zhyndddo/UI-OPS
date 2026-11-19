@@ -5,7 +5,7 @@ import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { useAuth } from "../../../lib/AuthContext";
-import { isOpsTeam } from "../../../lib/teamTypes";
+import { isOpsTeam, hasTeam } from "../../../lib/teamTypes";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import { GateToggle } from "../../../lib/GateFields";
@@ -48,7 +48,7 @@ export default function BoSungDataList() {
   const [statusFilter, setStatusFilter] = useState("PENDING");
   const [query, setQuery] = useState("");
 
-  const isExecutorView = !profile?.segment || profile.segment === "AR";
+  const isExecutorView = !profile?.segment || hasTeam(profile, "AR");
 
   useEffect(() => {
     if (!supabase) return;

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import AppShell from "../../lib/AppShell";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
-import { TEAM_TICKET_TYPES, TICKET_TYPE_LABELS, TICKET_ROUTES, SHARED_TICKET_TYPES, typesForTeam } from "../../lib/teamTypes";
+import { TEAM_TICKET_TYPES, TICKET_TYPE_LABELS, TICKET_ROUTES, SHARED_TICKET_TYPES, typesForTeam, profileTeams } from "../../lib/teamTypes";
 import { getNotDoneCount } from "../../lib/notDoneCounts";
 import styles from "../shared.module.css";
 
@@ -25,7 +25,7 @@ export default function TicketsIndex() {
   const [checkedRedirect, setCheckedRedirect] = useState(false);
 
   const isDev = profile?.role === "dev";
-  const types = profile ? [...new Set([...typesForTeam(TEAM_TICKET_TYPES, profile.segment, isDev), ...SHARED_TICKET_TYPES])] : [];
+  const types = profile ? [...new Set([...typesForTeam(TEAM_TICKET_TYPES, profileTeams(profile), isDev), ...SHARED_TICKET_TYPES])] : [];
 
   // First visit since login shows the picker; after that, landing on
   // /tickets skips straight to whichever type was last looked at — only

@@ -6,7 +6,7 @@ import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
 import { fmtDate, statusColor } from "../../../lib/helpers";
 import { useAuth } from "../../../lib/AuthContext";
-import { isOpsTeam } from "../../../lib/teamTypes";
+import { isOpsTeam, anyTeam } from "../../../lib/teamTypes";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
 import TypeSwitcher from "../../../lib/TypeSwitcher";
 import UrlField from "../../../lib/UrlField";
@@ -41,7 +41,7 @@ export default function PrioritySyncLyricTicketList() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState(null);
 
-  const isExecutorView = !profile?.segment || isOpsTeam(profile.segment);
+  const isExecutorView = !profile?.segment || anyTeam(profile, isOpsTeam);
 
   useEffect(() => {
     if (!supabase) return;

@@ -20,7 +20,7 @@ import { validateLabelNameEdit } from "../../../lib/labelHelpers";
 import { MV_TYPE_OPTIONS, LABEL_HOP_TAC_OPTIONS } from "../../../lib/pickerOptions";
 import { hopTacTagStatus, hopTacStatusColor, publishingHdDone } from "../../../lib/labelHopTacStatus";
 import PickSelect from "../../../lib/PickSelect";
-import { TICKET_TYPE_LABELS, TEAMS, REPORTING_TEAMS } from "../../../lib/teamTypes";
+import { TICKET_TYPE_LABELS, TEAMS, REPORTING_TEAMS, hasTeam } from "../../../lib/teamTypes";
 import { buildProductNote, buildLinkshareNote, LINKSHARE_TIKTOK_OPTIONS, LINKSHARE_FACEBOOK_OPTIONS, PRIORITY_MODE_WARNING } from "../../../lib/releaseNotes";
 import { useAuth } from "../../../lib/AuthContext";
 // Round 281 — audit log / requester attribution. Only logTicketCreate and
@@ -95,7 +95,7 @@ export default function ReleaseDetailPage() {
   // day-to-day tool, not a dev-only simulation shortcut. Package Runner
   // itself (the standalone page, see lib/permissions.js's
   // canRunPackageSimulator) is untouched — still dev/admin+Marketing only.
-  const canSimulate = isDev(profile) || profile?.segment === "AR";
+  const canSimulate = isDev(profile) || hasTeam(profile, "AR");
   // Round 121 — "reset to DEALING" undoes a resolved package decision
   // (e.g. one made via SEND INT SUPPORT PACKAGE, or a real artist pick),
   // admin+ only per explicit request — a step up from canSimulate, since
