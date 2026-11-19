@@ -46,6 +46,7 @@
 //   - REFUND's column list named "Reported Link" AND "Reported Link /
 //     Official Link" both — included both exactly as listed rather than
 //     assuming one was a copy/paste duplicate; trivial to drop either.
+import { duplicateTicket } from "../../../lib/duplicateTicket";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
@@ -86,6 +87,7 @@ const TAB_LABELS = {
   "Từ chối": "REFUND",
 };
 const REFUND_LIKE = ["Từ chối"];
+const RESULT_STATUSES = ["Đã gửi", "Đang xử lý", "Đã gỡ", "Bị từ chối", "Cần theo dõi"];
 const CONFLICT_TYPES = ["TikTok", "YouTube", "Facebook", "Spotify"];
 
 function effectiveOfficialLink(d) {
@@ -134,6 +136,7 @@ const COLS = {
     { key: "originalReleaseDate", label: "Release date" },
     { key: "tiktokProfile", label: "Hình profile Tiktok" },
     { key: "note", label: "Note" },
+    { key: "__mail", label: "Email / Kết quả", editable: false },
   ],
   "Đã submit chờ duyệt": [
     { key: "__received", label: "Ngày Nhận Request", editable: false },
@@ -151,6 +154,7 @@ const COLS = {
     { key: "tiktokProfile", label: "Hình profile Tiktok" },
     { key: "note", label: "Note" },
     { key: "__reason", label: "Lí Do", editable: false },
+    { key: "__mail", label: "Email / Kết quả", editable: false },
   ],
   "Hoàn thành": [
     { key: "__received", label: "Ngày Nhận Request", editable: false },
@@ -167,6 +171,7 @@ const COLS = {
     { key: "tiktokProfile", label: "Hình profile Tiktok" },
     { key: "note", label: "Note" },
     { key: "__completedAt", label: "Ngày hoàn thành", editable: false },
+    { key: "__mail", label: "Email / Kết quả", editable: false },
   ],
   "Từ chối": [
     { key: "__received", label: "Ngày Nhận Request", editable: false },
@@ -187,6 +192,7 @@ const COLS = {
     { key: "__reason", label: "Lí Do", editable: false },
     { key: "__processingTime", label: "Thời gian xử lý", editable: false },
     { key: "__requester", label: "Requester", editable: false },
+    { key: "__mail", label: "Email / Kết quả", editable: false },
   ],
 };
 
@@ -226,6 +232,32 @@ export default function ReportConflictPage() {
     // excluded" scoping the generic engine used (see filterProfilesByTeam).
     supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], EXECUTOR_TEAM)));
   }, []);
+
+  // Round 665 — Duplicate request: same fields, new ticket (default status, no PIC)
+  async function handleDuplicate(t) {
+    if (!window.confirm("Duplicate this request as a new ticket?")) return;
+    const { error } = await duplicateTicket(supabase, tab, t, profile);
+    if (error) { window.alert("Duplicate failed: " + error.message); return; }
+    await load();
+  }
+
+  // Round 665 — result of the platform's reply, tracked on the ticket (status + note + date stamped when the status is set)
+  async function handleResult(t, patchData) {
+    const newData = { ...t.data, ...patchData };
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, data: newData } : x)));
+    await supabase.from("tickets").update({ data: newData }).eq("id", t.id);
+  }
+
+  // Round 665 — ✉ send the report email (fixed recipient, server SMTP); the platform result is then tracked on the ticket (Email / Kết quả column)
+  async function handleSendMail(t) {
+    if (t.data?.__mailSentAt && !window.confirm("This ticket was already emailed. Send again?")) return;
+    if (!t.data?.__mailSentAt && !window.confirm("Send this report by email now?")) return;
+    const { data: sess } = await supabase.auth.getSession();
+    const res = await fetch("/api/report-conflict/send", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sess?.session?.access_token || ""}` }, body: JSON.stringify({ ticketId: t.id }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { window.alert("Send failed: " + (j.error || res.status)); return; }
+    setTickets((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...j.patch } : x)));
+  }
 
   async function load() {
     setLoading(true);
@@ -354,7 +386,7 @@ export default function ReportConflictPage() {
             <>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {pagedTickets.map((t, i) => (
-                <ReportConflictRow key={t.id} mobile ticket={t} index={(page - 1) * pageSize + i} cols={cols} profiles={profiles} isExecutorView={isExecutorView} onUpdateField={updateField} onUpdateStatus={updateStatus} onUpdatePic={updatePics} onOpenDetail={setOpenTicket} />
+                <ReportConflictRow key={t.id} mobile ticket={t} index={(page - 1) * pageSize + i} cols={cols} profiles={profiles} isExecutorView={isExecutorView} onUpdateField={updateField} onUpdateStatus={updateStatus} onUpdatePic={updatePics} onDuplicate={handleDuplicate} onSendMail={handleSendMail} onSetResult={handleResult} onOpenDetail={setOpenTicket} />
               ))}
             </div>
             <Pagination page={page} setPage={setPage} pageSize={pageSize} setPageSize={setPageSize} totalPages={totalPages} totalRows={totalRows} styles={styles} />
@@ -369,11 +401,12 @@ export default function ReportConflictPage() {
                   {cols.map((c) => <th key={c.key}>{c.label}</th>)}
                   <th>PIC</th>
                   <th>Status</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {pagedTickets.map((t, i) => (
-                  <ReportConflictRow key={t.id} ticket={t} index={(page - 1) * pageSize + i} cols={cols} profiles={profiles} isExecutorView={isExecutorView} onUpdateField={updateField} onUpdateStatus={updateStatus} onUpdatePic={updatePics} onOpenDetail={setOpenTicket} />
+                  <ReportConflictRow key={t.id} ticket={t} index={(page - 1) * pageSize + i} cols={cols} profiles={profiles} isExecutorView={isExecutorView} onUpdateField={updateField} onUpdateStatus={updateStatus} onUpdatePic={updatePics} onDuplicate={handleDuplicate} onSendMail={handleSendMail} onSetResult={handleResult} onOpenDetail={setOpenTicket} />
                 ))}
               </tbody>
             </table>
@@ -401,7 +434,7 @@ export default function ReportConflictPage() {
 
 const fieldLabelStyle = { fontSize: 10, fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 4 };
 
-function ReportConflictRow({ ticket, index, cols, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePic, onOpenDetail, mobile = false }) {
+function ReportConflictRow({ ticket, index, cols, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePic, onOpenDetail, onDuplicate, onSendMail, onSetResult, mobile = false }) {
   const status = ticket.status;
   const color = statusColor(status);
   const isRefundLike = REFUND_LIKE.includes(status);
@@ -409,6 +442,30 @@ function ReportConflictRow({ ticket, index, cols, profiles, isExecutorView, onUp
   const statusOptions = isExecutorView ? VISIBLE_STATUSES : [status, "Chưa bắt đầu"].filter((v, i, a) => v && a.indexOf(v) === i);
 
   function fieldBody(c) {
+    if (c.key === "__mail") {
+      const d = ticket.data || {};
+      return (
+        <div style={{ fontSize: 12, minWidth: 150 }}>
+          {d.__mailSentAt && <div>✉ Sent {fmtDate(d.__mailSentAt)}{d.__mailSentBy ? ` · ${d.__mailSentBy}` : ""}</div>}
+          {d.__mailSentAt && (isExecutorView && onSetResult ? (
+            <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 4 }}>
+              <select className={styles.select} style={{ padding: "3px 6px", fontSize: 12, width: "100%" }} value={d.resultStatus || ""} onChange={(e) => onSetResult(ticket, { resultStatus: e.target.value, resultDate: e.target.value ? new Date().toISOString() : null })}>
+                <option value="">— Result —</option>
+                {RESULT_STATUSES.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+              <NoteCell value={d.resultNote} onSave={(v) => onSetResult(ticket, { resultNote: v })} />
+              {d.resultDate && <div style={{ color: "var(--text-faint)" }}>{fmtDate(d.resultDate)}</div>}
+            </div>
+          ) : (
+            <>
+              {d.resultStatus && <div><b>{d.resultStatus}</b>{d.resultDate ? ` · ${fmtDate(d.resultDate)}` : ""}</div>}
+              {d.resultNote && <div style={{ whiteSpace: "pre-line", color: "var(--text-faint)" }}>{d.resultNote}</div>}
+            </>
+          ))}
+          {isExecutorView && onSendMail && <button type="button" onClick={() => onSendMail(ticket)} style={{ marginTop: 4, background: "none", border: "1px solid var(--border)", borderRadius: 6, padding: "3px 8px", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>{d.__mailSentAt ? "✉ Resend" : "✉ Send email"}</button>}
+        </div>
+      );
+    }
     if (c.editable === false) {
       const value = computedValue(c.key, ticket);
       return <div style={{ maxWidth: mobile ? "none" : 200, whiteSpace: "pre-line", fontSize: 12 }}>{value}</div>;
@@ -472,6 +529,8 @@ function ReportConflictRow({ ticket, index, cols, profiles, isExecutorView, onUp
   // plain row chrome (the "#N" index, empty <td> padding, a computed
   // read-only cell), never on an input/select/textarea/button/link/label
   // or anything inside one.
+  const dupBtn = onDuplicate ? <button type="button" title="Duplicate request" onClick={() => onDuplicate(ticket)} style={{ background: "none", border: "1px solid var(--border)", borderRadius: 6, padding: "3px 8px", fontSize: 12, cursor: "pointer", color: "var(--text-faint)", whiteSpace: "nowrap" }}>⧉ Duplicate</button> : null;
+
   function handleRowClick(e) {
     if (!onOpenDetail) return;
     if (e.target.closest("input, select, textarea, button, a, label")) return;
@@ -499,6 +558,7 @@ function ReportConflictRow({ ticket, index, cols, profiles, isExecutorView, onUp
             <div style={fieldLabelStyle}>PIC</div>
             {picBody}
           </div>
+          <div>{dupBtn}</div>
         </div>
       </div>
     );
@@ -510,6 +570,7 @@ function ReportConflictRow({ ticket, index, cols, profiles, isExecutorView, onUp
       {cols.map((c) => <td key={c.key}>{fieldBody(c)}</td>)}
       <td>{picBody}</td>
       <td>{statusBody}</td>
+      <td>{dupBtn}</td>
     </tr>
   );
 }

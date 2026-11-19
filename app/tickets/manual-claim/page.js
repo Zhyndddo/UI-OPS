@@ -20,6 +20,7 @@ import { parseManualClaimBatchPaste, MANUAL_CLAIM_BATCH_COLUMNS } from "../../..
 import styles from "../../shared.module.css";
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 282 — audit log / requester attribution
+import { duplicateTicket } from "../../../lib/duplicateTicket";
 import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 
 // Rebuilt bespoke to match v1's real Manual Claim table — simpler than
@@ -164,6 +165,14 @@ export default function ManualClaimList() {
     if (skipped > 0) window.alert(`${rows.length} ticket(s) created — ${skipped} row(s) skipped (missing Label/Tên Bài/Artist/URL).`);
   }
 
+  // Round 665 — Duplicate request: same fields, new ticket (default status, no PIC)
+  async function handleDuplicate(t) {
+    if (!window.confirm("Duplicate this request as a new ticket?")) return;
+    const { error } = await duplicateTicket(supabase, tab, t, profile);
+    if (error) { window.alert("Duplicate failed: " + error.message); return; }
+    await load();
+  }
+
   const visibleTickets = (isExecutorView
     ? tickets.filter((t) => t.status === statusFilter)
     : [...tickets].sort((a, b) => (REFUND_LIKE.includes(a.status) ? 0 : 1) - (REFUND_LIKE.includes(b.status) ? 0 : 1))
@@ -234,7 +243,7 @@ export default function ManualClaimList() {
               <thead>
                 <tr>
                   <th>Request Date</th><th>Label</th><th>Tên Bài</th><th>Artist</th><th>Claim Timestamp</th><th>URL</th><th>Note</th>
-                  <th>PIC</th><th>Status</th>
+                  <th>PIC</th><th>Status</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -249,6 +258,7 @@ export default function ManualClaimList() {
                     onUpdateStatus={updateStatus}
                     onUpdatePics={updatePics}
                     onAcknowledgeEdit={acknowledgeEdit}
+                    onDuplicate={handleDuplicate}
                   />
                 ))}
               </tbody>
@@ -263,7 +273,7 @@ export default function ManualClaimList() {
   );
 }
 
-function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePics, onAcknowledgeEdit }) {
+function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, onUpdateStatus, onUpdatePics, onAcknowledgeEdit, onDuplicate }) {
   const d = ticket.data || {};
   const color = statusColor(ticket.status);
   const isRefundLike = REFUND_LIKE.includes(ticket.status);
@@ -331,6 +341,9 @@ function ManualClaimRow({ ticket, tab, profiles, isExecutorView, onUpdateField, 
         ) : (
           <span className={styles.statusBadge} style={{ background: color.bg, color: color.fg }}>{ticket.status}</span>
         )}
+      </td>
+      <td>
+        <button type="button" title="Duplicate request" onClick={() => onDuplicate(ticket)} style={{ background: "none", border: "1px solid var(--border)", borderRadius: 6, padding: "3px 8px", fontSize: 12, cursor: "pointer", color: "var(--text-faint)", whiteSpace: "nowrap" }}>⧉ Duplicate</button>
       </td>
     </tr>
   );
