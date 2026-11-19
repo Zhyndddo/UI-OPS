@@ -8,7 +8,8 @@ import { buildDigest } from "../../../lib/digestData";
 import { sendTelegramTo, splitText, renderStatusTelegram, renderMissingTelegram } from "../../../lib/telegram";
 import { loadStuck, loadChatSignals, loadOwners, renderActions } from "../../../lib/friday";
 import { loadIntakeGaps } from "../../../lib/tgIntake";
-import { internalChatIds, isInternalChat, isExtraChat } from "../../../lib/tgChats";
+import { internalChatIds, isInternalChat, isExtraChat, isArChat } from "../../../lib/tgChats";
+import { arRecapHtml } from "../../../lib/tgArRecap";
 import { releaseList, releaseWhich, HELP_RELEASE } from "../../../lib/tgRelease";
 import { runLink } from "../../../lib/tgLinks";
 import { setAlerts } from "../../../lib/tgAlerts";
@@ -101,6 +102,7 @@ export async function POST(request) {
   const name = await getBotName(token);
   const isPrivate = m.chat.type === "private";
   const isExtra = isExtraChat(m.chat.id);   // Round 631b: another chat — answers /release /status /ask, messages logged apart from the basket
+  const isAr = isArChat(m.chat.id);   // Round 662: the AR group is read on its own (never in the basket)
   const isInternal = isInternalChat(m.chat.id);   // Round 624: any group in TELEGRAM_CHAT_IDS (+ the main one) is read into the same basket
 
   // Round 610 — remember the internal group's chat for the daily recap (text only, capped; commands to the bot are not stored)
@@ -136,6 +138,14 @@ export async function POST(request) {
       const hidden = (m.entities || m.caption_entities || []).filter((e) => e.type === "text_link" && e.url && !text.includes(e.url)).map((e) => e.url);
       const it = await captureIntake(supabaseAdmin, m, hidden.length ? text + "\n" + hidden.join("\n") : text);
       if (it && intakeCardsOn()) await reply(token, m, renderCard(it), true, cardButtons(it.id));
+    } catch (e) { /* never break the bot over parsing */ }
+  }
+
+  // Round 662 — AR group: new-song requests and updates are collected (no cards, nothing is posted); /recap there summarises them
+  if (isAr && supabaseAdmin && text.trim() && !isCommand) {
+    try {
+      const hidden = (m.entities || m.caption_entities || []).filter((e) => e.type === "text_link" && e.url && !text.includes(e.url)).map((e) => e.url);
+      await captureIntake(supabaseAdmin, m, hidden.length ? text + "\n" + hidden.join("\n") : text);
     } catch (e) { /* never break the bot over parsing */ }
   }
 
@@ -190,6 +200,10 @@ export async function POST(request) {
   if (isCommand && (isInternal || isExtra) && supabaseAdmin) {
     const cmd = cmdMatch[1].toLowerCase();
     if (cmd === "help") { await reply(token, m, helpHtml(isExtra), true); return NextResponse.json({ ok: true }); }   // Round 643c — /help in a group
+    if (isAr && cmd === "recap") {   // Round 662 — AR group: recap of THIS group only
+      try { await reply(token, m, await arRecapHtml(supabaseAdmin, /hôm qua|hom qua|yesterday|qua/i.test(text.slice(cmdMatch[0].length))), true); } catch (e) { console.error("[friday AR /recap]", e.message); await reply(token, m, "Mình gặp lỗi khi tóm tắt chat AR, bạn thử lại sau ít phút nhé.", false); }
+      return NextResponse.json({ ok: true });
+    }
     if (isExtra && !["release", "status", "ask", "link"].includes(cmd)) {   // Round 631b: only these three answer in an extra chat
       if (["missing", "recap", "mytasks", "team"].includes(cmd)) await reply(token, m, "Ở nhóm này mình chỉ trả lời /release, /status, /ask và /link thôi nhé.", false);
       return NextResponse.json({ ok: true });
