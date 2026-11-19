@@ -87,9 +87,10 @@ export async function POST(request) {
     const cb = update.callback_query, tg = (method, body) => fetch(`https://api.telegram.org/bot${token}/${method}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
     try {
       const data = String(cb.data || "");   // Round 625 # song tag buttons (tp:/tx:), Round 630 reminder buttons (rm:)
-      const res = !supabaseAdmin ? { answer: "Chưa cấu hình." } : data.startsWith("pg:") ? await handlePageCb(supabaseAdmin, token, cb) : /^(ak|fb):/.test(data) ? await handleAskCb(supabaseAdmin, cb, linkedProfile) : /^t[px]:/.test(data) ? await handleTagPick(supabaseAdmin, cb, linkedProfile) : data.startsWith("rm:") ? await handleReminder(supabaseAdmin, cb, linkedProfile) : data.startsWith("tk:") ? await handleTicketCb(supabaseAdmin, cb, linkedProfile) : /^w[tx]:/.test(data) ? await handleWatchCb(supabaseAdmin, cb, linkedProfile) : await handleDecision(supabaseAdmin, cb, linkedProfile);
+      const res = !supabaseAdmin ? { answer: "Chưa cấu hình." } : data.startsWith("pg:") ? await handlePageCb(supabaseAdmin, token, cb) : /^(ak|fb|ck):/.test(data) ? await handleAskCb(supabaseAdmin, cb, linkedProfile) : /^t[px]:/.test(data) ? await handleTagPick(supabaseAdmin, cb, linkedProfile) : data.startsWith("rm:") ? await handleReminder(supabaseAdmin, cb, linkedProfile) : data.startsWith("tk:") ? await handleTicketCb(supabaseAdmin, cb, linkedProfile) : /^w[tx]:/.test(data) ? await handleWatchCb(supabaseAdmin, cb, linkedProfile) : await handleDecision(supabaseAdmin, cb, linkedProfile);
       await tg("answerCallbackQuery", { callback_query_id: cb.id, text: res.answer });
       if (res.clearButtons && cb.message) await tg("editMessageReplyMarkup", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, reply_markup: { inline_keyboard: [] } });
+      if (res.markup && cb.message) await tg("editMessageReplyMarkup", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, reply_markup: res.markup });
       if (res.send && cb.message) await sendPaged(supabaseAdmin, token, { chat_id: cb.message.chat.id, thread_id: cb.message.is_topic_message && cb.message.message_thread_id ? cb.message.message_thread_id : null }, res.send, { html: true });
       if (res.dm) await sendPaged(supabaseAdmin, token, { chat_id: res.dm.chat }, res.dm.text, { html: true });
       if (res.edit && cb.message) await tg("editMessageText", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, text: res.edit, parse_mode: "HTML", disable_web_page_preview: true });
@@ -161,6 +162,16 @@ export async function POST(request) {
     return NextResponse.json({ ok: true });
   }
 
+  // Round 663 — /release also works in the private chat (linked accounts only, like /ask and /team)
+  if (isPrivate && isCommand && supabaseAdmin && m.from?.id && cmdMatch[1].toLowerCase() === "release") {
+    try {
+      const lk = await linkedProfile(m.from.id);
+      if (!lk) await sendTelegramTo(m.chat.id, esc(LINK_ASK));
+      else { const which = releaseWhich(text.slice(cmdMatch[0].length)); await reply(token, m, which ? await releaseList(supabaseAdmin, which) : HELP_RELEASE, true); }
+    } catch (e) { console.error("[friday private /release]", e.message); await sendTelegramTo(m.chat.id, "Mình gặp lỗi khi lấy danh sách, bạn thử lại sau ít phút nhé."); }
+    return NextResponse.json({ ok: true });
+  }
+
   // Round 660 — private chat: "xong" (reply to a pushed ticket) closes the ticket; /remind /watch /cover /quiet
   if (isPrivate && supabaseAdmin && m.from?.id && !isCommand && DONE_RE.test(text)) {
     try {
@@ -184,7 +195,7 @@ export async function POST(request) {
     const cmd = cmdMatch[1].toLowerCase(), arg = text.slice(cmdMatch[0].length).trim();
     let out = null;
     try {
-      if (cmd === "start" || cmd === "help") out = "Xin chào! Để nhận việc của bạn ở đây:\n1) /link email-đăng-nhập-app\n2) Mở email lấy mã 6 số, rồi gõ /code 123456\nSau đó gõ /mytasks bất cứ lúc nào. Gõ /ask <câu hỏi> hoặc /team để hỏi nhanh. Ai tag bạn trong nhóm, mình nhắn riêng cho bạn (/tagalert off để tắt). Gõ /alert để mỗi sáng mình nhắn riêng việc của bạn (/alert off để tắt). Ticket mới giao cho bạn mình nhắn riêng, trả lời \"xong\" vào tin đó để đóng ticket. /remind mai 10h việc cần nhớ · /watch tên bài · /cover tên đến 20/12 · /quiet 22-7. /unlink để huỷ liên kết.";
+      if (cmd === "start" || cmd === "help") out = "Xin chào! Để nhận việc của bạn ở đây:\n1) /link email-đăng-nhập-app\n2) Mở email lấy mã 6 số, rồi gõ /code 123456\nSau đó gõ /mytasks bất cứ lúc nào. Gõ /release tuần này (hoặc /release sắp tới), /ask <câu hỏi> hoặc /team để hỏi nhanh. Ai tag bạn trong nhóm, mình nhắn riêng cho bạn (/tagalert off để tắt). Gõ /alert để mỗi sáng mình nhắn riêng việc của bạn (/alert off để tắt). Ticket mới giao cho bạn mình nhắn riêng, trả lời \"xong\" vào tin đó để đóng ticket. /remind mai 10h việc cần nhớ · /watch tên bài · /cover tên đến 20/12 · /quiet 22-7. /unlink để huỷ liên kết.";
       else if (cmd === "link") out = await startLink(m.from.id, m.chat.id, arg);
       else if (cmd === "code") out = await confirmLink(m.from.id, arg);
       else if (cmd === "unlink") out = await unlink(m.from.id);
@@ -209,7 +220,7 @@ export async function POST(request) {
       return NextResponse.json({ ok: true });
     }
     if (["status", "missing", "recap", "mytasks", "ask", "team", "release", "link"].includes(cmd)) {   // instant 👍 so people know the command arrived (the answer can take a few seconds)
-      try { await fetch(`https://api.telegram.org/bot${token}/setMessageReaction`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: m.chat.id, message_id: m.message_id, reaction: [{ type: "emoji", emoji: "👍" }] }) }); } catch (e) { /* ignore */ }
+      try { await fetch(`https://api.telegram.org/bot${token}/setMessageReaction`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: m.chat.id, message_id: m.message_id, reaction: [{ type: "emoji", emoji: "❤" }] }) }); } catch (e) { /* ignore */ }
     }
     if (PLANNER.includes(cmd) && !isExtra) {   // Round 660 — same commands typed in the group; the answer is short and stays in the group
       try {
@@ -285,7 +296,7 @@ export async function POST(request) {
 
   const mentioned = !!name && text.toLowerCase().includes("@" + name);
   const replyToBot = !!name && String(m.reply_to_message?.from?.username || "").toLowerCase() === name;
-  if (!(isPrivate || mentioned || replyToBot)) return NextResponse.json({ ok: true });
+  if (!(isPrivate || mentioned || replyToBot)) return NextResponse.json({ ok: true });   // (replyToBot still lets "tóm tắt việc của tôi" through below)
 
   // Round 650 — "tóm tắt việc của tôi" / "ai tag mình" in plain words (private chat, or @Friday / reply in the internal group) = /mytasks
   if (supabaseAdmin && m.from?.id && (isPrivate || isInternal) && wantsMyTasks(text)) {
@@ -302,6 +313,7 @@ export async function POST(request) {
     return NextResponse.json({ ok: true });
   }
 
+  if (!isPrivate && !mentioned) return NextResponse.json({ ok: true });   // Round 663: people REPLYING to one of her messages (e.g. asking a colleague about her answer) get no joke reply — only a private chat or an explicit @Friday does
   const now = Date.now();
   if (now - (last.get(m.chat.id) || 0) < COOLDOWN_MS) return NextResponse.json({ ok: true });
   last.set(m.chat.id, now);
