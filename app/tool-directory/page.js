@@ -567,6 +567,7 @@ function NewReleasePreviewPanel() {
     const { data } = await supabase
       .from("releases")
       .select("id, did, title, main_artist, feature_artist, smartlink")
+      .is("cancelled_at", null)   // Round 669
       .or(`title.ilike.%${q}%,main_artist.ilike.%${q}%,did.ilike.%${q}%`)
       .limit(8);
     setResults(data || []);

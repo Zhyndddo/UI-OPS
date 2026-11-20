@@ -51,10 +51,10 @@ async function loadReleaseBlock(db, today) {
   const monday = new Date(t.getTime() - dow * 86400000), sunday = new Date(monday.getTime() + 6 * 86400000);
   const week = { from: isoDay(monday), to: isoDay(sunday) };
   try {
-    const { data } = await db.from("releases").select("id, title, main_artist, label, release_date, release_time, " + META_LABELS.map((m) => m[0]).join(", ")).eq("release_date", today).order("release_time", { nullsFirst: false });
+    const { data } = await db.from("releases").select("id, title, main_artist, label, release_date, release_time, " + META_LABELS.map((m) => m[0]).join(", ")).eq("release_date", today).is("cancelled_at", null).order("release_time", { nullsFirst: false });
     const rows = (data || []).map((r) => ({ ...r, artist: r.main_artist }));
     await loadOwners(db, rows);
-    const { count } = await db.from("releases").select("id", { count: "exact", head: true }).gte("release_date", week.from).lte("release_date", week.to).neq("release_date", "2026-12-31");
+    const { count } = await db.from("releases").select("id", { count: "exact", head: true }).gte("release_date", week.from).lte("release_date", week.to).neq("release_date", "2026-12-31").is("cancelled_at", null);
     return { today: rows, week, weekCount: count ?? null };
   } catch (e) { return { today: [], week, weekCount: null }; }
 }

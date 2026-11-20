@@ -253,7 +253,7 @@ function ReportPageInner() {
   async function load() {
     setLoading(true);
     const [{ data: rels }, { data: rollupRows }, { data: tabs }] = await Promise.all([
-      fetchAllRows(() => supabase.from("releases").select(REPORT_RELEASE_FIELDS).order("id")),
+      fetchAllRows(() => supabase.from("releases").select(REPORT_RELEASE_FIELDS).is("cancelled_at", null).order("id")),
       supabase.from("media_booking_package_categories").select("release_id, category_id, brand, skipped, package_categories(name)"),
       supabase.from("ticket_tabs").select("id, key").order("sort_order"),
     ]);
@@ -746,6 +746,7 @@ function PerformanceTab({ profile }) {
     supabase
       .from("releases")
       .select("id, title, main_artist")
+      .is("cancelled_at", null)   // Round 669
       .order("created_at", { ascending: false })
       .limit(500)
       .then(({ data }) => setSongOptions(data || []));

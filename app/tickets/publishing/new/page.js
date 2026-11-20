@@ -29,7 +29,7 @@ export default function NewPublishingTicket() {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.from("releases").select("id, did, title, main_artist").order("title").then(({ data }) => setReleases(data || []));
+    supabase.from("releases").select("id, did, title, main_artist").is("cancelled_at", null).order("title").then(({ data }) => setReleases(data || []));
   }, []);
 
   // Same one-ticket-per-release guard as Phụ Lục's own /new form — filter

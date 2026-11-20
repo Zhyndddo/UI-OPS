@@ -51,7 +51,7 @@ export default function ConvergedPackagesPage() {
         )
         .order("sort_order"),
       supabase.from("package_categories").select("id, name"),
-      supabase.from("releases").select("id, did, title").order("did"),
+      supabase.from("releases").select("id, did, title").is("cancelled_at", null).order("did"),
     ]);
 
     const categoryNameById = Object.fromEntries((categories || []).map((c) => [c.id, c.name]));

@@ -107,7 +107,7 @@ export default function LabelsPage() {
     try { window.localStorage.setItem(LABEL_SYNC_THROTTLE_KEY, String(Date.now())); } catch {}
 
     const { data: rels } = await fetchAllRows(() =>
-      supabase.from("releases").select("label, release_date").not("release_date", "is", null).order("id")
+      supabase.from("releases").select("label, release_date").is("cancelled_at", null).not("release_date", "is", null).order("id")
     );
     if (!rels) return;
     const latestByLabel = {};

@@ -308,8 +308,9 @@ export default function CalendarPage() {
   function releasesForWeek(week) {
     return releases.filter((r) => {
       if (!r.release_date) return false;
-      const d = new Date(r.release_date);
-      return d >= week.start && d <= week.end;
+      // Round 670 — compare plain "YYYY-MM-DD" strings: new Date("2026-11-22") is UTC midnight, which is BEFORE the local-midnight week end in GMT+7, so Sunday was dropped
+      const day = String(r.release_date).slice(0, 10);
+      return day >= localDateStr(week.start) && day <= localDateStr(week.end);
     }).filter((r) => matchesQuery(r, query));
   }
 

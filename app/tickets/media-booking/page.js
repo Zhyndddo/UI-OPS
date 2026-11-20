@@ -3051,6 +3051,7 @@ function ClonePickerPopup({ excludeReleaseId, onPick, onClose }) {
         .select("id, did, title, main_artist, label, package_locked, project_type")
         .in("id", releaseIdsWithPackage)
         .eq("package_locked", true)
+        .is("cancelled_at", null)   // Round 669
         .order("created_at", { ascending: false });
       setCandidates((rels || []).filter((r) => r.id !== excludeReleaseId));
       setLoading(false);

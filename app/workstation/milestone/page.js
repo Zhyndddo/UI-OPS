@@ -1403,6 +1403,7 @@ function ImplementPanel({ styles, onSaved }) {
     supabase
       .from("releases")
       .select("id, did, title, main_artist")
+      .is("cancelled_at", null)   // Round 669
       .order("created_at", { ascending: false })
       .limit(200)
       .then(({ data }) => { if (!cancelled) setReleaseOptions(data || []); });
@@ -1966,6 +1967,7 @@ function ViralPostsPanel({ styles, profiles }) {
         supabase
           .from("releases")
           .select("id, did, title, main_artist, upc, link_media_report, project_type")
+          .is("cancelled_at", null)   // Round 669
           .not("upc", "is", null)
           .neq("upc", "")
           .order("release_date", { ascending: false })
@@ -2000,6 +2002,7 @@ function ViralPostsPanel({ styles, profiles }) {
     supabase
       .from("releases")
       .select("id, did, title, main_artist")
+      .is("cancelled_at", null)   // Round 669
       .order("created_at", { ascending: false })
       .limit(200)
       .then(({ data }) => setReleaseOptions(data || []));

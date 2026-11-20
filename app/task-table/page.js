@@ -128,7 +128,7 @@ let recentReleasesPromise = null;
 function loadRecentReleases() {
   if (!recentReleasesPromise) {
     recentReleasesPromise = fetchAllRows(() =>
-      supabase.from("releases").select(RECENT_RELEASE_FIELDS).or(`release_date.is.null,release_date.gte.${TASK_TABLE_CUTOFF}`).order("id")
+      supabase.from("releases").select(RECENT_RELEASE_FIELDS).is("cancelled_at", null).or(`release_date.is.null,release_date.gte.${TASK_TABLE_CUTOFF}`).order("id")
     ).then((res) => res.data || []);
   }
   return recentReleasesPromise;

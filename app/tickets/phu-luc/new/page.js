@@ -33,7 +33,7 @@ export default function NewPhuLucTicket() {
     // phu_luc_gia_tri added (to prefill Giá Trị Phụ Lục if AR already
     // filled it in on the release detail page before this backfill ticket
     // gets created).
-    supabase.from("releases").select("id, did, title, main_artist, label, phu_luc_gia_tri").order("title").then(({ data }) => setReleases(data || []));
+    supabase.from("releases").select("id, did, title, main_artist, label, phu_luc_gia_tri").is("cancelled_at", null).order("title").then(({ data }) => setReleases(data || []));
   }, []);
 
   // This ticket is normally auto-created from the pick-package magic link
