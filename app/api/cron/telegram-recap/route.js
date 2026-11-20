@@ -11,6 +11,7 @@ import { dmCopies, emailRecipients } from "../../../../lib/recapCopies";
 import { addOwners } from "../../../../lib/tgOwners";
 import { loadTags, renderTagBlock, renderTagHtml } from "../../../../lib/tgTags";
 import { loadIntakes, renderIntakeBlock, renderIntakeHtml } from "../../../../lib/tgIntake";
+import { claimSlot, slotPostedBy } from "../../../../lib/fridayDigest";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram, renderRecapHtml } from "../../../../lib/tgRecap";
 
 export const maxDuration = 60;
@@ -24,6 +25,12 @@ export async function GET(request) {
   const slot = new URL(request.url).searchParams.get("slot");
   if (!chatId || !["group", "email"].includes(slot)) return NextResponse.json({ error: "slot must be group or email (and TELEGRAM_INTERNAL_CHAT_ID set)." }, { status: 400 });
   try {
+    // Round 668 — the 18:00 group recap first goes through Claude (/api/friday-recap-relay). This job is now the FALLBACK (?fallback=1, 18:25):
+    // it posts the plain recap only when the relay has not posted today.
+    if (slot === "group" && new URL(request.url).searchParams.get("fallback") === "1") {
+      if (await slotPostedBy(supabaseAdmin, "recap")) return NextResponse.json({ slot, skipped: "Already posted by the relay." });
+      if (!(await claimSlot(supabaseAdmin, "recap", "cron-fallback"))) return NextResponse.json({ slot, skipped: "Already posted." });
+    }
     const now = new Date();
     const from = slot === "group" ? vnDayStart(0, now) : vnDayStart(1, now);
     const to = slot === "group" ? now : vnDayStart(0, now);
