@@ -24,8 +24,8 @@ export async function POST(request) {
   const to = (process.env.REPORT_CONFLICT_TO || "an.khanh@vieent.vn,suong.tuyet@vieent.com").split(/[,;\s]+/).filter(Boolean);
   // Round 667 — keep replying INSIDE the existing mail loop: reply headers + the same subject make Gmail file it in that thread.
   //   REPORT_CONFLICT_THREAD_SUBJECT = the loop's subject exactly as shown in Gmail; REPORT_CONFLICT_THREAD_MSGID = its Message-ID (Gmail → ⋮ → Show original).
-  const tSubject = (process.env.REPORT_CONFLICT_THREAD_SUBJECT || "").trim();
-  const tMsgId = (process.env.REPORT_CONFLICT_THREAD_MSGID || "").trim().replace(/^<|>$/g, "");
+  const tSubject = (process.env.REPORT_CONFLICT_THREAD_SUBJECT || "[VIEENT] BÁO CÁO & XỬ LÝ LINK NHẠC VI PHẠM BẢN QUYỀN").trim();
+  const tMsgId = (process.env.REPORT_CONFLICT_THREAD_MSGID || "CAB7g_TnLOOdQudOr+Jp4rbZFwq8=PaFy2vrUy05npMzpy73ZDQ@mail.gmail.com").trim().replace(/^<|>$/g, "");
   const GREETING = ["Hi chị Sam,", "Em gửi chị các link lậu cần report nha chị."];
   const rows = [
     ["Nền tảng", d.conflictType], ["Bài hát / Nghệ sĩ", [d.assetTitle, d.artist].filter(Boolean).join(" / ")],
