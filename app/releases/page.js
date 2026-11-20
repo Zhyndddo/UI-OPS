@@ -165,7 +165,7 @@ function writeDashboardState(state) {
 //    below fetches just the `project_type` column (capped, deduped
 //    client-side) once on load instead — see its own comment.
 const RELEASE_COLUMNS = [
-  "id", "did", "title", "main_artist", "label", "media_report_status", "project_type",
+  "id", "did", "title", "main_artist", "label", "media_report_status", "project_type", "cancelled_at", "cancel_reason", "ar_pic_profile_id",
   "pseudo_package_parent_did", "release_category", "release_date", "release_time",
   "requester_segment", "status", "created_at",
   // metadataPercent()
@@ -271,8 +271,9 @@ function calendarBounds() {
   startOfToday.setHours(0, 0, 0, 0);
   const startOfTomorrow = new Date(startOfToday);
   startOfTomorrow.setDate(startOfToday.getDate() + 1);
+  // Round 669 — the week runs Monday → Sunday (getDay(): 0 = Sunday, so Sunday counts as day 7)
   const startOfWeek = new Date(now);
-  startOfWeek.setDate(now.getDate() - now.getDay());
+  startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
   startOfWeek.setHours(0, 0, 0, 0);
   const startOfNextWeek = new Date(startOfWeek);
   startOfNextWeek.setDate(startOfWeek.getDate() + 7);
@@ -295,7 +296,7 @@ function dateStr(d) {
 }
 
 async function countReleases(build) {
-  let q = supabase.from("releases").select("id", { count: "exact", head: true });
+  let q = supabase.from("releases").select("id", { count: "exact", head: true }).is("cancelled_at", null);   // Round 669 — cancelled products are not counted
   q = build(q);
   const { count, error } = await q;
   if (error) throw error;
@@ -394,6 +395,10 @@ function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery
   // "tags is the going-forward source of truth" tradeoff the rest of
   // this system already accepts.
   if (filters.tagFilter) q = q.contains("tags", [filters.tagFilter]);
+  // Round 669 — PIC (AR PIC), team tag (INDIE / VPOP / ENVI / VIEENT / CAPCUT, also for releases not yet folded into `tags`), cancelled products
+  if (filters.picFilter) q = filters.picFilter === "__none" ? q.is("ar_pic_profile_id", null) : q.eq("ar_pic_profile_id", filters.picFilter);
+  if (filters.teamTagFilter) { const tt = String(filters.teamTagFilter).replace(/[^A-Za-z0-9_]/g, ""); q = q.or(`tags.cs.{${tt}},subteam_tags->>${tt}.eq.true`); }
+  q = filters.cancelledOnly ? q.not("cancelled_at", "is", null) : q.is("cancelled_at", null);
   if (filters.dateRangeStart) q = q.gte("release_date", filters.dateRangeStart);
   if (filters.dateRangeEnd) q = q.lte("release_date", filters.dateRangeEnd);
   q = applyAdvFilters(q, filters.adv);   // Round 590 — advanced filter panel
@@ -418,8 +423,8 @@ function buildListQuery({ page, pageSize, sort, filters, searchMode, searchQuery
 // component) still needs a plain object shape to read/write — unchanged
 // from before other than dropping the fields that no longer exist
 // (nothing removed here, sort/page/filters are all still real state).
-function currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, adv, page, pageSize, sort }) {
-  return { search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, adv, page, pageSize, sort };
+function currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, picFilter, teamTagFilter, cancelledOnly, dateRangeStart, dateRangeEnd, adv, page, pageSize, sort }) {
+  return { search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, picFilter, teamTagFilter, cancelledOnly, dateRangeStart, dateRangeEnd, adv, page, pageSize, sort };
 }
 
 export default function ReleasesDashboard() {
@@ -445,6 +450,10 @@ export default function ReleasesDashboard() {
   const [labelFilter, setLabelFilter] = useState("");
   const [adv, setAdv] = useState({});        // Round 590 — advanced filter panel values { fieldKey: value }
   const [advOpen, setAdvOpen] = useState(false);
+  const [picFilter, setPicFilter] = useState(""); // Round 669 — AR PIC profile id | "__none"
+  const [teamTagFilter, setTeamTagFilter] = useState(""); // Round 669 — INDIE / VPOP / ENVI / VIEENT / CAPCUT
+  const [cancelledOnly, setCancelledOnly] = useState(false); // Round 669 — show only cancelled products (default: hidden)
+  const [picOptions, setPicOptions] = useState([]);
   const [tagFilter, setTagFilter] = useState(""); // a tag code/value, e.g. "PUB_VCPMC" or a freeform tag string
   const [tagOptions, setTagOptions] = useState([]); // [{value, label}] — autocomplete source, see loadTagOptions()
   const [search, setSearch] = useState(""); // regex tested server-side against main_artist, title, label
@@ -494,6 +503,10 @@ export default function ReleasesDashboard() {
       setArPicProfiles(filterProfilesByTeam(data || [], "AR"));
     });
   }, [showArPicColumn]);
+  useEffect(() => {   // Round 669 — the PIC filter works for everybody who can open the dashboard
+    if (!supabase) return;
+    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setPicOptions(filterProfilesByTeam(data || [], "AR")));
+  }, []);
 
   async function updateArPic(release, profileId) {
     logPicReassign({ actor: profile?.id, entity: "release", entityId: release.id, before: release.ar_pic_profile_id ?? null, after: profileId || null });
@@ -566,8 +579,8 @@ export default function ReleasesDashboard() {
   }, [search]);
 
   const filters = useMemo(
-    () => ({ statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, adv }),
-    [statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, adv]
+    () => ({ statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, picFilter, teamTagFilter, cancelledOnly, dateRangeStart, dateRangeEnd, adv }),
+    [statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, picFilter, teamTagFilter, cancelledOnly, dateRangeStart, dateRangeEnd, adv]
   );
 
   // Fires the actual list query, with the invalid-regex fallback baked in.
@@ -729,6 +742,9 @@ export default function ReleasesDashboard() {
       if (saved.typeFilter) setTypeFilter(saved.typeFilter);
       if (saved.labelFilter) setLabelFilter(saved.labelFilter);
       if (saved.tagFilter) setTagFilter(saved.tagFilter);
+      if (saved.picFilter) setPicFilter(saved.picFilter);
+      if (saved.teamTagFilter) setTeamTagFilter(saved.teamTagFilter);
+      if (saved.cancelledOnly) setCancelledOnly(true);
       if (saved.dateRangeStart) setDateRangeStart(saved.dateRangeStart);
       if (saved.dateRangeEnd) setDateRangeEnd(saved.dateRangeEnd);
       if (saved.adv && typeof saved.adv === "object") { setAdv(saved.adv); if (Object.keys(saved.adv).length) setAdvOpen(true); }
@@ -760,6 +776,9 @@ export default function ReleasesDashboard() {
         typeFilter: restored?.typeFilter || "",
         labelFilter: restored?.labelFilter || "",
         tagFilter: restored?.tagFilter || "",
+        picFilter: restored?.picFilter || "",
+        teamTagFilter: restored?.teamTagFilter || "",
+        cancelledOnly: !!restored?.cancelledOnly,
         dateRangeStart: restored?.dateRangeStart || "",
         dateRangeEnd: restored?.dateRangeEnd || "",
         adv: restored?.adv && typeof restored.adv === "object" ? restored.adv : {},
@@ -811,7 +830,7 @@ export default function ReleasesDashboard() {
   // empty dep array) always sees the CURRENT values instead of whatever
   // they were at mount.
   const latestDashboardStateRef = useRef(null);
-  latestDashboardStateRef.current = currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, dateRangeStart, dateRangeEnd, adv, page, pageSize, sort });
+  latestDashboardStateRef.current = currentDashboardState({ search, statusFilter, createdFilter, channelFilter, typeFilter, labelFilter, tagFilter, picFilter, teamTagFilter, cancelledOnly, dateRangeStart, dateRangeEnd, adv, page, pageSize, sort });
   useEffect(() => {
     return () => {
       writeDashboardState({ ...latestDashboardStateRef.current, scrollY: window.scrollY });
@@ -832,7 +851,7 @@ export default function ReleasesDashboard() {
     else if (key === "tag") setTagFilter(value);
     else setAdv((cur) => { const n = { ...cur }; if (value === "" || value == null) delete n[key]; else n[key] = value; return n; });
   }
-  function clearAdv() { setAdv({}); setTypeFilter(""); setChannelFilter(null); setStatusFilter(null); setCreatedFilter(null); setTagFilter(""); }
+  function clearAdv() { setAdv({}); setTypeFilter(""); setChannelFilter(null); setStatusFilter(null); setCreatedFilter(null); setTagFilter(""); setPicFilter(""); setTeamTagFilter(""); setCancelledOnly(false); }
   const advCount = FILTER_FIELDS.filter((x) => advValues[x.key] !== undefined && advValues[x.key] !== null && advValues[x.key] !== "").length;
   const advCoreOptions = {
     project_type: typeOptions.map((x) => [x, x]),
@@ -1051,6 +1070,7 @@ export default function ReleasesDashboard() {
             onMouseLeave={() => setHoverRelease(null)}
           >
             <Link href={`/releases/${r.id}`} className={styles.rowLink}>{r.title}</Link>
+            {r.cancelled_at && <span className={styles.pill} style={{ marginLeft: 6, fontSize: 9, background: "rgba(255,80,80,0.18)", color: "#ff6b6b" }} title={r.cancel_reason || "Cancelled"}>CANCELLED</span>}
             {r.pseudo_package_parent_did && albumNameByDid.get(r.pseudo_package_parent_did) && (
               <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>
                 {albumNameByDid.get(r.pseudo_package_parent_did)}
@@ -1224,8 +1244,22 @@ export default function ReleasesDashboard() {
             <option value="">Label — all</option>
             {labels.map((l) => <option key={l.label_name} value={l.label_name}>{l.label_name}</option>)}
           </select>
+          {/* Round 669 — quick filters: AR PIC, team tag, any other tag, cancelled products */}
+          <select className={styles.select} style={{ maxWidth: 170 }} value={picFilter} onChange={(e) => setPicFilter(e.target.value)} title="AR PIC">
+            <option value="">PIC — all</option>
+            <option value="__none">(no PIC)</option>
+            {picOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <select className={styles.select} style={{ maxWidth: 150 }} value={teamTagFilter} onChange={(e) => setTeamTagFilter(e.target.value)} title="Team tag">
+            <option value="">Team tag — all</option>
+            {MARKETING_SUBTEAM_TAGS.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          {showReleaseTagsColumn && <TagFilterAutocomplete options={tagOptions} value={tagFilter} onChange={setTagFilter} />}
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-faint)", cursor: "pointer" }}>
+            <input type="checkbox" checked={cancelledOnly} onChange={(e) => setCancelledOnly(e.target.checked)} /> Cancelled only
+          </label>
           <AdvFilterButton styles={styles} open={advOpen} onToggle={() => setAdvOpen((x) => !x)} count={advCount} />
-          {(typeFilter || labelFilter || tagFilter || search || dateRangeStart || dateRangeEnd || anyStatClickFilter || advCount > 0) && (
+          {(typeFilter || labelFilter || tagFilter || picFilter || teamTagFilter || cancelledOnly || search || dateRangeStart || dateRangeEnd || anyStatClickFilter || advCount > 0) && (
             <button
               onClick={() => { clearAdv(); setLabelFilter(""); setSearch(""); setDateRangeStart(""); setDateRangeEnd(""); }}
               style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: 6, padding: "6px 12px", fontSize: 11, color: "var(--text-faint)", cursor: "pointer" }}

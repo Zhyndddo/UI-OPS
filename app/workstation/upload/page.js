@@ -120,7 +120,7 @@ export default function UploadWorkstation() {
       // above) instead of the full ~19-column row for every matching
       // release. The full row set is now fetched per-page, separately —
       // see loadPageReleases() below.
-      supabase.from("releases").select(SKINNY_COLUMNS).eq("requested", true),
+      supabase.from("releases").select(SKINNY_COLUMNS).eq("requested", true).is("cancelled_at", null),
       supabase.from("profiles").select("id, name, segment, role").order("name"),
       fetchAllRows(() => supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "upload").order("id")),
       // Round 274 — same tab lookup app/workstation/pitching/page.js does,

@@ -1807,6 +1807,27 @@ export default function ReleaseDetailPage() {
   // unconditionally, regardless of the ticket's current status, since this
   // is an admin override rather than a "wait for Marketing to finish
   // first" resend.
+  // Round 669 — cancel a product (the artist pulled out): hidden from the dashboard counters/lists, calendar, workstations, Friday. Reversible.
+  async function cancelProduct() {
+    if (!canEditReleaseArPic(profile) || release?.cancelled_at) return;
+    const reason = window.prompt(`Cancel "${form.title || form.did}"? The artist pulled out, so it stops counting everywhere (dashboard, calendar, workstations, Friday). You can restore it later.\n\nReason (optional):`);
+    if (reason === null) return;
+    const patch = { cancelled_at: new Date().toISOString(), cancel_reason: reason.trim() || null, cancelled_by: profile?.id || null };
+    const { error: cErr } = await supabase.from("releases").update(patch).eq("id", id);
+    if (cErr) { window.alert("Cancel failed: " + cErr.message + (/column|schema/i.test(cErr.message) ? " (run sql/pending/add-round669-cancel-product.sql)" : "")); return; }
+    setRelease((r) => ({ ...r, ...patch }));
+    supabase.from("audit_log").insert({ actor: profile?.id, action: "cancel", entity: "release", entity_id: id, field: "cancelled_at", before_val: null, after_val: patch.cancel_reason || "cancelled" }).then(() => {}, () => {});
+  }
+  async function restoreProduct() {
+    if (!canEditReleaseArPic(profile) || !release?.cancelled_at) return;
+    if (!window.confirm(`Restore "${form.title || form.did}"? It counts again everywhere.`)) return;
+    const patch = { cancelled_at: null, cancel_reason: null, cancelled_by: null };
+    const { error: cErr } = await supabase.from("releases").update(patch).eq("id", id);
+    if (cErr) { window.alert("Restore failed: " + cErr.message); return; }
+    setRelease((r) => ({ ...r, ...patch }));
+    supabase.from("audit_log").insert({ actor: profile?.id, action: "restore", entity: "release", entity_id: id, field: "cancelled_at", before_val: "cancelled", after_val: null }).then(() => {}, () => {});
+  }
+
   async function resetToDealing() {
     if (!canResetToDealing) return;
     if (PIPELINE_STAGES.includes(form.project_type)) return; // nothing resolved yet — nothing to undo
@@ -1913,11 +1934,20 @@ export default function ReleaseDetailPage() {
             ← Back to New Release
           </Link>
 
+          {release?.cancelled_at && (
+            <div style={{ background: "rgba(255,80,80,0.14)", border: "1px solid rgba(255,80,80,0.45)", color: "#ff8a8a", borderRadius: 8, padding: "8px 12px", fontSize: 12, marginBottom: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <b>CANCELLED</b> — not counted anywhere{release.cancel_reason ? ` · ${release.cancel_reason}` : ""}
+              {canEditReleaseArPic(profile) && <button type="button" onClick={restoreProduct} style={{ marginLeft: "auto", background: "none", border: "1px solid currentColor", color: "inherit", borderRadius: 6, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>Restore product</button>}
+            </div>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20, alignItems: "start", marginBottom: 20 }}>
             <div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
                 <div className={styles.eyebrow} style={{ marginBottom: 0 }}>{form.did || "—"}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {canEditReleaseArPic(profile) && !release?.cancelled_at && (
+                  <button type="button" onClick={cancelProduct} title="The artist pulled out — stop counting this product" style={{ background: "none", border: "1px solid rgba(255,80,80,0.5)", color: "#ff6b6b", borderRadius: 6, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>✕ Cancel product</button>
+                )}
                 {/* Round 300/302 — the Releases dashboard's own PIC, AR
                     team (releases.ar_pic_profile_id — see updateArPic
                     above; NOT the New Release Setup/Upload workstation's

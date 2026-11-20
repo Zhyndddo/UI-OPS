@@ -100,7 +100,7 @@ export default function StreamWorkstation() {
     // pulling in bulk.
     const [{ data: rels }, { data: supp }, { data: profs }, { data: assigns }] = await Promise.all([
       fetchAllRows(() =>
-        supabase.from("releases").select("id, did, title, main_artist, release_date, upc, isrc, smartlink, label").order("id")
+        supabase.from("releases").select("id, did, title, main_artist, release_date, upc, isrc, smartlink, label").is("cancelled_at", null).order("id")
       ),
       supabase.from("release_stream_metrics").select("*").is("release_id", null).order("manual_release_date", { ascending: false }),
       // Round 458 — PIC tracking, see state comment above.

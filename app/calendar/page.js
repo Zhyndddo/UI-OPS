@@ -252,6 +252,7 @@ export default function CalendarPage() {
         // between midnight and 7am this range silently shifted back a
         // day, fetching the wrong week's releases. localDateStr keeps it
         // in local calendar terms, matching release_date's own format.
+        .is("cancelled_at", null)   // Round 669 — cancelled products are not shown
         .gte("release_date", localDateStr(rangeStart))
         .lt("release_date", localDateStr(rangeEnd))
         .order("release_date");

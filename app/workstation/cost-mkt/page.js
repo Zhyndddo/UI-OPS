@@ -371,7 +371,7 @@ export default function WorkstationCostMkt() {
     setLoading(true);
     const [{ data: rels }, { data: cats }, { data: tabRow }, { data: costEntryRows }, { data: installmentRows }, { data: profs }, { data: assigns }] = await Promise.all([
       fetchAllRows(() =>
-        supabase.from("releases").select("id, did, title, main_artist, release_date, project_type, ads_perform_url, label, gate_co_trong_net_youtube").order("release_date", { ascending: false })
+        supabase.from("releases").select("id, did, title, main_artist, release_date, project_type, ads_perform_url, label, gate_co_trong_net_youtube").is("cancelled_at", null).order("release_date", { ascending: false })
       ),
       supabase.from("package_categories").select("id, name"),
       supabase.from("ticket_tabs").select("id").eq("key", BOOKING_NOT_IN_PACKAGE_TAB_KEY).maybeSingle(),

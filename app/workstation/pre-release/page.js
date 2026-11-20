@@ -115,6 +115,7 @@ export default function PreReleaseWorkstation() {
         // field, just another edit surface, same pattern as Musixmatch Link
         // already being editable from both this page and the detail page).
         .select("id, did, title, main_artist, release_date, release_time, link_lbm, canva_mv_status, canva_status, musixmatch_link, musixmatch_status, nct_lyric, zing_lyric, pre_release_note")
+        .is("cancelled_at", null)   // Round 669 — cancelled products are not listed
         .order("id")
     );
     setReleases(rels || []);

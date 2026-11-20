@@ -132,7 +132,7 @@ function ConfirmWorkstationInner() {
     // Round 60 — fetchAllRows instead of a plain select(): whole-table
     // read, no filter, subject to Supabase's default 1000-row cap (see
     // DATA_FIXES.md round 59/60).
-    const { data: rels } = await fetchAllRows(() => supabase.from("releases").select(SELECT_FIELDS).order("id"));
+    const { data: rels } = await fetchAllRows(() => supabase.from("releases").select(SELECT_FIELDS).is("cancelled_at", null).order("id"));
     setReleases(rels || []);
 
     const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
