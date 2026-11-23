@@ -1477,6 +1477,14 @@ export default function ReleaseDetailPage() {
   // clicked, same immediate-write pattern TracklistSection's updateTrack
   // already uses for the EP/Album per-track case — no more waiting on the
   // page-level Save button for this one field.
+  // Round 677 — "Fully held" tick under the rights declaration (Copyrights tab): writes straight away like the checklist above.
+  async function saveFullyHeld(value) {
+    const { error: e } = await supabase.from("releases").update({ rights_fully_held: !!value }).eq("id", id);
+    if (e) { window.alert("Could not save 'Fully held': " + e.message + " (has add-round677-rights-fully-held.sql been run?)"); return; }
+    setForm((f) => ({ ...f, rights_fully_held: !!value }));
+    setRelease((r) => ({ ...r, rights_fully_held: !!value }));
+  }
+
   async function saveCopyrightChecklist(next) {
     await supabase.from("releases").update({ copyright_checklist: next }).eq("id", id);
     setForm((f) => ({ ...f, copyright_checklist: next }));
@@ -2143,6 +2151,7 @@ export default function ReleaseDetailPage() {
             saving={saving}
             onCopyrightChange={() => setCopyrightGateVersion((v) => v + 1)}
             saveCopyrightChecklist={saveCopyrightChecklist}
+            saveFullyHeld={saveFullyHeld}
           />
         )}
         {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} did={form.did} releaseId={id} />}
@@ -3514,11 +3523,15 @@ function TracklistSection({ releaseId, showCopyright = false, onCopyrightChange 
 // track getting its own independent copyright combo underneath it, since
 // an EP/Album's individual songs can genuinely have different
 // owners/contracts from each other and from the release as a whole.
-function CopyrightsTab({ form, update, onSave, saving, onCopyrightChange, saveCopyrightChecklist }) {
+function CopyrightsTab({ form, update, onSave, saving, onCopyrightChange, saveCopyrightChecklist, saveFullyHeld }) {
   const isSingle = form.single_album_ep === "Single";
   return (
     <div>
       <RightsDeclarationBlock styles={styles} releaseId={form.id} declaration={form.rights_declaration} />
+      <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, margin: "-8px 0 20px", cursor: "pointer" }}>
+        <input type="checkbox" checked={!!form.rights_fully_held} onChange={(e) => saveFullyHeld(e.target.checked)} />
+        Fully held <span style={{ fontWeight: 400, color: "var(--text-faint)", fontSize: 12 }}>— {form.rights_fully_held ? "true: we hold all the rights" : "false"}</span>
+      </label>
       {/* Round 92 — AR's own general note for the product, per explicit
           request ("count as the AR team note for the product note") —
           not itself part of the copyright data, just living on this tab

@@ -61,13 +61,15 @@ export async function GET(request) {
   const [{ count }, { data: orn }, { data: wishes }, { data: myWishes }] = await Promise.all([
     supabaseAdmin.from("profiles").select("id", { count: "exact", head: true }),
     ids.length ? supabaseAdmin.from("noel_people").select("profile_id, ornament").in("profile_id", ids) : { data: [] },
-    ids.length ? supabaseAdmin.from("noel_wishes").select("profile_id").in("profile_id", ids).limit(5000) : { data: [] },
+    ids.length ? supabaseAdmin.from("noel_wishes").select("profile_id, created_at").in("profile_id", ids).limit(5000) : { data: [] },
     supabaseAdmin.from("noel_wishes").select("id, body, photo_path, show_name").eq("profile_id", caller.id).order("created_at", { ascending: false }).limit(MAX_WISHES),
   ]);
   const o = new Map((orn || []).map((r) => [r.profile_id, r.ornament])); const w = new Set((wishes || []).map((r) => r.profile_id));
+  const vnDate = (t) => new Date(t).toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
+  const t = new Set((wishes || []).filter((r) => vnDate(r.created_at) === day).map((r) => r.profile_id));
   return NextResponse.json({
     total: count || 0, lit: ids.length, today: todayN,
-    people: ids.map((id) => ({ o: o.get(id) || "bulb", w: w.has(id) })),
+    people: ids.map((id) => ({ o: o.get(id) || "bulb", w: w.has(id), t: t.has(id) })),
     me: { ornament: o.get(caller.id) || "bulb", wishes: (myWishes || []).map((r) => ({ id: r.id, body: r.body, hasPhoto: !!r.photo_path, showName: !!r.show_name })), max: MAX_WISHES, canTest: isAdminOrAbove(caller) },
   }, { headers: noStore });
 }
