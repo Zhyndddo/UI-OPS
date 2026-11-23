@@ -141,6 +141,14 @@ function TeamPill({ label, percent, details }) {
     setHoverEl(true);
   }
 
+  // Round 671 — 0 = orange, 1-99 = yellow, 100 = grey
+  const pct = Number(percent) || 0;
+  const tone = pct >= 100
+    ? { bg: "rgba(148,163,184,0.18)", fg: "#94a3b8" }
+    : pct > 0
+      ? { bg: "rgba(250,204,21,0.18)", fg: "#facc15" }
+      : { bg: "rgba(249,115,22,0.20)", fg: "#fb923c" };
+
   return (
     <span
       onMouseEnter={handleEnter}
@@ -152,8 +160,8 @@ function TeamPill({ label, percent, details }) {
         fontWeight: 700,
         padding: "2px 6px",
         borderRadius: 4,
-        background: "var(--bg-hover)",
-        color: "var(--text-faint)",
+        background: tone.bg,
+        color: tone.fg,
         position: "relative",
       }}
     >

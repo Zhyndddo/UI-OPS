@@ -190,7 +190,7 @@ export default function SplitShareTicketList() {
                         {rel && <button type="button" title="Copy split-share block" onClick={async (ev) => { const b = ev.currentTarget; if (await copyText(splitShareBlock(rel))) { b.textContent = "✓"; setTimeout(() => { b.textContent = "📋"; }, 1200); } }} style={{ marginLeft: 8, background: "none", border: "1px solid var(--border)", borderRadius: 6, cursor: "pointer", fontSize: 12, padding: "1px 6px" }}>📋</button>}
                       </td>
                       <td>
-                        {isExecutorView ? (
+                        {isExecutorView && t.status === tab?.status_options?.[0] ? (
                           <PicTagInput styles={styles} value={picIdsOfTicket(t)} onChange={(ids) => updatePics(t, ids)} profiles={profiles} />
                         ) : (
                           <span style={{ fontSize: 12 }}>{picNamesOf(t, profiles)}</span>
