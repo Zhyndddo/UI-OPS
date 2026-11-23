@@ -64,9 +64,10 @@
 .giftB:hover { transform: translateX(calc(var(--gx) * -1)) scale(calc(0.95 * var(--k))) !important; }
 [data-mode="off"] .giftB, [data-mode="folding"] .giftB { transform: translateX(calc(var(--gx) * -1 + 8px)) scale(calc(1 * var(--k))) !important; }
 @keyframes noelGiftB { 0% { transform: translateX(calc(var(--gx) * -1)) scale(calc(1.3 * var(--k))) rotate(-8deg); } 100% { transform: translateX(calc(var(--gx) * -1)) scale(calc(0.75 * var(--k))); } }
-.house { position: absolute; left: 14px; bottom: 2px; width: 70px; height: 65px; pointer-events: none; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.35)); }
-.hat { position: fixed; left: 22px; top: 6px; width: 32px; height: 26px; z-index: 253; pointer-events: none; transform: rotate(-14deg); filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4)); }
-.wreath { position: fixed; left: 266px; top: calc(var(--topbar-height) + 20px); width: 46px; height: 60px; z-index: 252; pointer-events: none; filter: drop-shadow(0 3px 4px rgba(0,0,0,0.4)); display: none; }
+.houseBox { position: absolute; left: 14px; bottom: 2px; width: 70px; height: 65px; cursor: pointer; }
+.house { width: 100%; height: 100%; display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.35)); }
+.hat { pointer-events: auto !important; cursor: pointer; position: absolute; left: -5px; top: -15px; width: 30px; height: 24px; z-index: 5; pointer-events: none; transform: rotate(-16deg); filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4)); }
+.wreath { position: fixed; left: 266px; top: calc(var(--topbar-height) + 20px); width: 46px; height: 60px; z-index: 252; pointer-events: auto; cursor: pointer; transform-origin: 50% 0; filter: drop-shadow(0 3px 4px rgba(0,0,0,0.4)); display: none; }
 @media (min-width: 1500px) { .wreath { display: block; } }
 [data-mode="off"] .gift:hover { transform: translateX(0) scale(calc(1.4 * var(--k))); }
 [data-mode="off"] .lid { animation: noelLidHint 2.4s ease-in-out infinite; }
@@ -102,3 +103,21 @@
   .snow { display: none; }
   .star, .lamp, .hot, .lid { animation: none !important; }
 }
+
+/* Round 675 — click animations, ornaments, tools, sleigh */
+.shake { animation: noelShake 0.9s ease-in-out; transform-origin: 50% 0; }
+@keyframes noelShake { 0%, 100% { transform: rotate(0); } 15% { transform: rotate(14deg); } 35% { transform: rotate(-12deg); } 55% { transform: rotate(8deg); } 75% { transform: rotate(-5deg); } }
+.hat.shake { transform-origin: 50% 100%; }
+.smoke { position: absolute; left: 44px; top: 4px; width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.8); animation: noelSmoke 2.2s ease-out infinite; pointer-events: none; }
+.smoke2 { animation-delay: 0.9s; left: 40px; }
+@keyframes noelSmoke { 0% { transform: translate(0, 0) scale(0.5); opacity: 0.9; } 100% { transform: translate(12px, -46px) scale(2.2); opacity: 0; } }
+.hohoBubble { position: absolute; left: 6px; bottom: 100%; margin-bottom: 4px; white-space: nowrap; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #fff; background: #b3202f; border: 1.5px solid #ffd166; animation: noelHintIn 0.4s ease-out; pointer-events: none; }
+.orn { cursor: default; pointer-events: auto; }
+.click { pointer-events: auto; cursor: pointer; }
+.click:hover { filter: brightness(1.5) drop-shadow(0 0 3px #fff); }
+.tools { position: absolute; left: 0; bottom: 6px; display: flex; flex-direction: column; gap: 6px; pointer-events: auto; }
+.tools button { width: 28px; height: 28px; border-radius: 50%; font-size: 14px; cursor: pointer; border: 1px solid var(--border-strong); background: var(--bg-card); opacity: 0.9; }
+.tools button:hover { opacity: 1; transform: scale(1.1); }
+.sleigh { position: fixed; top: calc(var(--topbar-height) + 6px); left: 0; width: 64px; height: 28px; z-index: 252; pointer-events: none; animation: noelSleigh 16s linear forwards; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4)); }
+@keyframes noelSleigh { 0% { transform: translate(-80px, 30px) rotate(6deg); } 50% { transform: translate(50vw, 0) rotate(-2deg); } 100% { transform: translate(calc(100vw + 20px), 24px) rotate(5deg); } }
+@media (prefers-reduced-motion: reduce) { .sleigh, .smoke, .shake { display: none; animation: none; } }
