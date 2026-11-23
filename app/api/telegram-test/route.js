@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request) {
   if (!supabaseAdmin) return NextResponse.json({ error: "Server not configured." }, { status: 500 });
   const caller = await getCallerProfile(request);
-  if (!caller || !(caller.role === "dev" || caller.role === "admin")) return NextResponse.json({ error: "Not authorized." }, { status: 403 });
+  if (!caller || !(caller.role === "dev" || caller.role === "admin" || caller.role === "superadmin")) return NextResponse.json({ error: "Not authorized." }, { status: 403 });
   if (!telegramConfigured()) return NextResponse.json({ error: "Chưa có TELEGRAM_BOT_TOKEN / TELEGRAM_INTERNAL_CHAT_ID trên Vercel (Settings → Environment Variables), rồi redeploy." }, { status: 400 });
   let body = {};
   try { body = await request.json(); } catch (e) { body = {}; }

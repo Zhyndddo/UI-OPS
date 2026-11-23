@@ -20,7 +20,7 @@ const noStore = { "Cache-Control": "no-store" };
 async function caller(request) {
   const p = await getCallerProfile(request);
   if (!p) return null;
-  return p.role === "dev" || p.role === "admin" || p.segment === "AR" ? p : null;
+  return p.role === "dev" || p.role === "admin" || p.role === "superadmin" || p.segment === "AR" ? p : null;
 }
 
 export async function GET(request) {

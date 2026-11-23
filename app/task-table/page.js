@@ -786,7 +786,7 @@ function TeamSection({ segment, members, memberItems, title, requesterItems, arP
 // values exist on OPS profiles right now.
 function scopeSegmentsForRole(profile, allProfiles) {
   if (!profile?.segment) return [];
-  if (profile.role === "admin" && anyTeam(profile, isOpsTeam)) {
+  if ((profile.role === "admin" || profile.role === "superadmin") && anyTeam(profile, isOpsTeam)) {
     return [...new Set((allProfiles || []).filter((p) => p.segment === "OPS" && p.subteam).map((p) => p.subteam))].sort();
   }
   return [profile.segment];
@@ -1200,7 +1200,7 @@ export default function TaskTablePage() {
   // True when myTeamSegments holds subteam NAMES (an OPS admin's
   // per-subteam breakdown) rather than real segment values — the members
   // filter and columnsForTeam call below need to know which.
-  const isOpsAdminSplit = profile?.role === "admin" && anyTeam(profile, isOpsTeam);
+  const isOpsAdminSplit = (profile?.role === "admin" || profile?.role === "superadmin") && anyTeam(profile, isOpsTeam);
 
   // Default the drill-down tab to the member's own first task type with
   // outstanding work once data has loaded, instead of leaving it blank —

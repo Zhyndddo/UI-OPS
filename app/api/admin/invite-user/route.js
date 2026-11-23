@@ -17,7 +17,7 @@ export async function POST(request) {
   }
 
   const caller = await getCallerProfile(request);
-  if (!caller || !["teamlead", "admin", "dev"].includes(caller.role)) {
+  if (!caller || !["teamlead", "admin", "superadmin", "dev"].includes(caller.role)) {
     return NextResponse.json({ error: "Not authorized." }, { status: 403 });
   }
 

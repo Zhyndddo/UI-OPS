@@ -18,7 +18,7 @@ export async function POST(request) {
   }
 
   const caller = await getCallerProfile(request);
-  if (!caller || (caller.role !== "admin" && caller.role !== "dev")) {
+  if (!caller || (caller.role !== "admin" && caller.role !== "superadmin" && caller.role !== "dev")) {
     return NextResponse.json({ error: "Not authorized." }, { status: 403 });
   }
 

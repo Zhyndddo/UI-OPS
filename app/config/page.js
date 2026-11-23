@@ -578,7 +578,29 @@ function TeamSection({ profile }) {
                       {TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                   )}
-                  {profile?.role === "dev" && p.role !== "dev" && (
+                  {profile?.role === "dev" && p.role === "superadmin" && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)" }} title="Extra teams (dev only) — a Super admin counts as an admin of each of them">
+                      <div style={{ marginBottom: 2 }}>+ extra teams:</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 10px" }}>
+                        {TEAMS.filter((t) => t !== p.segment).map((t) => {
+                          const on = (p.segments_extra || []).includes(t) || p.segment2 === t;
+                          return (
+                            <label key={t} style={{ display: "inline-flex", gap: 3, alignItems: "center", cursor: "pointer" }}>
+                              <input type="checkbox" checked={on} onChange={async (e) => {
+                                const base = [...new Set([...(p.segment2 ? [p.segment2] : []), ...(p.segments_extra || [])])];
+                                const next = e.target.checked ? [...new Set([...base, t])] : base.filter((x) => x !== t);
+                                const { data, error } = await supabase.from("profiles").update({ segment2: next[0] || null, segments_extra: next.slice(1) }).eq("id", p.id).select("id, segment2, segments_extra");
+                                if (error) { window.alert(/segments_extra/.test(error.message) ? "Chưa lưu được: cột segments_extra chưa có. Hãy chạy sql/pending/add-round678b-superadmin-teams-guards.sql trong Supabase." : `Chưa lưu được: ${error.message}`); return; }
+                                if (!data?.length) { window.alert("Chưa lưu được: không có quyền ghi. Cần chạy SQL round 678 và đăng nhập bằng tài khoản dev."); return; }
+                                setProfiles((arr) => arr.map((x) => x.id === p.id ? { ...x, segment2: data[0].segment2, segments_extra: data[0].segments_extra } : x));
+                              }} /> {t}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {profile?.role === "dev" && p.role !== "dev" && p.role !== "superadmin" && (
                     <select className={styles.select} title="Second team (dev only)" style={{ padding: "4px 8px", fontSize: 12, marginTop: 4 }} value={p.segment2 || ""}
                       onChange={async (e) => {
                         const v = e.target.value || null;

@@ -15,7 +15,7 @@ const clean = (v) => String(v || "").trim().replace(/^["']+|["']+$/g, "").trim()
 export async function POST(request) {
   const caller = await getCallerProfile(request);
   if (!caller) return NextResponse.json({ error: "Not signed in." }, { status: 401, headers: noStore });
-  if (!["admin", "dev"].includes(caller.role)) return NextResponse.json({ error: "Admins and dev only." }, { status: 403, headers: noStore });
+  if (!["admin", "superadmin", "dev"].includes(caller.role)) return NextResponse.json({ error: "Admins and dev only." }, { status: 403, headers: noStore });
 
   const folder = decodeURIComponent(request.headers.get("x-folder") || "");
   if (!PICTURE_TEMPLATES.some((t) => t.driveFolder === folder)) return NextResponse.json({ error: "Unknown template." }, { status: 400, headers: noStore });

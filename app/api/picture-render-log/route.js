@@ -11,7 +11,7 @@ const clean = (v) => String(v || "").trim().replace(/^["']+|["']+$/g, "").trim()
 export async function GET(request) {
   const caller = await getCallerProfile(request);
   if (!caller) return NextResponse.json({ error: "Not signed in." }, { status: 401, headers: noStore });
-  if (!["admin", "dev"].includes(caller.role)) return NextResponse.json({ error: "Admins and dev only." }, { status: 403, headers: noStore });
+  if (!["admin", "superadmin", "dev"].includes(caller.role)) return NextResponse.json({ error: "Admins and dev only." }, { status: 403, headers: noStore });
   const url = clean(process.env.DRIVE_WEBHOOK_URL || process.env.HALLOWEEN_DRIVE_WEBHOOK_URL);
   const secret = clean(process.env.DRIVE_SECRET || process.env.HALLOWEEN_DRIVE_SECRET);
   if (!url || !secret) return NextResponse.json({ error: "Drive webhook not configured" }, { status: 500, headers: noStore });
