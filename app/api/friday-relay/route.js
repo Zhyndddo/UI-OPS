@@ -4,6 +4,7 @@
 // chars) to the main group, once per slot per day. It cannot send arbitrary text.
 //   GET  /api/friday-relay?slot=noon|evening       -> { slot, day, posted_by, plain, text }
 //   POST /api/friday-relay  { slot, note }          -> posts; 409 if the slot was already posted today
+import { safePostText, leaksSecret } from "../../../lib/tgSafe";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { sendTelegram, slotOf, telegramConfigured } from "../../../lib/telegram";
@@ -43,7 +44,8 @@ export async function POST(request) {
   try { body = await request.json(); } catch (e) { /* empty body is fine, treated as no note */ }
   const slot = slotOf(body.slot);
   if (!slot) return NextResponse.json({ error: "slot must be morning, noon or evening." }, { status: 400 });
-  const note = String(body.note || "").trim().slice(0, 600);
+  if (leaksSecret(body.note)) return NextResponse.json({ error: "Rejected: the text contains a secret." }, { status: 400 });
+  const note = safePostText(body.note, 600);   // Round 686
   if (!(await claimSlot(supabaseAdmin, slot, "claude-relay"))) return NextResponse.json({ error: "Already posted for this slot today.", slot, day: vnDay() }, { status: 409 });
   try {
     const { digest, text } = await buildSlotText(supabaseAdmin, slot);

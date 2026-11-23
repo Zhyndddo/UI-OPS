@@ -23,7 +23,8 @@ import { askAndLog, handleAskCb, missesHtml } from "../../../lib/tgAskLog";
 import { cmdRemind, cmdWatch, cmdCover, cmdQuiet, handleWatchCb } from "../../../lib/tgPlanner";
 import { addOwners } from "../../../lib/tgOwners";
 import { linkedProfile, startLink, confirmLink, unlink, myTasksHtml, wantsMyTasks, rememberUsername, pushTagDms, setTagAlerts } from "../../../lib/tgLink";
-import { wantsUploadAsk, uploadAskText, uploadAskButtons, handleUploadAsk } from "../../../lib/tgUploadAsk";
+import { commandAllowedHere, chatContext } from "../../../lib/tgPermissions";
+import { wantsUploadAsk, buildUploadAsk, handleUploadAsk } from "../../../lib/tgUploadAsk";
 import { captureIntake, handleDecision, loadIntakes, renderIntakeBlock, cardButtons, renderCard, intakeCardsOn } from "../../../lib/tgIntake";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram } from "../../../lib/tgRecap";
 
@@ -115,6 +116,12 @@ export async function POST(request) {
     await reply(token, m, `Chat ID: ${m.chat.id}\nLoại: ${m.chat.type}${m.chat.title ? "\nTên: " + m.chat.title : ""}`, false);
     return NextResponse.json({ ok: true });
   }
+  // Round 686 — one permission table (lib/tgPermissions.js): a known command typed in a chat where it is not available is ignored
+  if (isCommand && !commandAllowedHere(cmdMatch[1], chatContext({ isPrivate, isInternal, isExtra, isAr }))) {
+    if (isExtra && ["missing", "recap", "mytasks", "team"].includes(cmdMatch[1].toLowerCase())) await reply(token, m, "Ở nhóm này mình chỉ trả lời /release, /status, /ask và /link thôi nhé.", false);
+    else if (isPrivate) await reply(token, m, "Lệnh này dùng trong nhóm nhé.", false);
+    return NextResponse.json({ ok: true });
+  }
   if ((isInternal || isExtra) && supabaseAdmin && text.trim() && !isCommand) {
     const sender = [m.from?.first_name, m.from?.last_name].filter(Boolean).join(" ") || m.from?.username || "?";
     try {
@@ -140,7 +147,7 @@ export async function POST(request) {
       const hidden = (m.entities || m.caption_entities || []).filter((e) => e.type === "text_link" && e.url && !text.includes(e.url)).map((e) => e.url);
       const it = await captureIntake(supabaseAdmin, m, hidden.length ? text + "\n" + hidden.join("\n") : text);
       if (it && intakeCardsOn()) await reply(token, m, renderCard(it), true, cardButtons(it.id));
-      if (it && wantsUploadAsk(it)) await reply(token, m, uploadAskText(it), true, uploadAskButtons(it.id));   // Round 685 — "gửi Upload trên web luôn không?"
+      if (it && wantsUploadAsk(it)) { const ua = await buildUploadAsk(supabaseAdmin, it); if (ua) await reply(token, m, ua.text, true, ua.markup || undefined); }   // Round 685 — "gửi Upload trên web luôn không?"
     } catch (e) { /* never break the bot over parsing */ }
   }
 
