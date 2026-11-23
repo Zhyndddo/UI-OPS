@@ -21,6 +21,7 @@ import KworbVnPanel from "../../../lib/KworbVnPanel";
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
+import { rosterQuery } from "../../../lib/roster";
 // Real platform → chart lists, straight from v1's MILESTONE_PLATFORM_TABS.
 const PLATFORM_CHARTS = {
   Zing: ["ZMP3|ZING CHART", "ZMP3|BXH NHẠC MỚI"],
@@ -295,7 +296,7 @@ export default function MilestoneWorkstation() {
     const { data: cfg } = await supabase.from("app_settings").select("value").eq("key", MILESTONE_HIGHLIGHT_SETTING_KEY).maybeSingle();
     setHighlightConfig(parseMilestoneHighlightConfig(cfg?.value));
     // Round 458 — see DailyPicPanel's own comment.
-    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name");
+    const { data: profs } = await rosterQuery(supabase).order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
     setLoading(false);
   }

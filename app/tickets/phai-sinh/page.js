@@ -26,6 +26,7 @@ import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 282 — audit log / requester attribution
 import { logTicketStatusChange, logPicReassign, logDeadlineChange } from "../../../lib/auditLog";
 import PicTagInput, { picIdsOfTicket, picNamesOf } from "../../../lib/PicTagInput";
+import { rosterQuery } from "../../../lib/roster";
 
 // Rebuilt bespoke to match v1's real Phái Sinh table exactly — it shows
 // every real column continuously (not capped at a short preview), with
@@ -93,7 +94,7 @@ export default function PhaiSinhList() {
   useEffect(() => {
     if (!supabase) return;
     loadTab();
-    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
+    rosterQuery(supabase).order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
   }, []);
 
   useEffect(() => {

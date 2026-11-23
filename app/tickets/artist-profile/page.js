@@ -19,6 +19,7 @@ import { picIdsOfTicket, picNamesOf } from "../../../lib/PicTagInput";
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
+import { rosterQuery } from "../../../lib/roster";
 // Round 172 — bespoke (not the generic TicketListPage), same reason as
 // before (see git history pre-this-round): request-type-dependent fields,
 // a computed/view-only field, a Note column. This round replaced the wide
@@ -44,7 +45,7 @@ export default function ArtistProfileTicketList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
+    rosterQuery(supabase).order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
     supabase.from("app_settings").select("value").eq("key", "artist_profile_links").maybeSingle().then(({ data }) => {
       setLinks({ spotify: data?.value?.spotify || "", apple: data?.value?.apple || "" });
     });

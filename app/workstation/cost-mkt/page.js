@@ -22,6 +22,7 @@ import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
+import { rosterQuery } from "../../../lib/roster";
 // Round 315 — new Workstation item, per explicit request + the
 // "workstation template.xlsx" reference sheet. A cost-tracking layer on
 // top of data that mostly already lives elsewhere: TikTok Channel
@@ -384,7 +385,7 @@ export default function WorkstationCostMkt() {
       // behavior, same as a release that's never turned Is_installment on.
       fetchAllRows(() => supabase.from("workstation_cost_mkt_installments").select("*")),
       // Round 458 — PIC tracking, see state comment above.
-      supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name"),
+      rosterQuery(supabase).order("name"),
       fetchAllRows(() => supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "cost_mkt")),
     ]);
     // Round 488 — non-DID products (sql/pending/add-round488-non-did-products.sql).

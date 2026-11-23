@@ -1,0 +1,97 @@
+{
+ "app/api/admin/delete-user/route.js": {
+  "roster": 0,
+  "segment": 0,
+  "role": 1
+ },
+ "app/api/admin/invite-user/route.js": {
+  "roster": 1,
+  "segment": 0,
+  "role": 0
+ },
+ "app/api/admin/list-sessions/route.js": {
+  "roster": 1,
+  "segment": 0,
+  "role": 0
+ },
+ "app/api/admin/update-email/route.js": {
+  "roster": 0,
+  "segment": 0,
+  "role": 1
+ },
+ "app/api/rights-declaration/admin/route.js": {
+  "roster": 0,
+  "segment": 1,
+  "role": 1
+ },
+ "app/api/telegram-test/route.js": {
+  "roster": 0,
+  "segment": 0,
+  "role": 1
+ },
+ "app/api/training-survey/route.js": {
+  "roster": 1,
+  "segment": 0,
+  "role": 0
+ },
+ "app/releases/page.js": {
+  "roster": 1,
+  "segment": 0,
+  "role": 0
+ },
+ "app/secret-messages/page.js": {
+  "roster": 1,
+  "segment": 0,
+  "role": 0
+ },
+ "app/task-table/page.js": {
+  "roster": 0,
+  "segment": 3,
+  "role": 2
+ },
+ "lib/ChatDock.js": {
+  "roster": 1,
+  "segment": 0,
+  "role": 0
+ },
+ "lib/ThankNotes.js": {
+  "roster": 1,
+  "segment": 0,
+  "role": 0
+ },
+ "lib/chatProto.js": {
+  "roster": 0,
+  "segment": 0,
+  "role": 1
+ },
+ "lib/friday.js": {
+  "roster": 2,
+  "segment": 0,
+  "role": 0
+ },
+ "lib/releaseChangeNotify.js": {
+  "roster": 1,
+  "segment": 1,
+  "role": 0
+ },
+ "lib/remarketingIntPackage.js": {
+  "roster": 1,
+  "segment": 1,
+  "role": 0
+ },
+ "lib/tgAlerts.js": {
+  "roster": 1,
+  "segment": 0,
+  "role": 0
+ },
+ "lib/tgTeams.js": {
+  "roster": 2,
+  "segment": 0,
+  "role": 0
+ },
+ "lib/workstationHelpers.js": {
+  "roster": 0,
+  "segment": 0,
+  "role": 1
+ }
+}

@@ -28,6 +28,7 @@ import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 import { hasTeam } from "../../../lib/teamTypes";
+import { rosterQuery } from "../../../lib/roster";
 const OVERLOAD_EMAIL = "anh.duong@vieent.vn";
 const OVERLOAD_THRESHOLD = 11;
 
@@ -110,7 +111,7 @@ export default function DesignList() {
     setPlatforms(p || []);
     setTypes(t || []);
     setSizes(s || []);
-    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name"); // round 78
+    const { data: profs } = await rosterQuery(supabase).order("name"); // round 78
     setProfiles(filterProfilesByTeam(profs || [], "Design"));
     setLoading(false);
   }

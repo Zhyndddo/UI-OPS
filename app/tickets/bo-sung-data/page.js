@@ -19,6 +19,7 @@ import styles from "../../shared.module.css";
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 281 — audit log / requester attribution
 import { logTicketStatusChange } from "../../../lib/auditLog";
+import { rosterQuery } from "../../../lib/roster";
 
 // Round 280 — Bổ Sung DATA: OPS picks a release (app/tickets/bo-sung-data/
 // new/page.js, also reachable from a button on the New Release Setup
@@ -53,7 +54,7 @@ export default function BoSungDataList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "AR")));
+    rosterQuery(supabase).order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "AR")));
   }, []);
 
   async function load() {

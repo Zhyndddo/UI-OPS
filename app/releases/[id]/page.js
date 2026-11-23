@@ -33,6 +33,7 @@ import { logTicketCreate, logTicketStatusChange, logPicReassign } from "../../..
 import { isDev, isAdminOrAbove, canViewSubteamSummaryColumn, SUBTEAM_TAG_TEAM, canViewReleaseTags, canEditReleaseTags, canViewReleaseArPicReadOnly, canEditReleaseArPic } from "../../../lib/permissions";
 import { ReleaseTagsRow, effectiveReleaseTags, getCategoryTag, getFreeTags, releaseTagInfo, releaseTagPillClass, resolveLblTag, effectiveSubteamTags, setSubteamTagValue, toggledSubteamTags } from "../../../lib/releaseTags";
 import { filterProfilesByTeam } from "../../../lib/workstationHelpers";
+import { rosterQuery } from "../../../lib/roster";
 import { subteamTagPillClass, MARKETING_SUBTEAM_TAGS } from "../../../lib/projectTags";
 import { runOne } from "../../../lib/packageSimulator";
 import { fetchProductTagSets, ProductTagPills } from "../../../lib/productTags";
@@ -294,7 +295,7 @@ export default function ReleaseDetailPage() {
   const [arPicProfiles, setArPicProfiles] = useState([]);
   useEffect(() => {
     if (!supabase) return;
-    supabase.from("profiles").select("id, name, email, segment, role").order("name").then(({ data }) => {
+    rosterQuery(supabase, "email").order("name").then(({ data }) => {
       setArPicProfiles(filterProfilesByTeam(data || [], "AR"));
     });
   }, []);

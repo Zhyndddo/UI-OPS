@@ -22,6 +22,7 @@ import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 282 — audit log / requester attribution
 import { duplicateTicket } from "../../../lib/duplicateTicket";
 import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
+import { rosterQuery } from "../../../lib/roster";
 
 // Rebuilt bespoke to match v1's real Manual Claim table — simpler than
 // Phái Sinh (no computed group columns), but same link-or-edit URL
@@ -49,7 +50,7 @@ export default function ManualClaimList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
+    rosterQuery(supabase).order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
   }, []);
 
   async function load() {

@@ -27,6 +27,7 @@ import PicTagInput from "../../../lib/PicTagInput";
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
+import { rosterQuery } from "../../../lib/roster";
 // Same tool, visited twice — Phase 1 while waiting for release, Phase 2
 // after it's live. Rebuilt from scratch: the 6 individual DSP checks now
 // live behind one bulk Yes/No (only reads "Yes" once every one of them
@@ -135,7 +136,7 @@ function ConfirmWorkstationInner() {
     const { data: rels } = await fetchAllRows(() => supabase.from("releases").select(SELECT_FIELDS).is("cancelled_at", null).order("id"));
     setReleases(rels || []);
 
-    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name");
+    const { data: profs } = await rosterQuery(supabase).order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
 
     const { data: assigns } = await fetchAllRows(() => supabase.from("workstation_assignments").select("workstation, release_id, pic_profile_id, pic_profile_ids, auto_assigned").in("workstation", ["confirm_phase1", "confirm_phase2"]).order("id"));

@@ -19,6 +19,7 @@ import { logAudit, logTicketStatusChange, logPicReassign } from "../../../lib/au
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
+import { rosterQuery } from "../../../lib/roster";
 const PHU_LUC_COLOR = {
   "Chưa Soạn": { bg: "rgba(255,255,255,0.06)", fg: "var(--text-faint)" },
   "Đã Soạn": { bg: "rgba(33,150,243,0.15)", fg: "#5cb3ff" },
@@ -56,7 +57,7 @@ export default function PhuLucList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "Legal"))); // round 78
+    rosterQuery(supabase).order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "Legal"))); // round 78
   }, []);
 
   async function load() {

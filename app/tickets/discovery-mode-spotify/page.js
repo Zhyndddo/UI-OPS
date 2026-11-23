@@ -18,6 +18,7 @@ import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 282 — audit log / requester attribution
 import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 import PicTagInput, { picIdsOfTicket, picNamesOf } from "../../../lib/PicTagInput";
+import { rosterQuery } from "../../../lib/roster";
 
 // Bespoke (not the generic TicketListPage) per explicit request, laid out
 // like Sony Publish's/Music Video on Spotify's ticket pages — Release
@@ -42,7 +43,7 @@ export default function DiscoveryModeSpotifyTicketList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
+    rosterQuery(supabase).order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
     supabase.from("app_settings").select("value").eq("key", "artist_profile_links").maybeSingle().then(({ data }) => {
       setToolUrl(data?.value?.discoveryMode || "");
     });

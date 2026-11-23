@@ -72,6 +72,7 @@ import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 282 — audit log / requester attribution
 import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 import PicTagInput, { picIdsOfTicket, picNamesOf } from "../../../lib/PicTagInput";
+import { rosterQuery } from "../../../lib/roster";
 
 const REQUESTER_TEAM = "AR";
 const EXECUTOR_TEAM = "OPS";
@@ -230,7 +231,7 @@ export default function ReportConflictPage() {
     load();
     // Round 145 — PIC list, same "profiles on the executor team, dev
     // excluded" scoping the generic engine used (see filterProfilesByTeam).
-    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], EXECUTOR_TEAM)));
+    rosterQuery(supabase).order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], EXECUTOR_TEAM)));
   }, []);
 
   // Round 665 — Duplicate request: same fields, new ticket (default status, no PIC)

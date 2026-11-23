@@ -21,6 +21,7 @@ import LoadingSkeleton from "../../lib/LoadingSkeleton";
 // tasks, one popup-once-a-day reminder (see lib/Sidebar.js) plus the
 // actual management UI here.
 import { currentWeekStartStr, rollForwardIfNeeded, persistRollForward } from "../../lib/weeklyTasks";
+import { rosterQuery } from "../../lib/roster";
 
 // Round 172 — rebuilt per explicit request: "update the task table to fit
 // for each member, by filtering the undone from workstations and tickets,
@@ -1165,7 +1166,7 @@ export default function TaskTablePage() {
       // fetching — every marketingMembersBySubteam bucket has been silently
       // empty since Round 325, so Dự Án has shown 0 for everyone this whole
       // time. Fixed here, not just for the new feature.
-      const [{ data: profs }] = await Promise.all([supabase.from("profiles").select("id, name, segment, role, subteam, segment2, segments_extra").order("name")]);
+      const [{ data: profs }] = await Promise.all([rosterQuery(supabase, "subteam").order("name")]);
       setProfiles(profs || []);
       const map = {};
       const reqMap = {};

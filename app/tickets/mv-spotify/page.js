@@ -20,6 +20,7 @@ import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 // Round 282 — audit log / requester attribution
 import { logTicketStatusChange, logPicReassign } from "../../../lib/auditLog";
 import PicTagInput, { picIdsOfTicket, picNamesOf } from "../../../lib/PicTagInput";
+import { rosterQuery } from "../../../lib/roster";
 
 // Bespoke (not the generic TicketListPage) per explicit request, laid out
 // like the Upload Workstation's row. Link LBM and Link Drive are view-only
@@ -45,7 +46,7 @@ export default function MvSpotifyTicketList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
+    rosterQuery(supabase).order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
   }, []);
 
   async function load() {

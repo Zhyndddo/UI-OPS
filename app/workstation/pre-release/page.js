@@ -25,6 +25,7 @@ import PicTagInput from "../../../lib/PicTagInput";
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
+import { rosterQuery } from "../../../lib/roster";
 // Field labels swapped per the redesign: the column that used to show as
 // "CANVA MV" is now labeled CANVA, and the one that used to show as
 // "CANVA" is now labeled MV — same underlying columns, just relabeled,
@@ -120,7 +121,7 @@ export default function PreReleaseWorkstation() {
     );
     setReleases(rels || []);
 
-    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name");
+    const { data: profs } = await rosterQuery(supabase).order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
 
     const { data: assigns } = await fetchAllRows(() => supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "pre_release").order("id"));

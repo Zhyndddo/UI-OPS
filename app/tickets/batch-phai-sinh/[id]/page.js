@@ -25,6 +25,7 @@ import LoadingSkeleton from "../../../../lib/LoadingSkeleton";
 // entity "phai_sinh_batch_item" rather than the ticket-specific
 // logTicketStatusChange wrapper.
 import { logAudit, logPicReassign, logDeadlineChange } from "../../../../lib/auditLog";
+import { rosterQuery } from "../../../../lib/roster";
 
 // Round 41 — extended with the Kho Nhạc workflow's own stages
 // (UPLOADING/DELIVERY/RECHECKING), see lib/phaiSinhTypes.js.
@@ -56,7 +57,7 @@ export default function BatchPhaiSinhDetail() {
   useEffect(() => {
     if (!supabase || !id) return;
     load();
-    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
+    rosterQuery(supabase).order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
   }, [id]);
 
   async function load() {

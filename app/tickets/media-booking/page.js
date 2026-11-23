@@ -31,6 +31,7 @@ import { ARTIST_PROFILE_LINKS_SETTING_KEY, DEFAULT_LINKFIRE_URL } from "../../..
 import UrlField from "../../../lib/UrlField";
 import { canEditMediaBookingTicket } from "../../../lib/permissions";
 import { hasTeam } from "../../../lib/teamTypes";
+import { rosterQuery } from "../../../lib/roster";
 
 function fmtVnd(n) {
   if (n === null || n === undefined || n === "") return "—";
@@ -189,7 +190,7 @@ function MediaBookingListInner() {
   useEffect(() => {
     if (!supabase) return;
     loadTab();
-    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "Marketing"))); // round 78
+    rosterQuery(supabase).order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "Marketing"))); // round 78
   }, []);
 
   async function loadTab() {

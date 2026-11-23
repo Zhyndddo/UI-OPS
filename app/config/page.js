@@ -9,6 +9,7 @@ import TeamAccessSection from "../../lib/TeamAccessSection";
 import { canEditTeamAccess } from "../../lib/teamAccess";
 import { ROLES, ROLE_LABELS, isDev as isDevRole, isAdminOrAbove, canManageOrgConfig, canManageTeamMembers, assignableRoles, scopeableTeamMembers } from "../../lib/permissions";
 import { filterProfilesByTeam } from "../../lib/workstationHelpers";
+import { rosterQuery } from "../../lib/roster";
 import PicTagInput from "../../lib/PicTagInput";
 import { TRO_GIA_BOOKING_SETTING_KEY, DEFAULT_TRO_GIA_BOOKING_ITEMS, parseTroGiaBookingItems } from "../../lib/troGiaBooking";
 import { DEFAULT_LINKFIRE_URL } from "../../lib/externalTools";
@@ -772,7 +773,7 @@ function PicDefaultsSection() {
   async function load() {
     setLoading(true);
     const [{ data: profs }, { data: assigns }] = await Promise.all([
-      supabase.from("profiles").select("id, name, segment, role").order("name"),
+      rosterQuery(supabase).order("name"),
       supabase.from("workstation_assignments").select("workstation, pic_profile_id, pic_profile_ids").is("release_id", null).eq("column_key", "all"),
     ]);
     // Round 78 — every workstation in PIC_WORKSTATIONS is OPS work (Upload/
@@ -1476,7 +1477,7 @@ function PitchingSettingsSection() {
     (async () => {
       const [{ data: settingsRows }, { data: profs }] = await Promise.all([
         supabase.from("global_settings").select("key, value").in("key", [PITCHING_DOMESTIC_SERVICES_KEY, PITCHING_NCT_EXTRA_SERVICES_KEY, PITCHING_ZING_EXTRA_SERVICES_KEY, PITCHING_PIC_LIST_KEY]),
-        supabase.from("profiles").select("id, name, segment, role").order("name"),
+        rosterQuery(supabase).order("name"),
       ]);
       const settingsByKey = {};
       (settingsRows || []).forEach((s) => (settingsByKey[s.key] = s.value));
@@ -1635,7 +1636,7 @@ function NotificationsSection() {
     const [{ data }, { data: tabRows }, { data: profRows }] = await Promise.all([
       supabase.from("notification_settings").select("*").eq("id", 1).maybeSingle(),
       supabase.from("ticket_tabs").select("id, key, label, executor_team, notify_on_insert").order("sort_order"),
-      supabase.from("profiles").select("id, name, segment, role").order("name"),
+      supabase.from("profiles").select("id, name, segment, role").order("name"), // roster-ok: DM recipients list, not a team PIC list
     ]);
     setDmProfiles(profRows || []);
     setSettings(data);

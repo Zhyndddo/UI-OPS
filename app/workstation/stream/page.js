@@ -17,6 +17,7 @@ import SortableTh, { ResetSortButton } from "../../../lib/SortableTh";
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
+import { rosterQuery } from "../../../lib/roster";
 // The real v1 "Stream" component (STREAM_COLS_DEF in app.js) — manually
 // entered per-platform metrics. Reorganized per the doc into 3 tabs
 // instead of v1's Summarize + 12 separate month tabs: Today Check (fresh
@@ -104,7 +105,7 @@ export default function StreamWorkstation() {
       ),
       supabase.from("release_stream_metrics").select("*").is("release_id", null).order("manual_release_date", { ascending: false }),
       // Round 458 — PIC tracking, see state comment above.
-      supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name"),
+      rosterQuery(supabase).order("name"),
       fetchAllRows(() => supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "stream")),
     ]);
     const releaseList = rels || [];

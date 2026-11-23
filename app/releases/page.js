@@ -30,6 +30,7 @@ import BulkReleaseImportPopup from "../../lib/BulkReleaseImport";
 import styles from "../shared.module.css";
 
 import LoadingSkeleton from "../../lib/LoadingSkeleton";
+import { rosterQuery } from "../../lib/roster";
 // Round 417 — Releases dashboard export column set. Deliberately a
 // curated subset of RELEASE_COLUMNS (below), not every raw DB column —
 // this is meant to read as a clean spreadsheet a human opens, not a
@@ -505,7 +506,7 @@ export default function ReleasesDashboard() {
   }, [showArPicColumn]);
   useEffect(() => {   // Round 669 — the PIC filter works for everybody who can open the dashboard
     if (!supabase) return;
-    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setPicOptions(filterProfilesByTeam(data || [], "AR")));
+    rosterQuery(supabase).order("name").then(({ data }) => setPicOptions(filterProfilesByTeam(data || [], "AR")));
   }, []);
 
   async function updateArPic(release, profileId) {
