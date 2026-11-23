@@ -1,0 +1,38 @@
+/* Round 670 — Noel decoration (see lib/NoelDecor.js). Click-through layers; only the small switch takes clicks. */
+.garland { position: fixed; left: 250px; right: 0; top: var(--topbar-height); height: 26px; z-index: 251; pointer-events: none; }
+.wire { position: absolute; left: 0; top: 0; width: 100%; height: 22px; }
+.bulb {
+  position: absolute; width: 8px; height: 11px; margin-left: -4px; border-radius: 50% 50% 55% 55% / 45% 45% 60% 60%;
+  background: var(--c); box-shadow: 0 0 6px 2px var(--c), 0 0 14px 4px color-mix(in srgb, var(--c) 40%, transparent);
+  animation: noelTwinkle 2.4s ease-in-out infinite;
+}
+.bulb::before { content: ""; position: absolute; left: 50%; top: -4px; width: 4px; height: 4px; margin-left: -2px; background: #2c3a33; border-radius: 1px; }
+@keyframes noelTwinkle { 0%, 100% { opacity: 1; filter: brightness(1.15); } 50% { opacity: 0.38; filter: brightness(0.7); } }
+
+.snow { position: fixed; inset: 0; z-index: 250; pointer-events: none; overflow: hidden; }
+.flake { position: absolute; top: -4vh; border-radius: 50%; background: #fff; opacity: 0.8; box-shadow: 0 0 4px rgba(255,255,255,0.7); animation: noelFall linear infinite; will-change: transform; }
+@keyframes noelFall {
+  0%   { transform: translate3d(0, -4vh, 0); opacity: 0; }
+  8%   { opacity: 0.85; }
+  50%  { transform: translate3d(var(--sway), 50vh, 0); }
+  100% { transform: translate3d(calc(var(--sway) * -0.6), 106vh, 0); opacity: 0.2; }
+}
+
+.greet {
+  position: fixed; top: calc(var(--topbar-height) + 34px); left: 50%; transform: translateX(-50%); z-index: 250; max-width: calc(100vw - 24px);
+  padding: 6px 16px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; background: #b3202f; border: 2px solid #ffd166; box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+}
+.switch {
+  position: fixed; left: 12px; bottom: 56px; z-index: 252; padding: 4px 10px; border-radius: 999px; font-size: 12px; cursor: pointer;
+  color: #fff; background: rgba(25, 40, 32, 0.82); border: 1px solid rgba(255,255,255,0.25); backdrop-filter: blur(4px); opacity: 0.8;
+}
+.switch:hover { opacity: 1; }
+
+@media (max-width: 768px) {
+  .garland { left: 0; }
+  .bulb:nth-child(2n+1) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bulb { animation: none; opacity: 0.9; }
+  .snow { display: none; }
+}
