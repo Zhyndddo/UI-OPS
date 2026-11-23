@@ -58,7 +58,7 @@ export default function PublishingList() {
     // Round 290 — OPS added alongside Legal as an assignable executor
     // team, per explicit request ("add ops team as executor beside
     // legal"). filterProfilesByTeam already supports an array of teams.
-    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], ["Legal", "OPS"])));
+    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], ["Legal", "OPS"])));
   }, []);
 
   async function load() {

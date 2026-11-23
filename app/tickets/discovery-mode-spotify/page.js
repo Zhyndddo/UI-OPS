@@ -42,7 +42,7 @@ export default function DiscoveryModeSpotifyTicketList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
+    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
     supabase.from("app_settings").select("value").eq("key", "artist_profile_links").maybeSingle().then(({ data }) => {
       setToolUrl(data?.value?.discoveryMode || "");
     });

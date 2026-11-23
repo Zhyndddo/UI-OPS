@@ -120,7 +120,7 @@ export default function PreReleaseWorkstation() {
     );
     setReleases(rels || []);
 
-    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
+    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
 
     const { data: assigns } = await fetchAllRows(() => supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "pre_release").order("id"));

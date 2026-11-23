@@ -110,7 +110,7 @@ export default function DesignList() {
     setPlatforms(p || []);
     setTypes(t || []);
     setSizes(s || []);
-    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name"); // round 78
+    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name"); // round 78
     setProfiles(filterProfilesByTeam(profs || [], "Design"));
     setLoading(false);
   }

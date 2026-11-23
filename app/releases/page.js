@@ -505,7 +505,7 @@ export default function ReleasesDashboard() {
   }, [showArPicColumn]);
   useEffect(() => {   // Round 669 — the PIC filter works for everybody who can open the dashboard
     if (!supabase) return;
-    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setPicOptions(filterProfilesByTeam(data || [], "AR")));
+    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setPicOptions(filterProfilesByTeam(data || [], "AR")));
   }, []);
 
   async function updateArPic(release, profileId) {

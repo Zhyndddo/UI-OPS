@@ -231,7 +231,7 @@ export default function PitchingWorkstation() {
     // time for the default-auto-fill patch loop below, same "auto-sync on
     // load" spot as the DSP-status/ticket-status patches right after it.
     const [{ data: profs }, { data: settingsRows }] = await Promise.all([
-      supabase.from("profiles").select("id, name, segment, role").order("name"),
+      supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name"),
       supabase.from("global_settings").select("key, value").in("key", [PITCHING_DOMESTIC_SERVICES_KEY, PITCHING_NCT_EXTRA_SERVICES_KEY, PITCHING_ZING_EXTRA_SERVICES_KEY, PITCHING_PIC_LIST_KEY, PITCHING_PIC_TABS_KEY]),
     ]);
     const settingsByKey = {};

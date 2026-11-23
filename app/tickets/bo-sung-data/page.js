@@ -53,7 +53,7 @@ export default function BoSungDataList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "AR")));
+    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "AR")));
   }, []);
 
   async function load() {

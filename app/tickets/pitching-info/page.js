@@ -165,7 +165,7 @@ function PitchingInfoTickets() {
     }
     setRows((tickets || []).map((t) => ({ ticket: t, release: releaseMap[t.data?.releaseId] || null })));
 
-    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
+    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name");
     setProfiles(filterProfilesByTeam(profs || [], "AR"));
 
     setLoading(false);

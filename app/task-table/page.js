@@ -1165,7 +1165,7 @@ export default function TaskTablePage() {
       // fetching — every marketingMembersBySubteam bucket has been silently
       // empty since Round 325, so Dự Án has shown 0 for everyone this whole
       // time. Fixed here, not just for the new feature.
-      const [{ data: profs }] = await Promise.all([supabase.from("profiles").select("id, name, segment, role, subteam").order("name")]);
+      const [{ data: profs }] = await Promise.all([supabase.from("profiles").select("id, name, segment, role, subteam, segment2, segments_extra").order("name")]);
       setProfiles(profs || []);
       const map = {};
       const reqMap = {};

@@ -295,7 +295,7 @@ export default function MilestoneWorkstation() {
     const { data: cfg } = await supabase.from("app_settings").select("value").eq("key", MILESTONE_HIGHLIGHT_SETTING_KEY).maybeSingle();
     setHighlightConfig(parseMilestoneHighlightConfig(cfg?.value));
     // Round 458 — see DailyPicPanel's own comment.
-    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
+    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
     setLoading(false);
   }

@@ -230,7 +230,7 @@ export default function ReportConflictPage() {
     load();
     // Round 145 — PIC list, same "profiles on the executor team, dev
     // excluded" scoping the generic engine used (see filterProfilesByTeam).
-    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], EXECUTOR_TEAM)));
+    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], EXECUTOR_TEAM)));
   }, []);
 
   // Round 665 — Duplicate request: same fields, new ticket (default status, no PIC)

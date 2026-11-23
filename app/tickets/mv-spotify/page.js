@@ -45,7 +45,7 @@ export default function MvSpotifyTicketList() {
   useEffect(() => {
     if (!supabase) return;
     load();
-    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
+    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
   }, []);
 
   async function load() {

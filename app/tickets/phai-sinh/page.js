@@ -93,7 +93,7 @@ export default function PhaiSinhList() {
   useEffect(() => {
     if (!supabase) return;
     loadTab();
-    supabase.from("profiles").select("id, name, segment, role").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
+    supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name").then(({ data }) => setProfiles(filterProfilesByTeam(data || [], "OPS"))); // round 78
   }, []);
 
   useEffect(() => {

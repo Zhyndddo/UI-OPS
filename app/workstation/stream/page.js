@@ -104,7 +104,7 @@ export default function StreamWorkstation() {
       ),
       supabase.from("release_stream_metrics").select("*").is("release_id", null).order("manual_release_date", { ascending: false }),
       // Round 458 — PIC tracking, see state comment above.
-      supabase.from("profiles").select("id, name, segment, role").order("name"),
+      supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name"),
       fetchAllRows(() => supabase.from("workstation_assignments").select("release_id, pic_profile_id, pic_profile_ids, auto_assigned").eq("workstation", "stream")),
     ]);
     const releaseList = rels || [];

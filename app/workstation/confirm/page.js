@@ -135,7 +135,7 @@ function ConfirmWorkstationInner() {
     const { data: rels } = await fetchAllRows(() => supabase.from("releases").select(SELECT_FIELDS).is("cancelled_at", null).order("id"));
     setReleases(rels || []);
 
-    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role").order("name");
+    const { data: profs } = await supabase.from("profiles").select("id, name, segment, role, segment2, segments_extra").order("name");
     setProfiles(filterProfilesByTeam(profs || [], "OPS"));
 
     const { data: assigns } = await fetchAllRows(() => supabase.from("workstation_assignments").select("workstation, release_id, pic_profile_id, pic_profile_ids, auto_assigned").in("workstation", ["confirm_phase1", "confirm_phase2"]).order("id"));
