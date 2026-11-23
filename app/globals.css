@@ -427,3 +427,18 @@ a {
 
 /* Round 594b — Teachers' Day: top bar in chalkboard green (was the yellow accent); text stays cream. */
 [data-decor="teachers-day"] [data-topbar="on"] { background: #2a4d3b !important; color: #f4efdf !important; --accent-on: #f4efdf; --text: #f4efdf; --text-muted: #d8dccb; }
+
+
+/* Round 673 — special Noel colours (2nd gift box in lib/NoelDecor.js sets data-noeltheme="1" on <html>).
+   light = latte + dark red / dark green accents; dark (and the purple zhyn theme) = navy + bright red / light green. */
+[data-noeltheme="1"][data-theme="light"] {
+  --bg: #f3e9dc; --bg-body: #f3e9dc; --bg-card: #fbf5ec; --bg-input: #fffaf2; --bg-hover: #eadcc8;
+  --border: #d9c6a8; --border-strong: #1f6f43;
+  --accent: #9b1c2e; --accent-soft: #1f6f43; --accent-on: #ffffff;
+}
+[data-noeltheme="1"][data-theme="dark"], [data-noeltheme="1"][data-theme="zhyn"] {
+  --bg: #0a1430; --bg-body: #0a1430; --bg-card: #111f47; --bg-input: #15265a; --bg-hover: #1c3070;
+  --border: #2a407f; --border-strong: #86efac;
+  --text-muted: #c5d2f0; --text-faint: #94a8d6;
+  --accent: #ff4d5e; --accent-soft: #86efac; --accent-on: #0a1430;
+}
