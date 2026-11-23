@@ -23,6 +23,7 @@ import { askAndLog, handleAskCb, missesHtml } from "../../../lib/tgAskLog";
 import { cmdRemind, cmdWatch, cmdCover, cmdQuiet, handleWatchCb } from "../../../lib/tgPlanner";
 import { addOwners } from "../../../lib/tgOwners";
 import { linkedProfile, startLink, confirmLink, unlink, myTasksHtml, wantsMyTasks, rememberUsername, pushTagDms, setTagAlerts } from "../../../lib/tgLink";
+import { wantsUploadAsk, uploadAskText, uploadAskButtons, handleUploadAsk } from "../../../lib/tgUploadAsk";
 import { captureIntake, handleDecision, loadIntakes, renderIntakeBlock, cardButtons, renderCard, intakeCardsOn } from "../../../lib/tgIntake";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram } from "../../../lib/tgRecap";
 
@@ -87,7 +88,7 @@ export async function POST(request) {
     const cb = update.callback_query, tg = (method, body) => fetch(`https://api.telegram.org/bot${token}/${method}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
     try {
       const data = String(cb.data || "");   // Round 625 # song tag buttons (tp:/tx:), Round 630 reminder buttons (rm:)
-      const res = !supabaseAdmin ? { answer: "Chưa cấu hình." } : data.startsWith("pg:") ? await handlePageCb(supabaseAdmin, token, cb) : /^(ak|fb|ck):/.test(data) ? await handleAskCb(supabaseAdmin, cb, linkedProfile) : /^t[px]:/.test(data) ? await handleTagPick(supabaseAdmin, cb, linkedProfile) : data.startsWith("rm:") ? await handleReminder(supabaseAdmin, cb, linkedProfile) : data.startsWith("tk:") ? await handleTicketCb(supabaseAdmin, cb, linkedProfile) : /^w[tx]:/.test(data) ? await handleWatchCb(supabaseAdmin, cb, linkedProfile) : await handleDecision(supabaseAdmin, cb, linkedProfile);
+      const res = !supabaseAdmin ? { answer: "Chưa cấu hình." } : data.startsWith("pg:") ? await handlePageCb(supabaseAdmin, token, cb) : /^(ak|fb|ck):/.test(data) ? await handleAskCb(supabaseAdmin, cb, linkedProfile) : /^t[px]:/.test(data) ? await handleTagPick(supabaseAdmin, cb, linkedProfile) : data.startsWith("rm:") ? await handleReminder(supabaseAdmin, cb, linkedProfile) : data.startsWith("ua:") ? await handleUploadAsk(supabaseAdmin, cb, linkedProfile) : data.startsWith("tk:") ? await handleTicketCb(supabaseAdmin, cb, linkedProfile) : /^w[tx]:/.test(data) ? await handleWatchCb(supabaseAdmin, cb, linkedProfile) : await handleDecision(supabaseAdmin, cb, linkedProfile);
       await tg("answerCallbackQuery", { callback_query_id: cb.id, text: res.answer });
       if (res.clearButtons && cb.message) await tg("editMessageReplyMarkup", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, reply_markup: { inline_keyboard: [] } });
       if (res.markup && cb.message) await tg("editMessageReplyMarkup", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, reply_markup: res.markup });
@@ -139,6 +140,7 @@ export async function POST(request) {
       const hidden = (m.entities || m.caption_entities || []).filter((e) => e.type === "text_link" && e.url && !text.includes(e.url)).map((e) => e.url);
       const it = await captureIntake(supabaseAdmin, m, hidden.length ? text + "\n" + hidden.join("\n") : text);
       if (it && intakeCardsOn()) await reply(token, m, renderCard(it), true, cardButtons(it.id));
+      if (it && wantsUploadAsk(it)) await reply(token, m, uploadAskText(it), true, uploadAskButtons(it.id));   // Round 685 — "gửi Upload trên web luôn không?"
     } catch (e) { /* never break the bot over parsing */ }
   }
 
