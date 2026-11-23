@@ -702,7 +702,8 @@ export default function NewReleasePage() {
     // (previously these 3 Legal Request types only ever got created via
     // the release detail page's manual "Send Ticket"/Save flow, never at
     // New Release creation time itself).
-    if (form.gate_split_share === "true") {
+    // Round 680 — no Split Share ticket without an ISRC (a brand-new release has none yet): it is created by Save on the release detail page once the ISRC is filled in
+    if (form.gate_split_share === "true" && (data.isrc || "").trim()) {
       const { data: ssTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "split_share").single();
       if (ssTab) {
         const { data: newTicket } = await supabase.from("tickets").insert({

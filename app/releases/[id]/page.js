@@ -1137,8 +1137,12 @@ export default function ReleaseDetailPage() {
       else if (!pl.ok) console.error("Phụ Lục ensure on Save failed:", pl.error);
     }
 
+    // Round 680 — Split Share ticket is not sent while the release has no ISRC; it goes out on the first Save after the ISRC is filled in
+    const splitShareNeedsIsrc = form.gate_split_share === "true" && !gateTicketMap.split_share && !(form.isrc || "").trim();
+    if (splitShareNeedsIsrc) window.alert("Ticket Splitshare chưa được gửi vì release chưa có ISRC. Hãy nhập ISRC rồi bấm Save lần nữa. / Split Share ticket not sent: set the ISRC first, then Save again.");
     const missingGateEntries = Object.entries(GATE_TICKET_TYPES).filter(
       ([gateKey, ticketType]) =>
+        !(gateKey === "gate_split_share" && splitShareNeedsIsrc) &&
         gateKey !== "gate_sony_publish" &&
         gateKey !== "gate_phu_luc_truyen_thong" &&
         gateKey !== "gate_co_trong_net_youtube" &&
@@ -3529,7 +3533,7 @@ function CopyrightsTab({ form, update, onSave, saving, onCopyrightChange, saveCo
     <div>
       <RightsDeclarationBlock styles={styles} releaseId={form.id} declaration={form.rights_declaration} />
       <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, margin: "-8px 0 20px", cursor: "pointer" }}>
-        <input type="checkbox" checked={!!form.rights_fully_held} onChange={(e) => saveFullyHeld(e.target.checked)} />
+        <input type="checkbox" data-switch checked={!!form.rights_fully_held} onChange={(e) => saveFullyHeld(e.target.checked)} />
         Fully held <span style={{ fontWeight: 400, color: "var(--text-faint)", fontSize: 12 }}>— {form.rights_fully_held ? "true: we hold all the rights" : "false"}</span>
       </label>
       {/* Round 92 — AR's own general note for the product, per explicit
