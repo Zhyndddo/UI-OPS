@@ -23,7 +23,7 @@ import { buildLinkshareNote, defaultLinkshareFacebookTiming, defaultLinkshareTik
 // logic can share the exact same _field_initials() mirror instead of a
 // second hand-kept copy drifting out of sync.
 import { didPreview, didPrefixFor } from "../../lib/didHelpers";
-import { emptyCopyrightChecklist } from "../../lib/copyrightChecklist";
+import { emptyCopyrightChecklist, normalizeCopyrightChecklist, COPYRIGHT_ITEMS, copyrightEntryMissingFields } from "../../lib/copyrightChecklist";
 import CopyrightChecklistFields from "../../lib/CopyrightChecklistFields";
 import NewReleaseTemplateTools from "../../lib/NewReleaseTemplateTools";
 import { canEditProjectRightsType } from "../../lib/permissions";
@@ -189,6 +189,11 @@ export default function NewReleasePage() {
   // still does the right thing afterward (go to detail page vs. reset for
   // another entry) — see performInsert()'s navMode param.
   const [duplicateWarning, setDuplicateWarning] = useState(null);
+  // Round 684 — "Create and send upload": list of what's still missing
+  // (shown in a popup, release NOT created) and the Label/OPS source pick.
+  const [uploadIssues, setUploadIssues] = useState(null);
+  const [showUploadSourcePopup, setShowUploadSourcePopup] = useState(false);
+  const uploadSourceRef = useRef(null);
 
   // Round 88 item 3 — floating Save button, same pattern as the release
   // detail page's SaveBar: only shows once the real "Tạo Release" button
@@ -410,6 +415,42 @@ export default function NewReleasePage() {
     return null;
   }
 
+  // Round 684 — checks everything Send Upload needs on the detail page and
+  // returns a list of human-readable problems (empty = good to go).
+  function collectUploadIssues() {
+    const issues = [];
+    if (!form.title.trim()) issues.push("Thông tin chính: thiếu Tên bài hát");
+    if (!form.main_artist.trim()) issues.push("Thông tin chính: thiếu Main Artist");
+    if (!form.release_date) issues.push("Thông tin chính: thiếu Ngày phát hành");
+    if (!form.label.trim()) issues.push("Thông tin chính: thiếu Hãng Đĩa");
+    REQUIRED_META_KEYS.forEach((k) => {
+      if (form[k] !== "true") {
+        const item = META_ITEMS.find((m) => m.key === k);
+        issues.push(`Metadata checklist: "${item?.label || k}" chưa tick`);
+      }
+    });
+    if (form.single_album_ep && form.single_album_ep !== "Single") {
+      issues.push("Copyright: EP/Album cần nhập copyright cho từng track, mà form tạo mới chưa có phần này. Hãy bấm Tạo Release rồi nhập copyright từng track và gửi Upload ở trang chi tiết.");
+    } else {
+      const cc = normalizeCopyrightChecklist(form.copyright_checklist);
+      COPYRIGHT_ITEMS.forEach((item) => {
+        const miss = copyrightEntryMissingFields(cc[item.key]);
+        if (miss.length) issues.push(`Copyright ${item.shortLabel || ""} (${item.label}): thiếu ${miss.join(", ")}`);
+      });
+    }
+    return issues;
+  }
+
+  function startCreateAndSendUpload() {
+    setError(null);
+    const issues = collectUploadIssues();
+    if (issues.length) {
+      setUploadIssues(issues);
+      return;
+    }
+    setShowUploadSourcePopup(true);
+  }
+
   function resetFormForAnother() {
     setForm(EMPTY_FORM);
     setPitchingTypes(EMPTY_PITCHING_TYPES);
@@ -432,7 +473,7 @@ export default function NewReleasePage() {
     const { data, error: insertError } = await supabase
       .from("releases")
       .insert({ ...payload, created_by_profile_id: profile?.id || null })
-      .select("id, did")
+      .select("id, did, project_type")
       .single();
 
     setSubmitting(false);
@@ -789,6 +830,7 @@ export default function NewReleasePage() {
     // effect as SEND UPLOAD — a newrelease_upload ticket + requested:true)
     // since a brand-new release can't have been sent there any other way
     // yet.
+    let uploadSent = false;
     if (form.gate_sony_publish === "true" && REQUIRED_META_KEYS.every((k) => form[k] === "true")) {
       const { data: spTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "sony_publish").single();
       if (spTab) {
@@ -815,7 +857,44 @@ export default function NewReleasePage() {
         // Round 281 — audit log / requester attribution
         if (newUploadTicket) logTicketCreate({ actor: profile?.id, ticketId: newUploadTicket.id });
       }
-      await supabase.from("releases").update({ requested: true }).eq("id", data.id);
+      await supabase.from("releases").update({ requested: true, ...(navMode === "sendUpload" ? { link_lbm_source: uploadSourceRef.current || null } : {}) }).eq("id", data.id);
+      uploadSent = true;
+    }
+
+    // Round 684 — "Create and send upload": same effect as SEND UPLOAD on
+    // the detail page (upload ticket + requested + link_lbm_source, then the
+    // first-time Media Booking / package ticket). Validation already passed
+    // in startCreateAndSendUpload() before we got here.
+    if (navMode === "sendUpload") {
+      if (!uploadSent) {
+        const { data: uploadTab } = await supabase.from("ticket_tabs").select("id").eq("key", "newrelease_upload").single();
+        if (uploadTab) {
+          const { data: upCreated } = await supabase.from("tickets").insert({
+            tab_id: uploadTab.id,
+            data: { releaseId: data.did, project: form.title, artist: form.main_artist, label: form.label },
+            requester_profile_id: profile?.id || null,
+          }).select("id").single();
+          if (upCreated) logTicketCreate({ actor: profile?.id, ticketId: upCreated.id });
+        }
+        await supabase.from("releases").update({ requested: true, link_lbm_source: uploadSourceRef.current || null }).eq("id", data.id);
+      }
+      const { data: mbTab } = await supabase.from("ticket_tabs").select("id, default_status").eq("key", "media_booking").single();
+      if (mbTab) {
+        const { data: mbCreated, error: mbErr } = await supabase.from("tickets").insert({
+          tab_id: mbTab.id,
+          data: { releaseId: data.did, proposedPackage: null },
+          status: mbTab.default_status,
+          status_log: { [mbTab.default_status]: new Date().toISOString() },
+          requester_segment: "AR",
+          requester_profile_id: profile?.id || null,
+        }).select("id").single();
+        if (!mbErr) {
+          if (mbCreated) logTicketCreate({ actor: profile?.id, ticketId: mbCreated.id });
+          const pkgPatch = { package_ticket_sent: true };
+          if (data.project_type === "BRIEF & DATA") pkgPatch.project_type = "SENT TO MARKETING";
+          await supabase.from("releases").update(pkgPatch).eq("id", data.id);
+        }
+      }
     }
 
     if (form.single_album_ep !== "Single" && trackRows && trackRows.length > 0) {
@@ -1390,6 +1469,14 @@ export default function NewReleasePage() {
             </button>
             <button
               type="button"
+              className={styles.btnPrimary}
+              disabled={submitting}
+              onClick={startCreateAndSendUpload}
+            >
+              {submitting ? "Đang tạo…" : "Create and send upload"}
+            </button>
+            <button
+              type="button"
               className={styles.btnSecondary}
               onClick={() => {
                 setForm(EMPTY_FORM);
@@ -1477,6 +1564,53 @@ export default function NewReleasePage() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {uploadIssues && (
+          <div
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }}
+            onClick={() => setUploadIssues(null)}
+          >
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 24, maxWidth: 520, width: "100%", maxHeight: "80vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#ff6b6b", marginBottom: 8 }}>Chưa thể gửi Upload — release chưa được tạo</div>
+              <p style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 0, marginBottom: 10 }}>Cần bổ sung các mục sau rồi bấm lại:</p>
+              <ul style={{ fontSize: 13, color: "var(--text-muted)", paddingLeft: 18, margin: "0 0 16px" }}>
+                {uploadIssues.map((m, i) => <li key={i} style={{ marginBottom: 4 }}>{m}</li>)}
+              </ul>
+              <button type="button" className={styles.btnSecondary} onClick={() => setUploadIssues(null)}>Đóng</button>
+            </div>
+          </div>
+        )}
+
+        {showUploadSourcePopup && (
+          <div
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }}
+            onClick={() => setShowUploadSourcePopup(false)}
+          >
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-strong)", borderRadius: 10, padding: 24, maxWidth: 380, width: "100%" }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Who's doing the Link LBM upload?</div>
+              <p style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 0, marginBottom: 16 }}>
+                Tạo release và gửi Upload ngay (giống bấm Send Upload ở trang chi tiết).
+              </p>
+              <div style={{ display: "flex", gap: 10 }}>
+                {[["label", "Label upload"], ["ops", "OPS upload"]].map(([k, l]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className={styles.btnPrimary}
+                    onClick={(e) => {
+                      uploadSourceRef.current = k;
+                      setShowUploadSourcePopup(false);
+                      handleSubmit({ preventDefault() {} }, "sendUpload");
+                    }}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+              <button type="button" className={styles.btnSecondary} style={{ marginTop: 14 }} onClick={() => setShowUploadSourcePopup(false)}>Cancel</button>
             </div>
           </div>
         )}
