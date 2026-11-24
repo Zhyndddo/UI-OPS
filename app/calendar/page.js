@@ -11,6 +11,7 @@ import SearchBox, { matchesQuery } from "../../lib/SearchBox";
 import styles from "../shared.module.css";
 
 import LoadingSkeleton from "../../lib/LoadingSkeleton";
+import ReleaseKanban from "../../lib/ReleaseKanban";
 // Round 172 item 3 — new sidebar entry, per explicit request: "make me a
 // new side bar item, label 'Calendar'; this is like a kanban calendar.
 // taking the result from the recent 3 weeks, last-this-next for data."
@@ -226,6 +227,7 @@ export default function CalendarPage() {
   const [teamJoins, setTeamJoins] = useState({ bookingByRelease: {}, pitchingByDid: {}, phuLucByDid: {} });
   // Round 278 — quick index search, same box/behavior as every ticket list.
   const [query, setQuery] = useState("");
+  const [view, setView] = useState("calendar");   // Round 688 — "calendar" | "kanban"
 
   const weeks = useMemo(() => {
     const thisStart = startOfWeek(new Date());
@@ -353,6 +355,14 @@ export default function CalendarPage() {
             Releases by release date — last, this, and next week, grouped by date. Each card shows its package/stage.
           </p>
 
+          <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+            {[["calendar", "Calendar"], ["kanban", "Kanban"]].map(([k, l]) => (
+              <button key={k} type="button" onClick={() => setView(k)} className={`${styles.tabBtn} ${view === k ? styles.tabBtnActive : ""}`}
+                style={{ border: view === k ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: view === k ? "rgba(255,107,26,0.1)" : "transparent" }}>{l}</button>
+            ))}
+          </div>
+
+          {view === "kanban" ? <ReleaseKanban /> : <>
           {!loading && <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />}
 
           {loading ? (
@@ -428,6 +438,7 @@ export default function CalendarPage() {
               })}
             </div>
           )}
+          </>}
         </div>
       </div>
     </AppShell>
