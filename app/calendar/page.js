@@ -218,6 +218,47 @@ function fmtRange(start, end) {
   return `${start.toLocaleDateString("vi-VN", opts)} – ${end.toLocaleDateString("vi-VN", opts)}`;
 }
 
+
+// Round 689 — one release card, shared by the week columns and the new Day view
+function ReleaseCard({ r, joins }) {
+  const dataP = computeDataProgress(r);
+  const opsP = computeOperationProgress(r);
+  const mktP = computeMarketingProgress(r, joins);
+  const legalP = computeLegalProgress(r, joins);
+  return (
+    <Link
+        href={`/releases/${r.id}`}
+      style={{
+        display: "block",
+        background: "var(--bg)",
+        border: "1px solid var(--border)",
+        borderRadius: 6,
+        padding: "8px 10px",
+        textDecoration: "none",
+        color: "var(--text)",
+      }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 700 }}>{r.title || "—"}</div>
+      <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist || "—"}</div>
+      <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{fmtDate(r.release_date)} · {r.did || "—"}</div>
+      {/* Round 410 — "fold the package name into each entry too": this
+          used to be the lane header every card sat under (project_type —
+          either the pipeline stage it's still in, or the resolved
+          package name once locked); now it's just a small tag on the
+          card itself, since cards are grouped by date instead. */}
+      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginTop: 2 }}>
+        {r.project_type || "No Package Yet"}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+        <TeamPill label="Data" percent={dataP.percent} details={dataP.details} />
+        <TeamPill label="Ops" percent={opsP.percent} details={opsP.details} />
+        <TeamPill label="Mkt" percent={mktP.percent} details={mktP.details} />
+        <TeamPill label="Legal" percent={legalP.percent} details={legalP.details} />
+      </div>
+    </Link>
+  );
+}
+
 export default function CalendarPage() {
   const [releases, setReleases] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -227,7 +268,32 @@ export default function CalendarPage() {
   const [teamJoins, setTeamJoins] = useState({ bookingByRelease: {}, pitchingByDid: {}, phuLucByDid: {} });
   // Round 278 — quick index search, same box/behavior as every ticket list.
   const [query, setQuery] = useState("");
-  const [view, setView] = useState("calendar");   // Round 688 — "calendar" | "kanban"
+  const [view, setView] = useState("calendar");   // Round 688 — "calendar" | "kanban" | "day"
+  // Round 689 — Day view: one calendar day, all its releases as cards
+  const [day, setDay] = useState(localDateStr(new Date()));
+  const [dayReleases, setDayReleases] = useState([]);
+  const [dayJoins, setDayJoins] = useState({ bookingByRelease: {}, pitchingByDid: {}, phuLucByDid: {} });
+  const [dayLoading, setDayLoading] = useState(false);
+  useEffect(() => {
+    if (view !== "day" || !supabase || !day) return;
+    let alive = true;
+    (async () => {
+      setDayLoading(true);
+      const { data } = await supabase.from("releases").select(
+        "id, did, title, main_artist, project_type, release_date, release_category, " +
+          "meta_audio, meta_artwork, meta_working_files, meta_lyric, meta_mv, meta_doc, " +
+          "gate_artist_profile, gate_artist_photo, gate_project_proposal, gate_pitching, gate_pre_order, " +
+          "link_lbm, link_share, smartlink, link_preorder, phu_luc_gia_tri, link_phu_luc, phu_luc_ngay_gui, phu_luc_ngay_ky"
+      ).is("cancelled_at", null).eq("release_date", day).order("title");
+      const rows = data || [];
+      const joins = await loadTeamJoins(rows);
+      if (!alive) return;
+      setDayReleases(rows); setDayJoins(joins); setDayLoading(false);
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, day]);
+  const shiftDay = (n) => { const [y, m, d] = day.split("-").map(Number); setDay(localDateStr(new Date(y, m - 1, d + n))); };
 
   const weeks = useMemo(() => {
     const thisStart = startOfWeek(new Date());
@@ -356,13 +422,31 @@ export default function CalendarPage() {
           </p>
 
           <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
-            {[["calendar", "Calendar"], ["kanban", "Kanban"]].map(([k, l]) => (
+            {[["calendar", "Calendar"], ["day", "Day"], ["kanban", "Kanban"]].map(([k, l]) => (
               <button key={k} type="button" onClick={() => setView(k)} className={`${styles.tabBtn} ${view === k ? styles.tabBtnActive : ""}`}
                 style={{ border: view === k ? "1px solid var(--accent)" : "1px solid var(--border)", borderRadius: 6, background: view === k ? "rgba(255,107,26,0.1)" : "transparent" }}>{l}</button>
             ))}
           </div>
 
-          {view === "kanban" ? <ReleaseKanban /> : <>
+          {view === "kanban" ? <ReleaseKanban /> : view === "day" ? (
+            <div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+                <button type="button" className={styles.btnSecondary} onClick={() => shiftDay(-1)}>‹</button>
+                <input type="date" className={styles.input} style={{ maxWidth: 170 }} value={day} onChange={(e) => e.target.value && setDay(e.target.value)} />
+                <button type="button" className={styles.btnSecondary} onClick={() => shiftDay(1)}>›</button>
+                <button type="button" className={styles.btnSecondary} onClick={() => setDay(localDateStr(new Date()))}>Hôm nay</button>
+                <span style={{ fontSize: 12, color: "var(--text-faint)" }}>{fmtDate(day)} · {dayReleases.filter((r) => matchesQuery(r, query)).length} release</span>
+              </div>
+              <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />
+              {dayLoading ? <LoadingSkeleton /> : dayReleases.filter((r) => matchesQuery(r, query)).length === 0 ? (
+                <div style={{ fontSize: 12, color: "var(--text-faint)" }}>Không có release nào trong ngày này.</div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
+                  {dayReleases.filter((r) => matchesQuery(r, query)).map((r) => <ReleaseCard key={r.id} r={r} joins={dayJoins} />)}
+                </div>
+              )}
+            </div>
+          ) : <>
           {!loading && <SearchBox value={query} onChange={setQuery} placeholder="Search this list…" />}
 
           {loading ? (
@@ -389,45 +473,7 @@ export default function CalendarPage() {
                               {date === "—" ? "No Date" : fmtDate(date)} <span style={{ fontWeight: 400 }}>({items.length})</span>
                             </div>
                             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                              {items.map((r) => {
-                                const dataP = computeDataProgress(r);
-                                const opsP = computeOperationProgress(r);
-                                const mktP = computeMarketingProgress(r, teamJoins);
-                                const legalP = computeLegalProgress(r, teamJoins);
-                                return (
-                                  <Link
-                                    key={r.id}
-                                    href={`/releases/${r.id}`}
-                                    style={{
-                                      display: "block",
-                                      background: "var(--bg)",
-                                      border: "1px solid var(--border)",
-                                      borderRadius: 6,
-                                      padding: "8px 10px",
-                                      textDecoration: "none",
-                                      color: "var(--text)",
-                                    }}
-                                  >
-                                    <div style={{ fontSize: 12, fontWeight: 700 }}>{r.title || "—"}</div>
-                                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{r.main_artist || "—"}</div>
-                                    <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{fmtDate(r.release_date)} · {r.did || "—"}</div>
-                                    {/* Round 410 — "fold the package name into each entry too": this
-                                        used to be the lane header every card sat under (project_type —
-                                        either the pipeline stage it's still in, or the resolved
-                                        package name once locked); now it's just a small tag on the
-                                        card itself, since cards are grouped by date instead. */}
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", marginTop: 2 }}>
-                                      {r.project_type || "No Package Yet"}
-                                    </div>
-                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-                                      <TeamPill label="Data" percent={dataP.percent} details={dataP.details} />
-                                      <TeamPill label="Ops" percent={opsP.percent} details={opsP.details} />
-                                      <TeamPill label="Mkt" percent={mktP.percent} details={mktP.details} />
-                                      <TeamPill label="Legal" percent={legalP.percent} details={legalP.details} />
-                                    </div>
-                                  </Link>
-                                );
-                              })}
+                              {items.map((r) => <ReleaseCard key={r.id} r={r} joins={teamJoins} />)}
                             </div>
                           </div>
                         ))}
