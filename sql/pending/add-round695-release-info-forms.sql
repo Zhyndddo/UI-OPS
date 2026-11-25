@@ -15,4 +15,6 @@ create table if not exists public.release_info_forms (
 alter table public.release_info_forms enable row level security;
 revoke all on public.release_info_forms from anon, authenticated;
 grant all on public.release_info_forms to service_role;
+-- Round 696 — links of the generated PDF / .docx saved in the product's Drive Data folder
+alter table public.release_info_forms add column if not exists docs jsonb not null default '{}'::jsonb;
 -- VERIFY: select count(*) from public.release_info_forms;

@@ -12,6 +12,13 @@ export const dynamic = "force-dynamic";
 const noStore = { "Cache-Control": "no-store" };
 const bad = (error, status = 400) => NextResponse.json({ error }, { status, headers: noStore });
 
+// genre choices = the same list the app uses for a release's Thể loại (Config > lookup_options, category "genre")
+async function genreOptions() {
+  try {
+    const { data } = await supabaseAdmin.from("lookup_options").select("value, label").eq("category", "genre").eq("active", true).order("sort_order");
+    return (data || []).map((r) => ({ value: r.value, label: r.label || r.value })).filter((r) => r.value);
+  } catch { return []; }
+}
 async function loadRelease(id) {
   const { data } = await supabaseAdmin.from("releases").select("id, title, main_artist, publishing_composer, release_date").eq("id", id).maybeSingle();
   return data || null;
@@ -30,7 +37,7 @@ export async function GET(request) {
     const { data } = await supabaseAdmin.from("release_info_forms").select("answers, status").eq("release_id", id).maybeSingle();
     if (data) saved = { answers: data.answers, status: data.status };
   } catch { /* SQL not run yet */ }
-  return NextResponse.json({ release: { title: rel.title || "", performer: rel.main_artist || "", composer: rel.publishing_composer || "", release_date: rel.release_date || "" }, saved }, { headers: noStore });
+  return NextResponse.json({ release: { title: rel.title || "", performer: rel.main_artist || "", composer: rel.publishing_composer || "", release_date: rel.release_date || "" }, saved, genres: await genreOptions() }, { headers: noStore });
 }
 
 export async function POST(request) {
@@ -43,6 +50,8 @@ export async function POST(request) {
   if (!id || !(await loadRelease(id))) return bad("Link không hợp lệ.", 404);
   const c = cleanReleaseInfo(b?.answers);
   if (!c.ok) return bad(c.error);
+  const opts = await genreOptions();
+  if (opts.length && c.data.genres.some((g) => !opts.some((o) => o.value === g))) return bad("Thể loại phải chọn từ danh sách.");
   const now = new Date().toISOString();
   const { error } = await supabaseAdmin.from("release_info_forms").upsert({ release_id: id, answers: c.data, status: "submitted", source: "demo", contact_email: c.data.contact_email || null, submitted_at: now, updated_at: now }, { onConflict: "release_id" });
   if (error) return bad(/relation|schema cache|does not exist/i.test(error.message || "") ? "Chưa chạy SQL của Round 695." : "Không lưu được. Vui lòng thử lại.", 500);
