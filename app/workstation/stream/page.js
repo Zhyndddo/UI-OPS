@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import AppShell from "../../../lib/AppShell";
 import { supabase } from "../../../lib/supabaseClient";
@@ -81,6 +81,12 @@ export default function StreamWorkstation() {
   const [monthlySearch, setMonthlySearch] = useState(""); // Monthly tab only — title/artist/DID, so an old entry can be found without scrolling every month
   const [expandedMonths, setExpandedMonths] = useState(() => new Set());
   const [loadingMonths, setLoadingMonths] = useState(() => new Set());
+  // Round 690 — EP / Album tracks: one metrics row per track; the product row is the sum of its tracks
+  const [tracksByRelease, setTracksByRelease] = useState({});   // release_id -> [release_tracks rows]
+  const [trackMetrics, setTrackMetrics] = useState({});          // track_id -> release_track_stream_metrics row
+  const tracksByReleaseRef = useRef({}); tracksByReleaseRef.current = tracksByRelease;
+  const trackMetricsRef = useRef({}); trackMetricsRef.current = trackMetrics;
+  const metricsByReleaseRef = useRef({}); metricsByReleaseRef.current = metricsByRelease;
   const loadedReleaseIdsRef = useRef(new Set()); // ref, not state — needs synchronous dedup checks across rapid calls (search firing several at once)
   const restoredExpandedRef = useRef(false); // only ever restore session state once, right after releases first load
 
@@ -101,7 +107,7 @@ export default function StreamWorkstation() {
     // pulling in bulk.
     const [{ data: rels }, { data: supp }, { data: profs }, { data: assigns }] = await Promise.all([
       fetchAllRows(() =>
-        supabase.from("releases").select("id, did, title, main_artist, release_date, upc, isrc, smartlink, label").is("cancelled_at", null).order("id")
+        supabase.from("releases").select("id, did, title, main_artist, release_date, upc, isrc, smartlink, label, single_album_ep").is("cancelled_at", null).order("id")
       ),
       supabase.from("release_stream_metrics").select("*").is("release_id", null).order("manual_release_date", { ascending: false }),
       // Round 458 — PIC tracking, see state comment above.
@@ -187,6 +193,7 @@ export default function StreamWorkstation() {
       const { data } = await supabase.from("release_stream_metrics").insert(stillMissing.map((release_id) => ({ release_id }))).select();
       created = data || [];
     }
+    await loadTrackRows(missing);
     if (found.size > 0 || created.length > 0) {
       setMetricsByRelease((prev) => {
         const next = { ...prev };
@@ -195,6 +202,40 @@ export default function StreamWorkstation() {
         return next;
       });
     }
+  }
+
+  // Round 690 — tracks of the given releases + their metrics rows (created on first sight). Silently skipped if the
+  // add-round690 SQL has not been run yet, so the page keeps working exactly as before until then.
+  async function loadTrackRows(releaseIds) {
+    try {
+      const { data: tracks, error } = await supabase.from("release_tracks").select("id, release_id, sort_order, track_name, main_artist, feature_artist").in("release_id", releaseIds).order("sort_order");
+      if (error || !tracks?.length) return;
+      const withTracks = [...new Set(tracks.map((t) => t.release_id))];
+      const { data: rows, error: e2 } = await supabase.from("release_track_stream_metrics").select("*").in("release_id", withTracks);
+      if (e2) return;
+      const have = new Map((rows || []).map((m) => [m.track_id, m]));
+      const todo = tracks.filter((t) => !have.has(t.id));
+      let created = [];
+      if (todo.length) {
+        const ins = await supabase.from("release_track_stream_metrics").insert(todo.map((t) => ({ track_id: t.id, release_id: t.release_id }))).select();
+        created = ins.data || [];
+      }
+      setTracksByRelease((prev) => { const next = { ...prev }; withTracks.forEach((rid) => { next[rid] = tracks.filter((t) => t.release_id === rid); }); return next; });
+      setTrackMetrics((prev) => { const next = { ...prev }; have.forEach((m, tid) => { next[tid] = m; }); created.forEach((m) => { next[m.track_id] = m; }); return next; });
+    } catch (e) { /* tracks are a bonus — never break the page */ }
+  }
+
+  // Saves one track's number, then rolls the column up into the product row (release_stream_metrics) so everything that
+  // reads the product row (media report, pick-package, performance report, Auto note) sees the sum of the tracks.
+  async function updateTrackMetric(tm, field, value) {
+    const patch = { [field]: value, updated_at: new Date().toISOString() };
+    setTrackMetrics((prev) => ({ ...prev, [tm.track_id]: { ...prev[tm.track_id], ...patch } }));
+    const { error } = await supabase.from("release_track_stream_metrics").update(patch).eq("id", tm.id);
+    if (error) { window.alert(`Couldn't save the track number — ${error.message}`); return; }
+    const tracks = tracksByReleaseRef.current[tm.release_id] || [];
+    const sum = tracks.reduce((a, t) => a + (Number(t.id === tm.track_id ? value : trackMetricsRef.current[t.id]?.[field]) || 0), 0);
+    const parent = metricsByReleaseRef.current[tm.release_id];
+    if (parent?.id) await updateMetric(parent, field, sum > 0 ? String(sum) : "", false);
   }
 
   function persistExpandedMonths(set) {
@@ -393,6 +434,9 @@ export default function StreamWorkstation() {
                 picDefaults={picDefaults}
                 picProfiles={picProfiles}
                 onUpdatePics={updatePics}
+                tracksByRelease={tracksByRelease}
+                trackMetrics={trackMetrics}
+                onUpdateTrack={updateTrackMetric}
               />
             )
           ) : tab === "monthly" ? (
@@ -463,6 +507,9 @@ export default function StreamWorkstation() {
                               picDefaults={picDefaults}
                               picProfiles={picProfiles}
                               onUpdatePics={updatePics}
+                              tracksByRelease={tracksByRelease}
+                              trackMetrics={trackMetrics}
+                              onUpdateTrack={updateTrackMetric}
                             />
                           )
                         )}
@@ -536,7 +583,7 @@ function handleMetricBlur(row, key, e, onUpdate) {
   onUpdate(row, key, newValue);
 }
 
-function StreamTable({ rows: rawRows, onUpdate, onRemove, onLink, manual, picAssignments, picDefaults, picProfiles, onUpdatePics }) {
+function StreamTable({ rows: rawRows, onUpdate, onRemove, onLink, manual, picAssignments, picDefaults, picProfiles, onUpdatePics, tracksByRelease, trackMetrics, onUpdateTrack }) {
   // Round 631 — click the Release header to sort by release date (default: furthest in the future first).
   const datedRows = useMemo(() => rawRows.map((r) => ({ ...r, release_date: r.release?.release_date || r.metrics?.manual_release_date || null })), [rawRows]);
   const { sorted: rows, sort, toggleSort, resetSort, isDefault } = useSortableRows(datedRows);
@@ -575,8 +622,12 @@ function StreamTable({ rows: rawRows, onUpdate, onRemove, onLink, manual, picAss
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => (
-            <tr key={row.release?.id || row.metrics.id || i}>
+          {rows.map((row, i) => {
+            const trackList = row.release?.id ? (tracksByRelease?.[row.release.id] || []) : [];
+            const hasTracks = trackList.length > 0 && !!trackMetrics;
+            return (
+            <Fragment key={row.release?.id || row.metrics.id || i}>
+            <tr>
               <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", padding: "4px 10px", width: 300, minWidth: 300, maxWidth: 300 }}>
                 {manual ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -613,12 +664,18 @@ function StreamTable({ rows: rawRows, onUpdate, onRemove, onLink, manual, picAss
               </td>
               {ALL_METRIC_KEYS.map((key) => (
                 <td key={key} style={{ padding: "3px 4px", borderLeft: GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>
+                  {hasTracks ? (
+                    <span title="Tổng của các track bên dưới (tự cộng)" style={{ display: "inline-block", minWidth: 80, padding: "3px 6px", fontSize: 11, fontWeight: 700, color: "var(--text)" }}>
+                      {row.metrics[key] ? `Σ ${row.metrics[key]}` : <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>Σ —</span>}
+                    </span>
+                  ) : (
                   <input
                     className={styles.input}
                     style={{ padding: "3px 6px", fontSize: 11, width: 80 }}
                     defaultValue={row.metrics[key] || ""}
                     onBlur={(e) => handleMetricBlur(row, key, e, onUpdate)}
                   />
+                  )}
                 </td>
               ))}
               <td style={{ minWidth: 140, padding: "3px 4px" }}>
@@ -637,7 +694,36 @@ function StreamTable({ rows: rawRows, onUpdate, onRemove, onLink, manual, picAss
                 </td>
               )}
             </tr>
-          ))}
+            {hasTracks && trackList.map((t) => {
+              const tm = trackMetrics[t.id];
+              return (
+                <tr key={t.id}>
+                  <td style={{ position: "sticky", left: 0, zIndex: 1, background: "var(--bg)", borderRight: "2px solid var(--accent)", padding: "3px 10px 3px 26px", width: 300, minWidth: 300, maxWidth: 300 }}>
+                    <div style={{ fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "var(--text-muted)" }}>
+                      └ #{t.sort_order || "·"} {t.track_name || "(chưa đặt tên)"}
+                      <span style={{ color: "var(--text-faint)" }}>{t.main_artist ? ` — ${t.main_artist}` : ""}</span>
+                    </div>
+                  </td>
+                  <td />
+                  {ALL_METRIC_KEYS.map((key) => (
+                    <td key={key} style={{ padding: "3px 4px", borderLeft: GROUP_START_KEYS.has(key) ? "1px solid var(--border)" : undefined }}>
+                      {tm ? (
+                        <input
+                          className={styles.input}
+                          style={{ padding: "3px 6px", fontSize: 11, width: 80 }}
+                          defaultValue={tm[key] || ""}
+                          onBlur={(e) => { if (e.target.value !== (tm[key] || "")) onUpdateTrack(tm, key, e.target.value); }}
+                        />
+                      ) : null}
+                    </td>
+                  ))}
+                  <td />
+                </tr>
+              );
+            })}
+            </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>
