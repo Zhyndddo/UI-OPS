@@ -32,7 +32,7 @@ async function archiveToDrive(profileId, photo) {
   if (!url || !secret || !m) return null;
   const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
-    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ secret, filename: `noel-wish-${profileId}-${Date.now()}.jpg`, mimeType: "image/jpeg", dataBase64: m[1] }), redirect: "follow", signal: ctrl.signal });
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ secret, filename: `noel-wish-${profileId}-${Date.now()}.jpg`, mimeType: "image/jpeg", subfolder: "noel-wishes", dataBase64: m[1] }), redirect: "follow", signal: ctrl.signal });
     const j = await res.json().catch(() => null);
     return j?.ok ? j.url || null : null;
   } catch { return null; } finally { clearTimeout(timer); }

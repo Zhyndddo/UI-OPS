@@ -486,6 +486,14 @@ export default function NewReleasePage() {
     // Round 281 — audit log / requester attribution
     logAudit({ actor: profile?.id, action: "create", entity: "release", entityId: data.id });
 
+    // Round 693 — auto-create the Drive folder set (SINGLE / EP-ALBUM > year > month > product > Data/ARTWORK/AUDIO) and fill Link Drive when empty.
+    // Fire-and-forget: a Drive problem must never block the release. The release page has a "Create Drive folder" button as the retry.
+    if (!String(payload.drive_link || "").trim() && String(payload.release_date || "").trim()) {   // no release date -> no folder (add the date, then use the button on the release page)
+      supabase.auth.getSession().then(({ data: sd }) =>
+        fetch("/api/release-drive-folder", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sd?.session?.access_token || ""}` }, body: JSON.stringify({ releaseId: data.id }) })
+      ).catch((e) => console.error("release-drive-folder failed:", e));
+    }
+
     // Round 409 — created straight into Category "Remarketing". Fire-and-
     // forget, same as every other side-effect ticket creation in this
     // function — a failure here must never block the release from having

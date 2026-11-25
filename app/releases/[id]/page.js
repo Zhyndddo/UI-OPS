@@ -1754,6 +1754,20 @@ export default function ReleaseDetailPage() {
   // only updateProjectRightsType — that column is still READ (as a
   // fallback for releases not yet backfilled, see effectiveReleaseTags)
   // but no longer written from here; new edits only ever go to `tags`.
+  // Round 693 — builds the Drive folder set for this release (only when Link Drive is empty) and fills the field.
+  const [creatingDrive, setCreatingDrive] = useState(false);
+  async function createDriveFolder() {
+    setCreatingDrive(true);
+    try {
+      const { data: sd } = await supabase.auth.getSession();
+      const res = await fetch("/api/release-drive-folder", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sd?.session?.access_token || ""}` }, body: JSON.stringify({ releaseId: Number(id) }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) { alert(j.error || "Could not create the Drive folder."); return; }
+      setForm((f) => (f ? { ...f, drive_link: j.url } : f));
+    } catch (e) { alert("Could not create the Drive folder: " + (e?.message || e)); }
+    finally { setCreatingDrive(false); }
+  }
+
   async function updateReleaseTags(nextTags) {
     const prevLbl = getCategoryTag(effectiveReleaseTags(form), "LBL");
     const nextLbl = getCategoryTag(nextTags, "LBL");
@@ -2047,6 +2061,11 @@ export default function ReleaseDetailPage() {
               )}
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <LinkPill label="Link Drive" href={firstUrl(form.drive_link)} />
+                {!String(form.drive_link || "").trim() && (
+                  <button type="button" disabled={creatingDrive} onClick={createDriveFolder} style={{ fontSize: 12, padding: "2px 8px", borderRadius: 6, border: "1px solid #3b5bdb", background: "transparent", color: "#8fa8ff", cursor: "pointer" }}>
+                    {creatingDrive ? "Creating…" : "Create Drive folder"}
+                  </button>
+                )}
                 <span style={{ color: "#444" }}>|</span>
                 <LinkPill label="Smartlink" href={firstUrl(form.smartlink)} />
                 <span style={{ color: "#444" }}>|</span>
