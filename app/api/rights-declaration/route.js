@@ -14,6 +14,7 @@ import { cleanDeclaration, RIGHTS, PDF_MW, PDF_MH_HOLDER, HOLDER_BOX } from "../
 import { textKey, artistKeyOf, maskEmail } from "../../../lib/rightsKey";
 import { logRights, ensureRightsTicket } from "../../../lib/rightsLog";
 import { countHits, addHit, clientIp } from "../../../lib/eventRateLimit";
+import { cleanReleaseInfo } from "../../../lib/releaseInfoForm";
 
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
@@ -206,6 +207,19 @@ export async function POST(request) {
   const v = cleanDeclaration(body.form);
   if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400, headers: noStore });
   const d = v.data;
+  // Round 698 — combined page: the release-info answers travel with the declaration (one email code, one submit). Checked BEFORE anything is stored.
+  let info = null;
+  if (body.info) {
+    const ci = cleanReleaseInfo({ ...body.info, song_title: d.song_title, performer: d.performer, composer: d.composer, producer: d.producer, mixer: d.mixer, contact_email: d.contact_email });
+    if (!ci.ok) return NextResponse.json({ error: ci.error }, { status: 400, headers: noStore });
+    try {
+      const { data: gl } = await supabaseAdmin.from("lookup_options").select("value").eq("category", "genre").eq("active", true);
+      const vals = (gl || []).map((r) => r.value);
+      if (vals.length && ci.data.genres.some((g) => !vals.includes(g))) return NextResponse.json({ error: "Thể loại phải chọn từ danh sách." }, { status: 400, headers: noStore });
+    } catch (e) { /* list unavailable: skip */ }
+    info = ci.data;
+  }
+  const infoDraft = info && !rel ? info : null;   // Round 699: blank form, song not linked to a product yet -> kept on the declaration until AR links it
   // Round 639: the submit must carry the signed evidence record from the email-code step, for exactly this form content + email
   const au = unsign(body.auditToken, "audit");
   if (!au || au.x < Date.now() || au.form_hash !== formHash(d) || au.email !== d.contact_email.toLowerCase()) return fail("Chưa xác minh email, hoặc nội dung đã thay đổi sau khi xác minh. Vui lòng bấm gửi lại để nhận mã mới.", 400);
@@ -287,7 +301,7 @@ export async function POST(request) {
     id, holder_name: d.holder_name || null, holder_email: d.holder_email || null, sign_request_id: sign.id, sign_status: sign.status, sign_test: sign.test, sign_provider: sign.provider,
     release_id: rel?.id || null, song_title: d.song_title, composer: d.composer, performer: d.performer, producer: d.producer, mixer: d.mixer,
     owned: d.owned, licensed: d.licensed, licensed_until: d.licensed_until, contact_email: d.contact_email || null, proof: d.proof || null, platforms: d.platforms || null, platforms_note: d.platforms_note || null,
-    term: d.term, term_note: d.term_note || null, signer_name: d.signer_name, pdf_url: null,
+    term: d.term, term_note: d.term_note || null, signer_name: d.signer_name, pdf_url: null, ...(infoDraft ? { info: infoDraft } : {}),
     title_key: tk, artist_key: ak, change_reason: replaced ? reason : null,
     verify_audit: (({ x, ...rest }) => ({ ...rest, submit_ip: ip, submit_at: new Date().toISOString() }))(au),
     pdf_sha256: b64 ? sha256Hex(Buffer.from(b64, "base64")) : null, consent_at: au.consent_at,
@@ -296,13 +310,20 @@ export async function POST(request) {
   // Round 637 hotfix: if the Round 637 SQL has not been run yet (unknown column), save without the two new fields instead of failing.
   if (error && /licensed_until|contact_email|schema cache|column/i.test(error.message || "")) {
     const old = { ...row };
-    for (const k of ["licensed_until", "contact_email", "holder_name", "holder_email", "sign_request_id", "sign_status", "sign_test", "sign_provider", "verify_audit", "pdf_sha256", "consent_at", "title_key", "artist_key", "change_reason"]) delete old[k];
+    for (const k of ["licensed_until", "contact_email", "holder_name", "holder_email", "sign_request_id", "sign_status", "sign_test", "sign_provider", "verify_audit", "pdf_sha256", "consent_at", "title_key", "artist_key", "change_reason", "info"]) delete old[k];
     ({ error } = await supabaseAdmin.from("rights_declarations").insert(old));
   }
   if (error) {
     console.error("[rights-declaration] insert failed:", error.message);
     const missing = /relation .* does not exist|schema cache/i.test(error.message || "");
     return NextResponse.json({ error: missing ? "Hệ thống chưa sẵn sàng (thiếu bảng dữ liệu). Vui lòng báo VIEENT." : "Không lưu được. Vui lòng thử lại." }, { status: 500, headers: noStore });
+  }
+  if (info && rel) {   // the info row is written once the declaration itself is stored; a failure here never loses the declaration
+    try {
+      const now = new Date().toISOString();
+      const { error: ie } = await supabaseAdmin.from("release_info_forms").upsert({ release_id: rel.id, answers: info, status: "submitted", source: body.infoDemo ? "demo" : "public", contact_email: d.contact_email || null, submitted_at: now, updated_at: now }, { onConflict: "release_id" });
+      if (ie) console.error("[rights-declaration] info save failed:", ie.message);
+    } catch (e) { console.error("[rights-declaration] info save failed:", e.message); }
   }
   // Round 645 — the old declaration is kept (status "superseded", never deleted); the song's ticket is created or REOPENED; everything is logged
   if (replaced) await supabaseAdmin.from("rights_declarations").update({ status: "superseded", replaced_by: id, replace_reason: replaced.replace_reason || null }).eq("id", replaced.id);
@@ -335,7 +356,7 @@ export async function POST(request) {
     try {
       await m.transport.sendMail({
         from: m.from, replyTo: d.contact_email || m.replyTo, to,
-        subject: `[Khai báo bản quyền] ${replaced ? "THAY THẾ — " : ""}${d.song_title} — ${d.performer || ""}`.slice(0, 170),
+        subject: `${body.infoDemo ? "[DEMO] " : ""}[Khai báo bản quyền] ${replaced ? "THAY THẾ — " : ""}${d.song_title} — ${d.performer || ""}`.slice(0, 170),
         html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p>Có khai báo bản quyền ${replaced ? "<b>thay thế khai báo cũ</b> " : "mới "}cho ca khúc <b>${esc(d.song_title)}</b>${d.performer ? ` — ${esc(d.performer)}` : ""}.</p>${rightsText({ ...row, id, created_at: new Date().toISOString() })}<p>Người ký: <b>${esc(d.signer_name)}</b> · Email: ${esc(d.contact_email || "—")}${replaced ? `<br>Lý do thay đổi: ${esc(reason)}` : ""}</p><p><a href="${esc(siteOrigin(request))}/tickets/khai-bao-ban-quyen">Mở ticket Khai báo bản quyền</a></p><p style="font-size:12px;color:#666">Email xác minh bằng mã lúc ${esc(au.verified_at)} · IP ${esc(au.ip)}</p></div>`,
         attachments: b64 ? [{ filename: "Khai-bao-ban-quyen.pdf", content: Buffer.from(b64, "base64"), contentType: "application/pdf" }] : [],
       });

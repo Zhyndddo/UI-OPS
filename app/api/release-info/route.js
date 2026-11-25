@@ -29,6 +29,7 @@ export async function GET(request) {
   const ip = clientIp(request);
   if (countHits("ri-get:" + ip) >= 60) return bad("Quá nhiều lượt truy cập. Thử lại sau ít phút.", 429);
   addHit("ri-get:" + ip);
+  if (new URL(request.url).searchParams.get("genres") === "1") return NextResponse.json({ genres: await genreOptions() }, { headers: noStore });   // Round 699: blank form needs the list before any product is linked
   const id = readRightsToken(new URL(request.url).searchParams.get("token"));
   const rel = id ? await loadRelease(id) : null;
   if (!rel) return bad("not_found", 404);

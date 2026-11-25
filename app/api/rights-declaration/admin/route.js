@@ -12,6 +12,8 @@ import { rightsMailer } from "../../../../lib/mailer";
 import { makeHolderLink, sendHolderMail, siteOrigin } from "../../../../lib/rightsHolder";
 import { textKey, artistKeyOf, maskEmail } from "../../../../lib/rightsKey";
 import { logRights, setRightsTicketStatus } from "../../../../lib/rightsLog";
+import { createReleaseFolder } from "../../../../lib/releaseDriveFolder";
+import { saveInfoDocs } from "../../../../lib/releaseInfoDocsSave";
 
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
@@ -159,6 +161,18 @@ export async function POST(request) {
   const { error } = await supabaseAdmin.from("releases").update({ rights_declaration: decl, copyright_checklist: cl }).eq("id", rel.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500, headers: noStore });
   await supabaseAdmin.from("rights_declarations").update({ status: "confirmed", release_id: rel.id, confirmed_by: me.id, confirmed_at: now }).eq("id", row.id);
+  // Round 699 — handout info sent from the blank form (song was not linked yet): now it belongs to this product. Never overwrites a handout the product already has.
+  if (row.info && typeof row.info === "object") {
+    try {
+      const { data: have } = await supabaseAdmin.from("release_info_forms").select("release_id").eq("release_id", rel.id).maybeSingle();
+      if (!have) {
+        await supabaseAdmin.from("release_info_forms").insert({ release_id: rel.id, answers: row.info, status: "submitted", source: "public", contact_email: row.contact_email || null, submitted_at: row.created_at || now, updated_at: now });
+        await createReleaseFolder(supabaseAdmin, rel.id);   // refuses by itself without a release date
+        const sv = await saveInfoDocs(supabaseAdmin, rel.id, row.info);
+        if (sv.docs && Object.keys(sv.docs).length) await supabaseAdmin.from("release_info_forms").update({ docs: sv.docs }).eq("release_id", rel.id);
+      }
+    } catch (e) { console.error("[rights-admin] handout copy failed:", e.message); }
+  }
   if (row.ticket_id) await setRightsTicketStatus(supabaseAdmin, row.ticket_id, "COMPLETE");
   await lg("confirmed", { detail: { release_id: rel.id } });
   return NextResponse.json({ ok: true }, { headers: noStore });
