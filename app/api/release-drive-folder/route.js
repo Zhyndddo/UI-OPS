@@ -12,8 +12,8 @@ export async function POST(request) {
   const caller = await getCallerProfile(request);
   if (!caller) return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
   let b = null; try { b = await request.json(); } catch { /* below */ }
-  const releaseId = Number(b?.releaseId);
-  if (!releaseId) return NextResponse.json({ ok: false, error: "releaseId missing." }, { status: 400 });
+  const releaseId = String(b?.releaseId || "");   // releases.id is a UUID
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(releaseId)) return NextResponse.json({ ok: false, error: "releaseId missing." }, { status: 400 });
   const r = await createReleaseFolder(supabaseAdmin, releaseId);
   return NextResponse.json(r, { status: r.ok ? 200 : r.code === "drive" ? 502 : 400 });
 }

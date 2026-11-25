@@ -1760,7 +1760,7 @@ export default function ReleaseDetailPage() {
     setCreatingDrive(true);
     try {
       const { data: sd } = await supabase.auth.getSession();
-      const res = await fetch("/api/release-drive-folder", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sd?.session?.access_token || ""}` }, body: JSON.stringify({ releaseId: Number(id) }) });
+      const res = await fetch("/api/release-drive-folder", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sd?.session?.access_token || ""}` }, body: JSON.stringify({ releaseId: String(id) }) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || !j.ok) { alert(j.error || "Could not create the Drive folder."); return; }
       setForm((f) => (f ? { ...f, drive_link: j.url } : f));
