@@ -3443,6 +3443,25 @@ function TracklistSection({ releaseId, showCopyright = false, onCopyrightChange 
     if (field === "copyright_checklist") onCopyrightChange?.(); // Round 105 — keeps Send Upload's gate live
   }
 
+  // Round 695 — drag a track by its ☰ handle to re-order. Numbers are re-written 1..n (only the rows whose number changed are saved).
+  const [dragId, setDragId] = useState(null);
+  const [overId, setOverId] = useState(null);
+  async function dropTrack(targetId) {
+    const from = dragId;
+    setDragId(null); setOverId(null);
+    if (from == null || from === targetId) return;
+    const list = [...tracks];
+    const fi = list.findIndex((t) => t.id === from), ti = list.findIndex((t) => t.id === targetId);
+    if (fi < 0 || ti < 0) return;
+    const [moved] = list.splice(fi, 1);
+    list.splice(ti, 0, moved);
+    const next = list.map((t, i) => ({ ...t, sort_order: i + 1 }));
+    const changed = next.filter((t) => tracks.find((o) => o.id === t.id)?.sort_order !== t.sort_order);
+    setTracks(next);
+    const results = await Promise.all(changed.map((t) => supabase.from("release_tracks").update({ sort_order: t.sort_order }).eq("id", t.id)));
+    if (results.some((r) => r.error)) { alert("Could not save the new track order. Reloading."); load(); }
+  }
+
   async function removeTrack(track) {
     if (!window.confirm(`Remove "${track.track_name || "this track"}"?`)) return;
     setTracks((prev) => prev.filter((t) => t.id !== track.id));
@@ -3496,10 +3515,27 @@ function TracklistSection({ releaseId, showCopyright = false, onCopyrightChange 
         />
       )}
       {tracks.length === 0 && <p style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 10 }}>No tracks added yet.</p>}
-      {tracks.map((t) => (
-        <div key={t.id} style={{ marginBottom: showCopyright ? 16 : 8 }}>
+      {tracks.map((t, idx) => (
+        <div
+          key={t.id}
+          data-trackrow="1"
+          onDragOver={(e) => { if (dragId != null) { e.preventDefault(); if (overId !== t.id) setOverId(t.id); } }}
+          onDrop={(e) => { e.preventDefault(); dropTrack(t.id); }}
+          style={{ marginBottom: showCopyright ? 16 : 8, opacity: dragId === t.id ? 0.45 : 1, borderTop: overId === t.id && dragId != null && dragId !== t.id ? "2px solid var(--accent, #ff6a00)" : "2px solid transparent" }}
+        >
           <div style={{ display: "grid", gridTemplateColumns: "50px 2fr 1.5fr 1.5fr 32px", gap: 8, alignItems: "center" }}>
-            <div style={{ fontSize: 12, color: "var(--text-faint)", textAlign: "center" }}>#{t.sort_order}</div>
+            <div style={{ fontSize: 12, color: "var(--text-faint)", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+              {tracks.length > 1 && (
+                <span
+                  draggable
+                  title="Drag to re-order"
+                  onDragStart={(e) => { setDragId(t.id); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", String(t.id)); const row = e.currentTarget.closest("[data-trackrow]"); if (row) e.dataTransfer.setDragImage(row, 20, 20); } catch (err) { /* some browsers refuse */ } }}
+                  onDragEnd={() => { setDragId(null); setOverId(null); }}
+                  style={{ cursor: "grab", fontSize: 15, lineHeight: 1, userSelect: "none", padding: "2px 2px" }}
+                >☰</span>
+              )}
+              #{idx + 1}
+            </div>
             <input
               className={styles.input}
               value={t.track_name || ""}
