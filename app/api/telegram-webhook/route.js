@@ -95,7 +95,7 @@ export async function POST(request) {
       if (res.markup && cb.message) await tg("editMessageReplyMarkup", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, reply_markup: res.markup });
       if (res.send && cb.message) await sendPaged(supabaseAdmin, token, { chat_id: cb.message.chat.id, thread_id: cb.message.is_topic_message && cb.message.message_thread_id ? cb.message.message_thread_id : null }, res.send, { html: true });
       if (res.dm) await sendPaged(supabaseAdmin, token, { chat_id: res.dm.chat }, res.dm.text, { html: true });
-      if (res.edit && cb.message) await tg("editMessageText", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, text: res.edit, parse_mode: "HTML", disable_web_page_preview: true });
+      if (res.edit && cb.message) await tg("editMessageText", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, text: res.edit, parse_mode: "HTML", disable_web_page_preview: true, ...(res.editMarkup ? { reply_markup: res.editMarkup } : {}) });
     } catch (e) { await tg("answerCallbackQuery", { callback_query_id: cb.id, text: "Lỗi, thử lại." }); }
     return NextResponse.json({ ok: true });
   }
