@@ -1,6 +1,6 @@
 // Round 695 — release-info form API (PUBLIC, per-release signed link, same token as /khai-bao).
 //   GET  ?token=...          -> { release:{ title, performer, composer, release_date }, saved: {answers,status}|null }
-//   POST { token, answers }  -> cleans + saves one row per release (release_info_forms). DEMO: source "demo".
+//   POST { token, answers, demo? } -> cleans + saves one row per release (release_info_forms). source = "demo" (/khai-bao-demo) or "public" (demo:false from /khai-bao/<token>/thong-tin).
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { readRightsToken } from "../../../lib/rightsToken";
@@ -53,7 +53,7 @@ export async function POST(request) {
   const opts = await genreOptions();
   if (opts.length && c.data.genres.some((g) => !opts.some((o) => o.value === g))) return bad("Thể loại phải chọn từ danh sách.");
   const now = new Date().toISOString();
-  const { error } = await supabaseAdmin.from("release_info_forms").upsert({ release_id: id, answers: c.data, status: "submitted", source: "demo", contact_email: c.data.contact_email || null, submitted_at: now, updated_at: now }, { onConflict: "release_id" });
+  const { error } = await supabaseAdmin.from("release_info_forms").upsert({ release_id: id, answers: c.data, status: "submitted", source: b?.demo === false ? "public" : "demo", contact_email: c.data.contact_email || null, submitted_at: now, updated_at: now }, { onConflict: "release_id" });
   if (error) return bad(/relation|schema cache|does not exist/i.test(error.message || "") ? "Chưa chạy SQL của Round 695." : "Không lưu được. Vui lòng thử lại.", 500);
   return NextResponse.json({ ok: true, answers: c.data }, { headers: noStore });
 }

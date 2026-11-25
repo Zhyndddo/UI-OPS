@@ -55,12 +55,14 @@ import { RELEASE_CRITICAL_FIELDS, notifyReleaseCriticalChange } from "../../../l
 // above. See its own header comment for the full behavior.
 import { ensureRemarketingIntPackage } from "../../../lib/remarketingIntPackage";
 import RightsDeclarationBlock from "../../../lib/RightsDeclarationBlock";
+import { ReleaseInfoPanel } from "../../../lib/ReleaseInfoBoard";
 import styles from "../../shared.module.css";
 
 import LoadingSkeleton from "../../../lib/LoadingSkeleton";
 const TABS = [
   { key: "overview", label: "Tổng Hợp" },
   { key: "copyrights", label: "Copyrights" },
+  { key: "info", label: "Hồ sơ phát hành" },   // Round 697 — step-2 release info form (answers, files, docs, AR confirm)
   { key: "url", label: "URL" },
   { key: "media_booking", label: "Media Booking" },
   { key: "pitching", label: "Pitching" },
@@ -2178,6 +2180,7 @@ export default function ReleaseDetailPage() {
             saveFullyHeld={saveFullyHeld}
           />
         )}
+        {tab === "info" && <ReleaseInfoPanel releaseId={id} />}
         {tab === "url" && <UrlTab form={form} update={update} onSave={saveTab} saving={saving} did={form.did} releaseId={id} />}
         {tab === "media_booking" && (
           <MediaBookingTab

@@ -17,4 +17,7 @@ revoke all on public.release_info_forms from anon, authenticated;
 grant all on public.release_info_forms to service_role;
 -- Round 696 — links of the generated PDF / .docx saved in the product's Drive Data folder
 alter table public.release_info_forms add column if not exists docs jsonb not null default '{}'::jsonb;
+-- Round 697 — AR confirmation
+alter table public.release_info_forms add column if not exists confirmed_at timestamptz;
+alter table public.release_info_forms add column if not exists confirmed_by_name text;
 -- VERIFY: select count(*) from public.release_info_forms;
