@@ -60,6 +60,10 @@ const GROUP_START_KEYS = new Set(METRIC_GROUPS.map(([, fields]) => fields[0][0])
 // "ran as much table as needed" — while a fresh session always starts
 // fully collapsed ("otherwise just normal").
 const STREAM_EXPANDED_MONTHS_KEY = "vieent_stream_expanded_months";
+// Round 691 — which EP/Album rows have their track sub-rows folded (this browser session only)
+const STREAM_COLLAPSED_TRACKS_KEY = "vieent_stream_collapsed_tracks";
+const readCollapsed = () => { try { return new Set(JSON.parse(window.sessionStorage.getItem(STREAM_COLLAPSED_TRACKS_KEY) || "[]")); } catch { return new Set(); } };
+const writeCollapsed = (set) => { try { window.sessionStorage.setItem(STREAM_COLLAPSED_TRACKS_KEY, JSON.stringify([...set])); } catch {} };
 
 export default function StreamWorkstation() {
   const { profile } = useAuth();
@@ -587,7 +591,30 @@ function StreamTable({ rows: rawRows, onUpdate, onRemove, onLink, manual, picAss
   // Round 631 — click the Release header to sort by release date (default: furthest in the future first).
   const datedRows = useMemo(() => rawRows.map((r) => ({ ...r, release_date: r.release?.release_date || r.metrics?.manual_release_date || null })), [rawRows]);
   const { sorted: rows, sort, toggleSort, resetSort, isDefault } = useSortableRows(datedRows);
+  // Round 691 — fold / unfold a product's track sub-rows (the Σ total stays visible when folded)
+  const [collapsed, setCollapsed] = useState(() => (typeof window === "undefined" ? new Set() : readCollapsed()));
+  const trackIds = rows.filter((r) => r.release?.id && (tracksByRelease?.[r.release.id] || []).length > 0).map((r) => r.release.id);
+  function setAllCollapsed(fold) {
+    const next = readCollapsed();
+    trackIds.forEach((id) => (fold ? next.add(id) : next.delete(id)));
+    writeCollapsed(next);
+    setCollapsed(next);
+  }
+  function toggleCollapsed(id) {
+    const next = readCollapsed();
+    if (next.has(id)) next.delete(id); else next.add(id);
+    writeCollapsed(next);
+    setCollapsed(next);
+  }
   return (
+    <>
+    {trackIds.length > 0 && (
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, fontSize: 11, color: "var(--text-faint)" }}>
+        <span>{trackIds.length} EP/Album có track</span>
+        <button type="button" className={styles.btnSmall} onClick={() => setAllCollapsed(true)}>Thu gọn tất cả track</button>
+        <button type="button" className={styles.btnSmall} onClick={() => setAllCollapsed(false)}>Mở tất cả track</button>
+      </div>
+    )}
     <div className={styles.scrollBox} style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
       <table className={styles.table} style={{ minWidth: 1400 }}>
         <thead>
@@ -625,6 +652,7 @@ function StreamTable({ rows: rawRows, onUpdate, onRemove, onLink, manual, picAss
           {rows.map((row, i) => {
             const trackList = row.release?.id ? (tracksByRelease?.[row.release.id] || []) : [];
             const hasTracks = trackList.length > 0 && !!trackMetrics;
+            const folded = hasTracks && collapsed.has(row.release.id);
             return (
             <Fragment key={row.release?.id || row.metrics.id || i}>
             <tr>
@@ -645,6 +673,16 @@ function StreamTable({ rows: rawRows, onUpdate, onRemove, onLink, manual, picAss
                   </div>
                 ) : (
                   <div style={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {hasTracks && (
+                      <button
+                        type="button"
+                        onClick={() => toggleCollapsed(row.release.id)}
+                        title={folded ? "Mở các track" : "Thu gọn các track"}
+                        style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", padding: "0 6px 0 0", fontSize: 11 }}
+                      >
+                        {folded ? "▸" : "▾"} <span style={{ color: "var(--text-faint)" }}>{trackList.length}</span>
+                      </button>
+                    )}
                     <Link href={`/releases/${row.release.id}`} className={styles.rowLink}>{row.release.title}</Link>
                     <span style={{ color: "var(--text-faint)" }}> — {row.release.main_artist} · {fmtDate(row.release.release_date)}</span>
                   </div>
@@ -694,7 +732,7 @@ function StreamTable({ rows: rawRows, onUpdate, onRemove, onLink, manual, picAss
                 </td>
               )}
             </tr>
-            {hasTracks && trackList.map((t) => {
+            {hasTracks && !folded && trackList.map((t) => {
               const tm = trackMetrics[t.id];
               return (
                 <tr key={t.id}>
@@ -727,6 +765,7 @@ function StreamTable({ rows: rawRows, onUpdate, onRemove, onLink, manual, picAss
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 
