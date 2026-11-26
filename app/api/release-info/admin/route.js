@@ -63,13 +63,14 @@ export async function POST(request) {
   }
   // confirm: fill EMPTY release fields only
   const a = row.answers || {};
-  const { data: rel } = await supabaseAdmin.from("releases").select("id, genre, release_date, release_time, publishing_composer").eq("id", row.release_id).maybeSingle();
+  const { data: rel } = await supabaseAdmin.from("releases").select("id, genre, release_date, release_time, publishing_composer, label").eq("id", row.release_id).maybeSingle();
   const upd = {}; const filled = [];
   const empty = (v) => v == null || String(v).trim() === "";
   if (rel) {
     if (empty(rel.genre) && a.genres?.[0]) { upd.genre = a.genres[0]; filled.push("genre"); }
     if (empty(rel.release_date) && a.release_date) { upd.release_date = a.release_date; filled.push("release_date"); }
     if (empty(rel.release_time) && a.release_time) { upd.release_time = a.release_time; filled.push("release_time"); }
+    if (empty(rel.label) && a.label) { upd.label = a.label; filled.push("label"); }
     if (empty(rel.publishing_composer) && a.composer) { upd.publishing_composer = a.composer; filled.push("publishing_composer"); }
     if (Object.keys(upd).length) {
       const { error } = await supabaseAdmin.from("releases").update(upd).eq("id", rel.id);

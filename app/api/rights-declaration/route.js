@@ -211,7 +211,7 @@ export async function POST(request) {
   // Round 698 — combined page: the release-info answers travel with the declaration (one email code, one submit). Checked BEFORE anything is stored.
   let info = null;
   if (body.info) {
-    const ci = cleanReleaseInfo({ ...body.info, song_title: d.song_title, performer: d.performer, composer: d.composer, producer: d.producer, mixer: d.mixer, contact_email: d.contact_email });
+    const ci = cleanReleaseInfo({ ...body.info, song_title: d.song_title, performer: d.performer, composer: d.composer, producer: d.producer, mixer: d.mixer, contact_email: d.contact_email }, { intro: true });
     if (!ci.ok) return NextResponse.json({ error: ci.error }, { status: 400, headers: noStore });
     try {
       const { data: gl } = await supabaseAdmin.from("lookup_options").select("value").eq("category", "genre").eq("active", true);
