@@ -15,6 +15,7 @@ import { textKey, artistKeyOf, maskEmail } from "../../../lib/rightsKey";
 import { logRights, ensureRightsTicket } from "../../../lib/rightsLog";
 import { countHits, addHit, clientIp } from "../../../lib/eventRateLimit";
 import { cleanReleaseInfo } from "../../../lib/releaseInfoForm";
+import { moveInboxToRelease } from "../../../lib/releaseDriveFolder";
 
 export const maxDuration = 30;
 export const dynamic = "force-dynamic";
@@ -219,7 +220,8 @@ export async function POST(request) {
     } catch (e) { /* list unavailable: skip */ }
     info = ci.data;
   }
-  const infoDraft = info && !rel ? info : null;   // Round 699: blank form, song not linked to a product yet -> kept on the declaration until AR links it
+  const inboxKey = /^[a-f0-9]{16,40}$/.test(String(body.inboxKey || "")) ? String(body.inboxKey) : "";
+  const infoDraft = info && !rel ? (inboxKey ? { ...info, _inbox: inboxKey } : info) : null;   // Round 699: blank form, song not linked to a product yet -> kept on the declaration until AR links it
   // Round 639: the submit must carry the signed evidence record from the email-code step, for exactly this form content + email
   const au = unsign(body.auditToken, "audit");
   if (!au || au.x < Date.now() || au.form_hash !== formHash(d) || au.email !== d.contact_email.toLowerCase()) return fail("Chưa xác minh email, hoặc nội dung đã thay đổi sau khi xác minh. Vui lòng bấm gửi lại để nhận mã mới.", 400);
@@ -323,6 +325,7 @@ export async function POST(request) {
       const now = new Date().toISOString();
       const { error: ie } = await supabaseAdmin.from("release_info_forms").upsert({ release_id: rel.id, answers: info, status: "submitted", source: body.infoDemo ? "demo" : "public", contact_email: d.contact_email || null, submitted_at: now, updated_at: now }, { onConflict: "release_id" });
       if (ie) console.error("[rights-declaration] info save failed:", ie.message);
+      else if (inboxKey) { const mv = await moveInboxToRelease(supabaseAdmin, rel.id, inboxKey); if (!mv?.ok) console.error("[rights-declaration] inbox move failed:", mv?.error); }   // picked a product after uploading
     } catch (e) { console.error("[rights-declaration] info save failed:", e.message); }
   }
   // Round 645 — the old declaration is kept (status "superseded", never deleted); the song's ticket is created or REOPENED; everything is logged

@@ -12,7 +12,7 @@ import { rightsMailer } from "../../../../lib/mailer";
 import { makeHolderLink, sendHolderMail, siteOrigin } from "../../../../lib/rightsHolder";
 import { textKey, artistKeyOf, maskEmail } from "../../../../lib/rightsKey";
 import { logRights, setRightsTicketStatus } from "../../../../lib/rightsLog";
-import { createReleaseFolder } from "../../../../lib/releaseDriveFolder";
+import { createReleaseFolder, moveInboxToRelease } from "../../../../lib/releaseDriveFolder";
 import { saveInfoDocs } from "../../../../lib/releaseInfoDocsSave";
 
 export const maxDuration = 30;
@@ -166,9 +166,11 @@ export async function POST(request) {
     try {
       const { data: have } = await supabaseAdmin.from("release_info_forms").select("release_id").eq("release_id", rel.id).maybeSingle();
       if (!have) {
-        await supabaseAdmin.from("release_info_forms").insert({ release_id: rel.id, answers: row.info, status: "submitted", source: "public", contact_email: row.contact_email || null, submitted_at: row.created_at || now, updated_at: now });
+        const { _inbox, ...answers } = row.info;
+        await supabaseAdmin.from("release_info_forms").insert({ release_id: rel.id, answers, status: "submitted", source: "public", contact_email: row.contact_email || null, submitted_at: row.created_at || now, updated_at: now });
         await createReleaseFolder(supabaseAdmin, rel.id);   // refuses by itself without a release date
-        const sv = await saveInfoDocs(supabaseAdmin, rel.id, row.info);
+        if (_inbox) { const mv = await moveInboxToRelease(supabaseAdmin, rel.id, _inbox); if (!mv?.ok) console.error("[rights-admin] inbox move failed:", mv?.error); }   // Round 700
+        const sv = await saveInfoDocs(supabaseAdmin, rel.id, answers);
         if (sv.docs && Object.keys(sv.docs).length) await supabaseAdmin.from("release_info_forms").update({ docs: sv.docs }).eq("release_id", rel.id);
       }
     } catch (e) { console.error("[rights-admin] handout copy failed:", e.message); }
