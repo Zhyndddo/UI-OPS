@@ -27,6 +27,7 @@ import ExportButton from "../../lib/spreadsheetExport";
 import { AdvFilterButton, AdvFilterPanel } from "../../lib/ReleaseAdvancedFilter";
 import { applyAdvFilters, EXPORT_DETAIL_COLUMNS, EXPORT_SELECT_COLUMNS, FILTER_FIELDS } from "../../lib/releaseFilterCatalog";
 import BulkReleaseImportPopup from "../../lib/BulkReleaseImport";
+import DriveFolderBackfill from "../../lib/DriveFolderBackfill";   // Round 712
 import styles from "../shared.module.css";
 
 import LoadingSkeleton from "../../lib/LoadingSkeleton";
@@ -1205,6 +1206,7 @@ export default function ReleasesDashboard() {
                 import old data soon enough too"): a real data migration
                 tool, scoped to the smaller admin group rather than
                 anyone who can view this dashboard. */}
+            {(isAdminOrAbove(profile) || profile?.segment === "AR") && <DriveFolderBackfill />}
             {isAdminOrAbove(profile) && (
               <button type="button" className={styles.btnSecondary} onClick={() => setShowBulkImport(true)}>
                 Import Releases

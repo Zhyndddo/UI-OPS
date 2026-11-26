@@ -26,8 +26,14 @@ async function withReleases(rows) {
 
 export async function GET(request) {
   if (!supabaseAdmin) return bad("Server not configured.", 500);
-  if (!(await caller(request))) return bad("Not authorized.", 403);
   const q = new URL(request.url).searchParams;
+  if (q.get("statusmap")) {   // Round 713 — any signed-in staff: only { release_id: status } (no answers) for the Kanban badges
+    if (!(await getCallerProfile(request))) return bad("Not signed in.", 401);
+    const { data } = await supabaseAdmin.from("release_info_forms").select("release_id, status").order("updated_at", { ascending: false }).limit(3000);
+    const map = {}; (data || []).forEach((r) => { if (r.release_id && !(r.release_id in map)) map[r.release_id] = r.status; });
+    return NextResponse.json({ map }, { headers: noStore });
+  }
+  if (!(await caller(request))) return bad("Not authorized.", 403);
   if (q.get("release")) {
     if (!UUID.test(q.get("release"))) return bad("Bad release id.");
     const { data } = await supabaseAdmin.from("release_info_forms").select("*").eq("release_id", q.get("release")).maybeSingle();
