@@ -57,7 +57,7 @@ export async function POST(request) {
   let b = null; try { b = await request.json(); } catch { /* below */ }
   const id = readRightsToken(b?.token);
   if (!id || !(await loadRelease(id))) return bad("Link không hợp lệ.", 404);
-  const c = cleanReleaseInfo(b?.answers);
+  const c = cleanReleaseInfo(b?.answers, { intro: b?.intro === true });   // intro:true = the re-access page also edits label / type / tracklist
   if (!c.ok) return bad(c.error);
   const opts = await genreOptions();
   if (opts.length && c.data.genres.some((g) => !opts.some((o) => o.value === g))) return bad("Thể loại phải chọn từ danh sách.");

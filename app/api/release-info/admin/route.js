@@ -64,7 +64,7 @@ export async function POST(request) {
   }
   // confirm: fill EMPTY release fields only
   const a = row.answers || {};
-  const { data: rel } = await supabaseAdmin.from("releases").select("id, genre, release_date, release_time, publishing_composer, label").eq("id", row.release_id).maybeSingle();
+  const { data: rel } = await supabaseAdmin.from("releases").select("id, genre, release_date, release_time, publishing_composer, label, single_album_ep").eq("id", row.release_id).maybeSingle();
   const upd = {}; const filled = [];
   const empty = (v) => v == null || String(v).trim() === "";
   if (rel) {
@@ -82,6 +82,35 @@ export async function POST(request) {
       if (error) return bad("Không ghi được vào sản phẩm: " + error.message, 500);
     }
   }
+  // Round 709 — EP / Album: the tracklist the artist typed goes into the product's tracks (release_tracks). Never overwrites: no tracks yet -> add them;
+  // tracks already there -> only fill an EMPTY main / feature artist on a track with the same name; tracks that do not match are left alone.
+  const note = [];
+  const formTracks = (Array.isArray(a.tracks) ? a.tracks : []).map((t) => (typeof t === "string" ? { title: t } : t || {})).filter((t) => String(t.title || "").trim());
+  if (rel && (a.release_type === "EP" || a.release_type === "Album") && formTracks.length) {
+    if (!rel.single_album_ep || rel.single_album_ep === "Single") note.push(`tracklist not copied (product is set as ${rel.single_album_ep || "empty"}, form says ${a.release_type})`);
+    else {
+      const { data: have, error: terr } = await supabaseAdmin.from("release_tracks").select("id, track_name, main_artist, feature_artist, sort_order").eq("release_id", rel.id).order("sort_order");
+      if (terr) note.push("tracks not written: " + terr.message);
+      else if (!have || !have.length) {
+        const rows = formTracks.slice(0, 40).map((t, i) => ({ release_id: rel.id, sort_order: i + 1, track_name: String(t.title).trim().slice(0, 200), main_artist: String(t.performer || "").trim() || null, feature_artist: String(t.featuring || "").trim() || null }));
+        const { error: ierr } = await supabaseAdmin.from("release_tracks").insert(rows);
+        if (ierr) note.push("tracks not written: " + ierr.message); else filled.push(`${rows.length} tracks`);
+      } else {
+        const norm = (x) => String(x || "").trim().toLowerCase();
+        let n = 0, miss = 0;
+        for (const t of formTracks) {
+          const m = have.find((h) => norm(h.track_name) === norm(t.title));
+          if (!m) { miss += 1; continue; }
+          const u = {};
+          if (empty(m.main_artist) && String(t.performer || "").trim()) u.main_artist = String(t.performer).trim();
+          if (empty(m.feature_artist) && String(t.featuring || "").trim()) u.feature_artist = String(t.featuring).trim();
+          if (Object.keys(u).length) { const { error: uerr } = await supabaseAdmin.from("release_tracks").update(u).eq("id", m.id); if (!uerr) n += 1; }
+        }
+        if (n) filled.push(`artists on ${n} track(s)`);
+        if (miss) note.push(`${miss} track name(s) not found on the product, left alone`);
+      }
+    }
+  }
   await supabaseAdmin.from("release_info_forms").update({ status: "confirmed", confirmed_at: now, confirmed_by_name: me.name || null, updated_at: now }).eq("id", id);
-  return NextResponse.json({ ok: true, filled }, { headers: noStore });
+  return NextResponse.json({ ok: true, filled, note }, { headers: noStore });
 }
