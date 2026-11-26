@@ -41,6 +41,12 @@ export async function GET(request) {
     const { data } = await supabaseAdmin.from("releases").select("id, did, title, main_artist").or(`title.ilike.%${s}%,did.ilike.%${s}%,main_artist.ilike.%${s}%`).limit(15);
     return NextResponse.json({ releases: data || [] }, { headers: noStore });
   }
+  if (q.get("labelsearch") != null) {   // Round 716 — AR matches the label typed on the form to a real label
+    const s = q.get("labelsearch").trim().replace(/[%,()]/g, " ").slice(0, 60);
+    if (s.length < 2) return NextResponse.json({ labels: [] }, { headers: noStore });
+    const { data } = await supabaseAdmin.from("labels").select("label_name").ilike("label_name", `%${s}%`).order("label_name").limit(15);
+    return NextResponse.json({ labels: (data || []).map((x) => x.label_name).filter(Boolean) }, { headers: noStore });
+  }
   if (q.get("history")) {   // Round 645 — everything that ever happened to one song (log + every declaration version)
     const sk = q.get("history");
     const [lg, ds] = await Promise.all([
@@ -84,6 +90,18 @@ export async function POST(request) {
 
   const song_key = `${row.title_key ?? textKey(row.song_title)}|${row.artist_key ?? artistKeyOf(row.performer)}`;
   const lg = (action, extra = {}) => logRights(supabaseAdmin, { song_key, declaration_id: row.id, ticket_id: row.ticket_id, action, actor: me.name || me.id, ...extra });
+  if (body.action === "map_label") {   // Round 716 — a declaration whose song could not be matched: AR must match the label typed on the form to a real label
+    const name = String(body.label || "").trim().slice(0, 120);
+    if (!name) return NextResponse.json({ error: "Chọn label." }, { status: 400, headers: noStore });
+    const { data: lb } = await supabaseAdmin.from("labels").select("label_name").ilike("label_name", name.replace(/[%_]/g, " ")).limit(5);
+    const hit = (lb || []).find((x) => String(x.label_name).toLowerCase() === name.toLowerCase());
+    if (!hit) return NextResponse.json({ error: "Label này không có trong danh sách Labels." }, { status: 400, headers: noStore });
+    const info = { ...(row.info && typeof row.info === "object" ? row.info : {}), label_match: hit.label_name };
+    const { error: ue } = await supabaseAdmin.from("rights_declarations").update({ info }).eq("id", row.id);
+    if (ue) return NextResponse.json({ error: ue.message }, { status: 500, headers: noStore });
+    await lg("label_mapped", { detail: { typed: String(row.info?.label || "").slice(0, 120), label: hit.label_name } });
+    return NextResponse.json({ ok: true, label: hit.label_name }, { headers: noStore });
+  }
   if (body.action === "resend_link") {   // AR re-sends the public khai-bao page (per-release link when a product is attached) to an email
     const to = String(body.to || row.contact_email || "").trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return NextResponse.json({ error: "Email không hợp lệ." }, { status: 400, headers: noStore });
