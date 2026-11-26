@@ -48,11 +48,11 @@ export async function POST(request) {
     if (size > MAX_BYTES) return bad(`File quá lớn (tối đa ${MAX_BYTES / 1048576} MB). Với file lớn hơn, hãy dán link.`, 413);
     const name = safeName(b.filename);
     if (BLOCKED_EXT.has((name.split(".").pop() || "").toLowerCase())) return bad("Loại file này không được phép.");
-    const fileName = `${Date.now()}_${name}`;
+    const fileName = name;   // Apps Script v10 makes it unique in the folder and returns the final name
     if (!String(p.rel.drive_link || "").trim()) await createReleaseFolder(supabaseAdmin, id);   // also fills Link Drive on the release
     const j = await callDrive({ action: "releaseUploadInit", ...p.path, sub, fileName, mimeType: String(b.mimeType || "application/octet-stream").slice(0, 100), size, origin: request.headers.get("origin") || "" });
     if (!j.ok) return bad(j.error || "Drive từ chối. Vui lòng thử lại.", 502);
-    return NextResponse.json({ uploadUrl: j.uploadUrl, name: fileName }, { headers: noStore });
+    return NextResponse.json({ uploadUrl: j.uploadUrl, name: j.name || fileName }, { headers: noStore });
   }
   if (b.action === "finalize") {
     const j = await callDrive({ action: "releaseUploadFinalize", ...p.path, fileName: String(b.name || ""), size: Number(b.size) || 0, fileId: b.fileId ? String(b.fileId) : "" });

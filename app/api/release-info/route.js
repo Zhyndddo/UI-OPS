@@ -29,6 +29,14 @@ export async function GET(request) {
   const ip = clientIp(request);
   if (countHits("ri-get:" + ip) >= 60) return bad("Quá nhiều lượt truy cập. Thử lại sau ít phút.", 429);
   addHit("ri-get:" + ip);
+  const lq = new URL(request.url).searchParams.get("labels");   // Round 703: label name suggestions for the first page of the form (names only, 2+ letters)
+  if (lq != null) {
+    const q = String(lq).trim().replace(/^HĐ\s*-\s*/i, "").replace(/[%_\\]/g, "").slice(0, 40);
+    if (q.length < 2) return NextResponse.json({ labels: [] }, { headers: noStore });
+    const { data } = await supabaseAdmin.from("labels").select("label_name").ilike("label_name", `%${q}%`).limit(8);
+    const names = [...new Set((data || []).map((r) => String(r.label_name || "").replace(/^HĐ\s*-\s*/i, "").trim()).filter(Boolean))];
+    return NextResponse.json({ labels: names }, { headers: noStore });
+  }
   if (new URL(request.url).searchParams.get("genres") === "1") return NextResponse.json({ genres: await genreOptions() }, { headers: noStore });   // Round 699: blank form needs the list before any product is linked
   const id = readRightsToken(new URL(request.url).searchParams.get("token"));
   const rel = id ? await loadRelease(id) : null;

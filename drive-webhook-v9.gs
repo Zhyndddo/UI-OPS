@@ -289,6 +289,18 @@ function inboxMove_(d) {
   finally { lock.releaseLock(); }
 }
 
+// Round 704 — housekeeping: moves Inbox folders older than INBOX_KEEP_DAYS to the Drive trash (still recoverable for 30 days).
+// Run it by hand, or add a time-driven trigger (Triggers > Add trigger > cleanInbox > Time-driven > Week timer).
+const INBOX_KEEP_DAYS = 45;
+function cleanInbox() {
+  const inbox = anyChild_(DriveApp.getFolderById(RELEASE_ROOT_ID), [INBOX_NAME]);
+  const limit = Date.now() - INBOX_KEEP_DAYS * 86400000;
+  const it = inbox.getFolders();
+  let n = 0;
+  while (it.hasNext()) { const f = it.next(); if (f.getDateCreated().getTime() < limit) { f.setTrashed(true); n++; } }
+  Logger.log('Inbox folders trashed: ' + n);
+}
+
 // ============================ EVENT CHECK-IN (Round 574) ============================
 // Sheet "Event check-in" (made automatically inside FOLDER_ID). Columns:
 // A Registered (Vietnam) | B Name | C Email | D Organisation | E QR token | F Mail | G Checked in | H Mails sent
