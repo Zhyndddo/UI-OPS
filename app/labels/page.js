@@ -37,7 +37,7 @@ const LABEL_SYNC_THROTTLE_MS = 6 * 60 * 60 * 1000; // 6 hours
 // Hợp Đồng ticket has finished (drives the gold -> green flip). Lighter
 // interval than the activity-year sync since this is the status a person
 // is actually watching change, not a background derived field.
-const HOPTAC_SYNC_THROTTLE_KEY = "vieent_labels_hoptac_sync_last_run";
+const HOPTAC_SYNC_THROTTLE_KEY = "vieent_labels_hoptac_sync_last_run_v2";   // v2 (Round 702): done now = COMPLETE, one full re-check for everyone
 const HOPTAC_SYNC_THROTTLE_MS = 30 * 60 * 1000; // 30 minutes
 
 export default function LabelsPage() {
@@ -138,7 +138,7 @@ export default function LabelsPage() {
     const pending = [];
     labelRows.forEach((l) => {
       Object.entries(l.hop_tac_status || {}).forEach(([tag, entry]) => {
-        if (entry?.sentToLegal && entry.ticketId && !entry.done) pending.push({ labelId: l.id, tag, ticketId: entry.ticketId });
+        if (entry?.sentToLegal && entry.ticketId && (!entry.done || !entry.simulated)) pending.push({ labelId: l.id, tag, ticketId: entry.ticketId });
       });
     });
     if (pending.length === 0) return;
@@ -146,21 +146,23 @@ export default function LabelsPage() {
     const ticketIds = [...new Set(pending.map((p) => p.ticketId))];
     const { data: tickets } = await supabase.from("tickets").select("id, status, tab_id").in("id", ticketIds);
     if (!tickets || tickets.length === 0) return;
-    const tabIds = [...new Set(tickets.map((t) => t.tab_id))];
-    const { data: tabs } = await supabase.from("ticket_tabs").select("id, status_options").in("id", tabIds);
-    const lastStatusByTab = {};
-    (tabs || []).forEach((t) => { lastStatusByTab[t.id] = t.status_options?.[t.status_options.length - 1]; });
     const ticketById = {};
     tickets.forEach((t) => { ticketById[t.id] = t; });
 
     for (const p of pending) {
       const ticket = ticketById[p.ticketId];
       if (!ticket) continue;
-      const doneStatus = lastStatusByTab[ticket.tab_id];
-      if (!doneStatus || ticket.status !== doneStatus) continue;
       const freshLabel = (labels.find((l) => l.id === p.labelId)) || labelRows.find((l) => l.id === p.labelId);
       if (!freshLabel) continue;
-      await markTagDone(freshLabel, p.tag);
+      // Round 702 — a Hợp Đồng ticket is finished at COMPLETE (the old rule used the LAST status option = REFUND)
+      const isDone = ticket.status === "COMPLETE";
+      const cur = freshLabel.hop_tac_status?.[p.tag];
+      if (isDone && !cur?.done) await markTagDone(freshLabel, p.tag);
+      else if (!isDone && cur?.done && !cur?.simulated) {   // was turned green by the old rule (e.g. a REFUND) — put it back in flight
+        const next = { ...(freshLabel.hop_tac_status || {}), [p.tag]: { ...cur, done: false } };
+        await supabase.from("labels").update({ hop_tac_status: next }).eq("id", freshLabel.id);
+        setLabels((prev) => prev.map((l) => (l.id === freshLabel.id ? { ...l, hop_tac_status: next } : l)));
+      }
     }
   }
 
