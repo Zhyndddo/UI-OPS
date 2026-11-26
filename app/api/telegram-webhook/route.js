@@ -24,7 +24,8 @@ import { cmdRemind, cmdWatch, cmdCover, cmdQuiet, handleWatchCb } from "../../..
 import { addOwners } from "../../../lib/tgOwners";
 import { linkedProfile, startLink, confirmLink, unlink, myTasksHtml, wantsMyTasks, rememberUsername, pushTagDms, setTagAlerts } from "../../../lib/tgLink";
 import { commandAllowedHere, chatContext } from "../../../lib/tgPermissions";
-import { wantsUploadAsk, buildUploadAsk, handleUploadAsk } from "../../../lib/tgUploadAsk";
+import { wantsUploadAsk, buildUploadAsk, handleUploadAsk, hasCandidates } from "../../../lib/tgUploadAsk";
+import { startNew, buildCreateAsk, handleCreateCb } from "../../../lib/tgCreateRelease";   // Round 710
 import { captureIntake, handleDecision, loadIntakes, renderIntakeBlock, cardButtons, renderCard, intakeCardsOn } from "../../../lib/tgIntake";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram } from "../../../lib/tgRecap";
 
@@ -89,7 +90,7 @@ export async function POST(request) {
     const cb = update.callback_query, tg = (method, body) => fetch(`https://api.telegram.org/bot${token}/${method}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
     try {
       const data = String(cb.data || "");   // Round 625 # song tag buttons (tp:/tx:), Round 630 reminder buttons (rm:)
-      const res = !supabaseAdmin ? { answer: "Chưa cấu hình." } : data.startsWith("pg:") ? await handlePageCb(supabaseAdmin, token, cb) : /^(ak|fb|ck):/.test(data) ? await handleAskCb(supabaseAdmin, cb, linkedProfile) : /^t[px]:/.test(data) ? await handleTagPick(supabaseAdmin, cb, linkedProfile) : data.startsWith("rm:") ? await handleReminder(supabaseAdmin, cb, linkedProfile) : data.startsWith("ua:") ? await handleUploadAsk(supabaseAdmin, cb, linkedProfile) : data.startsWith("tk:") ? await handleTicketCb(supabaseAdmin, cb, linkedProfile) : /^w[tx]:/.test(data) ? await handleWatchCb(supabaseAdmin, cb, linkedProfile) : await handleDecision(supabaseAdmin, cb, linkedProfile);
+      const res = !supabaseAdmin ? { answer: "Chưa cấu hình." } : data.startsWith("pg:") ? await handlePageCb(supabaseAdmin, token, cb) : /^(ak|fb|ck):/.test(data) ? await handleAskCb(supabaseAdmin, cb, linkedProfile) : /^t[px]:/.test(data) ? await handleTagPick(supabaseAdmin, cb, linkedProfile) : data.startsWith("rm:") ? await handleReminder(supabaseAdmin, cb, linkedProfile) : data.startsWith("ua:") ? await handleUploadAsk(supabaseAdmin, cb, linkedProfile) : data.startsWith("cr:") ? await handleCreateCb(supabaseAdmin, cb, linkedProfile) : data.startsWith("tk:") ? await handleTicketCb(supabaseAdmin, cb, linkedProfile) : /^w[tx]:/.test(data) ? await handleWatchCb(supabaseAdmin, cb, linkedProfile) : await handleDecision(supabaseAdmin, cb, linkedProfile);
       await tg("answerCallbackQuery", { callback_query_id: cb.id, text: res.answer });
       if (res.clearButtons && cb.message) await tg("editMessageReplyMarkup", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, reply_markup: { inline_keyboard: [] } });
       if (res.markup && cb.message) await tg("editMessageReplyMarkup", { chat_id: cb.message.chat.id, message_id: cb.message.message_id, reply_markup: res.markup });
@@ -147,7 +148,8 @@ export async function POST(request) {
       const hidden = (m.entities || m.caption_entities || []).filter((e) => e.type === "text_link" && e.url && !text.includes(e.url)).map((e) => e.url);
       const it = await captureIntake(supabaseAdmin, m, hidden.length ? text + "\n" + hidden.join("\n") : text);
       if (it && intakeCardsOn()) await reply(token, m, renderCard(it), true, cardButtons(it.id));
-      if (it && wantsUploadAsk(it)) { const ua = await buildUploadAsk(supabaseAdmin, it); if (ua) await reply(token, m, ua.text, true, ua.markup || undefined); }   // Round 685 — "gửi Upload trên web luôn không?"
+      if (it && wantsUploadAsk(it)) { const ua = await buildUploadAsk(supabaseAdmin, it); if (ua) await reply(token, m, ua.text, true, ua.markup || undefined); }
+      else if (it && it.kind === "upload" && String(process.env.FRIDAY_CREATE_ASK || "").toLowerCase() !== "off" && !(await hasCandidates(supabaseAdmin, it))) { const ca = await buildCreateAsk(supabaseAdmin, it); if (ca) await reply(token, m, ca.text, true, ca.markup || undefined); }   // Round 710 — a song that is not in the app: "tạo release không?"   // Round 685 — "gửi Upload trên web luôn không?"
     } catch (e) { /* never break the bot over parsing */ }
   }
 
@@ -252,6 +254,10 @@ export async function POST(request) {
     }
     if (cmd === "link") {   // Round 644 — answer under the replied message with #tags / song names turned into links
       try { const r = await runLink(supabaseAdmin, m, text.slice(cmdMatch[0].length).trim()); await reply(token, r.target || m, r.html, true); } catch (e) { console.error("[friday /link]", e.message); await reply(token, m, "Mình gặp lỗi khi gắn link, bạn thử lại sau ít phút nhé.", false); }
+      return NextResponse.json({ ok: true });
+    }
+    if (cmd === "new") {   // Round 710 — /new TITLE - ARTIST - 25/12 19h - LABEL -> a card; AR / admin press ✅ to create
+      try { const c = await startNew(supabaseAdmin, m, text.slice(cmdMatch[0].length).trim()); await reply(token, m, c.text, true, c.markup || undefined); } catch (e) { console.error("[friday /new]", e.message); await reply(token, m, "Mình gặp lỗi khi ghi nhận, bạn thử lại sau ít phút nhé.", false); }
       return NextResponse.json({ ok: true });
     }
     if (cmd === "release") {   // Round 631b — releases not out yet: this week / upcoming
