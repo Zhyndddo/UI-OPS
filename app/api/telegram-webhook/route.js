@@ -114,7 +114,8 @@ export async function POST(request) {
   if (cmdMatch && cmdMatch[1].toLowerCase() === "mytask") cmdMatch[1] = "mytasks";   // Round 651: /mytask = /mytasks
   const isCommand = !!cmdMatch && (!cmdMatch[2] || cmdMatch[2].toLowerCase() === name);
   if (isCommand && cmdMatch[1].toLowerCase() === "chatid") {   // Round 643b — works in ANY chat the bot is in: tells you the id to put in TELEGRAM_EXTRA_CHAT_IDS
-    await reply(token, m, `Chat ID: ${m.chat.id}\nLoại: ${m.chat.type}${m.chat.title ? "\nTên: " + m.chat.title : ""}`, false);
+    const tid = m.is_topic_message && m.message_thread_id ? m.message_thread_id : null;   // Round 719 — topic id (for FRIDAY_UPLOAD_ASK_THREADS)
+    await reply(token, m, `Chat ID: ${m.chat.id}\nLoại: ${m.chat.type}${m.chat.title ? "\nTên: " + m.chat.title : ""}${tid ? "\nTopic ID: " + tid : m.chat.is_forum ? "\nTopic: General (không có Topic ID)" : ""}`, false);
     return NextResponse.json({ ok: true });
   }
   // Round 686 — one permission table (lib/tgPermissions.js): a known command typed in a chat where it is not available is ignored
