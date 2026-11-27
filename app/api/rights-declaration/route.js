@@ -2,6 +2,7 @@
 //   GET  ?token=...                    -> { release: { title, performer, composer } } to pre-fill the form
 //   POST { token, form, pdfBase64 }    -> saves the declaration (database row, status "pending") and the signed PDF (Google Drive, link only in the row)
 // Protected by: HMAC token per release, per-visitor + global rate limits, strict field cleaning, PDF magic-byte + size check.
+import { GENRES } from "../../../lib/releaseGenres";
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { newChallenge, readChallenge, codeMatches, sign, unsign, formHash, sha256Hex, describeUa } from "../../../lib/rightsOtp";
@@ -165,6 +166,10 @@ async function otpStep(request, body, ip) {
     } catch (e) { console.error("[rights-declaration] code mail failed:", e.message); return fail("Không gửi được email mã xác nhận. Vui lòng kiểm tra địa chỉ email và thử lại.", 502); }
     return NextResponse.json({ ok: true, challenge, sentToken: sign({ t: new Date().toISOString(), ip, x: Date.now() + 30 * 60 * 1000 }, "sent") }, { headers: noStore });
   }
+  // Round 720 — "attest": no email code any more. Same signed evidence record, flagged unverified (the email was typed, not proven).
+  const attest = body.action === "attest";
+  if (attest) { if (countHits("rd-att:" + ip) >= 30) return fail("Quá nhiều lượt gửi. Vui lòng thử lại sau ít phút.", 429); addHit("rd-att:" + ip); }
+  else {
   const c = readChallenge(body.challenge);
   if (!c) return fail("Mã đã hết hạn. Vui lòng bấm gửi lại mã.", 400);
   if (ATT.size > 500) ATT.clear();
@@ -172,6 +177,7 @@ async function otpStep(request, body, ip) {
   if (tries > 5) return fail("Nhập sai quá nhiều lần. Vui lòng bấm gửi lại mã mới.", 429);
   if (!codeMatches(c, email, body.code)) return fail(c.e !== email ? "Email đã thay đổi sau khi gửi mã. Vui lòng gửi lại mã." : "Mã không đúng.", 400);
   ATT.delete(c.n);
+  }
   const h = (k) => request.headers.get(k) || "";
   const dec = (s) => { try { return decodeURIComponent(s); } catch (e) { return s; } };
   const cl = body.client && typeof body.client === "object" ? body.client : {};
@@ -181,7 +187,7 @@ async function otpStep(request, body, ip) {
   const vw = unsign(body.viewToken, "view"), st = unsign(body.sentToken, "sent");   // Round 649: when the form was opened / the code was sent (server-signed, so they cannot be faked)
   const audit = {
     ...(vw ? { viewed_at: vw.t, viewed_ip: vw.ip } : {}), ...(st ? { sent_at: st.t, sent_ip: st.ip } : {}),
-    email, verified_at: now, consent_at: now, form_hash: formHash(d), ip, ua, ...describeUa(ua),
+    email, ...(attest ? { unverified: true } : {}), verified_at: now, consent_at: now, form_hash: formHash(d), ip, ua, ...describeUa(ua),
     country: t(h("x-vercel-ip-country"), 8), region: t(h("x-vercel-ip-country-region"), 20), city: t(dec(h("x-vercel-ip-city")), 60),
     lat: t(h("x-vercel-ip-latitude"), 12), lon: t(h("x-vercel-ip-longitude"), 12),
     client: { tz: t(cl.tz, 60), lang: t(cl.lang, 20), screen: t(cl.screen, 20), platform: t(cl.platform, 40) },
@@ -196,7 +202,7 @@ export async function POST(request) {
   let body = {};
   try { body = await request.json(); } catch (e) { return NextResponse.json({ error: "Dữ liệu không hợp lệ." }, { status: 400, headers: noStore }); }
   if (body.website) return NextResponse.json({ ok: true, fake: true }, { headers: noStore });   // honeypot
-  if (body.action === "send_code" || body.action === "verify") return otpStep(request, body, ip);
+  if (body.action === "send_code" || body.action === "verify" || body.action === "attest") return otpStep(request, body, ip);
   if (["copy", "old_code", "old_verify"].includes(body.action)) return dupStep(request, body, ip);   // Round 645
   // No token = the one public link: the declaration is saved unlinked and AR picks the product when confirming.
   let rel = null;
@@ -213,11 +219,7 @@ export async function POST(request) {
   if (body.info) {
     const ci = cleanReleaseInfo({ ...body.info, song_title: d.song_title, performer: d.performer, composer: d.composer, producer: d.producer, mixer: d.mixer, contact_email: d.contact_email }, { intro: true });
     if (!ci.ok) return NextResponse.json({ error: ci.error }, { status: 400, headers: noStore });
-    try {
-      const { data: gl } = await supabaseAdmin.from("lookup_options").select("value").eq("category", "genre").eq("active", true);
-      const vals = (gl || []).map((r) => r.value);
-      if (vals.length && ci.data.genres.some((g) => !vals.includes(g))) return NextResponse.json({ error: "Thể loại phải chọn từ danh sách." }, { status: 400, headers: noStore });
-    } catch (e) { /* list unavailable: skip */ }
+    if (ci.data.genres.some((g) => !GENRES.includes(g))) return NextResponse.json({ error: "Thể loại phải chọn từ danh sách." }, { status: 400, headers: noStore });   // Round 720
     info = ci.data;
   }
   const inboxKey = /^[a-f0-9]{16,40}$/.test(String(body.inboxKey || "")) ? String(body.inboxKey) : "";

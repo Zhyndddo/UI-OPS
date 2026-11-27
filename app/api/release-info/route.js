@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 import { readRightsToken } from "../../../lib/rightsToken";
 import { cleanReleaseInfo } from "../../../lib/releaseInfoForm";
+import { GENRE_OPTIONS } from "../../../lib/releaseGenres";
 import { countHits, addHit, clientIp } from "../../../lib/eventRateLimit";
 
 export const maxDuration = 30;
@@ -12,13 +13,8 @@ export const dynamic = "force-dynamic";
 const noStore = { "Cache-Control": "no-store" };
 const bad = (error, status = 400) => NextResponse.json({ error }, { status, headers: noStore });
 
-// genre choices = the same list the app uses for a release's Thể loại (Config > lookup_options, category "genre")
-async function genreOptions() {
-  try {
-    const { data } = await supabaseAdmin.from("lookup_options").select("value, label").eq("category", "genre").eq("active", true).order("sort_order");
-    return (data || []).map((r) => ({ value: r.value, label: r.label || r.value })).filter((r) => r.value);
-  } catch { return []; }
-}
+// Round 720 — genre choices = the owner's list (lib/releaseGenres.js), no longer the Config lookup
+async function genreOptions() { return GENRE_OPTIONS; }
 async function loadRelease(id) {
   const { data } = await supabaseAdmin.from("releases").select("id, title, main_artist, publishing_composer, release_date").eq("id", id).maybeSingle();
   return data || null;
