@@ -24,7 +24,7 @@ import { cmdRemind, cmdWatch, cmdCover, cmdQuiet, handleWatchCb } from "../../..
 import { addOwners } from "../../../lib/tgOwners";
 import { linkedProfile, startLink, confirmLink, unlink, myTasksHtml, wantsMyTasks, rememberUsername, pushTagDms, setTagAlerts } from "../../../lib/tgLink";
 import { commandAllowedHere, chatContext } from "../../../lib/tgPermissions";
-import { wantsUploadAsk, buildUploadAsk, handleUploadAsk, hasCandidates } from "../../../lib/tgUploadAsk";
+import { wantsUploadAsk, buildUploadAsk, handleUploadAsk, hasCandidates, askAllowedHere } from "../../../lib/tgUploadAsk";
 import { startNew, buildCreateAsk, handleCreateCb } from "../../../lib/tgCreateRelease";   // Round 710
 import { captureIntake, handleDecision, loadIntakes, renderIntakeBlock, cardButtons, renderCard, intakeCardsOn } from "../../../lib/tgIntake";
 import { vnDayStart, vnDateLabel, loadMessages, analyse, aiSummary, renderRecapTelegram } from "../../../lib/tgRecap";
@@ -148,8 +148,9 @@ export async function POST(request) {
       const hidden = (m.entities || m.caption_entities || []).filter((e) => e.type === "text_link" && e.url && !text.includes(e.url)).map((e) => e.url);
       const it = await captureIntake(supabaseAdmin, m, hidden.length ? text + "\n" + hidden.join("\n") : text);
       if (it && intakeCardsOn()) await reply(token, m, renderCard(it), true, cardButtons(it.id));
-      if (it && wantsUploadAsk(it)) { const ua = await buildUploadAsk(supabaseAdmin, it); if (ua) await reply(token, m, ua.text, true, ua.markup || undefined); }
-      else if (it && it.kind === "upload" && String(process.env.FRIDAY_CREATE_ASK || "").toLowerCase() !== "off" && !(await hasCandidates(supabaseAdmin, it))) { const ca = await buildCreateAsk(supabaseAdmin, it); if (ca) await reply(token, m, ca.text, true, ca.markup || undefined); }   // Round 710 — a song that is not in the app: "tạo release không?"   // Round 685 — "gửi Upload trên web luôn không?"
+      const askOk = askAllowedHere(m, hidden.length ? text + "\n" + hidden.join("\n") : text);   // Round 718
+      if (it && askOk && wantsUploadAsk(it)) { const ua = await buildUploadAsk(supabaseAdmin, it); if (ua) await reply(token, m, ua.text, true, ua.markup || undefined); }
+      else if (it && askOk && it.kind === "upload" && String(process.env.FRIDAY_CREATE_ASK || "").toLowerCase() !== "off" && !(await hasCandidates(supabaseAdmin, it))) { const ca = await buildCreateAsk(supabaseAdmin, it); if (ca) await reply(token, m, ca.text, true, ca.markup || undefined); }   // Round 710 — a song that is not in the app: "tạo release không?"   // Round 685 — "gửi Upload trên web luôn không?"
     } catch (e) { /* never break the bot over parsing */ }
   }
 

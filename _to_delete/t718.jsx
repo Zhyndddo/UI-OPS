@@ -1,0 +1,12 @@
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ReleaseInfoSections, EMPTY } from "/sessions/rcw-01g5wcsaxjvoprd6g6vdjdwa/mnt/UI-OPS/lib/ReleaseInfoSections.js";
+import { askAllowedHere } from "/sessions/rcw-01g5wcsaxjvoprd6g6vdjdwa/mnt/UI-OPS/lib/tgUploadAsk.js";
+const h = renderToStaticMarkup(<ReleaseInfoSections token="t" f={{...EMPTY}} setF={()=>{}} core={true} />);
+console.log("switches", (h.match(/Chính thức/g)||[]).length, h.includes("Loại File hình"));
+const T = { is_topic_message: true, message_thread_id: 77 };
+const claim = "Hiếu ơi claim giúp chị https://www.tiktok.com/music/abc-123?x=1";
+const up = "Hiếu ơi up giúp https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUv";
+console.log("claim", askAllowedHere(T, claim), "upload", askAllowedHere(T, up));
+process.env.FRIDAY_UPLOAD_ASK_THREADS = "77,88";
+console.log("env in", askAllowedHere(T, up), "env out", askAllowedHere({ is_topic_message: true, message_thread_id: 5 }, up), "no topic", askAllowedHere({}, up));
