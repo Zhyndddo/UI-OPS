@@ -38,6 +38,7 @@ const HTML_TOOLS = [
   { label: "Check-in sự kiện", note: "Quét QR khách mời tại cửa (cần mã cửa)", href: "/checkin" },
   { label: "Khảo sát đào tạo", note: "Form khảo sát trước buổi đào tạo", href: "/training-survey" },
   { label: "Khảo sát team building", note: "Form khảo sát team building", href: "/team-building-survey" },
+  { label: "VCRRM — tính phí nhạc nền (nhiều địa điểm)", note: "Dán nhiều cơ sở từ Excel → phí cấp phép quyền liên quan từng nơi + tổng", href: "/tools/vcrrm-fee" },
   { label: "Thiệp mời (Picture render)", note: "Ghi tên lên thiệp mời, công khai bằng mã truy cập", href: "/picture" },
 ];
 const EQUIPMENT_GUIDES = [
